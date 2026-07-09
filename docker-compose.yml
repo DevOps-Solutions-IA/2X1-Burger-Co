@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Credenciales de desarrollo solamente. En produccion, usar
+    # variables de entorno externas o Docker secrets.
+    environment:
+      POSTGRES_DB: inventory_fastfood_system
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventory_fastfood_system"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  api:
+    image: inventario-api
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Override para Docker: usar nombre de servicio en vez de localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-inventory_fastfood_system}?schema=public
+      # Storage persistente y escribible por el usuario node del contenedor API.
+      WHATSAPP_QR_SESSION_PATH: /app/data/whatsapp-auth/whatsapp-sessions
+    ports:
+      - "4300:3000"
+    volumes:
+      - whatsapp_auth:/app/data/whatsapp-auth
+      # backups montado como solo lectura; el backup script escribe directamente desde el host
+      - ./backups:/app/backups:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    image: inventario-web
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3301:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/generated/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/nginx/acme:/var/www/certbot:ro
+      - ./infra/nginx/certs:/etc/letsencrypt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    profiles:
+      - cloudflare
+    restart: unless-stopped
+    depends_on:
+      nginx:
+        condition: service_started
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:-}
+
+volumes:
+  postgres_data:
+  whatsapp_auth:

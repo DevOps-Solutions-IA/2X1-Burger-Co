@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-07-02T17:13:38.850Z",
+  "dryRun": true,
+  "noSecrets": true,
+  "excluded": [
+    ".env",
+    ".env.*",
+    "storage/whatsapp-sessions",
+    "apps/api/storage/whatsapp-sessions",
+    "raw tokens",
+    "payment secrets"
+  ],
+  "scope": {
+    "promptVersions": 1,
+    "catalogItems": 8,
+    "customerMemoriesSanitized": 0,
+    "conversationMemoriesSanitized": 0,
+    "autoSafeAggregates": [],
+    "feedbackCount": 1,
+    "governanceSettings": 0
+  }
+}

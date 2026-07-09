@@ -1,0 +1,498 @@
+'use client';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarDays, FileDown, History, MessageCircle, PackageSearch, TrendingUp } from 'lucide-react';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { MetricCard } from '@/components/ui/metric-card';
+import { SectionTitle } from '@/components/ui/section-title';
+import { Skeleton } from '@/components/ui/skeleton';
+import { apiFetch, getStoredAccessToken, resolveApiUrl } from '@/lib/api';
+import { formatCurrency, formatDateTime } from '@/lib/format';
+import { useAuth } from '@/features/auth/auth-provider';
+
+type ReportMode = 'CURRENT_SESSION' | 'CUSTOM_RANGE';
+
+export default function ReportsPage() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canManageSupply = Boolean(user?.roles.some((role) => ['admin', 'inventory', 'supervisor'].includes(role)));
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
+  const [reportMode, setReportMode] = useState<ReportMode>('CURRENT_SESSION');
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const isCurrentSession = reportMode === 'CURRENT_SESSION';
+
+  const summary = useQuery({
+    queryKey: isCurrentSession ? ['reports-operational'] : ['reports-range', from, to],
+    queryFn: () =>
+      isCurrentSession
+        ? apiFetch<any>('/reports/operational')
+        : apiFetch<any>(`/reports/range?from=${from}&to=${to}`),
+  });
+  const closures = useQuery({
+    queryKey: ['daily-closures', from, to],
+    queryFn: () => apiFetch<any[]>(`/reports/daily-closures?from=${from}&to=${to}`),
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+  });
+  const supplyAlerts = useQuery({
+    queryKey: ['supply-alerts'],
+    queryFn: () => apiFetch<any>('/reports/supply-alerts'),
+  });
+  const salesByHour = useQuery({
+    queryKey: ['sales-by-hour', from, to],
+    queryFn: () => apiFetch<any[]>(`/reports/sales-by-hour?from=${from}&to=${to}`),
+  });
+  const productMargins = useQuery({
+    queryKey: ['product-margins', from, to],
+    queryFn: () => apiFetch<any[]>(`/reports/product-margins?from=${from}&to=${to}`),
+  });
+  const ingredientRotation = useQuery({
+    queryKey: ['ingredient-rotation', from, to],
+    queryFn: () => apiFetch<any[]>(`/reports/ingredient-rotation?from=${from}&to=${to}`),
+  });
+  const comparisons = useQuery({
+    queryKey: ['report-comparisons', to],
+    queryFn: () => apiFetch<any>(`/reports/comparisons?date=${to}`),
+  });
+  const supplierNotifications = useQuery({
+    queryKey: ['supplier-notifications'],
+    queryFn: () => apiFetch<any[]>('/reports/supplier-notifications'),
+    enabled: canManageSupply,
+  });
+  const openPdf = async (path: string) => {
+    const previewWindow = window.open('', '_blank', 'noopener,noreferrer');
+
+    try {
+      const response = await fetch(`${resolveApiUrl()}${path}`, {
+        headers: { Authorization: `Bearer ${getStoredAccessToken() ?? ''}` },
+      });
+      if (!response.ok) {
+        throw new Error('No pudimos abrir el PDF.');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      if (previewWindow) {
+        previewWindow.location.href = objectUrl;
+        return;
+      }
+
+      window.open(objectUrl, '_blank');
+    } catch (error) {
+      previewWindow?.close();
+      toast.error(error instanceof Error ? error.message : 'No pudimos abrir el PDF.');
+    }
+  };
+
+  const generateSupplierMessage = useMutation({
+    mutationFn: (supplierId: string) =>
+      apiFetch<any>('/reports/supplier-notifications/manual', {
+        method: 'POST',
+        body: JSON.stringify({ supplierId }),
+      }),
+    onSuccess: async (notification) => {
+      toast.success('Mensaje preparado');
+      if (notification.whatsappLink) {
+        window.open(notification.whatsappLink, '_blank');
+      }
+      await queryClient.invalidateQueries({ queryKey: ['supplier-notifications'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No pudimos preparar el mensaje.'),
+  });
+
+  const hourlyTop = useMemo(() => (salesByHour.data ?? []).filter((item) => item.total > 0).slice(0, 8), [salesByHour.data]);
+  const displayClosures = useMemo(() => {
+    if ((closures.data?.length ?? 0) > 0) {
+      return (closures.data ?? []).map((closure) => ({
+        id: closure.id,
+        periodLabel: closure.periodStart.slice(0, 10),
+        createdAt: closure.createdAt,
+        responsibleUser: closure.journey?.responsibleUser || 'Sin responsable',
+        pdfPath: `/reports/daily-closures/${closure.id}/pdf`,
+      }));
+    }
+
+    if (isCurrentSession || (from === to && to === today)) {
+      return [
+        {
+          id: isCurrentSession ? 'operational-live' : `daily-${to}`,
+          periodLabel: isCurrentSession ? 'Jornada actual' : to,
+          createdAt: summary.data?.journey?.closedAt ?? new Date().toISOString(),
+          responsibleUser: summary.data?.journey?.responsibleUser || 'Sin responsable',
+          pdfPath: isCurrentSession ? '/reports/operational/pdf' : `/reports/daily/${to}/pdf`,
+        },
+      ];
+    }
+
+    return [];
+  }, [closures.data, from, isCurrentSession, summary.data?.journey?.closedAt, summary.data?.journey?.responsibleUser, to, today]);
+
+  const activateRangeMode = (next: Partial<{ from: string; to: string }>) => {
+    setReportMode('CUSTOM_RANGE');
+    if (next.from != null) setFrom(next.from);
+    if (next.to != null) setTo(next.to);
+  };
+
+  const pdfPath = isCurrentSession ? '/reports/operational/pdf' : `/reports/daily/${to}/pdf`;
+  const modeLabel = isCurrentSession ? 'Jornada actual' : 'Rango personalizado';
+  const modeDescription = isCurrentSession
+    ? summary.data?.journey?.openedAt
+      ? `Desde apertura de caja: ${formatDateTime(summary.data.journey.openedAt)} hasta ahora.`
+      : 'Desde apertura de caja hasta ahora.'
+    : `Reporte del ${from} al ${to}. Puede no coincidir con la jornada actual.`;
+
+  return (
+    <div className="space-y-6 p-6 lg:p-8">
+      <SectionTitle
+        eyebrow={isCurrentSession ? 'Desde apertura de caja hasta ahora' : from === to ? `Reporte del ${from}` : `Reporte del ${from} al ${to}`}
+        title="Reportes"
+        description={modeDescription}
+        status={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={isCurrentSession ? 'success' : 'info'} data-testid="reports-mode-badge">
+              {modeLabel}
+            </Badge>
+            <Badge tone={summary.data?.journey?.status === 'CERRADA' ? 'success' : 'info'}>{translateJourneyStatus(summary.data?.journey?.status)}</Badge>
+          </div>
+        }
+        actions={
+          user?.permissions.includes('reports.pdf') ? (
+            <Button data-testid="reports-open-pdf" size="sm" onClick={() => openPdf(pdfPath)}>
+              <FileDown className="mr-1.5 h-4 w-4" />Abrir PDF
+            </Button>
+          ) : null
+        }
+      />
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard compact label="Ventas" value={formatCurrency(summary.data?.sales?.total)} hint={`${summary.data?.sales?.count ?? 0} ventas`} icon={<TrendingUp className="h-5 w-5" />} accent="brand" />
+        <MetricCard compact label="Compras" value={formatCurrency(summary.data?.purchases?.total)} hint={`${summary.data?.purchases?.count ?? 0} compras`} icon={<CalendarDays className="h-5 w-5" />} accent="ink" />
+        <MetricCard compact label="Gastos" value={formatCurrency(summary.data?.expenses?.total)} hint={`${summary.data?.expenses?.count ?? 0} gastos`} icon={<TrendingUp className="h-5 w-5" />} accent="danger" />
+        <MetricCard compact label="Utilidad neta" value={formatCurrency(summary.data?.metrics?.netProfit)} hint="Resultado del periodo" icon={<TrendingUp className="h-5 w-5" />} accent="success" />
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-[15px] font-extrabold text-ink">Filtros</h2>
+          <span className="text-[11px] font-medium text-stone-500" data-testid="reports-range-label">
+            {isCurrentSession ? 'Jornada actual' : `${from} → ${to}`}
+          </span>
+        </div>
+        <div className="mt-3 flex rounded-lg bg-stone-100 p-1 w-fit" data-testid="reports-mode-controls">
+          <button
+            type="button"
+            onClick={() => setReportMode('CURRENT_SESSION')}
+            className={`rounded-md px-3 py-1.5 text-[11px] font-bold transition ${isCurrentSession ? 'bg-white text-ink shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+            data-testid="reports-mode-current"
+          >
+            Jornada actual
+          </button>
+          <button
+            type="button"
+            onClick={() => setReportMode('CUSTOM_RANGE')}
+            className={`rounded-md px-3 py-1.5 text-[11px] font-bold transition ${!isCurrentSession ? 'bg-white text-ink shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+            data-testid="reports-mode-range"
+          >
+            Rango personalizado
+          </button>
+        </div>
+        <p className="mt-3 text-[12px] leading-5 text-stone-500" data-testid="reports-mode-description">
+          {modeDescription}
+        </p>
+        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <Field label="Desde">
+            <Input
+              type="date"
+              value={from}
+              onChange={(event) => activateRangeMode({ from: event.target.value })}
+              data-testid="reports-date-from"
+            />
+          </Field>
+          <Field label="Hasta">
+            <Input
+              type="date"
+              value={to}
+              onChange={(event) => activateRangeMode({ to: event.target.value })}
+              data-testid="reports-date-to"
+            />
+          </Field>
+          <div className="flex items-end">
+            <div className="inline-flex items-center gap-2 rounded-xl bg-stone-50 px-3 py-2.5 text-[12px] font-medium text-stone-600">
+              <CalendarDays className="h-4 w-4" />
+              {isCurrentSession ? 'Jornada viva' : `${from} a ${to}`}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-[15px] font-extrabold text-ink">Resumen del cierre actual</h2>
+              <p className="mt-0.5 text-[12px] text-stone-500">Caja, metodos, canales y costos.</p>
+            </div>
+          </div>
+
+          {/* Caja fisica — MIRROR CASH STYLE */}
+          <div className="rounded-[1.45rem] border border-amber-200 bg-amber-50 p-5 mb-4">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">Caja fisica esperada</p>
+                <p className="mt-2 text-[2rem] font-black leading-none tracking-tight text-ink tabular-nums">
+                  {formatCurrency(summary.data?.cash?.expectedAmount)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Real</p>
+                <p className="mt-1 text-[1.2rem] font-extrabold text-ink tabular-nums">{formatCurrency(summary.data?.cash?.actualAmount)}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-amber-200/60">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Diferencia</p>
+                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.cash?.difference ?? 0) === 0 ? 'text-emerald-600' : Number(summary.data?.cash?.difference ?? 0) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(summary.data?.cash?.difference)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Costo ventas</p>
+                <p className="mt-1 text-[1.1rem] font-extrabold text-ink tabular-nums">{formatCurrency(summary.data?.metrics?.costOfSales)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Margen bruto</p>
+                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.metrics?.grossProfit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(summary.data?.metrics?.grossProfit)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Ventas por metodo + Canal — MIRROR CASH STYLE */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Metodo de pago</p>
+              <div className="space-y-1.5">
+              {(summary.data?.sales?.byPaymentMethod ?? []).map((item: any) => {
+                const isCash = /efectivo|cash/i.test(item.paymentMethod);
+                return (
+                <div key={item.paymentMethod} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${isCash ? 'bg-brand-400' : 'bg-stone-300'}`} />
+                    <span className="text-[12px] font-bold text-stone-700">{item.paymentMethod}</span>
+                  </div>
+                  <span className="text-[14px] font-extrabold text-ink tabular-nums">{formatCurrency(item.total)}</span>
+                </div>
+                );
+              })}
+              </div>
+            </div>
+            <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Canal</p>
+              <div className="space-y-1.5">
+              {(summary.data?.sales?.byChannel ?? []).map((item: any) => (
+                <div key={item.label} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2">
+                  <div>
+                    <span className="text-[12px] font-bold text-stone-700">{item.label}</span>
+                    <span className="ml-2 text-[10px] text-stone-400">{item.count} pedidos</span>
+                  </div>
+                  <span className="text-[14px] font-extrabold text-ink tabular-nums">{formatCurrency(item.total)}</span>
+                </div>
+              ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-stone-100 p-2.5 text-stone-600">
+              <PackageSearch className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-extrabold text-ink">Abastecimiento recomendado</h2>
+              <p className="mt-0.5 text-[12px] text-stone-500">Insumos con proveedor y contacto rapido.</p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-2">
+            {supplyAlerts.isLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />) : null}
+            {(supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group: any) => (
+              <div key={group.supplierId ?? group.supplierName} className="rounded-xl border border-stone-200 bg-white p-3">
+                <div className="space-y-1.5">
+                  {group.items.slice(0, 3).map((item: any) => (
+                    <div key={item.ingredientId} className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-extrabold text-ink truncate">{item.ingredientName}</p>
+                        <p className="text-[10px] text-stone-400 truncate">{group.supplierName} {group.supplierPhone ? `· ${group.supplierPhone}` : '· sin telefono'}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[12px] font-bold text-ink tabular-nums">{item.suggestedReorderLabel}</span>
+                        {canManageSupply && group.supplierId ? (
+                          <button type="button" className="text-stone-400 hover:text-emerald-600 transition" onClick={() => generateSupplierMessage.mutate(group.supplierId)}>
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card>
+          <h2 className="text-[15px] font-extrabold text-ink">Ventas por franja horaria</h2>
+          <div className="mt-4 space-y-2.5">
+            {hourlyTop.length ? hourlyTop.map((item: any) => (
+              <div key={item.hour} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
+                <div>
+                  <p className="font-medium text-ink">{item.label}</p>
+                  <p className="text-[12px] text-stone-500">{item.count} ventas</p>
+                </div>
+                <p className="font-semibold text-ink">{formatCurrency(item.total)}</p>
+              </div>
+            )) : <EmptyState title="Sin ventas en el rango" description="No hay datos para construir la franja horaria." />}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-[15px] font-extrabold text-ink">Margen por producto</h2>
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
+            {(productMargins.data ?? []).map((item: any) => (
+              <div key={item.productId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-ink">{item.name}</p>
+                  <p className="font-semibold text-ink">{formatCurrency(item.margin)}</p>
+                </div>
+                <p className="mt-0.5 text-[11px] text-stone-500">
+                  Ingreso {formatCurrency(item.revenue)} · costo {formatCurrency(item.cost)} · {item.quantity} uds
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-[15px] font-extrabold text-ink">Rotación de insumos</h2>
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
+            {(ingredientRotation.data ?? []).map((item: any) => (
+              <div key={item.ingredientId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-ink">{item.name}</p>
+                  <p className="font-semibold text-ink">{item.outbound.toFixed(2)} {item.unit}</p>
+                </div>
+                <p className="mt-0.5 text-[11px] text-stone-500">
+                  Cobertura no disponible · stock {item.currentStock}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <h2 className="text-[15px] font-extrabold text-ink">Comparativo diario / semanal / mensual</h2>
+          <div className="mt-4 grid gap-3">
+            <ComparisonCard title="Diario" data={comparisons.data?.day} loading={comparisons.isLoading} />
+            <ComparisonCard title="Semanal" data={comparisons.data?.week} loading={comparisons.isLoading} />
+            <ComparisonCard title="Mensual" data={comparisons.data?.month} loading={comparisons.isLoading} />
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-stone-100 p-2.5 text-stone-600">
+              <History className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-extrabold text-ink">Histórico de cierres</h2>
+              <p className="mt-0.5 text-[12px] text-stone-500">Consulta y reimprime cierres guardados.</p>
+            </div>
+          </div>
+          <div className="hide-scrollbar list-scroll-5-cards mt-5 space-y-3 pr-1">
+            {closures.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-[1.5rem]" />) : null}
+            {displayClosures.map((closure) => (
+              <div key={closure.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-ink">{closure.periodLabel}</p>
+                    <p className="mt-0.5 text-[11px] text-stone-500">{formatDateTime(closure.createdAt)} · {closure.responsibleUser}</p>
+                  </div>
+                  <Button variant="secondary" onClick={() => openPdf(closure.pdfPath)}>
+                    Reimprimir
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {canManageSupply && supplierNotifications.data?.length ? (
+        <Card>
+          <h2 className="text-[15px] font-extrabold text-ink">Histórico de notificaciones a proveedor</h2>
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 grid gap-3 pr-1 md:grid-cols-2">
+            {supplierNotifications.data.map((notification) => (
+              <div key={notification.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
+                <p className="font-medium text-ink">{notification.supplier?.name ?? 'Proveedor'}</p>
+                <p className="mt-0.5 text-[11px] text-stone-500">{notification.status} · {formatDateTime(notification.createdAt)}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+    </div>
+  );
+}
+
+
+
+function ComparisonCard({ title, data, loading }: { title: string; data: any; loading: boolean }) {
+  if (loading) {
+    return <Skeleton className="h-28 rounded-[1.5rem]" />;
+  }
+
+  if (!data) {
+    return <EmptyState title={`Sin comparativo ${title.toLowerCase()}`} description="No hay datos suficientes para calcular este bloque." />;
+  }
+
+  return (
+    <div className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
+      <p className="font-semibold text-ink">{title}</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl bg-white px-3 py-3">
+          <p className="text-[12px] text-stone-500">{data.currentLabel}</p>
+          <p className="mt-1 font-semibold text-ink">{formatCurrency(data.current.salesTotal)}</p>
+          <p className="text-[12px] text-stone-500">{data.current.salesCount} ventas</p>
+        </div>
+        <div className="rounded-2xl bg-white px-3 py-3">
+          <p className="text-[12px] text-stone-500">{data.previousLabel}</p>
+          <p className="mt-1 font-semibold text-ink">{formatCurrency(data.previous.salesTotal)}</p>
+          <p className="text-[12px] text-stone-500">{data.previous.salesCount} ventas</p>
+        </div>
+      </div>
+      <p className="mt-3 flex items-center gap-3 text-[12px]">
+        <span className={Number(data.deltas.salesTotal) >= 0 ? 'text-emerald-600' : 'text-red-600'}>Ventas: {Number(data.deltas.salesTotal) >= 0 ? '+' : ''}{formatCurrency(data.deltas.salesTotal)}</span>
+        <span className="text-stone-300">·</span>
+        <span className={Number(data.deltas.expensesTotal) <= 0 ? 'text-emerald-600' : 'text-red-600'}>Gastos: {Number(data.deltas.expensesTotal) > 0 ? '+' : ''}{formatCurrency(data.deltas.expensesTotal)}</span>
+      </p>
+    </div>
+  );
+}
+
+function translateJourneyStatus(status?: string) {
+  const labels: Record<string, string> = {
+    ABIERTA: 'Jornada abierta',
+    CERRADA: 'Jornada cerrada',
+    PENDIENTE_APERTURA: 'Pendiente de apertura',
+  };
+  return labels[status ?? 'PENDIENTE_APERTURA'] ?? status ?? 'Jornada';
+}

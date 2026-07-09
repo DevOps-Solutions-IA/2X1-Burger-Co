@@ -1,0 +1,55 @@
+node_modules
+.next
+dist
+.turbo
+.pnpm-store
+coverage
+.env
+.env.*
+*.env
+*.env.*
+.env.local
+.env.*.local
+*.env.production*
+**/.env.production*
+!.env.example
+!*.env.example
+*.bak
+*.backup
+*.old
+*.dump
+*.sql
+*.sqlite
+*.db
+storage/whatsapp-sessions/
+apps/api/storage/whatsapp-sessions/
+whatsapp-auth/
+**/whatsapp-auth/
+**/whatsapp-sessions/
+**/creds.json
+**/session-*.json
+*.quarantine
+infra/environments/*/secrets/
+infra/environments/staging/selfhosted-data/private-quarantine/
+infra/environments/staging/selfhosted-data/backups/sofia-sanitized/
+apps/api/prisma/dev.db
+apps/web/tsconfig.tsbuildinfo
+*.log
+
+# Ralph local runtime
+.ralph/.tmp/
+.ralph/runs/
+
+# Playwright artifacts
+playwright-report/
+
+# Local screenshots and captures
+screenshots/
+capturas/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+test-results/

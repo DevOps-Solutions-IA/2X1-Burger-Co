@@ -1,0 +1,1618 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductKind {
+  PREPARED
+  DIRECT_STOCK
+}
+
+enum ProductBrand {
+  HOUSE
+  COCA_COLA
+  POSTOBON
+  HIT
+  OTHER
+}
+
+enum PurchaseStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+enum SaleStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum SaleChannel {
+  MOSTRADOR
+  PARA_LLEVAR
+  MESA
+  DOMICILIO
+}
+
+enum DiningTableStatus {
+  FREE
+  OCCUPIED
+  RESERVED
+  PAYMENT_PENDING
+  OUT_OF_SERVICE
+}
+
+enum OrderTicketStatus {
+  OPEN
+  IN_PREPARATION
+  SERVED
+  PAYMENT_PENDING
+  PAID
+  CANCELLED
+}
+
+enum OrderTicketType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+  COUNTER
+}
+
+enum DeliveryWorkflowStatus {
+  PENDING_ASSIGNMENT
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+  ISSUE
+}
+
+enum DeliveryLocationInboxStatus {
+  PENDING
+  APPLIED
+  REQUIRES_REVIEW
+  IGNORED
+}
+
+enum OperationalAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum OperationalAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum DeliveryIssueType {
+  CUSTOMER_UNREACHABLE
+  INCOMPLETE_ADDRESS
+  LOCATION_MISMATCH
+  PAYMENT_PENDING
+  DELIVERY_REJECTED
+  ROUTE_INCIDENT
+  OTHER
+}
+
+enum DeliveryIssueStatus {
+  OPEN
+  RESOLVED
+}
+
+enum InventoryMovementType {
+  INITIAL
+  PURCHASE
+  SALE
+  ADJUSTMENT
+  WASTE
+  DAMAGE
+  RETURN
+  INTERNAL_USE
+}
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum StockCountStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum StockCountScope {
+  CRITICAL
+  ALL
+  PRODUCTS
+  INGREDIENTS
+}
+
+enum CashMovementType {
+  OPENING
+  SALE
+  EXPENSE
+  OTHER_INCOME
+  OTHER_EXPENSE
+  ADJUSTMENT
+  CLOSING
+}
+
+enum WhatsappConversationStatus {
+  ACTIVE
+  HUMAN_REQUIRED
+  HUMAN_TAKEN
+  SOFIA_PAUSED
+  RESOLVED
+  ARCHIVED
+}
+
+enum WhatsappMessageDirection {
+  INBOUND
+  OUTBOUND
+  SYSTEM
+}
+
+enum WhatsappMessageType {
+  TEXT
+  AUDIO
+  IMAGE
+  DOCUMENT
+  BUTTON
+  INTERACTIVE
+  SYSTEM
+}
+
+enum SofiaOrderDraftStatus {
+  DRAFT
+  NEEDS_INFO
+  READY_TO_CONFIRM
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum WhatsappDeliveryOrderStatus {
+  CONFIRMED
+  SENT_TO_KITCHEN
+  IN_PREPARATION
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum WhatsappPaymentStatus {
+  UNSELECTED
+  CASH_ON_DELIVERY
+  PENDING_MANUAL_VERIFICATION
+  PENDING_ONLINE_PAYMENT
+  MANUAL_REVIEW
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum SofiaOrderSource {
+  WHATSAPP
+  SOFIA
+  WHATSAPP_SOFIA
+  MOCK_ADMIN
+}
+
+enum SofiaPromptStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SofiaCatalogItemType {
+  OFFER
+  PRODUCT
+  ADDITION
+  BEVERAGE
+}
+
+enum SofiaCatalogItemStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SofiaCatalogPriceSource {
+  PRODUCT
+  MANUAL
+  NONE
+}
+
+enum SofiaMemoryConsentState {
+  UNKNOWN
+  IMPLIED_BY_CONVERSATION
+  OPTED_OUT
+}
+
+model User {
+  id                                 String                       @id @default(cuid())
+  email                              String                       @unique
+  passwordHash                       String
+  fullName                           String
+  accessName                         String?                      @unique @map("access_name")
+  accessCodeHash                     String?                      @map("access_code_hash")
+  sessionVersion                     Int                          @default(0) @map("session_version")
+  isActive                           Boolean                      @default(true)
+  lastLoginAt                        DateTime?
+  createdAt                          DateTime                     @default(now())
+  updatedAt                          DateTime                     @updatedAt
+  roles                              UserRole[]
+  assignedRoles                      UserRole[]                   @relation("UserRoleAssignedBy")
+  refreshTokens                      RefreshToken[]
+  purchases                          Purchase[]
+  sales                              Sale[]
+  orderTickets                       OrderTicket[]
+  assignedOrderTickets               OrderTicket[]                @relation("OrderTicketAssignedWaiter")
+  assignedDeliveryTickets            OrderTicket[]                @relation("OrderTicketAssignedRider")
+  verifiedSofiaPayments              WhatsappDeliveryOrder[]      @relation("SofiaPaymentVerifiedBy")
+  sofiaPaymentEvents                 SofiaPaymentEvent[]          @relation("SofiaPaymentEventActor")
+  waiterTableGroupAssignments        WaiterTableGroupAssignment[] @relation("WaiterTableGroupAssignmentWaiter")
+  createdWaiterTableGroupAssignments WaiterTableGroupAssignment[] @relation("WaiterTableGroupAssignmentAssignedBy")
+  waiterTableAssignments             WaiterTableAssignment[]      @relation("WaiterTableAssignmentWaiter")
+  createdWaiterTableAssignments      WaiterTableAssignment[]      @relation("WaiterTableAssignmentAssignedBy")
+  openedSessions                     CashSession[]                @relation("CashSessionOpenedBy")
+  closedSessions                     CashSession[]                @relation("CashSessionClosedBy")
+  reopenedSessions                   CashSession[]                @relation("CashSessionReopenedBy")
+  inventoryMoves                     InventoryMovement[]          @relation("InventoryMovementPerformedBy")
+  cashMovements                      CashMovement[]               @relation("CashMovementCreatedBy")
+  expenses                           Expense[]
+  reports                            ReportSnapshot[]
+  auditLogs                          AuditLog[]
+  supplierNotifications              SupplierNotification[]       @relation("SupplierNotificationCreatedBy")
+  stockCounts                        StockCountSession[]          @relation("StockCountCreatedBy")
+  approvedStockCounts                StockCountSession[]          @relation("StockCountApprovedBy")
+  saleConversions                    SaleConversion[]
+  waiterSyncReceipts                 WaiterOrderSyncReceipt[]
+  createdOperationalAlerts           OperationalAlert[]           @relation("OperationalAlertActor")
+  resolvedOperationalAlerts          OperationalAlert[]           @relation("OperationalAlertResolvedBy")
+  reportedDeliveryIssues             DeliveryIssue[]              @relation("DeliveryIssueReportedBy")
+  resolvedDeliveryIssues             DeliveryIssue[]              @relation("DeliveryIssueResolvedBy")
+  assignedWhatsappConversations       WhatsappConversation[]       @relation("WhatsappConversationAssignedTo")
+  approvedWhatsappOutboundMessages    WhatsappOutboundMessage[]    @relation("WhatsappOutboundApprovedBy")
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id           String   @id @default(cuid())
+  userId       String
+  roleId       String
+  assignedById String?
+  assignedAt   DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy   User?    @relation("UserRoleAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  assignedAt   DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Unit {
+  id           String       @id @default(cuid())
+  name         String
+  code         String       @unique
+  abbreviation String       @unique
+  description  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  products     Product[]
+  ingredients  Ingredient[]
+
+  @@map("units")
+}
+
+model Supplier {
+  id            String                 @id @default(cuid())
+  name          String
+  taxId         String?                @unique
+  contactName   String?
+  phone         String?
+  email         String?
+  address       String?
+  isActive      Boolean                @default(true)
+  notes         String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  purchases     Purchase[]
+  notifications SupplierNotification[]
+
+  @@index([name])
+  @@map("suppliers")
+}
+
+model Product {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  name          String
+  description   String?
+  imageUrl      String?
+  categoryId    String
+  unitId        String
+  kind          ProductKind
+  brand         ProductBrand        @default(HOUSE)
+  salePrice     Decimal             @db.Decimal(10, 2)
+  costPrice     Decimal?            @db.Decimal(10, 2)
+  trackStock    Boolean             @default(true)
+  currentStock  Decimal             @default(0) @db.Decimal(10, 3)
+  stockMin      Decimal?            @db.Decimal(10, 3)
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  category      Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit          Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  recipes       Recipe[]
+  purchaseItems PurchaseItem[]
+  saleItems     SaleItem[]
+  orderItems    OrderTicketItem[]
+  movements     InventoryMovement[]
+  stockCounts   StockCountItem[]
+
+  @@index([currentStock])
+  @@index([categoryId])
+  @@index([brand])
+  @@index([kind])
+  @@index([isActive])
+  @@map("products")
+}
+
+model Ingredient {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  name          String
+  description   String?
+  unitId        String
+  costPrice     Decimal?            @db.Decimal(10, 2)
+  stockMin      Decimal?            @db.Decimal(10, 3)
+  stockMax      Decimal?            @db.Decimal(10, 3)
+  currentStock  Decimal             @default(0) @db.Decimal(10, 3)
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  unit          Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  purchaseItems PurchaseItem[]
+  recipeItems   RecipeItem[]
+  movements     InventoryMovement[]
+  stockCounts   StockCountItem[]
+
+  @@index([isActive])
+  @@map("ingredients")
+}
+
+model Recipe {
+  id            String       @id @default(cuid())
+  productId     String       @unique
+  name          String?
+  yieldQuantity Decimal      @default(1) @db.Decimal(10, 3)
+  instructions  String?
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  product       Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  items         RecipeItem[]
+
+  @@map("recipes")
+}
+
+model RecipeItem {
+  id           String     @id @default(cuid())
+  recipeId     String
+  ingredientId String
+  quantity     Decimal    @db.Decimal(10, 3)
+  wastePercent Decimal    @default(0) @db.Decimal(5, 2)
+  notes        String?
+  createdAt    DateTime   @default(now())
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([recipeId, ingredientId])
+  @@index([ingredientId])
+  @@map("recipe_items")
+}
+
+model Purchase {
+  id              String         @id @default(cuid())
+  number          String         @unique
+  supplierId      String
+  paymentMethodId String?
+  cashSessionId   String?
+  status          PurchaseStatus @default(RECEIVED)
+  invoiceNumber   String?
+  subtotal        Decimal        @default(0) @db.Decimal(12, 2)
+  tax             Decimal        @default(0) @db.Decimal(12, 2)
+  discount        Decimal        @default(0) @db.Decimal(12, 2)
+  total           Decimal        @default(0) @db.Decimal(12, 2)
+  notes           String?
+  purchasedAt     DateTime       @default(now())
+  receivedAt      DateTime?
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  cashSession     CashSession?   @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  createdBy       User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  items           PurchaseItem[]
+
+  @@index([supplierId])
+  @@index([paymentMethodId])
+  @@index([cashSessionId])
+  @@index([purchasedAt])
+  @@index([status])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id           String      @id @default(cuid())
+  purchaseId   String
+  ingredientId String?
+  productId    String?
+  quantity     Decimal     @db.Decimal(10, 3)
+  unitCost     Decimal     @db.Decimal(10, 2)
+  totalCost    Decimal     @db.Decimal(12, 2)
+  expirationAt DateTime?
+  lotNumber    String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  purchase     Purchase    @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  product      Product?    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([ingredientId])
+  @@index([productId])
+  @@map("purchase_items")
+}
+
+model InventoryMovement {
+  id            String                @id @default(cuid())
+  ingredientId  String?
+  productId     String?
+  type          InventoryMovementType
+  quantity      Decimal               @db.Decimal(10, 3)
+  unitCost      Decimal?              @db.Decimal(10, 2)
+  balanceAfter  Decimal?              @db.Decimal(10, 3)
+  referenceType String?
+  referenceId   String?
+  notes         String?
+  performedById String?
+  occurredAt    DateTime              @default(now())
+  createdAt     DateTime              @default(now())
+  ingredient    Ingredient?           @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  product       Product?              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  performedBy   User?                 @relation("InventoryMovementPerformedBy", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([ingredientId])
+  @@index([productId])
+  @@index([occurredAt])
+  @@map("inventory_movements")
+}
+
+model Sale {
+  id                         String          @id @default(cuid())
+  number                     String          @unique
+  status                     SaleStatus      @default(PAID)
+  channel                    SaleChannel     @default(MOSTRADOR)
+  tableLabel                 String?
+  deliveryReference          String?
+  customerPhone              String?
+  deliveryFee                Decimal         @default(0) @db.Decimal(12, 2)
+  deliveryFeeSuggested       Decimal?        @map("delivery_fee_suggested") @db.Decimal(12, 2)
+  deliveryFeeEdited          Boolean         @default(false) @map("delivery_fee_edited")
+  deliveryFeeEditReason      String?         @map("delivery_fee_edit_reason")
+  deliveryDistanceKm         Decimal?        @db.Decimal(8, 3)
+  deliveryZoneLabel          String?
+  deliveryPricingBreakdown   Json?           @map("delivery_pricing_breakdown")
+  deliveryCalculationVersion String?         @map("delivery_calculation_version")
+  customerName               String?
+  subtotal                   Decimal         @default(0) @db.Decimal(12, 2)
+  tax                        Decimal         @default(0) @db.Decimal(12, 2)
+  discount                   Decimal         @default(0) @db.Decimal(12, 2)
+  total                      Decimal         @default(0) @db.Decimal(12, 2)
+  notes                      String?
+  soldAt                     DateTime        @default(now())
+  createdById                String
+  cashSessionId              String?
+  orderTicketId              String?         @unique
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+  createdBy                  User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  cashSession                CashSession?    @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  orderTicket                OrderTicket?    @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
+  items                      SaleItem[]
+  payments                   SalePayment[]
+  conversion                 SaleConversion?
+
+  @@index([soldAt])
+  @@index([channel])
+  @@index([cashSessionId])
+  @@index([orderTicketId])
+  @@index([createdById])
+  @@map("sales")
+}
+
+model SaleConversion {
+  id            String      @id @default(cuid())
+  saleId        String      @unique
+  orderTicketId String      @unique
+  reason        String
+  convertedById String
+  convertedAt   DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  sale          Sale        @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  orderTicket   OrderTicket @relation(fields: [orderTicketId], references: [id], onDelete: Restrict)
+  convertedBy   User        @relation(fields: [convertedById], references: [id], onDelete: Restrict)
+
+  @@index([convertedAt])
+  @@index([convertedById])
+  @@map("sale_conversions")
+}
+
+model SaleItem {
+  id            String   @id @default(cuid())
+  saleId        String
+  productId     String
+  quantity      Decimal  @db.Decimal(10, 3)
+  unitPrice     Decimal  @db.Decimal(10, 2)
+  totalPrice    Decimal  @db.Decimal(12, 2)
+  estimatedCost Decimal? @db.Decimal(12, 2)
+  notes         String?
+  createdAt     DateTime @default(now())
+  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([productId])
+  @@map("sale_items")
+}
+
+model SalePayment {
+  id              String        @id @default(cuid())
+  saleId          String
+  paymentMethodId String
+  amount          Decimal       @db.Decimal(12, 2)
+  receivedAmount  Decimal?      @map("received_amount") @db.Decimal(12, 2)
+  changeAmount    Decimal?      @map("change_amount") @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+
+  @@index([paymentMethodId])
+  @@map("sale_payments")
+}
+
+model PaymentMethod {
+  id        String         @id @default(cuid())
+  name      String
+  code      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  sales     SalePayment[]
+  expenses  Expense[]
+  movements CashMovement[]
+  purchases Purchase[]
+
+  @@map("payment_methods")
+}
+
+model CashSession {
+  id                    String            @id @default(cuid())
+  status                CashSessionStatus @default(OPEN)
+  openedById            String
+  closedById            String?
+  openingAmount         Decimal           @db.Decimal(12, 2)
+  closingAmount         Decimal?          @db.Decimal(12, 2)
+  expectedAmount        Decimal?          @db.Decimal(12, 2)
+  difference            Decimal?          @db.Decimal(12, 2)
+  notes                 String?
+  openedAt              DateTime          @default(now())
+  closedAt              DateTime?
+  reopenedAt            DateTime?
+  reopenReason          String?           @map("reopen_reason")
+  reopenedFromSessionId String?           @map("reopened_from_session_id")
+  reopenedById          String?           @map("reopened_by_id")
+  openingBreakdown      Json?             @map("opening_breakdown")
+  closingBreakdown      Json?             @map("closing_breakdown")
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  openedBy              User              @relation("CashSessionOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  closedBy              User?             @relation("CashSessionClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  reopenedBy            User?             @relation("CashSessionReopenedBy", fields: [reopenedById], references: [id], onDelete: SetNull)
+  reopenedFromSession   CashSession?      @relation("CashSessionReopenChain", fields: [reopenedFromSessionId], references: [id], onDelete: SetNull)
+  reopenedSessions      CashSession[]     @relation("CashSessionReopenChain")
+  sales                 Sale[]
+  orderTickets          OrderTicket[]
+  movements             CashMovement[]
+  expenses              Expense[]
+  purchases             Purchase[]
+
+  @@index([status])
+  @@index([openedAt])
+  @@map("cash_sessions")
+}
+
+model DiningTable {
+  id                String                  @id @default(cuid())
+  label             String                  @unique
+  area              String?
+  groupId           String?                 @map("group_id")
+  capacity          Int                     @default(2)
+  status            DiningTableStatus       @default(FREE)
+  isActive          Boolean                 @default(true)
+  notes             String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  group             TableGroup?             @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  orderTickets      OrderTicket[]
+  waiterAssignments WaiterTableAssignment[]
+
+  @@index([groupId])
+  @@index([status, isActive])
+  @@map("dining_tables")
+}
+
+model TableGroup {
+  id          String                       @id @default(cuid())
+  name        String                       @unique
+  description String?
+  area        String?
+  color       String?
+  isActive    Boolean                      @default(true) @map("is_active")
+  createdAt   DateTime                     @default(now()) @map("created_at")
+  updatedAt   DateTime                     @updatedAt @map("updated_at")
+  tables      DiningTable[]
+  assignments WaiterTableGroupAssignment[]
+
+  @@index([isActive])
+  @@map("table_groups")
+}
+
+model WaiterTableGroupAssignment {
+  id           String     @id @default(cuid())
+  waiterId     String     @map("waiter_id")
+  tableGroupId String     @map("table_group_id")
+  isActive     Boolean    @default(true) @map("is_active")
+  assignedAt   DateTime   @default(now()) @map("assigned_at")
+  assignedById String?    @map("assigned_by_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  waiter       User       @relation("WaiterTableGroupAssignmentWaiter", fields: [waiterId], references: [id], onDelete: Cascade)
+  tableGroup   TableGroup @relation(fields: [tableGroupId], references: [id], onDelete: Cascade)
+  assignedBy   User?      @relation("WaiterTableGroupAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([waiterId, tableGroupId, isActive])
+  @@index([tableGroupId, isActive])
+  @@index([waiterId, isActive])
+  @@map("waiter_table_group_assignments")
+}
+
+model WaiterTableAssignment {
+  id           String      @id @default(cuid())
+  waiterId     String      @map("waiter_id")
+  tableId      String      @map("table_id")
+  isActive     Boolean     @default(true) @map("is_active")
+  assignedAt   DateTime    @default(now()) @map("assigned_at")
+  assignedById String?     @map("assigned_by_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  waiter       User        @relation("WaiterTableAssignmentWaiter", fields: [waiterId], references: [id], onDelete: Cascade)
+  table        DiningTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  assignedBy   User?       @relation("WaiterTableAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([waiterId, tableId, isActive])
+  @@index([tableId, isActive])
+  @@index([waiterId, isActive])
+  @@map("waiter_table_assignments")
+}
+
+model OrderTicket {
+  id                           String                   @id @default(cuid())
+  number                       String                   @unique
+  status                       OrderTicketStatus        @default(OPEN)
+  type                         OrderTicketType          @default(COUNTER)
+  revision                     Int                      @default(0)
+  deliveryCustomerId           String?                  @map("delivery_customer_id")
+  customerName                 String?
+  customerPhone                String?
+  deliveryReference            String?
+  deliveryAddressNormalized    String?                  @map("delivery_address_normalized")
+  deliveryLatitude             Decimal?                 @map("delivery_latitude") @db.Decimal(10, 7)
+  deliveryLongitude            Decimal?                 @map("delivery_longitude") @db.Decimal(10, 7)
+  deliveryDistanceKm           Decimal?                 @map("delivery_distance_km") @db.Decimal(8, 3)
+  deliveryZoneLabel            String?                  @map("delivery_zone_label")
+  deliveryFee                  Decimal                  @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  deliveryFeeSuggested         Decimal?                 @map("delivery_fee_suggested") @db.Decimal(12, 2)
+  deliveryFeeEdited            Boolean                  @default(false) @map("delivery_fee_edited")
+  deliveryFeeEditReason        String?                  @map("delivery_fee_edit_reason")
+  deliveryPricingStatus        String?                  @map("delivery_pricing_status")
+  deliveryPricingConfidence    String?                  @map("delivery_pricing_confidence")
+  deliveryPricingBreakdown     Json?                    @map("delivery_pricing_breakdown")
+  deliveryCalculationVersion   String?                  @map("delivery_calculation_version")
+  deliveryRequiresManualQuote  Boolean                  @default(false) @map("delivery_requires_manual_quote")
+  deliveryRouteProvider        String?                  @map("delivery_route_provider")
+  deliveryWeatherProvider      String?                  @map("delivery_weather_provider")
+  deliveryGeocodingProvider    String?                  @map("delivery_geocoding_provider")
+  deliveryEstimatedMinutes     Decimal?                 @map("delivery_estimated_minutes") @db.Decimal(8, 2)
+  deliveryLocationSource       String?                  @map("delivery_location_source")
+  deliveryLocationReceivedAt   DateTime?                @map("delivery_location_received_at")
+  deliveryWorkflowStatus       DeliveryWorkflowStatus?  @map("delivery_workflow_status")
+  deliveryStatusUpdatedAt      DateTime?                @map("delivery_status_updated_at")
+  tableId                      String?
+  cashSessionId                String
+  createdById                  String
+  assignedWaiterId             String?                  @map("assigned_waiter_id")
+  waiterNameSnapshot           String?                  @map("waiter_name_snapshot")
+  waiterAccessNameSnapshot     String?                  @map("waiter_access_name_snapshot")
+  assignedAt                   DateTime?                @map("assigned_at")
+  assignedRiderId              String?                  @map("assigned_rider_id")
+  assignedRiderAt              DateTime?                @map("assigned_rider_at")
+  deliveryDispatchedAt         DateTime?                @map("delivery_dispatched_at")
+  deliveryDeliveredAt          DateTime?                @map("delivery_delivered_at")
+  deliveryIssueAt              DateTime?                @map("delivery_issue_at")
+  notes                        String?
+  subtotal                     Decimal                  @default(0) @db.Decimal(12, 2)
+  openedAt                     DateTime                 @default(now())
+  servedAt                     DateTime?
+  paidAt                       DateTime?
+  cancelledAt                  DateTime?
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+  table                        DiningTable?             @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  cashSession                  CashSession              @relation(fields: [cashSessionId], references: [id], onDelete: Restrict)
+  createdBy                    User                     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  assignedWaiter               User?                    @relation("OrderTicketAssignedWaiter", fields: [assignedWaiterId], references: [id], onDelete: SetNull)
+  assignedRider                User?                    @relation("OrderTicketAssignedRider", fields: [assignedRiderId], references: [id], onDelete: SetNull)
+  deliveryCustomer             DeliveryCustomer?        @relation(fields: [deliveryCustomerId], references: [id], onDelete: SetNull)
+  sale                         Sale?
+  conversion                   SaleConversion?
+  items                        OrderTicketItem[]
+  syncReceipts                 WaiterOrderSyncReceipt[]
+  deliveryLocationInboxEntries DeliveryLocationInbox[]
+  deliveryIssues               DeliveryIssue[]
+  whatsappDeliveryOrder        WhatsappDeliveryOrder?
+
+  @@index([status, openedAt])
+  @@index([tableId, status])
+  @@index([cashSessionId, status])
+  @@index([assignedWaiterId, status])
+  @@index([assignedRiderId, deliveryWorkflowStatus])
+  @@index([deliveryCustomerId])
+  @@index([type, deliveryWorkflowStatus, status])
+  @@map("order_tickets")
+}
+
+model DeliveryCustomer {
+  id                       String                  @id @default(cuid())
+  fullName                 String?
+  phone                    String                  @unique
+  phoneNormalized          String?                 @map("phone_normalized")
+  fullNameNormalized       String?                 @map("full_name_normalized")
+  defaultAddressNormalized String?                 @map("default_address_normalized")
+  defaultAddress           String?                 @map("default_address")
+  defaultReference         String?                 @map("default_reference")
+  lastLatitude             Decimal?                @map("last_latitude") @db.Decimal(10, 7)
+  lastLongitude            Decimal?                @map("last_longitude") @db.Decimal(10, 7)
+  lastZoneLabel            String?                 @map("last_zone_label")
+  lastDistanceKm           Decimal?                @map("last_distance_km") @db.Decimal(8, 3)
+  lastLocationAt           DateTime?               @map("last_location_at")
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  orderTickets             OrderTicket[]
+  locationInboxEntries     DeliveryLocationInbox[]
+
+  @@index([fullName])
+  @@index([phoneNormalized])
+  @@map("delivery_customers")
+}
+
+model WhatsappConversation {
+  id                       String                     @id @default(cuid())
+  phone                    String
+  customerName             String?                    @map("customer_name")
+  status                   WhatsappConversationStatus @default(ACTIVE)
+  source                   SofiaOrderSource           @default(WHATSAPP)
+  provider                 String                     @default("mock")
+  providerConversationId   String?                    @map("provider_conversation_id")
+  mode                     String                     @default("disabled")
+  sofiaEnabled             Boolean                    @default(true) @map("sofia_enabled")
+  humanStatus              String                     @default("SOFIA_ACTIVE") @map("human_status")
+  assignedToUserId         String?                    @map("assigned_to_user_id")
+  lastMessageAt            DateTime?                  @map("last_message_at")
+  lastInboundAt            DateTime?                  @map("last_inbound_at")
+  lastOutboundAt           DateTime?                  @map("last_outbound_at")
+  lastHumanTakeoverAt      DateTime?                  @map("last_human_takeover_at")
+  lastSofiaReplyAt         DateTime?                  @map("last_sofia_reply_at")
+  unreadCount              Int                        @default(0) @map("unread_count")
+  lastMessagePreview       String?                    @map("last_message_preview")
+  riskFlags                Json?                      @map("risk_flags")
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  assignedTo               User?                      @relation("WhatsappConversationAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages                 WhatsappMessage[]
+  outboundMessages         WhatsappOutboundMessage[]
+  orderDrafts              SofiaOrderDraft[]
+  deliveryOrders           WhatsappDeliveryOrder[]
+
+  @@index([phone])
+  @@index([provider, providerConversationId])
+  @@index([mode, updatedAt])
+  @@index([status, updatedAt])
+  @@index([assignedToUserId])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsappMessage {
+  id                 String                    @id @default(cuid())
+  conversationId     String                    @map("conversation_id")
+  direction          WhatsappMessageDirection
+  type               WhatsappMessageType       @default(TEXT)
+  provider           String                    @default("mock")
+  providerMessageId  String?                   @map("provider_message_id")
+  providerTimestamp  DateTime?                 @map("provider_timestamp")
+  body               String?
+  mediaUrl           String?                   @map("media_url")
+  mediaMimeType      String?                   @map("media_mime_type")
+  transcript         String?
+  rawPayload         Json?                     @map("raw_payload")
+  status             String                    @default("RECEIVED")
+  idempotencyKey     String?                   @unique @map("idempotency_key")
+  errorMessage       String?                   @map("error_message")
+  aiIntent           String?                   @map("ai_intent")
+  confidence         Decimal?                  @db.Decimal(5, 4)
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  conversation       WhatsappConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  outboundMessages   WhatsappOutboundMessage[]
+
+  @@index([conversationId, createdAt])
+  @@index([direction, createdAt])
+  @@index([provider, providerMessageId])
+  @@index([status, createdAt])
+  @@map("whatsapp_messages")
+}
+
+model SofiaOrderDraft {
+  id                   String                 @id @default(cuid())
+  conversationId       String?                @map("conversation_id")
+  status               SofiaOrderDraftStatus  @default(DRAFT)
+  customerName         String?                @map("customer_name")
+  customerPhone        String?                @map("customer_phone")
+  deliveryAddress      String?                @map("delivery_address")
+  deliveryNeighborhood String?                @map("delivery_neighborhood")
+  deliveryNotes        String?                @map("delivery_notes")
+  itemsSnapshot        Json                   @map("items_snapshot")
+  subtotal             Decimal                @default(0) @db.Decimal(12, 2)
+  deliveryFee          Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total                Decimal                @default(0) @db.Decimal(12, 2)
+  currency             String                 @default("COP")
+  missingFields        Json?                  @map("missing_fields")
+  aiSummary            String?                @map("ai_summary")
+  source               SofiaOrderSource       @default(SOFIA)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  conversation         WhatsappConversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  deliveryOrder        WhatsappDeliveryOrder?
+
+  @@index([conversationId])
+  @@index([status, updatedAt])
+  @@index([customerPhone])
+  @@map("sofia_order_drafts")
+}
+
+model WhatsappDeliveryOrder {
+  id                            String                      @id @default(cuid())
+  conversationId                String?                     @map("conversation_id")
+  orderDraftId                  String?                     @unique @map("order_draft_id")
+  orderTicketId                 String?                     @unique @map("order_ticket_id")
+  status                        WhatsappDeliveryOrderStatus @default(CONFIRMED)
+  paymentStatus                 WhatsappPaymentStatus       @default(UNSELECTED) @map("payment_status")
+  paymentMethod                 String?                     @map("payment_method")
+  publicPaymentToken            String?                     @unique @map("public_payment_token")
+  publicPaymentTokenExpiresAt   DateTime?                   @map("public_payment_token_expires_at")
+  paymentLinkCreatedAt          DateTime?                   @map("payment_link_created_at")
+  paymentLinkLastOpenedAt       DateTime?                   @map("payment_link_last_opened_at")
+  paymentLinkOpenCount          Int                         @default(0) @map("payment_link_open_count")
+  paymentMethodSelectedAt       DateTime?                   @map("payment_method_selected_at")
+  manuallyVerifiedAt            DateTime?                   @map("manually_verified_at")
+  manuallyVerifiedById          String?                     @map("manually_verified_by_id")
+  orderReference                String?                     @unique @map("order_reference")
+  onlinePaymentProvider         String?                     @map("online_payment_provider")
+  providerPaymentId             String?                     @map("provider_payment_id")
+  providerReference             String?                     @map("provider_reference")
+  providerCheckoutUrl           String?                     @map("provider_checkout_url")
+  providerStatus                String?                     @map("provider_status")
+  onlinePaymentCreatedAt        DateTime?                   @map("online_payment_created_at")
+  onlinePaymentExpiresAt        DateTime?                   @map("online_payment_expires_at")
+  onlinePaymentPaidAt           DateTime?                   @map("online_payment_paid_at")
+  webhookLastEventAt            DateTime?                   @map("webhook_last_event_at")
+  webhookEventCount             Int                         @default(0) @map("webhook_event_count")
+  paymentFailureReason          String?                     @map("payment_failure_reason")
+  paymentReviewReason           String?                     @map("payment_review_reason")
+  customerNameSnapshot          String?                     @map("customer_name_snapshot")
+  customerPhoneSnapshot         String?                     @map("customer_phone_snapshot")
+  deliveryAddressSnapshot       String?                     @map("delivery_address_snapshot")
+  deliveryNeighborhoodSnapshot  String?                     @map("delivery_neighborhood_snapshot")
+  itemsSnapshot                 Json                        @map("items_snapshot")
+  subtotal                      Decimal                     @default(0) @db.Decimal(12, 2)
+  deliveryFee                   Decimal                     @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total                         Decimal                     @default(0) @db.Decimal(12, 2)
+  source                        SofiaOrderSource            @default(WHATSAPP_SOFIA)
+  createdByAgentNameSnapshot    String                      @default("Sofía") @map("created_by_agent_name_snapshot")
+  createdAt                     DateTime                    @default(now()) @map("created_at")
+  updatedAt                     DateTime                    @updatedAt @map("updated_at")
+  conversation                  WhatsappConversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  orderDraft                    SofiaOrderDraft?            @relation(fields: [orderDraftId], references: [id], onDelete: SetNull)
+  orderTicket                   OrderTicket?                @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
+  manuallyVerifiedBy            User?                       @relation("SofiaPaymentVerifiedBy", fields: [manuallyVerifiedById], references: [id], onDelete: SetNull)
+  paymentEvents                 SofiaPaymentEvent[]
+  webhookEvents                 PaymentWebhookEvent[]
+
+  @@index([conversationId])
+  @@index([status, updatedAt])
+  @@index([paymentStatus, updatedAt])
+  @@index([customerPhoneSnapshot])
+  @@index([publicPaymentTokenExpiresAt])
+  @@index([manuallyVerifiedById])
+  @@index([onlinePaymentProvider, providerPaymentId])
+  @@index([orderReference, providerReference])
+  @@map("whatsapp_delivery_orders")
+}
+
+model SofiaPromptVersion {
+  id                  String             @id @default(cuid())
+  version             String             @unique
+  name                String
+  status              SofiaPromptStatus  @default(DRAFT)
+  promptText          String             @map("prompt_text")
+  systemRulesJson     Json?              @map("system_rules_json")
+  commercialRulesJson Json?              @map("commercial_rules_json")
+  safetyRulesJson     Json?              @map("safety_rules_json")
+  createdBy           String?            @map("created_by")
+  approvedBy          String?            @map("approved_by")
+  activatedAt         DateTime?          @map("activated_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  autoSafeEvents      SofiaAutoSafeDecisionEvent[]
+
+  @@index([status, updatedAt])
+  @@map("sofia_prompt_versions")
+}
+
+model SofiaCommercialCatalogItem {
+  id                  String                   @id @default(cuid())
+  slug                String                   @unique
+  name                String
+  type                SofiaCatalogItemType
+  status              SofiaCatalogItemStatus   @default(ACTIVE)
+  linkedProductId     String?                  @map("linked_product_id")
+  linkedProductName   String?                  @map("linked_product_name")
+  priceSource         SofiaCatalogPriceSource  @default(NONE) @map("price_source")
+  manualPrice         Decimal?                 @map("manual_price") @db.Decimal(12, 2)
+  imageUrl            String?                  @map("image_url")
+  shortDescription    String?                  @map("short_description")
+  compositionJson     Json?                    @map("composition_json")
+  aliasesJson         Json?                    @map("aliases_json")
+  upsellRulesJson     Json?                    @map("upsell_rules_json")
+  prohibitedClaimsJson Json?                   @map("prohibited_claims_json")
+  sortOrder           Int                      @default(100) @map("sort_order")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@index([type, status, sortOrder])
+  @@index([linkedProductId])
+  @@map("sofia_commercial_catalog_items")
+}
+
+model SofiaCustomerMemory {
+  id                     String                    @id @default(cuid())
+  phoneNormalized        String                    @unique @map("phone_normalized")
+  displayName            String?                   @map("display_name")
+  lastKnownAddress       String?                   @map("last_known_address")
+  preferredPaymentMethod String?                   @map("preferred_payment_method")
+  lastOrderSummaryJson   Json?                     @map("last_order_summary_json")
+  preferencesJson        Json?                     @map("preferences_json")
+  riskFlagsJson          Json?                     @map("risk_flags_json")
+  memorySummary          String?                   @map("memory_summary")
+  lastInteractionAt      DateTime?                 @map("last_interaction_at")
+  consentState           SofiaMemoryConsentState   @default(UNKNOWN) @map("consent_state")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  conversationMemories   SofiaConversationMemory[]
+  commercialRuleEvents   SofiaCommercialRuleEvent[]
+  autoSafeEvents         SofiaAutoSafeDecisionEvent[]
+
+  @@index([lastInteractionAt])
+  @@map("sofia_customer_memories")
+}
+
+model SofiaConversationMemory {
+  id                     String                @id @default(cuid())
+  conversationId         String                @unique @map("conversation_id")
+  customerMemoryId       String?               @map("customer_memory_id")
+  currentIntent          String?               @map("current_intent")
+  currentOrderIntentJson Json?                 @map("current_order_intent_json")
+  missingFieldsJson      Json?                 @map("missing_fields_json")
+  lastProductDiscussed   String?               @map("last_product_discussed")
+  memorySummary          String?               @map("memory_summary")
+  expiresAt              DateTime?             @map("expires_at")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+  customerMemory         SofiaCustomerMemory?  @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+
+  @@index([customerMemoryId])
+  @@index([expiresAt])
+  @@map("sofia_conversation_memories")
+}
+
+model SofiaCommercialRuleEvent {
+  id               String                @id @default(cuid())
+  conversationId   String?               @map("conversation_id")
+  customerMemoryId String?               @map("customer_memory_id")
+  ruleCode         String                @map("rule_code")
+  severity         String
+  actionTaken      String                @map("action_taken")
+  detailsJson      Json?                 @map("details_json")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  customerMemory   SofiaCustomerMemory?  @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([customerMemoryId, createdAt])
+  @@index([ruleCode, createdAt])
+  @@map("sofia_commercial_rule_events")
+}
+
+model SofiaAutoSafeDecisionEvent {
+  id                      String               @id @default(cuid())
+  conversationId          String?              @map("conversation_id")
+  customerMemoryId        String?              @map("customer_memory_id")
+  promptVersionId         String?              @map("prompt_version_id")
+  status                  String
+  riskLevel               String               @map("risk_level")
+  approved                Boolean              @default(false)
+  shouldSend              Boolean              @default(false) @map("should_send")
+  reasonCodesJson         Json                 @map("reason_codes_json")
+  blockingReasonsJson     Json?                @map("blocking_reasons_json")
+  warningsJson            Json?                @map("warnings_json")
+  inputSummaryJson        Json?                @map("input_summary_json")
+  outputSummaryJson       Json?                @map("output_summary_json")
+  safetyGuardSummaryJson  Json?                @map("safety_guard_summary_json")
+  finalReplyPreview       String?              @map("final_reply_preview")
+  channelMode             String?              @map("channel_mode")
+  isSandbox               Boolean              @default(true) @map("is_sandbox")
+  createdAt               DateTime             @default(now()) @map("created_at")
+  customerMemory          SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+  promptVersion           SofiaPromptVersion?  @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([customerMemoryId, createdAt])
+  @@index([promptVersionId, createdAt])
+  @@index([status, createdAt])
+  @@map("sofia_auto_safe_decision_events")
+}
+
+model SofiaPaymentSettings {
+  id                                      String   @id @default("default")
+  cashEnabled                             Boolean  @default(true) @map("cash_enabled")
+  nequiManualEnabled                      Boolean  @default(true) @map("nequi_manual_enabled")
+  nequiManualPhone                        String?  @map("nequi_manual_phone")
+  nequiManualHolderName                   String?  @map("nequi_manual_holder_name")
+  prepareCashOrdersImmediately            Boolean  @default(true) @map("prepare_cash_orders_immediately")
+  prepareManualTransferBeforeVerification Boolean  @default(false) @map("prepare_manual_transfer_before_verification")
+  manualPaymentRequiresOperator           Boolean  @default(true) @map("manual_payment_requires_operator")
+  paymentInstructionsText                 String?  @map("payment_instructions_text")
+  onlinePaymentsEnabled                   Boolean  @default(false) @map("online_payments_enabled")
+  onlinePaymentProvider                   String   @default("MOCK") @map("online_payment_provider")
+  mockOnlinePaymentsEnabled               Boolean  @default(true) @map("mock_online_payments_enabled")
+  boldEnabled                             Boolean  @default(false) @map("bold_enabled")
+  paymentLinkTtlMinutes                   Int      @default(1440) @map("payment_link_ttl_minutes")
+  onlinePaymentExpiresMinutes             Int      @default(20) @map("online_payment_expires_minutes")
+  prepareOnlineOrdersBeforePaid           Boolean  @default(false) @map("prepare_online_orders_before_paid")
+  autoMarkPaidFromWebhook                 Boolean  @default(true) @map("auto_mark_paid_from_webhook")
+  createdAt                               DateTime @default(now()) @map("created_at")
+  updatedAt                               DateTime @updatedAt @map("updated_at")
+
+  @@map("sofia_payment_settings")
+}
+
+model SofiaPaymentEvent {
+  id                      String                 @id @default(cuid())
+  whatsappDeliveryOrderId String                 @map("whatsapp_delivery_order_id")
+  orderTicketId           String?                @map("order_ticket_id")
+  actorId                 String?                @map("actor_id")
+  eventType               String                 @map("event_type")
+  paymentMethod           String?                @map("payment_method")
+  previousStatus          WhatsappPaymentStatus? @map("previous_status")
+  newStatus               WhatsappPaymentStatus  @map("new_status")
+  message                 String?
+  metadata                Json?
+  createdAt               DateTime               @default(now()) @map("created_at")
+  whatsappDeliveryOrder   WhatsappDeliveryOrder  @relation(fields: [whatsappDeliveryOrderId], references: [id], onDelete: Cascade)
+  actor                   User?                  @relation("SofiaPaymentEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([whatsappDeliveryOrderId, createdAt])
+  @@index([orderTicketId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("sofia_payment_events")
+}
+
+model PaymentWebhookEvent {
+  id                      String                 @id @default(cuid())
+  whatsappDeliveryOrderId String?                @map("whatsapp_delivery_order_id")
+  provider                String
+  eventId                 String?                @unique @map("event_id")
+  providerPaymentId       String?                @map("provider_payment_id")
+  providerReference       String?                @map("provider_reference")
+  orderReference          String?                @map("order_reference")
+  eventType               String                 @map("event_type")
+  status                  String
+  amount                  Decimal?               @db.Decimal(12, 2)
+  currency                String?
+  signatureValid          Boolean                @default(false) @map("signature_valid")
+  processedStatus         String                 @default("RECEIVED") @map("processed_status")
+  rawPayload              Json?                  @map("raw_payload")
+  receivedAt              DateTime               @default(now()) @map("received_at")
+  processedAt             DateTime?              @map("processed_at")
+  whatsappDeliveryOrder   WhatsappDeliveryOrder? @relation(fields: [whatsappDeliveryOrderId], references: [id], onDelete: SetNull)
+
+  @@index([provider, providerPaymentId])
+  @@index([provider, providerReference])
+  @@index([orderReference, receivedAt])
+  @@index([whatsappDeliveryOrderId, receivedAt])
+  @@map("payment_webhook_events")
+}
+
+model WhatsappInboundEvent {
+  id                String    @id @default(cuid())
+  provider          String
+  providerEventId   String?   @unique @map("provider_event_id")
+  providerMessageId String?   @map("provider_message_id")
+  phone             String
+  eventHash         String    @map("event_hash")
+  rawPayload        Json?     @map("raw_payload")
+  receivedAt        DateTime  @default(now()) @map("received_at")
+  processedAt       DateTime? @map("processed_at")
+  processingStatus  String    @default("RECEIVED") @map("processing_status")
+  errorMessage      String?   @map("error_message")
+
+  @@unique([provider, eventHash])
+  @@index([provider, providerMessageId])
+  @@index([phone, receivedAt])
+  @@index([processingStatus, receivedAt])
+  @@map("whatsapp_inbound_events")
+}
+
+model WhatsappOutboundMessage {
+  id                String                @id @default(cuid())
+  conversationId    String                @map("conversation_id")
+  inboundMessageId  String?               @map("inbound_message_id")
+  provider          String
+  providerMessageId String?               @map("provider_message_id")
+  localMessageId    String                @unique @map("local_message_id")
+  body              String
+  mediaUrl          String?               @map("media_url")
+  status            String                @default("QUEUED")
+  attempts          Int                   @default(0)
+  nextRetryAt       DateTime?             @map("next_retry_at")
+  lastError         String?               @map("last_error")
+  idempotencyKey    String                @unique @map("idempotency_key")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  sentAt            DateTime?             @map("sent_at")
+  approvedById      String?               @map("approved_by_id")
+  approvedAt        DateTime?             @map("approved_at")
+  rawPayload         Json?                 @map("raw_payload")
+  conversation      WhatsappConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  inboundMessage    WhatsappMessage?      @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
+  approvedBy        User?                 @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([inboundMessageId])
+  @@index([provider, providerMessageId])
+  @@index([status, nextRetryAt])
+  @@index([approvedById])
+  @@map("whatsapp_outbound_messages")
+}
+
+model DeliveryLocationInbox {
+  id                    String                      @id @default(cuid())
+  rawSenderJid          String?                     @map("raw_sender_jid")
+  participantJid        String?                     @map("participant_jid")
+  remoteJid             String?                     @map("remote_jid")
+  normalizedSenderPhone String?                     @map("normalized_sender_phone")
+  latitude              Decimal                     @db.Decimal(10, 7)
+  longitude             Decimal                     @db.Decimal(10, 7)
+  rawPayload            Json?                       @map("raw_payload")
+  matchStatus           DeliveryLocationInboxStatus @default(PENDING) @map("match_status")
+  matchedOrderId        String?                     @map("matched_order_id")
+  matchedCustomerId     String?                     @map("matched_customer_id")
+  matchedRule           String?                     @map("matched_rule")
+  processingNotes       String?                     @map("processing_notes")
+  receivedAt            DateTime                    @default(now()) @map("received_at")
+  processedAt           DateTime?                   @map("processed_at")
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  matchedOrder          OrderTicket?                @relation(fields: [matchedOrderId], references: [id], onDelete: SetNull)
+  matchedCustomer       DeliveryCustomer?           @relation(fields: [matchedCustomerId], references: [id], onDelete: SetNull)
+  alerts                OperationalAlert[]
+
+  @@index([matchStatus, receivedAt])
+  @@index([normalizedSenderPhone, receivedAt])
+  @@index([matchedOrderId, receivedAt])
+  @@map("delivery_location_inbox")
+}
+
+model WaiterOrderSyncReceipt {
+  id               String      @id @default(cuid())
+  clientMutationId String      @unique @map("client_mutation_id")
+  userId           String      @map("user_id")
+  orderTicketId    String      @map("order_ticket_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderTicket      OrderTicket @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([orderTicketId, createdAt])
+  @@map("waiter_order_sync_receipts")
+}
+
+model OrderTicketItem {
+  id            String      @id @default(cuid())
+  orderTicketId String
+  productId     String
+  quantity      Decimal     @db.Decimal(10, 3)
+  unitPrice     Decimal     @db.Decimal(10, 2)
+  totalPrice    Decimal     @db.Decimal(12, 2)
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  orderTicket   OrderTicket @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderTicketId])
+  @@index([productId])
+  @@map("order_ticket_items")
+}
+
+model CashMovement {
+  id              String           @id @default(cuid())
+  cashSessionId   String
+  type            CashMovementType
+  amount          Decimal          @db.Decimal(12, 2)
+  description     String?
+  referenceType   String?
+  referenceId     String?
+  paymentMethodId String?
+  createdById     String?
+  classification  String?
+  createdAt       DateTime         @default(now())
+  cashSession     CashSession      @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+  paymentMethod   PaymentMethod?   @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  createdBy       User?            @relation("CashMovementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([cashSessionId, createdAt])
+  @@map("cash_movements")
+}
+
+model Expense {
+  id              String         @id @default(cuid())
+  concept         String
+  classification  String?
+  description     String?
+  amount          Decimal        @db.Decimal(12, 2)
+  spentAt         DateTime       @default(now())
+  paymentMethodId String?
+  cashSessionId   String?
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  cashSession     CashSession?   @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  createdBy       User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([spentAt])
+  @@index([cashSessionId])
+  @@map("expenses")
+}
+
+model StockCountSession {
+  id           String           @id @default(cuid())
+  status       StockCountStatus @default(COMPLETED)
+  scope        StockCountScope
+  notes        String?
+  createdById  String
+  approvedById String?
+  startedAt    DateTime         @default(now())
+  completedAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  createdBy    User             @relation("StockCountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy   User?            @relation("StockCountApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  items        StockCountItem[]
+
+  @@index([scope, createdAt])
+  @@map("stock_count_sessions")
+}
+
+model StockCountItem {
+  id            String            @id @default(cuid())
+  sessionId     String
+  ingredientId  String?
+  productId     String?
+  expectedStock Decimal           @db.Decimal(10, 3)
+  countedStock  Decimal           @db.Decimal(10, 3)
+  difference    Decimal           @db.Decimal(10, 3)
+  reason        String?
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  session       StockCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ingredient    Ingredient?       @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  product       Product?          @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId])
+  @@index([ingredientId])
+  @@index([productId])
+  @@map("stock_count_items")
+}
+
+model ReportSnapshot {
+  id            String   @id @default(cuid())
+  name          String
+  type          String
+  periodStart   DateTime
+  periodEnd     DateTime
+  payload       Json
+  generatedById String?
+  createdAt     DateTime @default(now())
+  generatedBy   User?    @relation(fields: [generatedById], references: [id], onDelete: SetNull)
+
+  @@map("reports_snapshots")
+}
+
+model SupplierNotification {
+  id           String    @id @default(cuid())
+  supplierId   String
+  channel      String
+  status       String
+  message      String
+  whatsappLink String?
+  payload      Json?
+  createdById  String?
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdBy    User?     @relation("SupplierNotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([supplierId, createdAt])
+  @@index([status, createdAt])
+  @@map("supplier_notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  module    String
+  entity    String
+  entityId  String?
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([module, createdAt])
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model DeliveryIssue {
+  id            String              @id @default(cuid())
+  orderTicketId String              @map("order_ticket_id")
+  issueType     DeliveryIssueType   @map("issue_type")
+  status        DeliveryIssueStatus @default(OPEN)
+  summary       String
+  details       String?
+  reportedById  String              @map("reported_by_id")
+  resolvedById  String?             @map("resolved_by_id")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  resolvedAt    DateTime?           @map("resolved_at")
+  orderTicket   OrderTicket         @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
+  reportedBy    User                @relation("DeliveryIssueReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
+  resolvedBy    User?               @relation("DeliveryIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  alerts        OperationalAlert[]
+
+  @@index([orderTicketId, status, createdAt])
+  @@index([reportedById, createdAt])
+  @@map("delivery_issues")
+}
+
+model OperationalAlert {
+  id                      String                   @id @default(cuid())
+  type                    String
+  module                  String
+  severity                OperationalAlertSeverity
+  status                  OperationalAlertStatus   @default(OPEN)
+  title                   String
+  message                 String
+  entityType              String?                  @map("entity_type")
+  entityId                String?                  @map("entity_id")
+  actorId                 String?                  @map("actor_id")
+  resolvedById            String?                  @map("resolved_by_id")
+  deliveryLocationInboxId String?                  @map("delivery_location_inbox_id")
+  deliveryIssueId         String?                  @map("delivery_issue_id")
+  metadata                Json?
+  acknowledgedAt          DateTime?                @map("acknowledged_at")
+  resolvedAt              DateTime?                @map("resolved_at")
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  actor                   User?                    @relation("OperationalAlertActor", fields: [actorId], references: [id], onDelete: SetNull)
+  resolvedBy              User?                    @relation("OperationalAlertResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  deliveryLocationInbox   DeliveryLocationInbox?   @relation(fields: [deliveryLocationInboxId], references: [id], onDelete: SetNull)
+  deliveryIssue           DeliveryIssue?           @relation(fields: [deliveryIssueId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([module, status, createdAt])
+  @@index([entityType, entityId])
+  @@index([severity, status, createdAt])
+  @@map("operational_alerts")
+}
+
+model ExternalApiCache {
+  id           String   @id @default(cuid())
+  provider     String
+  cacheType    String   @map("cache_type")
+  cacheKey     String   @map("cache_key")
+  requestHash  String   @map("request_hash")
+  responseJson Json     @map("response_json")
+  status       String
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, cacheType, cacheKey])
+  @@index([expiresAt])
+  @@index([provider])
+  @@index([cacheType])
+  @@index([status])
+  @@map("external_api_cache")
+}
+
+model DeliveryProviderUsage {
+  id               String    @id @default(cuid())
+  provider         String
+  endpoint         String
+  usageDate        DateTime  @map("usage_date") @db.Date
+  requestCount     Int       @default(0) @map("request_count")
+  successCount     Int       @default(0) @map("success_count")
+  errorCount       Int       @default(0) @map("error_count")
+  lastStatus       String?   @map("last_status")
+  lastErrorCode    String?   @map("last_error_code")
+  lastErrorAt      DateTime? @map("last_error_at")
+  circuitOpenUntil DateTime? @map("circuit_open_until")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([provider, endpoint, usageDate])
+  @@index([provider])
+  @@index([endpoint])
+  @@index([usageDate])
+  @@index([circuitOpenUntil])
+  @@map("delivery_provider_usage")
+}
+
+model DeliveryPricingAudit {
+  id                  String   @id @default(cuid())
+  orderTicketId       String?  @map("order_ticket_id")
+  saleId              String?  @map("sale_id")
+  customerId          String?  @map("customer_id")
+  operatorId          String?  @map("operator_id")
+  requestJson         Json     @map("request_json")
+  resultJson          Json     @map("result_json")
+  suggestedFee        Decimal? @map("suggested_fee") @db.Decimal(12, 2)
+  finalFee            Decimal? @map("final_fee") @db.Decimal(12, 2)
+  manualEdited        Boolean  @default(false) @map("manual_edited")
+  manualEditReason    String?  @map("manual_edit_reason")
+  calculationVersion  String   @map("calculation_version")
+  providerSummaryJson Json?    @map("provider_summary_json")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([orderTicketId])
+  @@index([saleId])
+  @@index([customerId])
+  @@index([operatorId])
+  @@index([createdAt])
+  @@map("delivery_pricing_audits")
+}
+
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String?
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}

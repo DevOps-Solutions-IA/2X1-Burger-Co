@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  background: #f8f8f8;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(224, 159, 62, 0.12), transparent 28%),
+    linear-gradient(180deg, #fbfbfb 0%, #f8f8f8 55%, #f3f3f3 100%);
+  color: #1a1a1a;
+  font-family: var(--font-body), sans-serif;
+  line-height: 1.5;
+}
+
+.numeric-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.list-scroll-5-cards {
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.list-scroll-4-cards {
+  max-height: 21rem;
+  overflow-y: auto;
+}
+
+.list-scroll-5-rows {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.list-scroll-5-compact {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+@media (min-width: 1024px) {
+  body {
+    overflow: hidden;
+  }
+}
+
+::selection {
+  background: rgba(224, 159, 62, 0.28);
+  color: #1a1a1a;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d4 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #d4d4d4;
+}
+
+@layer base {
+  * {
+    @apply border-stone-200;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading tracking-tight text-ink;
+  }
+
+  h5,
+  h6 {
+    @apply font-heading text-ink;
+  }
+
+  p,
+  span,
+  input,
+  select,
+  textarea,
+  button,
+  td,
+  th,
+  label,
+  li {
+    @apply font-sans;
+  }
+
+  button,
+  [role='button'],
+  a,
+  input,
+  select,
+  textarea {
+    @apply transition-colors;
+  }
+}

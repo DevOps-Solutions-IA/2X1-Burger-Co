@@ -1,0 +1,286 @@
+{
+  "title": "Sof\u00eda Full-Stack Ultra Premium Completion",
+  "version": "1.0.0",
+  "project": "2X1 Burger Co. POS Fastfood",
+  "mission": "Finish Sof\u00eda as an ultra premium supervised AI operations console with real backend data, clean frontend, safe WhatsApp QR receive-only flow, separated sandbox, strong security gates, and production blocked until explicit owner approval.",
+  "globalGuardrails": [
+    "Do not enable real WhatsApp sending.",
+    "Do not enable auto reply.",
+    "Do not enable Auto Safe production.",
+    "Do not enable production.",
+    "Do not set WHATSAPP_QR_ALLOW_REAL_SEND=true.",
+    "Do not set WHATSAPP_MODE=auto_safe.",
+    "Do not set SOFIA_AUTO_REPLY_ENABLED=true.",
+    "Do not set SOFIA_AUTO_SAFE_ENABLED=true.",
+    "Do not set SOFIA_PRODUCTION_ENABLED=true.",
+    "Do not mark PAID from WhatsApp.",
+    "Do not confirm payments from Sof\u00eda.",
+    "Do not create real payments.",
+    "Do not move real orders from Sof\u00eda.",
+    "Do not modify POS, Caja, Stock, Checkout, Domicilios, prices, or catalog unless explicitly required by the story and still safe.",
+    "Do not change the Maxy Family commercial rule.",
+    "Do not expose .env, tokens, API keys, QR raw, data:image QR, full phone numbers, session auth, creds.json, or secrets.",
+    "Do not run Prisma reset.",
+    "Do not delete historical reports without traceability."
+  ],
+  "knownCurrentState": {
+    "dashboard": {
+      "route": "/sofia",
+      "status": "GO",
+      "endpoint": "GET /admin/sofia/dashboard/summary"
+    },
+    "conversations": {
+      "route": "/sofia/conversations",
+      "status": "GO",
+      "endpoint": "GET /admin/sofia/conversations/inbox",
+      "realOperationEnabled": false,
+      "realOperationReason": "ALLOWLIST_FINAL_PENDING"
+    },
+    "whatsapp": {
+      "provider": "qr_gateway",
+      "mode": "receive_only",
+      "realSendingEnabled": false,
+      "autoReplyEnabled": false,
+      "productionEnabled": false,
+      "linkingIssue": "Official company WhatsApp Business previously showed: No se pudo vincular el dispositivo"
+    },
+    "ai": {
+      "provider": "deepseek",
+      "mode": "dry_run",
+      "autoReply": false
+    },
+    "safety": {
+      "paidFromWhatsapp": false,
+      "posProtected": true,
+      "cashProtected": true,
+      "stockProtected": true,
+      "checkoutProtected": true,
+      "deliveryProtected": true
+    }
+  },
+  "protectedCommercialRules": {
+    "maxyFamily": {
+      "officialName": "Maxy Family",
+      "allowedComposition": "6 burgers + 1 porci\u00f3n personal de papitas + 1 Pepsi 1.5 L",
+      "allowedUpsell": "Si quieres que todos acompa\u00f1en con papitas, puedes agregar porciones adicionales.",
+      "forbiddenPhrases": [
+        "papas grandes",
+        "papas familiares",
+        "papas para todos",
+        "porci\u00f3n familiar de papas",
+        "papitas para todos",
+        "combo familiar con papas familiares"
+      ]
+    }
+  },
+  "globalGates": [
+    {
+      "name": "no_real_activation",
+      "command": "grep -RIn \"WHATSAPP_QR_ALLOW_REAL_SEND=true\\|SOFIA_AUTO_REPLY_ENABLED=true\\|SOFIA_AUTO_SAFE_ENABLED=true\\|WHATSAPP_MODE=auto_safe\\|SOFIA_PRODUCTION_ENABLED=true\" .env.example apps/api/src apps/web/src packages 2>/dev/null || true",
+      "expected": "no unsafe activation lines"
+    },
+    {
+      "name": "secret_scan",
+      "command": "grep -RIn \"DEEPSEEK_API_KEY=.*[A-Za-z0-9]\\|sk-[A-Za-z0-9]\\|data:image\\|qrString.*[A-Za-z0-9]\\|creds.json\\|session-auth\" apps/api/src apps/web/src packages infra/environments/staging/selfhosted-data/deployment-prep 2>/dev/null || true",
+      "expected": "no real secrets, no QR raw, no data:image, no session auth exposure"
+    },
+    {
+      "name": "web_typecheck",
+      "command": "pnpm --filter @inventory-fastfood/web typecheck",
+      "expected": "PASS"
+    },
+    {
+      "name": "web_build",
+      "command": "pnpm --filter @inventory-fastfood/web build",
+      "expected": "PASS"
+    },
+    {
+      "name": "api_typecheck",
+      "command": "pnpm --filter @inventory-fastfood/api typecheck",
+      "expected": "PASS"
+    },
+    {
+      "name": "api_build",
+      "command": "pnpm --filter @inventory-fastfood/api build",
+      "expected": "PASS"
+    }
+  ],
+  "stories": [
+    {
+      "id": 1,
+      "title": "Sof\u00eda Full-Stack Master Diagnosis",
+      "status": "in_progress",
+      "goal": "Create a complete technical, visual, data, and security diagnosis for all Sof\u00eda routes before major changes.",
+      "routes": [
+        "/sofia",
+        "/sofia/conversations",
+        "/sofia/whatsapp-qr",
+        "/sofia/sandbox"
+      ],
+      "mustCreate": [
+        "/tmp/sofia-ralph-ultra-premium/story-01-master-diagnosis.md"
+      ],
+      "acceptance": [
+        "Diagnoses backend endpoints, frontend routes, data contracts, visual hierarchy, copy, sandbox separation, QR state, security, and missing pieces.",
+        "Does not modify code unless needed to inspect safely.",
+        "Documents exact plan for later stories.",
+        "Does not activate real sending, auto reply, or production."
+      ],
+      "startedAt": "2026-07-09T20:58:02.903074+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-07-09T20:58:02.903225+00:00"
+    },
+    {
+      "id": 2,
+      "title": "Sof\u00eda Data Contracts and API Consistency",
+      "status": "open",
+      "goal": "Normalize backend contracts across dashboard, conversations, QR, AI, sandbox, governance, and readiness.",
+      "routes": [
+        "/sofia",
+        "/sofia/conversations",
+        "/sofia/whatsapp-qr",
+        "/sofia/sandbox"
+      ],
+      "acceptance": [
+        "All Sof\u00eda endpoints return sanitized data contracts with scope, security, real/internal/sandbox/historical separation where applicable.",
+        "No PII, no full phone, no QR raw, no secrets, no session auth.",
+        "Frontend types or adapters clearly match backend shape.",
+        "Missing data is represented as pending/no data, not invented."
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Sof\u00eda Ultra Premium Design System",
+      "status": "open",
+      "goal": "Create or refine reusable Sof\u00eda UI components for ultra premium enterprise experience.",
+      "routes": [
+        "/sofia",
+        "/sofia/conversations",
+        "/sofia/whatsapp-qr",
+        "/sofia/sandbox"
+      ],
+      "acceptance": [
+        "Reusable components exist for page shell, hero, badges, metric cards, section cards, scope tabs, technical details, empty states, risk banners, conversation cards, QR cards, sandbox case cards.",
+        "No broken words.",
+        "Purple identity is elegant, not heavy.",
+        "Responsive desktop and mobile are clean.",
+        "Dangerous actions are visually blocked."
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Dashboard /sofia Final Premium Pass",
+      "status": "open",
+      "goal": "Polish /sofia using real backend summary and ultra premium components.",
+      "routes": [
+        "/sofia"
+      ],
+      "acceptance": [
+        "/sofia consumes GET /admin/sofia/dashboard/summary.",
+        "Shows operation real/internal/pending clearly.",
+        "No mock/sandbox/historical as real.",
+        "Production blocked, send blocked, auto reply OFF, DeepSeek dry-run.",
+        "Understood in 10 seconds."
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Conversations /sofia/conversations Final Premium Pass",
+      "status": "open",
+      "goal": "Polish conversations inbox with backend inbox endpoint, clean states, tabs, cards, and technical details collapsed.",
+      "routes": [
+        "/sofia/conversations"
+      ],
+      "acceptance": [
+        "Consumes GET /admin/sofia/conversations/inbox.",
+        "Real operation remains empty if allowlist pending.",
+        "Sandbox and historical are separated.",
+        "Reason codes are mapped to operational copy.",
+        "Original codes only in collapsed technical details.",
+        "No PII or full phone."
+      ]
+    },
+    {
+      "id": 6,
+      "title": "WhatsApp QR Gateway Truthful Premium Experience",
+      "status": "open",
+      "goal": "Make /sofia/whatsapp-qr truthful, premium, and diagnostic-ready for official WhatsApp Business linking issue.",
+      "routes": [
+        "/sofia/whatsapp-qr"
+      ],
+      "acceptance": [
+        "Shows real QR status from backend.",
+        "Does not show success unless connected=true.",
+        "Does not show QR ready unless qrAvailable=true.",
+        "Shows receive-only, real send blocked, auto reply OFF, production blocked.",
+        "Includes safe diagnostic for linking failure without exposing QR raw or session auth.",
+        "Does not activate real send."
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Sandbox /sofia/sandbox Premium Laboratory",
+      "status": "open",
+      "goal": "Make sandbox a clearly separated premium laboratory for SafetyGuard, DeepSeek dry-run, and commercial rule tests.",
+      "routes": [
+        "/sofia/sandbox"
+      ],
+      "acceptance": [
+        "Clearly marked as laboratory.",
+        "Does not look like operation real.",
+        "No real send, no PAID, no production.",
+        "Test cases for unknown product, payment sensitive, human requested, Maxy Family correct/risky, low confidence, missing address, missing confirmation.",
+        "PASS/FAIL visible for test cases.",
+        "Details collapsed."
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Global Responsive and Visual QA",
+      "status": "open",
+      "goal": "Run desktop/mobile visual QA across all Sof\u00eda routes and fix visual issues.",
+      "routes": [
+        "/sofia",
+        "/sofia/conversations",
+        "/sofia/whatsapp-qr",
+        "/sofia/sandbox"
+      ],
+      "acceptance": [
+        "Screenshots generated for desktop and mobile for all four routes.",
+        "No broken words.",
+        "No cramped cards.",
+        "No contrast problems.",
+        "No technical noise as main content.",
+        "Routes look ultra premium."
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Global Security and No Real Activation Audit",
+      "status": "open",
+      "goal": "Audit all Sof\u00eda code and deployment reports for unsafe activation, secrets, QR raw, PII, PAID from WhatsApp, and protected module mutations.",
+      "acceptance": [
+        "No real sending activation.",
+        "No auto reply activation.",
+        "No production activation.",
+        "No secrets or QR raw exposed.",
+        "No full phone numbers visible.",
+        "No PAID from WhatsApp.",
+        "POS/Caja/Stock/Checkout/Domicilios untouched.",
+        "Final report created."
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Sof\u00eda Final Readiness Report",
+      "status": "open",
+      "goal": "Create final readiness report summarizing what is complete, what remains blocked, and exact next gates before production.",
+      "acceptance": [
+        "Report includes backend, frontend, API, UI/UX, QR, AI, SafetyGuard, sandbox, security, build/typecheck, screenshots.",
+        "Clearly states production blocked.",
+        "Clearly states remaining gates: allowlist final, inbound real accepted, internal real send, kill-switch, rate limit, rollback, owner approval.",
+        "Decision is GO, GO CONDICIONADO, or NO-GO."
+      ]
+    }
+  ]
+}

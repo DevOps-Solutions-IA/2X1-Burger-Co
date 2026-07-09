@@ -1,0 +1,58 @@
+name: 2x1burger-v2
+
+services:
+  postgres-v2:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_v2_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-v2:
+    image: inventario-api:v2-ready
+    restart: unless-stopped
+    depends_on:
+      postgres-v2:
+        condition: service_healthy
+    env_file:
+      - .env.production.v2
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-v2:5432/${POSTGRES_DB}?schema=public
+    ports:
+      - "127.0.0.1:4301:3000"
+    volumes:
+      - whatsapp_v2_auth:/app/data/whatsapp-auth
+      - ./backups-v2:/app/backups
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web-v2:
+    image: inventario-web:v2-ready
+    restart: unless-stopped
+    depends_on:
+      api-v2:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3302:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_v2_data:
+  whatsapp_v2_auth:
