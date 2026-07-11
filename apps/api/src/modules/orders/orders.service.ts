@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import PDFDocument from 'pdfkit';
+import { ModuleRef } from '@nestjs/core';
 import {
   CashMovementType,
   CashSessionStatus,
@@ -24,6 +24,7 @@ import {
   SaleStatus,
 } from '@prisma/client';
 import QRCode from 'qrcode';
+import { renderDeliveryReceiptPdf } from './delivery-receipt.renderer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { toDecimal, toNumber } from '../../common/utils/decimal.util';
@@ -389,6 +390,14 @@ const ACTIVE_DELIVERY_WORKFLOW_STATUSES: DeliveryWorkflowStatus[] = [
 const DELIVERY_PAYMENT_METHOD_LABEL = 'Nequi';
 const DELIVERY_PAYMENT_TARGET = '3160527403';
 
+type DeliveryReceiptSender = {
+  sendDeliveryOrderSummary: (
+    orderId: string,
+    actorId: string,
+    options?: { updated?: boolean; reason?: string; idempotencyKey?: string },
+  ) => Promise<{ success: boolean; phone: string; orderNumber: string; updated?: boolean; sentAt: string }>;
+};
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -399,6 +408,7 @@ export class OrdersService {
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly tablesService: TablesService,
     private readonly sofiaPaymentLinkService: SofiaPaymentLinkService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   private isPrivilegedOrderOperator(actor: AuthUser) {
@@ -419,6 +429,222 @@ export class OrdersService {
     createdBy?: { fullName: string } | null;
   }) {
     return order.waiterNameSnapshot ?? order.assignedWaiter?.fullName ?? order.createdBy?.fullName ?? 'otro mesero';
+  }
+
+  private maskPhoneForAudit(phone?: string | null) {
+    const normalized = this.normalizeDeliveryPhone(phone);
+    if (!normalized) {
+      return null;
+    }
+    return `${'*'.repeat(Math.max(normalized.length - 4, 0))}${normalized.slice(-4)}`;
+  }
+
+  private normalizeItemSnapshotForComparison(
+    items: Array<{
+      productId: string;
+      quantity: Prisma.Decimal | number;
+      unitPrice: Prisma.Decimal | number;
+      totalPrice: Prisma.Decimal | number;
+      notes?: string | null;
+    }>,
+  ) {
+    return items
+      .map((item) => ({
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        totalPrice: Number(item.totalPrice),
+        notes: item.notes?.trim() ?? '',
+      }))
+      .sort((left, right) => {
+        const byProduct = left.productId.localeCompare(right.productId);
+        if (byProduct !== 0) return byProduct;
+        const byNotes = left.notes.localeCompare(right.notes);
+        if (byNotes !== 0) return byNotes;
+        return left.quantity - right.quantity || left.unitPrice - right.unitPrice || left.totalPrice - right.totalPrice;
+      });
+  }
+
+  private areCommercialItemsEqual(
+    currentItems: Array<{
+      productId: string;
+      quantity: Prisma.Decimal | number;
+      unitPrice: Prisma.Decimal | number;
+      totalPrice: Prisma.Decimal | number;
+      notes?: string | null;
+    }>,
+    nextItems: Array<{
+      productId: string;
+      quantity: Prisma.Decimal | number;
+      unitPrice: Prisma.Decimal | number;
+      totalPrice: Prisma.Decimal | number;
+      notes?: string | null;
+    }>,
+  ) {
+    return (
+      JSON.stringify(this.normalizeItemSnapshotForComparison(currentItems)) ===
+      JSON.stringify(this.normalizeItemSnapshotForComparison(nextItems))
+    );
+  }
+
+  private async resolveDeliveryReceiptSender() {
+    try {
+      const { WhatsappService } = await import('../whatsapp/whatsapp.service');
+      return this.moduleRef.get(WhatsappService, { strict: false }) as DeliveryReceiptSender;
+    } catch {
+      return null;
+    }
+  }
+
+  private readAuditJsonObject(value: Prisma.JsonValue | null | undefined) {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private sanitizeDeliveryReceiptSendFailure(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error ?? 'unknown_error');
+    return message.replace(/\+?\d[\d\s\-()]{7,}\d/g, '[phone-redacted]').slice(0, 240);
+  }
+
+  private async hasUpdatedDeliveryReceiptSent(orderId: string, revision: number) {
+    const previousSentLogs = await this.prisma.auditLog.findMany({
+      where: {
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: orderId,
+        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+    });
+
+    return previousSentLogs.some((log) => this.readAuditJsonObject(log.newValues).revision === revision);
+  }
+
+  private async sendUpdatedDeliveryReceiptAfterCommercialChange(input: {
+    order: {
+      id: string;
+      number: string;
+      revision: number;
+      customerPhone: string | null;
+      subtotal: Prisma.Decimal | number;
+    };
+    actorId: string;
+    previousTotal: Prisma.Decimal | number;
+  }) {
+    const idempotencyKey = `DELIVERY_RECEIPT_UPDATED_SENT:${input.order.id}:${input.order.revision}`;
+    const phoneMasked = this.maskPhoneForAudit(input.order.customerPhone);
+
+    await this.auditService.log({
+      userId: input.actorId,
+      action: 'DELIVERY_UPDATED_RECEIPT_SEND_REQUESTED',
+      module: 'orders',
+      entity: 'order_ticket',
+      entityId: input.order.id,
+      newValues: {
+        revision: input.order.revision,
+        previousTotal: input.previousTotal,
+        newTotal: input.order.subtotal,
+        receiptUpdated: true,
+        sendAttempted: Boolean(phoneMasked),
+        phoneMasked,
+        idempotencyKey,
+      },
+    });
+
+    if (!phoneMasked) {
+      await this.auditService.log({
+        userId: input.actorId,
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: input.order.id,
+        newValues: {
+          revision: input.order.revision,
+          previousTotal: input.previousTotal,
+          newTotal: input.order.subtotal,
+          receiptUpdated: true,
+          sendAttempted: false,
+          sendSucceeded: false,
+          failureReason: 'CUSTOMER_PHONE_MISSING',
+          phoneMasked: null,
+          idempotencyKey,
+        },
+      });
+      return;
+    }
+
+    if (await this.hasUpdatedDeliveryReceiptSent(input.order.id, input.order.revision)) {
+      return;
+    }
+
+    const sender = await this.resolveDeliveryReceiptSender();
+    if (!sender) {
+      await this.auditService.log({
+        userId: input.actorId,
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: input.order.id,
+        newValues: {
+          revision: input.order.revision,
+          previousTotal: input.previousTotal,
+          newTotal: input.order.subtotal,
+          receiptUpdated: true,
+          sendAttempted: true,
+          sendSucceeded: false,
+          failureReason: 'WHATSAPP_SERVICE_UNAVAILABLE',
+          phoneMasked,
+          idempotencyKey,
+        },
+      });
+      return;
+    }
+
+    try {
+      await sender.sendDeliveryOrderSummary(input.order.id, input.actorId, {
+        updated: true,
+        reason: 'commercial_order_change',
+        idempotencyKey,
+      });
+      await this.auditService.log({
+        userId: input.actorId,
+        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: input.order.id,
+        newValues: {
+          revision: input.order.revision,
+          previousTotal: input.previousTotal,
+          newTotal: input.order.subtotal,
+          receiptUpdated: true,
+          sendAttempted: true,
+          sendSucceeded: true,
+          phoneMasked,
+          idempotencyKey,
+        },
+      });
+    } catch (error) {
+      await this.auditService.log({
+        userId: input.actorId,
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: input.order.id,
+        newValues: {
+          revision: input.order.revision,
+          previousTotal: input.previousTotal,
+          newTotal: input.order.subtotal,
+          receiptUpdated: true,
+          sendAttempted: true,
+          sendSucceeded: false,
+          failureReason: this.sanitizeDeliveryReceiptSendFailure(error),
+          phoneMasked,
+          idempotencyKey,
+        },
+      });
+    }
   }
 
   private getWaiterAssignmentSnapshot(actor: AuthUser) {
@@ -823,7 +1049,17 @@ export class OrdersService {
     return this.sofiaPaymentLinkService.updateManualPaymentStatus(id, dto, actorId);
   }
 
-  async generateDeliveryReceiptPdf(id: string) {
+  /* Cuenta vigente para visualización: renderiza el estado actual de la orden
+     con el tipo correcto (inicial o actualizada) sin generar auditoría nueva. */
+  async generateCurrentDeliveryReceiptPdf(id: string) {
+    const version = await this.getDeliveryCommercialVersion(id);
+    return this.generateDeliveryReceiptPdf(id, { updated: version > 1, skipAudit: true });
+  }
+
+  async generateDeliveryReceiptPdf(
+    id: string,
+    options?: { updated?: boolean; actorId?: string; skipAudit?: boolean },
+  ) {
     const order = await this.prisma.orderTicket.findUnique({
       where: { id },
       include: orderInclude,
@@ -852,7 +1088,7 @@ export class OrdersService {
     const businessName =
       typeof businessProfile.name === 'string' && businessProfile.name.trim()
         ? businessProfile.name.trim()
-        : '2x1 Burger Co';
+        : '2X1 Burger Co.';
     const address = typeof businessProfile.address === 'string' ? businessProfile.address.trim() : '';
     const phone = typeof businessProfile.phone === 'string' ? businessProfile.phone.trim() : '';
     const receiptFooter =
@@ -865,198 +1101,267 @@ export class OrdersService {
           margin: 1,
           width: 180,
           color: {
-            dark: '#111827',
+            dark: '#000000',
             light: '#ffffff',
           },
         })
       : null;
 
-    const pageWidth = 58 * 2.83465;
-    const pageHeight = Math.max(460, 270 + order.items.length * 26 + (qrBuffer ? 92 : 0));
-    const margin = 12;
-    const contentWidth = pageWidth - margin * 2;
+    const version = await this.getDeliveryCommercialVersion(id);
+    const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.totalPrice), 0);
 
-    const document = new PDFDocument({
-      size: [pageWidth, pageHeight],
-      margin,
-      bufferPages: true,
+    const pdf = await renderDeliveryReceiptPdf({
+      businessName,
+      businessAddress: address || null,
+      businessPhone: phone || null,
+      receiptFooter,
+      updated: Boolean(options?.updated),
+      orderNumber: order.number,
+      version,
+      generatedAt: new Date(),
+      customerName: order.customerName,
+      deliveryReference: order.deliveryReference,
+      notes: order.notes,
+      paymentMethodLabel: DELIVERY_PAYMENT_METHOD_LABEL,
+      paymentTarget: DELIVERY_PAYMENT_TARGET,
+      items: order.items.map((item) => ({
+        name: item.product.name,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        totalPrice: Number(item.totalPrice),
+        notes: item.notes,
+      })),
+      itemsSubtotal,
+      deliveryFee: Number(order.deliveryFee),
+      total: Number(order.subtotal),
+      qrBuffer,
     });
 
-    const chunks: Buffer[] = [];
-    document.on('data', (chunk) => chunks.push(chunk));
-
-    document.fillColor('#111827').font('Helvetica-Bold').fontSize(11).text(businessName, margin, document.y, {
-      width: contentWidth,
-      align: 'center',
-    });
-
-    document.moveDown(0.2);
-    document.fillColor('#4B5563').font('Helvetica').fontSize(7.2);
-
-    if (address) {
-      document.text(address, margin, document.y, {
-        width: contentWidth,
-        align: 'center',
+    if (!options?.updated && !options?.skipAudit) {
+      await this.auditService.log({
+        userId: options?.actorId,
+        action: 'DELIVERY_RECEIPT_INITIAL_GENERATED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: order.id,
+        newValues: {
+          receiptVersion: version,
+          receiptType: 'INITIAL',
+          newTotal: order.subtotal,
+          deliveryFee: order.deliveryFee,
+          generatedAt: new Date().toISOString(),
+        },
       });
     }
 
-    if (phone) {
-      document.text(phone, margin, document.y + 1, {
-        width: contentWidth,
-        align: 'center',
-      });
-    }
+    return pdf;
+  }
 
-    document.moveDown(0.35);
-    document.roundedRect(margin + 18, document.y, contentWidth - 36, 15, 7).fillAndStroke('#EFF6FF', '#60A5FA');
-    document.fillColor('#1D4ED8').font('Helvetica-Bold').fontSize(6.8).text('DOMICILIO · PAGO PENDIENTE', margin + 18, document.y + 5, {
-      width: contentWidth - 36,
-      align: 'center',
-      lineBreak: false,
-    });
-
-    document.moveDown(1.5);
-    document.fillColor('#8A5A16').font('Helvetica-Bold').fontSize(7).text('DATOS DEL PEDIDO', margin, document.y, {
-      width: contentWidth,
-    });
-    document.moveDown(0.2);
-    this.renderReceiptMetaRow(document, 'Pedido', order.number, contentWidth, margin);
-    this.renderReceiptMetaRow(document, 'Fecha', this.formatReceiptDate(order.openedAt), contentWidth, margin);
-
-    if (order.customerName) {
-      this.renderReceiptMetaRow(document, 'Cliente', order.customerName, contentWidth, margin);
-    }
-
-    if (order.customerPhone) {
-      this.renderReceiptMetaRow(document, 'Teléfono', order.customerPhone, contentWidth, margin);
-    }
-
-    if (order.deliveryReference || order.deliveryZoneLabel || order.deliveryDistanceKm != null) {
-      document.moveDown(0.3);
-      document.fillColor('#8A5A16').font('Helvetica-Bold').fontSize(7).text('ENTREGA', margin, document.y, {
-        width: contentWidth,
-      });
-      document.moveDown(0.2);
-    }
-
-    if (order.deliveryReference) {
-      this.renderReceiptMetaRow(document, 'Dirección', order.deliveryReference, contentWidth, margin);
-    }
-
-    if (order.deliveryZoneLabel) {
-      this.renderReceiptMetaRow(document, 'Zona', order.deliveryZoneLabel, contentWidth, margin);
-    }
-
-    if (order.deliveryDistanceKm != null) {
-      this.renderReceiptMetaRow(
-        document,
-        'Distancia',
-        `${Number(order.deliveryDistanceKm).toFixed(1)} km`,
-        contentWidth,
-        margin,
-      );
-    }
-
-    if (order.notes) {
-      this.renderReceiptMetaRow(document, 'Notas', order.notes, contentWidth, margin);
-    }
-
-    document.moveDown(0.45);
-    this.renderReceiptDivider(document, margin, contentWidth);
-
-    document.moveDown(0.45);
-    document.fillColor('#8A5A16').font('Helvetica-Bold').fontSize(7).text('DETALLE', margin, document.y, {
-      width: contentWidth,
-    });
-
-    order.items.forEach((item) => {
-      document.moveDown(0.3);
-      document.fillColor('#111827').font('Helvetica-Bold').fontSize(7.2).text(item.product.name, margin, document.y, {
-        width: contentWidth,
-      });
-      document.fillColor('#4B5563').font('Helvetica').fontSize(6.8).text(
-        `${Number(item.quantity)} x ${this.formatCurrency(Number(item.unitPrice))}`,
-        margin,
-        document.y + 1,
-        { width: contentWidth * 0.58 },
-      );
-      document.fillColor('#111827').font('Helvetica-Bold').fontSize(6.8).text(
-        this.formatCurrency(Number(item.totalPrice)),
-        margin + contentWidth * 0.58,
-        document.y - 8,
-        { width: contentWidth * 0.42, align: 'right' },
-      );
-      document.moveDown(0.2);
-    });
-
-    document.moveDown(0.35);
-    this.renderReceiptDivider(document, margin, contentWidth);
-
-    document.moveDown(0.45);
-    document.fillColor('#8A5A16').font('Helvetica-Bold').fontSize(7).text('PAGO SUGERIDO', margin, document.y, {
-      width: contentWidth,
-    });
-    this.renderReceiptMetaRow(document, 'Método', DELIVERY_PAYMENT_METHOD_LABEL, contentWidth, margin);
-    this.renderReceiptMetaRow(document, 'Número', DELIVERY_PAYMENT_TARGET, contentWidth, margin);
-
-    document.moveDown(0.35);
-    this.renderReceiptDivider(document, margin, contentWidth, '#111827');
-
-    document.moveDown(0.4);
-    document.fillColor('#8A5A16').font('Helvetica-Bold').fontSize(7).text('RESUMEN DE COBRO', margin, document.y, {
-      width: contentWidth,
-    });
-    document.moveDown(0.2);
-    if (Number(order.deliveryFee) > 0) {
-      this.renderReceiptMetaRow(
-        document,
-        `Domicilio${order.deliveryZoneLabel ? ` · ${order.deliveryZoneLabel}` : ''}`,
-        this.formatCurrency(Number(order.deliveryFee)),
-        contentWidth,
-        margin,
-        true,
-      );
-    }
-    this.renderReceiptMetaRow(document, 'Total por cobrar', this.formatCurrency(Number(order.subtotal)), contentWidth, margin, true, 8.6);
-    document.moveDown(0.2);
-    document.fillColor('#4B5563').font('Helvetica').fontSize(6.7).text(
-      'Compártenos tu ubicación actual por WhatsApp para reenviarla al domiciliario.',
-      margin,
-      document.y,
-      {
-        width: contentWidth,
-        align: 'center',
+  /* Versión comercial de la cuenta: 1 (creación) + una por cada cambio comercial
+     auditado. La columna `revision` NO sirve como versión: también se incrementa
+     por eventos técnicos como la ubicación logistics-only. */
+  async getDeliveryCommercialVersion(orderId: string): Promise<number> {
+    const refreshed = await this.prisma.auditLog.count({
+      where: {
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: orderId,
+        action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
       },
-    );
+    });
+    return refreshed + 1;
+  }
 
-    if (qrBuffer) {
-      document.moveDown(0.65);
-      document.fillColor('#4B5563').font('Helvetica').fontSize(6.7).text('Escanea para escribir al WhatsApp del negocio', margin, document.y, {
-        width: contentWidth,
-        align: 'center',
-      });
-      document.moveDown(0.2);
-      const qrSize = 72;
-      const qrX = margin + (contentWidth - qrSize) / 2;
-      document.image(qrBuffer, qrX, document.y, {
-        fit: [qrSize, qrSize],
-        align: 'center',
-      });
-      document.y += qrSize + 6;
-    } else {
-      document.moveDown(0.5);
+  async getDeliveryReceiptStatus(orderId: string) {
+    const order = await this.prisma.orderTicket.findUnique({
+      where: { id: orderId },
+      select: { id: true, type: true, number: true, subtotal: true, deliveryFee: true, openedAt: true },
+    });
+    if (!order) throw new NotFoundException('No se encontró la comanda.');
+    if (order.type !== OrderTicketType.DELIVERY) {
+      throw new BadRequestException('Solo las comandas de domicilio tienen cuenta de domicilio.');
     }
 
-    document.fillColor('#4B5563').font('Helvetica').fontSize(6.7).text(receiptFooter, margin, document.y, {
-      width: contentWidth,
-      align: 'center',
+    const version = await this.getDeliveryCommercialVersion(orderId);
+    const sendEvents = await this.prisma.auditLog.findMany({
+      where: {
+        entityId: orderId,
+        action: {
+          in: [
+            'DELIVERY_RECEIPT_INITIAL_SEND_REQUESTED',
+            'DELIVERY_RECEIPT_INITIAL_SENT',
+            'DELIVERY_RECEIPT_INITIAL_SEND_FAILED',
+            'DELIVERY_UPDATED_RECEIPT_SEND_REQUESTED',
+            'DELIVERY_UPDATED_RECEIPT_SENT',
+            'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+    });
+    const lastRefresh = await this.prisma.auditLog.findFirst({
+      where: { entityId: orderId, action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    /* Compatibilidad con envíos iniciales previos al estándar de eventos. */
+    const legacyInitialSend = await this.prisma.auditLog.findFirst({
+      where: { entityId: orderId, module: 'whatsapp', entity: 'delivery_order_summary', action: 'SEND' },
+      orderBy: { createdAt: 'desc' },
     });
 
-    document.end();
+    const latest = sendEvents[0] ?? null;
+    let sendStatus: string = 'NOT_REQUESTED';
+    let sentAt: string | null = null;
+    if (latest) {
+      const values = this.readAuditJsonObject(latest.newValues);
+      if (latest.action.endsWith('_SENT')) {
+        sendStatus = 'SENT';
+        sentAt = latest.createdAt.toISOString();
+      } else if (latest.action.endsWith('_SEND_FAILED')) {
+        sendStatus = values.failureReason === 'CUSTOMER_PHONE_MISSING' ? 'SKIPPED_NO_PHONE' : 'FAILED';
+      } else {
+        sendStatus = 'PENDING';
+      }
+    } else if (legacyInitialSend) {
+      sendStatus = 'SENT';
+      sentAt = legacyInitialSend.createdAt.toISOString();
+    }
 
-    return await new Promise<Buffer>((resolve) => {
-      document.on('end', () => resolve(Buffer.concat(chunks)));
+    return {
+      orderId: order.id,
+      orderNumber: order.number,
+      version,
+      status: 'ACTIVE',
+      total: Number(order.subtotal),
+      deliveryFee: Number(order.deliveryFee),
+      lastGeneratedAt: (lastRefresh?.createdAt ?? order.openedAt).toISOString(),
+      sendStatus,
+      sentAt,
+    };
+  }
+
+  async getDeliveryReceiptHistory(orderId: string) {
+    const order = await this.prisma.orderTicket.findUnique({
+      where: { id: orderId },
+      select: { id: true, type: true, number: true, subtotal: true, openedAt: true },
     });
+    if (!order) throw new NotFoundException('No se encontró la comanda.');
+    if (order.type !== OrderTicketType.DELIVERY) {
+      throw new BadRequestException('Solo las comandas de domicilio tienen historial de cuenta.');
+    }
+
+    const [refreshEvents, itemEvents, createEvent] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: { entityId: orderId, action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED' },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { entityId: orderId, module: 'orders', action: 'UPDATE_ITEMS' },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.auditLog.findFirst({
+        where: { entityId: orderId, module: 'orders', action: 'CREATE' },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const snapshots: Array<Array<{ productId: string; quantity: number }>> = [];
+    const createItems = this.readAuditItems(createEvent?.newValues);
+    if (createItems) snapshots.push(createItems);
+    for (const event of itemEvents) {
+      const items = this.readAuditItems(event.newValues);
+      if (items) snapshots.push(items);
+    }
+
+    const productIds = [...new Set(snapshots.flat().map((item) => item.productId))];
+    const products = productIds.length
+      ? await this.prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
+      : [];
+    const productNames = new Map(products.map((product) => [product.id, product.name]));
+
+    const totalVersions = refreshEvents.length + 1;
+    const versions = [
+      {
+        version: 1,
+        receiptType: 'INITIAL',
+        status: totalVersions === 1 ? 'ACTIVE' : 'REPLACED',
+        generatedAt: order.openedAt.toISOString(),
+        summary: 'Creación inicial',
+        previousTotal: null as number | null,
+        newTotal: refreshEvents[0]
+          ? this.readAuditNumber(refreshEvents[0].oldValues, 'previousTotal')
+          : Number(order.subtotal),
+      },
+      ...refreshEvents.map((event, index) => {
+        const values = this.readAuditJsonObject(event.newValues);
+        const previous = this.readAuditJsonObject(event.oldValues);
+        const before = snapshots[index];
+        const after = snapshots[index + 1];
+        return {
+          version: index + 2,
+          receiptType: 'UPDATED',
+          status: index + 2 === totalVersions ? 'ACTIVE' : 'REPLACED',
+          generatedAt: event.createdAt.toISOString(),
+          summary: this.describeItemsDiff(before, after, productNames) ?? 'Cambio comercial del pedido',
+          previousTotal: this.readAuditNumber(previous, 'previousTotal'),
+          newTotal: this.readAuditNumber(values, 'newTotal'),
+        };
+      }),
+    ];
+
+    return { orderId: order.id, orderNumber: order.number, currentVersion: totalVersions, versions };
+  }
+
+  private readAuditItems(value: Prisma.JsonValue | null | undefined) {
+    const record = this.readAuditJsonObject(value);
+    if (!Array.isArray(record.items)) return null;
+    const items: Array<{ productId: string; quantity: number }> = [];
+    for (const raw of record.items) {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const entry = raw as Record<string, unknown>;
+        if (typeof entry.productId === 'string') {
+          items.push({ productId: entry.productId, quantity: Number(entry.quantity ?? 0) });
+        }
+      }
+    }
+    return items;
+  }
+
+  private readAuditNumber(value: Prisma.JsonValue | Record<string, unknown> | null | undefined, key: string) {
+    const record =
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    const raw = record[key];
+    return raw == null || Number.isNaN(Number(raw)) ? null : Number(raw);
+  }
+
+  private describeItemsDiff(
+    before: Array<{ productId: string; quantity: number }> | undefined,
+    after: Array<{ productId: string; quantity: number }> | undefined,
+    productNames: Map<string, string>,
+  ) {
+    if (!before || !after) return null;
+    const totals = (list: Array<{ productId: string; quantity: number }>) => {
+      const map = new Map<string, number>();
+      for (const item of list) map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity);
+      return map;
+    };
+    const beforeMap = totals(before);
+    const afterMap = totals(after);
+    const parts: string[] = [];
+    for (const [productId, quantity] of afterMap) {
+      const previous = beforeMap.get(productId) ?? 0;
+      if (quantity > previous) {
+        parts.push(`+${quantity - previous} ${productNames.get(productId) ?? 'producto'}`);
+      }
+    }
+    for (const [productId, quantity] of beforeMap) {
+      const next = afterMap.get(productId) ?? 0;
+      if (next < quantity) {
+        parts.push(`-${quantity - next} ${productNames.get(productId) ?? 'producto'}`);
+      }
+    }
+    return parts.length ? parts.join(', ') : null;
   }
 
   async create(dto: CreateOrderTicketDto, actor: AuthUser) {
@@ -1451,12 +1756,13 @@ export class OrdersService {
       await this.tablesService.assertWaiterCanOperateTable(actor, current.tableId, this.prisma);
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const updateResult = await this.prisma.$transaction(async (tx) => {
       const items = await this.buildOrderItems(tx, dto.items);
       const itemsSubtotal = items.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
       const currentOrder = await tx.orderTicket.findUniqueOrThrow({
         where: { id },
         select: {
+          id: true,
           type: true,
           customerName: true,
           customerPhone: true,
@@ -1488,18 +1794,32 @@ export class OrdersService {
           deliveryWeatherProvider: true,
           deliveryGeocodingProvider: true,
           deliveryEstimatedMinutes: true,
+          items: {
+            select: {
+              productId: true,
+              quantity: true,
+              unitPrice: true,
+              totalPrice: true,
+              notes: true,
+            },
+          },
         },
       });
-      const deliverySnapshot =
+      if (this.areCommercialItemsEqual(currentOrder.items, items)) {
+        return {
+          order: await tx.orderTicket.findUniqueOrThrow({
+            where: { id },
+            include: orderInclude,
+          }),
+          commercialChanged: false,
+        };
+      }
+
+      const preservedDeliveryFee =
         currentOrder.type === OrderTicketType.DELIVERY
-          ? await this.resolveDeliverySnapshot(tx, {
-              customerName: currentOrder.customerName,
-              customerPhone: currentOrder.customerPhone,
-              deliveryReference: currentOrder.deliveryReference,
-              existing: currentOrder,
-            })
-          : null;
-      const subtotal = itemsSubtotal.add(deliverySnapshot?.deliveryFee ?? new Prisma.Decimal(0));
+          ? new Prisma.Decimal(currentOrder.deliveryFee ?? 0)
+          : new Prisma.Decimal(0);
+      const subtotal = itemsSubtotal.add(preservedDeliveryFee);
 
       const result = await tx.orderTicket.updateMany({
         where: {
@@ -1509,49 +1829,47 @@ export class OrdersService {
         data: {
           subtotal,
           deliveryAddressNormalized:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryAddressNormalized ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryAddressNormalized ?? null : null,
           deliveryLatitude:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLatitude ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryLatitude ?? null : null,
           deliveryLongitude:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLongitude ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryLongitude ?? null : null,
           deliveryDistanceKm:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryDistanceKm ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryDistanceKm ?? null : null,
           deliveryZoneLabel:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryZoneLabel ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryZoneLabel ?? null : null,
           deliveryFee:
-            currentOrder.type === OrderTicketType.DELIVERY
-              ? deliverySnapshot?.deliveryFee ?? new Prisma.Decimal(0)
-              : new Prisma.Decimal(0),
+            currentOrder.type === OrderTicketType.DELIVERY ? preservedDeliveryFee : new Prisma.Decimal(0),
           deliveryFeeSuggested:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryFeeSuggested ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryFeeSuggested ?? null : null,
           deliveryFeeEdited:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryFeeEdited ?? false : false,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryFeeEdited ?? false : false,
           deliveryFeeEditReason:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryFeeEditReason ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryFeeEditReason ?? null : null,
           deliveryPricingStatus:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryPricingStatus ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryPricingStatus ?? null : null,
           deliveryPricingConfidence:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryPricingConfidence ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryPricingConfidence ?? null : null,
           deliveryPricingBreakdown:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryPricingBreakdown ?? Prisma.JsonNull : Prisma.JsonNull,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryPricingBreakdown ?? Prisma.JsonNull : Prisma.JsonNull,
           deliveryCalculationVersion:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryCalculationVersion ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryCalculationVersion ?? null : null,
           deliveryRequiresManualQuote:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryRequiresManualQuote ?? false : false,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryRequiresManualQuote ?? false : false,
           deliveryRouteProvider:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryRouteProvider ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryRouteProvider ?? null : null,
           deliveryWeatherProvider:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryWeatherProvider ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryWeatherProvider ?? null : null,
           deliveryGeocodingProvider:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryGeocodingProvider ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryGeocodingProvider ?? null : null,
           deliveryEstimatedMinutes:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryEstimatedMinutes ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryEstimatedMinutes ?? null : null,
           deliveryLocationSource:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLocationSource ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryLocationSource ?? null : null,
           deliveryLocationReceivedAt:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLocationReceivedAt ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryLocationReceivedAt ?? null : null,
           deliveryCustomerId:
-            currentOrder.type === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryCustomerId ?? null : null,
+            currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryCustomerId ?? null : null,
           deliveryWorkflowStatus:
             currentOrder.type === OrderTicketType.DELIVERY
               ? current.deliveryWorkflowStatus ?? (current.assignedRiderId ? DeliveryWorkflowStatus.ASSIGNED : DeliveryWorkflowStatus.PENDING_ASSIGNMENT)
@@ -1571,13 +1889,6 @@ export class OrdersService {
         );
       }
 
-      if (deliverySnapshot?.deliveryPricingAuditId) {
-        await tx.deliveryPricingAudit.updateMany({
-          where: { id: deliverySnapshot.deliveryPricingAuditId, orderTicketId: null },
-          data: { orderTicketId: id },
-        });
-      }
-
       await tx.orderTicketItem.deleteMany({
         where: { orderTicketId: id },
       });
@@ -1593,11 +1904,15 @@ export class OrdersService {
         })),
       });
 
-      return tx.orderTicket.findUniqueOrThrow({
-        where: { id },
-        include: orderInclude,
-      });
+      return {
+        order: await tx.orderTicket.findUniqueOrThrow({
+          where: { id },
+          include: orderInclude,
+        }),
+        commercialChanged: true,
+      };
     });
+    const updated = updateResult.order;
 
     await this.auditService.log({
       userId: actor.sub,
@@ -1607,6 +1922,54 @@ export class OrdersService {
       entityId: id,
       newValues: dto,
     });
+
+    if (updated.type === OrderTicketType.DELIVERY && updateResult.commercialChanged) {
+      /* El audit REFRESHED se registra antes de generar el PDF: la versión
+         comercial se deriva contando estos eventos, así el PDF nuevo ya sale
+         numerado como la versión que estrena. */
+      const previousVersion = await this.getDeliveryCommercialVersion(updated.id);
+      const newVersion = previousVersion + 1;
+      await this.auditService.log({
+        userId: actor.sub,
+        action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: id,
+        oldValues: {
+          previousTotal: current.subtotal,
+        },
+        newValues: {
+          newTotal: updated.subtotal,
+          deliveryFee: updated.deliveryFee,
+          receiptVersion: newVersion,
+          receiptRegenerated: true,
+          message: 'Pedido actualizado. Nueva cuenta generada con total vigente.',
+        },
+      });
+      await this.auditService.log({
+        userId: actor.sub,
+        action: 'DELIVERY_RECEIPT_REPLACED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: id,
+        oldValues: {
+          receiptVersion: previousVersion,
+          status: 'REPLACED',
+        },
+        newValues: {
+          receiptVersion: newVersion,
+          status: 'ACTIVE',
+          previousTotal: current.subtotal,
+          newTotal: updated.subtotal,
+        },
+      });
+      await this.generateDeliveryReceiptPdf(updated.id, { updated: true, actorId: actor.sub });
+      await this.sendUpdatedDeliveryReceiptAfterCommercialChange({
+        order: updated,
+        actorId: actor.sub,
+        previousTotal: current.subtotal,
+      });
+    }
 
     this.realtimeService.publishOrderUpdated({
       entityId: updated.id,
@@ -2793,7 +3156,7 @@ export class OrdersService {
     return result;
   }
 
-  private async applyDeliveryLocationToOrder(
+  private async applyDeliveryLocationForLogisticsOnly(
     order: {
       id: string;
       number: string;
@@ -2830,43 +3193,42 @@ export class OrdersService {
     actorId?: string,
   ) {
     const updated = await this.prisma.$transaction(async (tx) => {
-      const snapshot = await this.resolveDeliverySnapshot(tx, {
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        deliveryReference: order.deliveryReference,
-        latitude,
-        longitude,
-        locationSource: 'whatsapp_live_location',
-        existing: order,
-      });
-      const itemsSubtotal = order.items.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
-      const subtotal = itemsSubtotal.add(snapshot.deliveryFee);
+      const normalizedPhone = this.normalizeDeliveryPhone(order.customerPhone);
+      let deliveryCustomerId = order.deliveryCustomerId ?? null;
+      if (normalizedPhone) {
+        const deliveryCustomer = await tx.deliveryCustomer.upsert({
+          where: { phone: normalizedPhone },
+          update: {
+            fullName: order.customerName?.trim() || undefined,
+            defaultAddress: order.deliveryReference?.trim() || undefined,
+            defaultReference: order.deliveryReference?.trim() || undefined,
+            lastLatitude: new Prisma.Decimal(latitude),
+            lastLongitude: new Prisma.Decimal(longitude),
+            lastLocationAt: new Date(),
+          },
+          create: {
+            phone: normalizedPhone,
+            fullName: order.customerName?.trim() || null,
+            defaultAddress: order.deliveryReference?.trim() || null,
+            defaultReference: order.deliveryReference?.trim() || null,
+            lastLatitude: new Prisma.Decimal(latitude),
+            lastLongitude: new Prisma.Decimal(longitude),
+            lastZoneLabel: order.deliveryZoneLabel ?? null,
+            lastDistanceKm: order.deliveryDistanceKm ?? null,
+            lastLocationAt: new Date(),
+          },
+        });
+        deliveryCustomerId = deliveryCustomer.id;
+      }
 
       return tx.orderTicket.update({
         where: { id: order.id },
         data: {
-          subtotal,
-          deliveryAddressNormalized: snapshot.deliveryAddressNormalized,
-          deliveryLatitude: snapshot.deliveryLatitude,
-          deliveryLongitude: snapshot.deliveryLongitude,
-          deliveryDistanceKm: snapshot.deliveryDistanceKm,
-          deliveryZoneLabel: snapshot.deliveryZoneLabel,
-          deliveryFee: snapshot.deliveryFee,
-          deliveryFeeSuggested: snapshot.deliveryFeeSuggested,
-          deliveryFeeEdited: snapshot.deliveryFeeEdited,
-          deliveryFeeEditReason: snapshot.deliveryFeeEditReason,
-          deliveryPricingStatus: snapshot.deliveryPricingStatus,
-          deliveryPricingConfidence: snapshot.deliveryPricingConfidence,
-          deliveryPricingBreakdown: snapshot.deliveryPricingBreakdown,
-          deliveryCalculationVersion: snapshot.deliveryCalculationVersion,
-          deliveryRequiresManualQuote: snapshot.deliveryRequiresManualQuote,
-          deliveryRouteProvider: snapshot.deliveryRouteProvider,
-          deliveryWeatherProvider: snapshot.deliveryWeatherProvider,
-          deliveryGeocodingProvider: snapshot.deliveryGeocodingProvider,
-          deliveryEstimatedMinutes: snapshot.deliveryEstimatedMinutes,
-          deliveryLocationSource: snapshot.deliveryLocationSource,
-          deliveryLocationReceivedAt: snapshot.deliveryLocationReceivedAt,
-          deliveryCustomerId: snapshot.deliveryCustomerId,
+          deliveryLatitude: new Prisma.Decimal(latitude),
+          deliveryLongitude: new Prisma.Decimal(longitude),
+          deliveryLocationSource: 'whatsapp_live_location',
+          deliveryLocationReceivedAt: new Date(),
+          deliveryCustomerId,
           deliveryStatusUpdatedAt: new Date(),
           revision: {
             increment: 1,
@@ -2878,18 +3240,19 @@ export class OrdersService {
 
     await this.auditService.log({
       userId: actorId || undefined,
-      action: 'DELIVERY_LOCATION_UPDATE',
+      action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
       module: 'orders',
       entity: 'order_ticket',
       entityId: updated.id,
       newValues: {
-        customerPhone: this.normalizeDeliveryPhone(order.customerPhone),
+        phoneMasked: this.maskPhoneForAudit(order.customerPhone),
         latitude,
         longitude,
-        deliveryFee: updated.deliveryFee,
-        deliveryDistanceKm: updated.deliveryDistanceKm,
-        deliveryZoneLabel: updated.deliveryZoneLabel,
-        source: 'whatsapp_live_location',
+        source: 'whatsapp_location',
+        pricingPreserved: true,
+        feeChanged: false,
+        totalChanged: false,
+        locationSavedForDelivery: true,
       },
     });
 
@@ -2997,7 +3360,7 @@ export class OrdersService {
       };
     }
 
-    const updated = await this.applyDeliveryLocationToOrder(
+    const updated = await this.applyDeliveryLocationForLogisticsOnly(
       matched.order!,
       input.latitude,
       input.longitude,
@@ -3021,15 +3384,19 @@ export class OrdersService {
       module: 'deliveries',
       severity: OperationalAlertSeverity.INFO,
       title: 'Ubicación en vivo recibida',
-      message: `El pedido ${updated.number} recibió ubicación en vivo y recalculó distancia/tarifa.`,
+      message: `El pedido ${updated.number} recibió ubicación para logística. Tarifa de domicilio conservada.`,
       entityType: 'order_ticket',
       entityId: updated.id,
       actorId: input.actorId ?? null,
       deliveryLocationInboxId: appliedInbox.id,
       metadata: {
         matchedRule: matched.rule,
-        deliveryZoneLabel: updated.deliveryZoneLabel,
-        deliveryDistanceKm: updated.deliveryDistanceKm,
+        event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+        source: 'whatsapp_location',
+        pricingPreserved: true,
+        feeChanged: false,
+        totalChanged: false,
+        locationSavedForDelivery: true,
       },
     });
 
@@ -3176,7 +3543,7 @@ export class OrdersService {
 
     this.assertDeliveryOrder(order);
 
-    const updatedOrder = await this.applyDeliveryLocationToOrder(
+    const updatedOrder = await this.applyDeliveryLocationForLogisticsOnly(
       order,
       Number(inbox.latitude),
       Number(inbox.longitude),
@@ -3208,13 +3575,19 @@ export class OrdersService {
       module: 'deliveries',
       severity: OperationalAlertSeverity.INFO,
       title: 'Ubicación aplicada manualmente',
-      message: `La ubicación pendiente quedó vinculada a ${updatedOrder.number}.`,
+      message: `La ubicación pendiente quedó vinculada a ${updatedOrder.number}. Tarifa de domicilio conservada.`,
       entityType: 'order_ticket',
       entityId: updatedOrder.id,
       actorId: actor.sub,
       deliveryLocationInboxId: resolvedInbox.id,
       metadata: {
+        event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
         matchedRule: 'manual_resolution',
+        source: 'whatsapp_location',
+        pricingPreserved: true,
+        feeChanged: false,
+        totalChanged: false,
+        locationSavedForDelivery: true,
       },
     });
 
@@ -3405,6 +3778,12 @@ export class OrdersService {
     const deliveryZoneLabel = pricing.zoneLabel;
     const deliveryFeeSuggested = pricing.suggestedFee != null ? new Prisma.Decimal(pricing.suggestedFee) : null;
     const deliveryEstimatedMinutes = pricing.estimatedMinutes != null ? new Prisma.Decimal(pricing.estimatedMinutes) : null;
+    const deliveryDistanceKm =
+      pricing.distanceKm != null
+        ? new Prisma.Decimal(pricing.distanceKm)
+        : !referenceChanged && input.existing?.deliveryDistanceKm != null
+          ? new Prisma.Decimal(input.existing.deliveryDistanceKm)
+          : null;
 
     const deliveryCustomer = await tx.deliveryCustomer.upsert({
       where: { phone: normalizedPhone },
@@ -3415,7 +3794,7 @@ export class OrdersService {
         lastLatitude: latitude != null ? new Prisma.Decimal(latitude) : undefined,
         lastLongitude: longitude != null ? new Prisma.Decimal(longitude) : undefined,
         lastZoneLabel: deliveryZoneLabel ?? undefined,
-        lastDistanceKm: input.existing?.deliveryDistanceKm ?? undefined,
+        lastDistanceKm: deliveryDistanceKm ?? undefined,
         lastLocationAt: latitude != null && longitude != null ? new Date() : undefined,
       },
       create: {
@@ -3426,7 +3805,7 @@ export class OrdersService {
         lastLatitude: latitude != null ? new Prisma.Decimal(latitude) : null,
         lastLongitude: longitude != null ? new Prisma.Decimal(longitude) : null,
         lastZoneLabel: deliveryZoneLabel,
-        lastDistanceKm: null,
+        lastDistanceKm: deliveryDistanceKm,
         lastLocationAt: latitude != null && longitude != null ? new Date() : null,
       },
     });
@@ -3436,12 +3815,7 @@ export class OrdersService {
       deliveryAddressNormalized: normalizedAddress ?? rawReference,
       deliveryLatitude: latitude != null ? new Prisma.Decimal(latitude) : null,
       deliveryLongitude: longitude != null ? new Prisma.Decimal(longitude) : null,
-      deliveryDistanceKm:
-        pricing.distanceKm != null
-          ? new Prisma.Decimal(pricing.distanceKm)
-          : !referenceChanged && input.existing?.deliveryDistanceKm != null
-            ? new Prisma.Decimal(input.existing.deliveryDistanceKm)
-            : null,
+      deliveryDistanceKm,
       deliveryZoneLabel,
       deliveryFee,
       deliveryFeeSuggested,
@@ -3616,71 +3990,6 @@ export class OrdersService {
     );
   }
 
-  private renderReceiptMetaRow(
-    document: PDFKit.PDFDocument,
-    label: string,
-    value: string,
-    width: number,
-    x: number,
-    boldValue = false,
-    valueSize = 7.1,
-  ) {
-    const y = document.y;
-    const labelWidth = width * 0.38;
-    const valueWidth = width * 0.62;
-    const gutter = 6;
-    const normalizedLabel = label.trim();
-    const normalizedValue = value.trim();
-    const labelHeight = document.heightOfString(normalizedLabel, {
-      width: labelWidth,
-      align: 'left',
-    });
-    const valueHeight = document.heightOfString(normalizedValue, {
-      width: valueWidth - gutter,
-      align: 'right',
-    });
-
-    document.fillColor('#4B5563').font('Helvetica').fontSize(6.8).text(normalizedLabel, x, y, {
-      width: labelWidth,
-      align: 'left',
-    });
-    document
-      .fillColor('#111827')
-      .font(boldValue ? 'Helvetica-Bold' : 'Helvetica')
-      .fontSize(valueSize)
-      .text(normalizedValue, x + labelWidth + gutter, y, {
-        width: valueWidth - gutter,
-        align: 'right',
-      });
-    document.y = Math.max(document.y, y + Math.max(labelHeight, valueHeight) + 4);
-  }
-
-  private renderReceiptDivider(
-    document: PDFKit.PDFDocument,
-    x: number,
-    width: number,
-    color = '#D6D3D1',
-  ) {
-    const y = document.y;
-    document
-      .strokeColor(color)
-      .lineWidth(0.7)
-      .moveTo(x, y)
-      .lineTo(x + width, y)
-      .stroke();
-    document.y = y;
-  }
-
-  private formatReceiptDate(value: Date | string) {
-    return new Date(value).toLocaleString('es-CO', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'America/Bogota',
-    });
-  }
 
   private formatCurrency(value: number) {
     return new Intl.NumberFormat('es-CO', {

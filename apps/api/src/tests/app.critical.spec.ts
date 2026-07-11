@@ -4,12 +4,16 @@ import { closeTestApp, createTestApp } from './helpers/test-app';
 import { resetDatabase, seedTestData } from './helpers/test-data';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrdersService } from '../modules/orders/orders.service';
+import { DeliveryPricingService } from '../delivery/delivery-pricing/delivery-pricing.service';
+import { WhatsappService } from '../modules/whatsapp/whatsapp.service';
 import { Prisma, SaleChannel, SaleStatus } from '@prisma/client';
 
 describe('Critical business flows', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let ordersService: OrdersService;
+  let deliveryPricingService: DeliveryPricingService;
+  let whatsappService: WhatsappService;
   let loginAttempt = 0;
 
   beforeAll(async () => {
@@ -30,6 +34,8 @@ describe('Critical business flows', () => {
     app = testApp.app;
     prisma = testApp.prisma;
     ordersService = app.get(OrdersService);
+    deliveryPricingService = app.get(DeliveryPricingService);
+    whatsappService = app.get(WhatsappService);
   });
 
   afterAll(async () => {
@@ -2940,25 +2946,41 @@ describe('Critical business flows', () => {
       })
       .expect(201);
 
+    const originalOrder = await prisma.orderTicket.findUniqueOrThrow({
+      where: { id: createResponse.body.id },
+    });
+    const estimateSpy = jest.spyOn(deliveryPricingService, 'estimate');
+
     const updatedOrder = await ordersService.applyDeliveryLocationFromWhatsapp('', 3.2556, -76.5417);
 
     expect(updatedOrder).not.toBeNull();
     expect(updatedOrder?.id).toBe(createResponse.body.id);
     expect(updatedOrder?.deliveryLocationReceivedAt).toBeTruthy();
     expect(updatedOrder?.deliveryLocationSource).toBe('whatsapp_live_location');
-    expect(Number(updatedOrder?.deliveryFee)).not.toBe(123456);
-    expect(updatedOrder?.deliveryFeeEdited).toBe(false);
+    expect(Number(updatedOrder?.deliveryLatitude)).toBeCloseTo(3.2556);
+    expect(Number(updatedOrder?.deliveryLongitude)).toBeCloseTo(-76.5417);
+    expect(Number(updatedOrder?.deliveryFee)).toBe(Number(originalOrder.deliveryFee));
+    expect(Number(updatedOrder?.subtotal)).toBe(Number(originalOrder.subtotal));
+    expect(updatedOrder?.deliveryPricingBreakdown).toEqual(originalOrder.deliveryPricingBreakdown);
+    expect(estimateSpy).not.toHaveBeenCalled();
+    estimateSpy.mockRestore();
 
     const auditEntry = await prisma.auditLog.findFirst({
       where: {
         entity: 'order_ticket',
         entityId: createResponse.body.id,
-        action: 'DELIVERY_LOCATION_UPDATE',
+        action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
       },
       orderBy: { createdAt: 'desc' },
     });
 
     expect(auditEntry).toBeTruthy();
+    expect(auditEntry?.newValues).toMatchObject({
+      pricingPreserved: true,
+      feeChanged: false,
+      totalChanged: false,
+      locationSavedForDelivery: true,
+    });
   });
 
   it('applies shared live location to the most recent active delivery order when all active delivery orders belong to the same phone', async () => {
@@ -3159,6 +3181,338 @@ describe('Critical business flows', () => {
     expect(patched.body.deliveryLocationReceivedAt).toBeTruthy();
     expect(patched.body.deliveryLatitude).toBeTruthy();
     expect(patched.body.deliveryLongitude).toBeTruthy();
+  });
+
+  it('refreshes delivery account after commercial item changes while preserving persisted delivery fee', async () => {
+    const { accessToken } = await login();
+    const [burger, soda] = await Promise.all([
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'HAMB-2X1' },
+      }),
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'CC-ORG-400' },
+      }),
+    ]);
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Cuenta actualizada',
+        customerPhone: '3215550505',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const originalFee = Number(created.body.deliveryFee);
+    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+      success: true,
+      phone: '3215550505',
+      orderNumber: created.body.number,
+      updated: true,
+      sentAt: new Date().toISOString(),
+    });
+
+    const updated = await request(app.getHttpServer())
+      .put(`/orders/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        expectedRevision: created.body.revision,
+        items: [
+          { productId: burger.id, quantity: 1 },
+          { productId: soda.id, quantity: 2 },
+        ],
+      })
+      .expect(200);
+
+    expect(Number(updated.body.deliveryFee)).toBe(originalFee);
+    expect(Number(updated.body.subtotal)).toBe(
+      Number(burger.salePrice) + Number(soda.salePrice) * 2 + originalFee,
+    );
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).toHaveBeenCalledWith(
+      created.body.id,
+      expect.any(String),
+      expect.objectContaining({
+        updated: true,
+        reason: 'commercial_order_change',
+        idempotencyKey: `DELIVERY_RECEIPT_UPDATED_SENT:${created.body.id}:${updated.body.revision}`,
+      }),
+    );
+
+    const auditEntry = await prisma.auditLog.findFirst({
+      where: {
+        entity: 'order_ticket',
+        entityId: created.body.id,
+        action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(auditEntry).toBeTruthy();
+    expect(auditEntry?.newValues).toMatchObject({
+      receiptRegenerated: true,
+      message: 'Pedido actualizado. Nueva cuenta generada con total vigente.',
+    });
+
+    const sentAudit = await prisma.auditLog.findFirst({
+      where: {
+        entity: 'order_ticket',
+        entityId: created.body.id,
+        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(sentAudit).toBeTruthy();
+    expect(sentAudit?.newValues).toMatchObject({
+      revision: updated.body.revision,
+      receiptUpdated: true,
+      sendAttempted: true,
+      sendSucceeded: true,
+      phoneMasked: expect.stringMatching(/^\*+0505$/),
+    });
+    sendSpy.mockRestore();
+  });
+
+  it('does not send a duplicate updated delivery account when items did not change', async () => {
+    const { accessToken } = await login();
+    const burger = await prisma.product.findUniqueOrThrow({
+      where: { code: 'HAMB-2X1' },
+    });
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Sin duplicado',
+        customerPhone: '3215550606',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+      success: true,
+      phone: '3215550606',
+      orderNumber: created.body.number,
+      updated: true,
+      sentAt: new Date().toISOString(),
+    });
+
+    const updated = await request(app.getHttpServer())
+      .put(`/orders/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        expectedRevision: created.body.revision,
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(200);
+
+    expect(updated.body.revision).toBe(created.body.revision);
+    expect(sendSpy).not.toHaveBeenCalled();
+    sendSpy.mockRestore();
+  });
+
+  it('does not generate or send updated delivery account when WhatsApp location arrives', async () => {
+    const { accessToken } = await login();
+    const burger = await prisma.product.findUniqueOrThrow({
+      where: { code: 'HAMB-2X1' },
+    });
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Ubicacion no cuenta',
+        customerPhone: '3215550707',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+      success: true,
+      phone: '3215550707',
+      orderNumber: created.body.number,
+      updated: true,
+      sentAt: new Date().toISOString(),
+    });
+
+    await ordersService.applyDeliveryLocationFromWhatsapp('3215550707', 3.2556, -76.5417);
+
+    expect(sendSpy).not.toHaveBeenCalled();
+    const receiptRefresh = await prisma.auditLog.findFirst({
+      where: {
+        entity: 'order_ticket',
+        entityId: created.body.id,
+        action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
+      },
+    });
+    expect(receiptRefresh).toBeNull();
+    sendSpy.mockRestore();
+  });
+
+  it('keeps commercial delivery update when updated receipt WhatsApp send fails', async () => {
+    const { accessToken } = await login();
+    const [burger, soda] = await Promise.all([
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'HAMB-2X1' },
+      }),
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'CC-ORG-400' },
+      }),
+    ]);
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Fallo WhatsApp',
+        customerPhone: '3215550808',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const sendSpy = jest
+      .spyOn(whatsappService, 'sendDeliveryOrderSummary')
+      .mockRejectedValue(new Error('WhatsApp desconectado para test'));
+
+    const updated = await request(app.getHttpServer())
+      .put(`/orders/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        expectedRevision: created.body.revision,
+        items: [
+          { productId: burger.id, quantity: 1 },
+          { productId: soda.id, quantity: 1 },
+        ],
+      })
+      .expect(200);
+
+    expect(Number(updated.body.subtotal)).toBe(Number(created.body.subtotal) + Number(soda.salePrice));
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+
+    const failedAudit = await prisma.auditLog.findFirst({
+      where: {
+        entity: 'order_ticket',
+        entityId: created.body.id,
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(failedAudit).toBeTruthy();
+    expect(failedAudit?.newValues).toMatchObject({
+      revision: updated.body.revision,
+      receiptUpdated: true,
+      sendAttempted: true,
+      sendSucceeded: false,
+      phoneMasked: expect.stringMatching(/^\*+0808$/),
+    });
+    sendSpy.mockRestore();
+  });
+
+  it('keeps commercial delivery update and records failure when customer phone is missing', async () => {
+    const { accessToken } = await login();
+    const [burger, soda] = await Promise.all([
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'HAMB-2X1' },
+      }),
+      prisma.product.findUniqueOrThrow({
+        where: { code: 'CC-ORG-400' },
+      }),
+    ]);
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Sin telefono',
+        customerPhone: '3215550909',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const withoutPhone = await prisma.orderTicket.update({
+      where: { id: created.body.id },
+      data: { customerPhone: null },
+    });
+
+    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary');
+
+    const updated = await request(app.getHttpServer())
+      .put(`/orders/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        expectedRevision: withoutPhone.revision,
+        items: [
+          { productId: burger.id, quantity: 1 },
+          { productId: soda.id, quantity: 1 },
+        ],
+      })
+      .expect(200);
+
+    expect(Number(updated.body.subtotal)).toBe(Number(created.body.subtotal) + Number(soda.salePrice));
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    const failedAudit = await prisma.auditLog.findFirst({
+      where: {
+        entity: 'order_ticket',
+        entityId: created.body.id,
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(failedAudit).toBeTruthy();
+    expect(failedAudit?.newValues).toMatchObject({
+      revision: updated.body.revision,
+      receiptUpdated: true,
+      sendAttempted: false,
+      sendSucceeded: false,
+      failureReason: 'CUSTOMER_PHONE_MISSING',
+      phoneMasked: null,
+    });
+    sendSpy.mockRestore();
   });
 
   it('delivery issues create persistent issue records and alerts visible to admin', async () => {

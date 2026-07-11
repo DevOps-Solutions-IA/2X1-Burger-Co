@@ -24,6 +24,8 @@ docs/sofia-current-state.md
 
 No usar reportes historicos como fuente actual de verdad si estan marcados `HISTORICO / OBSOLETO`.
 
+Delivery Phase A está congelada. Consultar `docs/delivery-phase-a-frozen.md` antes de modificar el flujo de cuentas de domicilio.
+
 ## Reglas duras
 
 Prohibido activar:

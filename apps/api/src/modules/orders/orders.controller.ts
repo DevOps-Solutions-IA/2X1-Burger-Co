@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -99,6 +100,27 @@ export class OrdersController {
     @CurrentUser('sub') actorId: string,
   ) {
     return this.ordersService.updateSofiaPaymentStatus(id, dto, actorId);
+  }
+
+  @Get(':id/delivery-receipt')
+  @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  async getDeliveryReceipt(@Param('id') id: string, @Res() res: Response) {
+    const pdf = await this.ordersService.generateCurrentDeliveryReceiptPdf(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="cuenta-domicilio-${id}.pdf"`);
+    res.send(pdf);
+  }
+
+  @Get(':id/delivery-receipt-status')
+  @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  getDeliveryReceiptStatus(@Param('id') id: string) {
+    return this.ordersService.getDeliveryReceiptStatus(id);
+  }
+
+  @Get(':id/delivery-receipt-history')
+  @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  getDeliveryReceiptHistory(@Param('id') id: string) {
+    return this.ordersService.getDeliveryReceiptHistory(id);
   }
 
   @Get(':id')

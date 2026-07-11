@@ -34,6 +34,8 @@ No modificar estos flujos salvo que el usuario lo pida explicitamente y haya pru
 
 Toda venta debe actualizar stock y caja. Toda compra recibida debe actualizar stock. Los gastos afectan el cierre diario. El cierre diario debe conservar auditabilidad.
 
+Delivery Phase A está congelada. Consultar `docs/delivery-phase-a-frozen.md` antes de modificar el flujo de cuentas de domicilio.
+
 ## Sofia
 
 Sofia es un modulo supervisado, no un reemplazo del POS ni de Domicilios.

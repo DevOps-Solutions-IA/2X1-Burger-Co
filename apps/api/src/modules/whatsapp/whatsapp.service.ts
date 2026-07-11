@@ -197,7 +197,11 @@ export class WhatsappService implements OnModuleDestroy {
     };
   }
 
-  async sendDeliveryOrderSummary(orderId: string, actorId: string) {
+  async sendDeliveryOrderSummary(
+    orderId: string,
+    actorId: string,
+    options?: { updated?: boolean; reason?: string; idempotencyKey?: string },
+  ) {
     this.assertEnabled();
     await this.ensureConnectedOrThrow(
       'WhatsApp del negocio no está vinculado todavía. Escanea el QR antes de enviar cuentas de domicilio.',
@@ -218,25 +222,105 @@ export class WhatsappService implements OnModuleDestroy {
     }
 
     const normalizedPhone = this.normalizeRecipientPhone(order.customerPhone);
-    const pdf = await this.ordersService.generateDeliveryReceiptPdf(orderId);
+    const phoneMasked = this.maskPhoneForAudit(normalizedPhone);
+    const isUpdated = Boolean(options?.updated);
+    const version = await this.ordersService.getDeliveryCommercialVersion(orderId);
+    const initialIdempotencyKey = `DELIVERY_RECEIPT_INITIAL_SENT:${orderId}`;
+
+    /* Idempotencia del envío inicial: máximo un envío exitoso por orden. */
+    if (!isUpdated) {
+      const alreadySent = await this.prisma.auditLog.findFirst({
+        where: { entityId: orderId, action: 'DELIVERY_RECEIPT_INITIAL_SENT' },
+        select: { id: true, createdAt: true },
+      });
+      await this.auditService.log({
+        userId: actorId,
+        action: 'DELIVERY_RECEIPT_INITIAL_SEND_REQUESTED',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: orderId,
+        newValues: {
+          receiptVersion: version,
+          receiptType: 'INITIAL',
+          phoneMasked,
+          idempotencyKey: initialIdempotencyKey,
+          skippedReason: alreadySent ? 'ALREADY_SENT' : null,
+        },
+      });
+      if (alreadySent) {
+        return {
+          success: true,
+          alreadySent: true,
+          phone: normalizedPhone,
+          orderNumber: order.number,
+          updated: false,
+          sentAt: alreadySent.createdAt.toISOString(),
+        };
+      }
+    }
+
+    const pdf = await this.ordersService.generateDeliveryReceiptPdf(orderId, {
+      updated: isUpdated,
+      actorId,
+    });
     const businessProfile = await this.prisma.setting.findUnique({ where: { key: 'business.profile' } });
     const businessName = this.readBusinessName(businessProfile?.value);
     const jid = `${normalizedPhone}@s.whatsapp.net`;
 
-    await Promise.race([
-      this.socket.sendMessage(jid, {
-        document: pdf,
-        mimetype: 'application/pdf',
-        fileName: `${order.number.toLowerCase()}.pdf`,
-        caption: this.buildDeliveryCaption({
-          businessName,
-          customerName: order.customerName,
-          orderNumber: order.number,
-          total: Number(order.subtotal),
+    try {
+      await Promise.race([
+        this.socket.sendMessage(jid, {
+          document: pdf,
+          mimetype: 'application/pdf',
+          fileName: `${order.number.toLowerCase()}${isUpdated ? `-actualizada-v${version}` : ''}.pdf`,
+          caption: this.buildDeliveryCaption({
+            businessName,
+            customerName: order.customerName,
+            orderNumber: order.number,
+            total: Number(order.subtotal),
+            updated: isUpdated,
+            version,
+          }),
         }),
-      }),
-      this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-    ]);
+        this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
+      ]);
+    } catch (error) {
+      if (!isUpdated) {
+        await this.auditService.log({
+          userId: actorId,
+          action: 'DELIVERY_RECEIPT_INITIAL_SEND_FAILED',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: orderId,
+          newValues: {
+            receiptVersion: version,
+            receiptType: 'INITIAL',
+            phoneMasked,
+            idempotencyKey: initialIdempotencyKey,
+            failureReason: this.sanitizeSendFailureReason(error),
+          },
+        });
+      }
+      throw error;
+    }
+
+    if (!isUpdated) {
+      await this.auditService.log({
+        userId: actorId,
+        action: 'DELIVERY_RECEIPT_INITIAL_SENT',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: orderId,
+        newValues: {
+          receiptVersion: version,
+          receiptType: 'INITIAL',
+          newTotal: order.subtotal,
+          phoneMasked,
+          idempotencyKey: initialIdempotencyKey,
+          sentAt: new Date().toISOString(),
+        },
+      });
+    }
 
     await this.auditService.log({
       userId: actorId,
@@ -246,8 +330,12 @@ export class WhatsappService implements OnModuleDestroy {
       entityId: orderId,
       newValues: {
         channel: 'whatsapp_internal_delivery',
-        phone: normalizedPhone,
+        phoneMasked,
         orderNumber: order.number,
+        receiptVersion: version,
+        updated: isUpdated,
+        reason: options?.reason ?? null,
+        idempotencyKey: options?.idempotencyKey ?? initialIdempotencyKey,
       },
     });
 
@@ -255,8 +343,14 @@ export class WhatsappService implements OnModuleDestroy {
       success: true,
       phone: normalizedPhone,
       orderNumber: order.number,
+      updated: isUpdated,
       sentAt: new Date().toISOString(),
     };
+  }
+
+  private sanitizeSendFailureReason(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error ?? 'unknown_error');
+    return message.replace(/\+?\d[\d\s\-()]{7,}\d/g, '[phone-redacted]').slice(0, 240);
   }
 
   async linkDailyCloseGroup(inviteLink: string, actorId: string) {
@@ -690,6 +784,14 @@ export class WhatsappService implements OnModuleDestroy {
     return digits ? `+${digits}` : null;
   }
 
+  private maskPhoneForAudit(phone?: string | null) {
+    const digits = phone?.replace(/\D/g, '') ?? '';
+    if (!digits) {
+      return null;
+    }
+    return `${'*'.repeat(Math.max(digits.length - 4, 0))}${digits.slice(-4)}`;
+  }
+
   private buildCaption(input: {
     businessName: string;
     customerName: string | null;
@@ -711,15 +813,21 @@ export class WhatsappService implements OnModuleDestroy {
     customerName: string | null;
     orderNumber: string;
     total: number;
+    updated?: boolean;
+    version?: number;
   }) {
     const lines = [
       input.customerName ? `Hola ${input.customerName}.` : 'Hola.',
-      `Te compartimos tu cuenta pendiente ${input.orderNumber} de ${input.businessName}.`,
+      input.updated
+        ? `Pedido actualizado${input.version ? ` — versión ${input.version}` : ''}. Esta es tu nueva cuenta vigente.`
+        : `Te compartimos tu cuenta pendiente ${input.orderNumber} de ${input.businessName}.`,
+      input.updated ? `Pedido: ${input.orderNumber}.` : null,
       `Total por cobrar: ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(input.total)}.`,
       `Pago sugerido: ${DELIVERY_PAYMENT_METHOD_LABEL} ${DELIVERY_PAYMENT_TARGET}.`,
-      'Por favor compártenos tu ubicación actual para reenviarla al domiciliario y confirmar la tarifa final.',
+      'Por favor compártenos tu ubicación actual para facilitar la entrega.',
+      'Tu cuenta conserva la tarifa de domicilio ya calculada.',
       'Cuando el pago quede confirmado, cerramos la comanda.',
-    ];
+    ].filter((line): line is string => Boolean(line));
 
     return lines.join('\n');
   }
@@ -794,30 +902,15 @@ export class WhatsappService implements OnModuleDestroy {
       }
 
       this.logger.log(
-        `Ubicación aplicada a ${updatedOrder.number} para ${matchedSender || remoteJid}${usedSingleOrderFallback ? ' usando fallback de única comanda activa' : ''}: ${updatedOrder.deliveryZoneLabel ?? 'Zona urbana'} · ${Number(updatedOrder.deliveryDistanceKm ?? 0).toFixed(2)} km.`,
+        `Ubicación logística aplicada a ${updatedOrder.number} para ${matchedSender || remoteJid}${usedSingleOrderFallback ? ' usando fallback de única comanda activa' : ''}. Tarifa conservada.`,
       );
-
-      const total = new Intl.NumberFormat('es-CO', {
-        style: 'currency',
-        currency: 'COP',
-        maximumFractionDigits: 0,
-      }).format(Number(updatedOrder.subtotal ?? 0));
-      const fee = new Intl.NumberFormat('es-CO', {
-        style: 'currency',
-        currency: 'COP',
-        maximumFractionDigits: 0,
-      }).format(Number(updatedOrder.deliveryFee ?? 0));
-      const distance =
-        updatedOrder.deliveryDistanceKm != null ? `${Number(updatedOrder.deliveryDistanceKm).toFixed(1)} km` : 'sin distancia';
 
       await Promise.race([
         this.socket.sendMessage(remoteJid, {
           text: [
             `Ubicación recibida para tu pedido ${updatedOrder.number}.`,
-            `${updatedOrder.deliveryZoneLabel ?? 'Zona urbana'} · ${distance}.`,
-            `Domicilio: ${fee}.`,
-            `Total actualizado: ${total}.`,
-            `Pago sugerido: ${DELIVERY_PAYMENT_METHOD_LABEL} ${DELIVERY_PAYMENT_TARGET}.`,
+            'La usaremos para facilitar la entrega.',
+            'Tu cuenta conserva la tarifa de domicilio ya calculada.',
           ].join('\n'),
         }),
         this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),

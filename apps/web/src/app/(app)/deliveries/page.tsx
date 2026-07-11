@@ -9,7 +9,7 @@ import { MetricCard } from '@/components/ui/metric-card';
 import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { apiFetch, subscribeOperationalStream } from '@/lib/api';
+import { apiFetch, apiFetchBlob, subscribeOperationalStream } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { CacheStorage, TTL } from '@/lib/cache-storage';
 import { Bike, CheckCircle2, Clock3, Copy, ExternalLink, Link2, MapPinned, Navigation, TriangleAlert, UserRound } from 'lucide-react';
@@ -24,6 +24,36 @@ type DeliveryIssueType =
   | 'DELIVERY_REJECTED'
   | 'ROUTE_INCIDENT'
   | 'OTHER';
+
+type DeliveryReceiptStatus = {
+  orderId: string;
+  orderNumber: string;
+  version: number;
+  status: 'ACTIVE';
+  total: number;
+  deliveryFee: number;
+  lastGeneratedAt: string;
+  sendStatus: 'NOT_REQUESTED' | 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED_NO_PHONE' | 'SKIPPED_CHANNEL_BLOCKED';
+  sentAt: string | null;
+};
+
+const receiptSendStatusLabels: Record<DeliveryReceiptStatus['sendStatus'], string> = {
+  NOT_REQUESTED: 'Sin solicitar',
+  PENDING: 'Pendiente',
+  SENT: 'Enviada',
+  FAILED: 'Fallida',
+  SKIPPED_NO_PHONE: 'Sin teléfono',
+  SKIPPED_CHANNEL_BLOCKED: 'Canal no disponible',
+};
+
+const receiptSendStatusTone: Record<DeliveryReceiptStatus['sendStatus'], string> = {
+  NOT_REQUESTED: 'bg-stone-100 text-stone-600',
+  PENDING: 'bg-amber-100 text-amber-700',
+  SENT: 'bg-emerald-100 text-emerald-700',
+  FAILED: 'bg-red-100 text-red-700',
+  SKIPPED_NO_PHONE: 'bg-amber-100 text-amber-700',
+  SKIPPED_CHANNEL_BLOCKED: 'bg-stone-100 text-stone-600',
+};
 
 type DeliveryOrder = {
   id: string;
@@ -555,6 +585,26 @@ export default function DeliveriesPage() {
   };
   const selectedOrder = (deliveries.data ?? []).find((o) => o.id === selectedOrderId) ?? null;
 
+  const receiptStatus = useQuery({
+    queryKey: ['delivery-receipt-status', selectedOrder?.id],
+    queryFn: () => apiFetch<DeliveryReceiptStatus>(`/orders/${selectedOrder?.id}/delivery-receipt-status`),
+    enabled: Boolean(selectedOrder?.id),
+    refetchInterval: 30_000,
+  });
+
+  const openCurrentReceipt = useMutation({
+    mutationFn: async (orderId: string) => {
+      const blob = await apiFetchBlob(`/orders/${orderId}/delivery-receipt`);
+      return URL.createObjectURL(blob);
+    },
+    onSuccess: (url) => {
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'No se pudo abrir la cuenta vigente.'),
+  });
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -905,7 +955,7 @@ export default function DeliveriesPage() {
                         </p>
                       </div>
                       <p className={`shrink-0 text-[12px] font-black tabular-nums ${isSelected ? 'text-white' : 'text-ink'}`}>
-                        {formatCurrency(Number(order.subtotal) + Number(order.deliveryFee))}
+                        {formatCurrency(Number(order.subtotal))}
                       </p>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1001,6 +1051,49 @@ export default function DeliveriesPage() {
                 </div>
               </div>
 
+              <div className="border-y border-stone-100 bg-stone-50/70 px-5 py-3" data-testid="deliveries-receipt-panel">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-stone-400">Cuenta de domicilio</p>
+                    {receiptStatus.data ? (
+                      <>
+                        <p className="mt-1 text-[12px] font-black text-ink" data-testid="deliveries-receipt-version">
+                          Cuenta vigente: versión {receiptStatus.data.version}
+                          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-emerald-700">
+                            Vigente
+                          </span>
+                          <span
+                            className={`ml-1.5 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] ${receiptSendStatusTone[receiptStatus.data.sendStatus]}`}
+                            data-testid="deliveries-receipt-send-status"
+                          >
+                            {receiptSendStatusLabels[receiptStatus.data.sendStatus]}
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-stone-500">
+                          Total vigente {formatCurrency(receiptStatus.data.total)} · Última actualización{' '}
+                          {formatDateTime(receiptStatus.data.lastGeneratedAt)}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-[11px] font-semibold text-stone-400">
+                        {receiptStatus.isLoading ? 'Cargando estado de la cuenta…' : 'Estado de cuenta no disponible.'}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="shrink-0 justify-center text-[11px]"
+                    onClick={() => openCurrentReceipt.mutate(selectedOrder.id)}
+                    disabled={openCurrentReceipt.isPending}
+                    data-testid="deliveries-receipt-view"
+                  >
+                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                    Ver cuenta vigente
+                  </Button>
+                </div>
+              </div>
+
               {isSofiaDeliveryOrder(selectedOrder) ? (
                 <div className="border-y border-violet-100 bg-violet-50/60 px-5 py-3" data-testid="deliveries-sofia-payment-link-panel">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1013,7 +1106,7 @@ export default function DeliveriesPage() {
                       </p>
                       <div className="mt-2 grid gap-1.5 text-[11px] font-semibold text-violet-800 sm:grid-cols-2" data-testid="deliveries-sofia-origin-detail">
                         <span>Fuente: Sofía / WhatsApp</span>
-                        <span>Total: {formatCurrency(Number(selectedOrder.subtotal) + Number(selectedOrder.deliveryFee))}</span>
+                        <span>Total: {formatCurrency(Number(selectedOrder.subtotal))}</span>
                         <span>Provider: {selectedOrder.whatsappDeliveryOrder?.onlinePaymentProvider ?? 'Sin provider'}</span>
                         <span>Webhook: {selectedOrder.whatsappDeliveryOrder?.webhookEventCount ?? 0} evento(s)</span>
                         <span>Cliente: {selectedOrder.customerName || selectedOrder.whatsappDeliveryOrder?.customerNameSnapshot || 'Sin nombre'}</span>
