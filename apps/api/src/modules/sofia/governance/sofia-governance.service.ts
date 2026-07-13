@@ -269,6 +269,7 @@ export class SofiaGovernanceService {
         noSecrets: true,
         noPii: true,
         noQrRaw: true,
+        noSessionAuth: true,
         realOperationEnabled,
         realOperationReason: 'ALLOWLIST_FINAL_PENDING',
         sandboxSeparated: true,
@@ -352,7 +353,7 @@ export class SofiaGovernanceService {
             .filter((item) => item.status === 'WARNING')
             .map((item) => item.label),
           'Allowlist comercial final',
-          'Envio real interno diferido',
+          'Envío real interno diferido',
         ],
       },
       routes: enterprise.routes,

@@ -117,9 +117,12 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
      * F8B hardening: public QR/CONNECTED state must only come from the live
      * Baileys socket. Persisted state is audit metadata, not connection proof.
      */
-    const status: SofiaWhatsappQrConnectionStatus = this.real.socket
-      ? this.real.connectionStatus
-      : this.safePersistedStatus(state.status);
+    const enabled = this.configService.get<boolean>('WHATSAPP_QR_ENABLED') === true;
+    const status: SofiaWhatsappQrConnectionStatus = !enabled
+      ? 'DISABLED'
+      : this.real.socket
+        ? this.real.connectionStatus
+        : this.safePersistedStatus(state.status);
 
     const qrAvailable = realQrAvailable;
 
@@ -182,6 +185,10 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   async connect(actorId: string) {
+    if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
+      return this.getStatus();
+    }
+
     const now = new Date();
     const sessionName = this.sessionName(await this.getSessionState());
     const sessionStorage = await this.ensureSessionStorageReady(true);
@@ -266,6 +273,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       reason: status.reason,
       operatorMessage: status.operatorMessage,
       noSecrets: true,
+      noSessionAuth: true,
+      noQrRaw: true,
     };
   }
 
@@ -749,6 +758,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     qrAvailable: boolean;
     connected: boolean;
   }) {
+    if (input.status === 'DISABLED') return 'QR_GATEWAY_DISABLED';
     if (input.connected) return 'CONNECTED_REAL';
     if (input.adapterReal && input.qrAvailable && input.status === 'QR_READY') return 'BAILEYS_QR_READY';
     if (input.adapterReal && (input.status === 'WAITING_QR' || input.status === 'CONNECTING')) return 'WAITING_FOR_BAILEYS_QR';
@@ -767,6 +777,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     qrAvailable: boolean;
     connected: boolean;
   }) {
+    if (input.status === 'DISABLED') return 'WhatsApp QR está deshabilitado por configuración.';
     if (input.connected) return 'WhatsApp Business conectado en receive-only.';
     if (input.adapterReal && input.qrAvailable && input.status === 'QR_READY') {
       return 'QR real de WhatsApp disponible para escanear.';

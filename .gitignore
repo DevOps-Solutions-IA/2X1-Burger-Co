@@ -32,6 +32,7 @@ whatsapp-auth/
 infra/environments/*/secrets/
 infra/environments/staging/selfhosted-data/private-quarantine/
 infra/environments/staging/selfhosted-data/backups/sofia-sanitized/
+apps/api/infra/
 apps/api/prisma/dev.db
 apps/web/tsconfig.tsbuildinfo
 *.log

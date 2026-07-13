@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -83,22 +83,47 @@ export class SofiaBackupsService {
         newValues: { fileName, dryRun: true, noSecrets: true } as Prisma.InputJsonValue,
       },
     });
+    const fallbackStorageUsed = !backupDir.endsWith(BACKUP_DIR);
     return {
       ...payload,
       fileName,
-      filePathSanitized: backupDir === BACKUP_DIR ? `${BACKUP_DIR}/${fileName}` : `/tmp/sofia-sanitized-backups/${fileName}`,
-      fallbackStorageUsed: backupDir !== BACKUP_DIR,
+      filePathSanitized: fallbackStorageUsed
+        ? `/tmp/sofia-sanitized-backups/${fileName}`
+        : `${BACKUP_DIR}/${fileName}`,
+      fallbackStorageUsed,
     };
   }
 
+  /* Anclado al root del monorepo para que un CWD distinto (apps/api, contenedor)
+     no genere un árbol infra/ espurio; sin root detectable se usa tmp. */
   private resolveWritableBackupDir() {
-    try {
-      mkdirSync(BACKUP_DIR, { recursive: true });
-      return BACKUP_DIR;
-    } catch {
-      const fallback = path.join(tmpdir(), 'sofia-sanitized-backups');
-      mkdirSync(fallback, { recursive: true });
-      return fallback;
+    const repoRoot = this.findRepoRoot();
+    if (repoRoot) {
+      try {
+        const dir = path.join(repoRoot, BACKUP_DIR);
+        mkdirSync(dir, { recursive: true });
+        return dir;
+      } catch {
+        /* cae al fallback */
+      }
     }
+    const fallback = path.join(tmpdir(), 'sofia-sanitized-backups');
+    mkdirSync(fallback, { recursive: true });
+    return fallback;
+  }
+
+  private findRepoRoot(): string | null {
+    let current = process.cwd();
+    for (let depth = 0; depth < 6; depth += 1) {
+      if (existsSync(path.join(current, 'pnpm-workspace.yaml'))) {
+        return current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+    return null;
   }
 }
