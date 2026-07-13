@@ -53,14 +53,14 @@ export function SofiaReadinessGrid({
   return (
     <div
       className={cn(
-        'rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6',
+        'rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm md:p-6',
         className,
       )}
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-purple-500">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
             Readiness checklist
           </p>
           <h2 className="mt-1 text-lg font-extrabold text-stone-900">{overallLabel}</h2>
@@ -78,7 +78,7 @@ export function SofiaReadinessGrid({
               {groupItems.map((item) => (
                 <div
                   key={item.key}
-                  className="rounded-xl border border-stone-100 bg-stone-50/70 px-4 py-3 transition-colors hover:bg-purple-50/30"
+                  className="rounded-xl border border-stone-100 bg-stone-50/70 px-4 py-3 transition-colors hover:bg-sofia-50/30"
                   data-testid={`sofia-readiness-${item.key}`}
                 >
                   <div className="flex items-center gap-2">

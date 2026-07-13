@@ -29,13 +29,13 @@ export function SofiaSectionHeader({
     >
       <div className="flex items-start gap-3">
         {icon && (
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sofia-100 text-sofia-600">
             {icon}
           </span>
         )}
         <div>
           {eyebrow && (
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-purple-500">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
               {eyebrow}
             </p>
           )}

@@ -13,6 +13,7 @@ import {
   PackageCheck,
   RotateCcw,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -28,12 +29,15 @@ import { apiFetch } from '@/lib/api';
 import { formatCurrency } from '@/lib/format';
 import {
   SofiaPageHero,
+  SofiaPageShell,
   SofiaStatusPill,
   SofiaSectionHeader,
   SofiaEmptyState,
+  SofiaRiskBanner,
+  SofiaSandboxCaseCard,
   humanizeReasonCode,
 } from '@/components/sofia';
-import type { SofiaPillStatus } from '@/components/sofia';
+import type { SofiaPillStatus, SofiaSandboxCaseResult } from '@/components/sofia';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -219,6 +223,13 @@ function autoSafePill(status: AgentResult['autoSafeDecision']): SofiaPillStatus 
   return 'HUMAN_REQUIRED';
 }
 
+function caseResultFor(status: AgentResult['autoSafeDecision']): SofiaSandboxCaseResult {
+  if (!status) return 'PENDING';
+  if (status.status === 'AUTO_SAFE_APPROVED') return 'PASS';
+  if (status.status === 'BLOCKED') return 'FAIL';
+  return 'PENDING';
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -286,12 +297,12 @@ export default function SofiaSandboxPage() {
   });
 
   return (
-    <div className="space-y-6" data-testid="sofia-sandbox-agent">
+    <SofiaPageShell data-testid="sofia-sandbox-agent">
       {/* ---- Hero ---- */}
       <SofiaPageHero
         eyebrow="Laboratorio Sofía"
-        title="Sandbox técnico"
-        description="Entorno de laboratorio para pruebas de conversación, intención, catálogo y SafetyGuard. Nunca envía WhatsApp real ni cobra. Si confirmas un pedido de prueba hasta el final, sí crea una orden operativa real en Domicilios/POS — usa siempre datos ficticios."
+        title="Sandbox Sofía"
+        description="Laboratorio de pruebas para validar IA, SafetyGuard y reglas comerciales. Nada aquí representa operación real por sí sola — excepción: si confirmas un pedido de prueba hasta el final, eso sí crea una orden operativa real en Domicilios/POS. Usa siempre datos ficticios."
         statusChips={
           <>
             <SofiaStatusPill status="DRY_RUN" label="Entorno de laboratorio" />
@@ -302,8 +313,16 @@ export default function SofiaSandboxPage() {
         data-testid="sofia-sandbox-hero"
       />
 
+      <SofiaRiskBanner
+        tone="warning"
+        icon={ShieldAlert}
+        title="Laboratorio, no operación real"
+        description="Este sandbox no envía WhatsApp real, no marca pagos como PAID y no confirma pagos desde Sofía. Solo se convierte en operación real si confirmas explícitamente un pedido de prueba hasta el final, con el mismo flujo que un pedido real de Domicilios/POS."
+        data-testid="sofia-sandbox-risk-banner"
+      />
+
       {/* ---- Catálogo visual ---- */}
-      <Card className="!border-purple-100 !bg-gradient-to-br !from-white !to-purple-50/40" data-testid="sofia-featured-offers">
+      <Card className="!border-sofia-100 !bg-gradient-to-br !from-white !to-sofia-50/40" data-testid="sofia-featured-offers">
         <SofiaSectionHeader
           eyebrow="Catálogo visual Sofía"
           title="Ofertas comerciales principales"
@@ -324,12 +343,12 @@ export default function SofiaSandboxPage() {
           {featuredOffers.map((offer) => (
             <div
               key={offer.slug}
-              className="overflow-hidden rounded-2xl border border-purple-100 bg-white shadow-sm transition-shadow hover:shadow-md"
+              className="overflow-hidden rounded-2xl border border-sofia-100 bg-white shadow-sm transition-shadow hover:shadow-md"
               data-testid={`sofia-featured-offer-${offer.slug}`}
             >
-              <div className="relative h-28 bg-gradient-to-br from-stone-950 via-purple-950 to-stone-900">
+              <div className="relative h-28 bg-gradient-to-br from-stone-950 via-sofia-950 to-stone-900">
                 <img src={offer.imageUrl} alt={offer.name} className="h-full w-full object-cover opacity-75" />
-                <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.10em] text-purple-700">
+                <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.10em] text-sofia-700">
                   {offer.isActive ? 'Activo' : 'Inactivo'}
                 </div>
               </div>
@@ -337,7 +356,7 @@ export default function SofiaSandboxPage() {
                 <p className="text-[13px] font-extrabold text-stone-900">{offer.name}</p>
                 <p className="text-[11px] font-bold leading-relaxed text-stone-500">{offer.description}</p>
                 <p
-                  className="break-all rounded-xl bg-purple-50 px-3 py-2 text-[10px] font-extrabold text-purple-700"
+                  className="break-all rounded-xl bg-sofia-50 px-3 py-2 text-[10px] font-extrabold text-sofia-700"
                   data-testid={`sofia-featured-offer-image-${offer.slug}`}
                 >
                   {offer.imageUrl}
@@ -352,7 +371,7 @@ export default function SofiaSandboxPage() {
       {/* ---- Input + Response ---- */}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         {/* Input panel */}
-        <Card className="!border-purple-100">
+        <Card className="!border-sofia-100">
           <SofiaSectionHeader
             title="Entrada simulada"
             description="Escribe como cliente o usa audio transcrito."
@@ -412,7 +431,7 @@ export default function SofiaSandboxPage() {
                 key={example}
                 type="button"
                 onClick={() => setMessage(example)}
-                className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[10px] font-bold text-stone-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[10px] font-bold text-stone-600 transition hover:border-sofia-200 hover:bg-sofia-50 hover:text-sofia-700"
               >
                 {example}
               </button>
@@ -440,8 +459,8 @@ export default function SofiaSandboxPage() {
           </div>
 
           {/* Active summary */}
-          <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50/50 p-4" data-testid="sofia-agent-summary">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-purple-500">
+          <div className="mt-5 rounded-2xl border border-sofia-100 bg-sofia-50/50 p-4" data-testid="sofia-agent-summary">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-sofia-500">
               Resumen activo
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -484,7 +503,7 @@ export default function SofiaSandboxPage() {
 
         {/* Response panel */}
         <div className="space-y-5">
-          <Card className="!border-purple-100 !bg-purple-50/25">
+          <Card className="!border-sofia-100 !bg-sofia-50/25">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-extrabold text-stone-900">Respuesta estructurada</h2>
@@ -505,16 +524,16 @@ export default function SofiaSandboxPage() {
               <div className="mt-5 grid gap-4">
                 {/* Intent + Confidence + Order */}
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-purple-100 bg-white p-4" data-testid="sofia-agent-intent">
-                    <Brain className="h-4 w-4 text-purple-600" />
+                  <div className="rounded-2xl border border-sofia-100 bg-white p-4" data-testid="sofia-agent-intent">
+                    <Brain className="h-4 w-4 text-sofia-600" />
                     <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.10em] text-stone-400">
                       Intención
                     </p>
-                    <p className="mt-1 text-[15px] font-extrabold text-purple-800">
+                    <p className="mt-1 text-[15px] font-extrabold text-sofia-800">
                       {lastResult.detectedIntent}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-purple-100 bg-white p-4">
+                  <div className="rounded-2xl border border-sofia-100 bg-white p-4">
                     <ShieldCheck className="h-4 w-4 text-emerald-600" />
                     <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.10em] text-stone-400">
                       Confianza
@@ -523,8 +542,8 @@ export default function SofiaSandboxPage() {
                       {confidenceLabel(lastResult.confidence)}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-purple-100 bg-white p-4">
-                    <PackageCheck className="h-4 w-4 text-purple-600" />
+                  <div className="rounded-2xl border border-sofia-100 bg-white p-4">
+                    <PackageCheck className="h-4 w-4 text-sofia-600" />
                     <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.10em] text-stone-400">
                       Pedido
                     </p>
@@ -535,8 +554,8 @@ export default function SofiaSandboxPage() {
                 </div>
 
                 {/* Response text */}
-                <div className="rounded-2xl border border-purple-200 bg-white p-4" data-testid="sofia-agent-response">
-                  <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-purple-500">
+                <div className="rounded-2xl border border-sofia-200 bg-white p-4" data-testid="sofia-agent-response">
+                  <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-sofia-500">
                     <MessageCircle className="h-4 w-4" />
                     Respuesta Sofía
                   </div>
@@ -546,24 +565,24 @@ export default function SofiaSandboxPage() {
                 </div>
 
                 {/* Commercial brain context */}
-                <div className="rounded-2xl border border-purple-100 bg-white p-4" data-testid="sofia-commercial-brain-context">
+                <div className="rounded-2xl border border-sofia-100 bg-white p-4" data-testid="sofia-commercial-brain-context">
                   <p className="text-xs font-extrabold text-stone-900">Cerebro comercial usado</p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <div className="rounded-xl bg-purple-50 px-3 py-2">
-                      <p className="text-[10px] font-bold text-purple-500">Prompt</p>
-                      <p className="text-xs font-extrabold text-purple-800">
+                    <div className="rounded-xl bg-sofia-50 px-3 py-2">
+                      <p className="text-[10px] font-bold text-sofia-500">Prompt</p>
+                      <p className="text-xs font-extrabold text-sofia-800">
                         {lastResult.promptVersion ?? 'N/D'}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-purple-50 px-3 py-2">
-                      <p className="text-[10px] font-bold text-purple-500">Catálogo</p>
-                      <p className="text-xs font-extrabold text-purple-800">
+                    <div className="rounded-xl bg-sofia-50 px-3 py-2">
+                      <p className="text-[10px] font-bold text-sofia-500">Catálogo</p>
+                      <p className="text-xs font-extrabold text-sofia-800">
                         {lastResult.matchedCatalogItem?.name ?? 'Sin match'}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-purple-50 px-3 py-2">
-                      <p className="text-[10px] font-bold text-purple-500">Memoria</p>
-                      <p className="truncate text-xs font-extrabold text-purple-800">
+                    <div className="rounded-xl bg-sofia-50 px-3 py-2">
+                      <p className="text-[10px] font-bold text-sofia-500">Memoria</p>
+                      <p className="truncate text-xs font-extrabold text-sofia-800">
                         {lastResult.memory?.conversation?.lastProductDiscussed ?? 'Sin contexto'}
                       </p>
                     </div>
@@ -669,9 +688,9 @@ export default function SofiaSandboxPage() {
 
                 {/* Upsell + Media */}
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-purple-100 bg-white p-4" data-testid="sofia-agent-upsell">
+                  <div className="rounded-2xl border border-sofia-100 bg-white p-4" data-testid="sofia-agent-upsell">
                     <div className="flex items-center gap-2 text-xs font-extrabold text-stone-900">
-                      <Sparkles className="h-4 w-4 text-purple-600" />
+                      <Sparkles className="h-4 w-4 text-sofia-600" />
                       Upsell seguro
                     </div>
                     <p className="mt-2 text-xs font-semibold text-stone-500">
@@ -685,9 +704,9 @@ export default function SofiaSandboxPage() {
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-purple-100 bg-white p-4" data-testid="sofia-agent-media">
+                  <div className="rounded-2xl border border-sofia-100 bg-white p-4" data-testid="sofia-agent-media">
                     <div className="flex items-center gap-2 text-xs font-extrabold text-stone-900">
-                      <ImageIcon className="h-4 w-4 text-purple-600" />
+                      <ImageIcon className="h-4 w-4 text-sofia-600" />
                       Multimedia simulada
                     </div>
                     <p className="mt-2 text-xs font-semibold text-stone-500">
@@ -697,7 +716,7 @@ export default function SofiaSandboxPage() {
                     </p>
                     {lastResult.mediaSuggestion?.imageUrl && (
                       <p
-                        className="mt-2 break-all rounded-xl bg-purple-50 px-3 py-2 text-[10px] font-extrabold text-purple-700"
+                        className="mt-2 break-all rounded-xl bg-sofia-50 px-3 py-2 text-[10px] font-extrabold text-sofia-700"
                         data-testid="sofia-agent-media-path"
                       >
                         {lastResult.mediaSuggestion.imageUrl}
@@ -723,11 +742,11 @@ export default function SofiaSandboxPage() {
 
                 {/* Delivery order created */}
                 {lastResult.deliveryOrder && (
-                  <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4" data-testid="sofia-agent-confirmed-order">
-                    <p className="text-xs font-extrabold text-purple-800">
+                  <div className="rounded-2xl border border-sofia-200 bg-sofia-50 p-4" data-testid="sofia-agent-confirmed-order">
+                    <p className="text-xs font-extrabold text-sofia-800">
                       Pedido operativo real creado en Domicilios/POS
                     </p>
-                    <p className="mt-1 text-[11px] font-semibold text-purple-700">
+                    <p className="mt-1 text-[11px] font-semibold text-sofia-700">
                       Este pedido de prueba ya no es solo sandbox: quedó registrado igual que un pedido confirmado por un cliente real. Si usaste datos ficticios, cancélalo o márcalo desde Domicilios/POS.
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -778,29 +797,45 @@ export default function SofiaSandboxPage() {
 
       {/* ---- History ---- */}
       <Card>
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
-            <Mic2 className="h-4 w-4" />
-          </span>
-          <h2 className="text-sm font-extrabold text-stone-900">Historial sandbox</h2>
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sofia-100 text-sofia-600">
+              <Mic2 className="h-4 w-4" />
+            </span>
+            <h2 className="text-sm font-extrabold text-stone-900">Matriz de casos</h2>
+          </div>
+          {history.length > 0 && (
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.08em]">
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">
+                {history.filter((item) => caseResultFor(item.autoSafeDecision) === 'PASS').length} PASS
+              </span>
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">
+                {history.filter((item) => caseResultFor(item.autoSafeDecision) === 'FAIL').length} FAIL
+              </span>
+              <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500">
+                {history.filter((item) => caseResultFor(item.autoSafeDecision) === 'PENDING').length} PENDIENTE
+              </span>
+            </div>
+          )}
         </div>
-        <div className="mt-4 space-y-2" data-testid="sofia-agent-events">
+        <div className="mt-4 grid gap-2.5 lg:grid-cols-2" data-testid="sofia-agent-events">
           {history.length ? (
             history.map((item, index) => (
-              <div
+              <SofiaSandboxCaseCard
                 key={`${item.conversationId}-${index}`}
-                className="rounded-xl border border-purple-100/50 bg-purple-50/20 px-4 py-3 transition-colors hover:bg-purple-50/40"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-extrabold text-stone-900">
-                    {item.detectedIntent} · {confidenceLabel(item.confidence)}
-                  </p>
-                  <span className="rounded-full bg-purple-100 px-2.5 py-1 text-[10px] font-extrabold text-purple-700">
-                    {item.nextAction}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs font-medium text-stone-500">{item.responseText}</p>
-              </div>
+                title={`${item.detectedIntent} · ${confidenceLabel(item.confidence)}`}
+                description={item.responseText || 'Sin respuesta estructurada.'}
+                inputPreview={
+                  item.currentItems.length
+                    ? `${item.currentItems.length} producto(s) · total ${formatCurrency(
+                        item.currentItems.reduce((sum, current) => sum + Number(current.totalPrice ?? 0), 0),
+                      )}`
+                    : undefined
+                }
+                result={caseResultFor(item.autoSafeDecision)}
+                resultDetail={`Acción: ${item.nextAction}`}
+                data-testid="sofia-sandbox-case-card"
+              />
             ))
           ) : (
             <SofiaEmptyState
@@ -810,6 +845,6 @@ export default function SofiaSandboxPage() {
           )}
         </div>
       </Card>
-    </div>
+    </SofiaPageShell>
   );
 }

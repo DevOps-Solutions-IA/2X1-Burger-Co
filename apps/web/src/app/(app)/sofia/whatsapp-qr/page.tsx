@@ -22,11 +22,16 @@ import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   SofiaPageHero,
+  SofiaPageShell,
   SofiaStatusPill,
+  SofiaSectionCard,
   SofiaSectionHeader,
   SofiaStatusCard,
   SofiaModeBadge,
+  SofiaRiskBanner,
   SofiaTechnicalDetailsAccordion,
+  SofiaLiveStatusDot,
+  humanizeEventStatus,
 } from '@/components/sofia';
 
 /* ------------------------------------------------------------------ */
@@ -179,11 +184,11 @@ export default function SofiaWhatsappQrPage() {
   const qrPanelTitle = hasRealQr ? 'QR real de WhatsApp' : 'Sin QR activo';
 
   return (
-    <div className="space-y-6" data-testid="sofia-whatsapp-qr-page">
+    <SofiaPageShell data-testid="sofia-whatsapp-qr-page">
       {/* ---- Back link ---- */}
       <Link
         href="/sofia"
-        className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.14em] text-purple-500 transition-colors hover:text-purple-700"
+        className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.14em] text-sofia-500 transition-colors hover:text-sofia-700"
       >
         <ArrowLeft className="h-4 w-4" />
         Centro de Gobierno Sofía
@@ -191,9 +196,9 @@ export default function SofiaWhatsappQrPage() {
 
       {/* ---- Hero ---- */}
       <SofiaPageHero
-        eyebrow="WhatsApp QR Gateway"
-        title="Canal receive-only para pruebas supervisadas"
-        description="Sofía recibe y analiza mensajes. El envío real permanece bloqueado."
+        eyebrow="Sofía"
+        title="WhatsApp QR Gateway"
+        description="Canal receive-only para vinculación y recepción controlada. El envío real permanece bloqueado."
         statusChips={
           <>
             <SofiaStatusPill
@@ -208,26 +213,18 @@ export default function SofiaWhatsappQrPage() {
       />
 
       {/* ---- Receive-only warning ---- */}
-      <section
-        className="flex items-start gap-3 rounded-[1.5rem] border border-amber-200 bg-amber-50/80 p-5"
+      <SofiaRiskBanner
+        tone="warning"
+        icon={AlertTriangle}
+        title="Solo receive-only. Envío real bloqueado."
+        description="Auto reply y auto_safe con clientes permanecen apagados. DeepSeek solo opera en dry-run."
         data-testid="sofia-qr-receive-only-warning"
-      >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-          <AlertTriangle className="h-4 w-4" />
-        </span>
-        <div>
-          <p className="text-sm font-extrabold text-amber-900">Canal receive-only, no habilita producción</p>
-          <p className="mt-1 text-xs font-medium text-amber-800">
-            QR Gateway está disponible solo para receive-only/controlado. Envío real, auto reply y
-            auto_safe con clientes permanecen bloqueados. DeepSeek solo puede operar como dry-run.
-          </p>
-        </div>
-      </section>
+      />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="sofia-qr-operator-summary">
         <SofiaStatusCard
           title="Estado"
-          value={data?.status ?? 'DISCONNECTED'}
+          value={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
           description={
             data?.connected
               ? 'WhatsApp Business conectado.'
@@ -265,13 +262,19 @@ export default function SofiaWhatsappQrPage() {
       <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         {/* Status card */}
         <div
-          className="rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6"
+          className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm md:p-6"
           data-testid="sofia-qr-status-card"
         >
           <SofiaSectionHeader
             eyebrow="Estado QR"
-            title={data?.status ?? 'DISCONNECTED'}
+            title={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
             icon={<ShieldCheck className="h-4 w-4" />}
+            actions={
+              <SofiaLiveStatusDot
+                tone={data?.connected ? 'safe' : hasRealQr ? 'pending' : 'off'}
+                pulse={Boolean(data?.connected || hasRealQr)}
+              />
+            }
           />
 
           <div className="mt-5 space-y-2">
@@ -291,7 +294,7 @@ export default function SofiaWhatsappQrPage() {
                       ? 'QR_READY'
                       : 'DISCONNECTED'
                 }
-                label={data?.status ?? 'DISCONNECTED'}
+                label={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
               />
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
@@ -382,7 +385,7 @@ export default function SofiaWhatsappQrPage() {
 
         {/* QR Code card — premium glass treatment */}
         <div
-          className="relative overflow-hidden rounded-[1.75rem] border border-purple-200/40 bg-white p-5 shadow-sm md:p-6"
+          className="relative overflow-hidden rounded-2xl border border-sofia-200/40 bg-white p-5 shadow-sm md:p-6"
           data-testid="sofia-qr-code-card"
         >
           {/* Subtle purple glow behind QR when real */}
@@ -390,13 +393,13 @@ export default function SofiaWhatsappQrPage() {
             <div className="pointer-events-none absolute -inset-10 opacity-10 blur-3xl" style={{ background: 'radial-gradient(circle, #8B5CF6 0%, transparent 70%)' }} />
           )}
           <div className="relative">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-purple-500">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
               {qrPanelTitle}
             </p>
 
           {hasRealQr ? (
             <div>
-              <div className="relative mt-5 inline-block rounded-3xl bg-gradient-to-br from-white to-purple-50/30 p-4 shadow-lg ring-1 ring-purple-100/50">
+              <div className="relative mt-5 inline-block rounded-3xl bg-gradient-to-br from-white to-sofia-50/30 p-4 shadow-lg ring-1 ring-sofia-100/50">
                 {qrRevealed ? (
                   <img
                     src={data?.qrImageDataUrl ?? ''}
@@ -420,7 +423,7 @@ export default function SofiaWhatsappQrPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  className="bg-purple-50 text-purple-800 ring-purple-200 hover:bg-purple-100"
+                  className="bg-sofia-50 text-sofia-800 ring-sofia-200 hover:bg-sofia-100"
                   onClick={() => setQrRevealed((value) => !value)}
                   data-testid="sofia-qr-reveal-toggle"
                 >
@@ -451,11 +454,11 @@ export default function SofiaWhatsappQrPage() {
             </div>
           ) : (
             <div
-              className="mt-5 flex h-56 w-56 items-center justify-center rounded-3xl border border-dashed border-purple-200 bg-purple-50/30 text-center"
+              className="mt-5 flex h-56 w-56 items-center justify-center rounded-3xl border border-dashed border-sofia-200 bg-sofia-50/30 text-center"
               data-testid="sofia-qr-placeholder"
             >
               <div>
-                <QrCode className="mx-auto h-10 w-10 text-purple-300" />
+                <QrCode className="mx-auto h-10 w-10 text-sofia-300" />
                 <p className="mt-3 text-sm font-extrabold text-stone-600">
                   Sin QR activo
                 </p>
@@ -481,14 +484,12 @@ export default function SofiaWhatsappQrPage() {
       </section>
 
       {/* ---- Guía paso a paso ---- */}
-      <section className="rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6">
-        <SofiaSectionHeader
-          eyebrow="Guía de conexión"
-          title="Escaneo físico en 6 pasos"
-          description="Pensado para operador: corto, verificable y sin activar producción."
-        />
-
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <SofiaSectionCard
+        eyebrow="Guía de conexión"
+        title="Escaneo físico en 6 pasos"
+        description="Pensado para operador: corto, verificable y sin activar producción."
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[
             { step: '1', title: 'Generar QR', desc: 'Prepara el código QR desde el panel.' },
             { step: '2', title: 'Escanear con WhatsApp', desc: 'Usa WhatsApp Business para vincular el dispositivo.' },
@@ -499,9 +500,9 @@ export default function SofiaWhatsappQrPage() {
           ].map((item) => (
             <div
               key={item.step}
-              className="flex gap-3 rounded-xl border border-purple-100 bg-purple-50/30 p-4"
+              className="flex gap-3 rounded-xl border border-sofia-100 bg-sofia-50/30 p-4"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-600 text-xs font-extrabold text-white">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sofia-600 text-xs font-extrabold text-white">
                 {item.step}
               </span>
               <div>
@@ -511,15 +512,12 @@ export default function SofiaWhatsappQrPage() {
             </div>
           ))}
         </div>
-      </section>
+      </SofiaSectionCard>
 
       {/* ---- Test inbound / Test send ---- */}
       <section className="grid gap-6 lg:grid-cols-2">
         {/* Test inbound */}
-        <div
-          className="rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6"
-          data-testid="sofia-qr-test-inbound"
-        >
+        <SofiaSectionCard data-testid="sofia-qr-test-inbound">
           <SofiaSectionHeader
             eyebrow="Prueba de recepción"
             title="Registrar mensaje entrante"
@@ -530,13 +528,13 @@ export default function SofiaWhatsappQrPage() {
             <input
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
               data-testid="sofia-qr-test-phone"
             />
             <textarea
               value={text}
               onChange={(event) => setText(event.target.value)}
-              className="min-h-28 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+              className="min-h-28 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
               data-testid="sofia-qr-test-text"
             />
             <Button
@@ -567,13 +565,10 @@ export default function SofiaWhatsappQrPage() {
               </pre>
             </SofiaTechnicalDetailsAccordion>
           )}
-        </div>
+        </SofiaSectionCard>
 
         {/* Test send (blocked) */}
-        <div
-          className="rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6"
-          data-testid="sofia-qr-test-send"
-        >
+        <SofiaSectionCard data-testid="sofia-qr-test-send">
           <SofiaSectionHeader
             eyebrow="Verificación de seguridad"
             title="Confirmar bloqueo de envío"
@@ -611,8 +606,8 @@ export default function SofiaWhatsappQrPage() {
               El envío real está bloqueado por diseño. Esta fase solo recibe y analiza mensajes; el envío se habilitará en una fase piloto controlada posterior.
             </p>
           </div>
-        </div>
+        </SofiaSectionCard>
       </section>
-    </div>
+    </SofiaPageShell>
   );
 }

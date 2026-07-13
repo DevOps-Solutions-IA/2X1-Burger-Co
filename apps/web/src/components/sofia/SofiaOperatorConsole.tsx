@@ -58,7 +58,7 @@ export function SofiaStatusCard({
   return (
     <article
       className={cn(
-        'relative overflow-hidden rounded-[1.5rem] border p-4 shadow-sm',
+        'relative overflow-hidden rounded-xl border p-4 shadow-sm',
         shellStyles[tone],
         className,
       )}
@@ -137,7 +137,7 @@ export function SofiaOperatorActionCard({
   'data-testid': testId,
 }: SofiaOperatorActionCardProps) {
   return (
-    <div className={cn('rounded-[1.5rem] border p-4', shellStyles[tone])} data-testid={testId}>
+    <div className={cn('rounded-xl border p-4', shellStyles[tone])} data-testid={testId}>
       <div className="flex items-start gap-3">
         <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl', iconStyles[tone])}>
           <Icon className="h-4 w-4" />
@@ -169,7 +169,7 @@ export function SofiaTechnicalDetailsAccordion({
 }: SofiaTechnicalDetailsAccordionProps) {
   return (
     <details
-      className="rounded-[1.5rem] border border-stone-200 bg-white p-4 shadow-sm open:ring-1 open:ring-purple-100"
+      className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm open:ring-1 open:ring-sofia-100"
       open={defaultOpen}
       data-testid={testId}
     >

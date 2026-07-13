@@ -39,13 +39,13 @@ export function SofiaTimeline({
   return (
     <div
       className={cn(
-        'rounded-[1.75rem] border border-stone-200/80 bg-white p-5 shadow-sm md:p-6',
+        'rounded-2xl border border-stone-200/80 bg-white p-5 shadow-sm md:p-6',
         className,
       )}
       data-testid={testId}
     >
       <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sofia-100 text-sofia-600">
           <Clock className="h-4 w-4" />
         </span>
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">
@@ -58,7 +58,7 @@ export function SofiaTimeline({
           visible.map((event, index) => (
             <div
               key={`${event.type}-${event.createdAt}-${index}`}
-              className="flex flex-col gap-1 rounded-xl border border-purple-100/50 bg-purple-50/20 px-4 py-3 transition-colors hover:bg-purple-50/40 md:flex-row md:items-center md:justify-between"
+              className="flex flex-col gap-1 rounded-xl border border-sofia-100/50 bg-sofia-50/20 px-4 py-3 transition-colors hover:bg-sofia-50/40 md:flex-row md:items-center md:justify-between"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">

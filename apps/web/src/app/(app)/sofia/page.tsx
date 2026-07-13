@@ -1,28 +1,46 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
-  Ban,
+  Bell,
   Brain,
   CheckCircle2,
   Database,
+  Lock,
   MessageCircle,
+  Pause,
+  Play,
   Radio,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import {
   SofiaCommandCard,
-  SofiaModeBadge,
-  SofiaOperatorActionCard,
   SofiaPageHero,
-  SofiaStatusCard,
-  SofiaStatusPill,
+  SofiaPageShell,
   SofiaTechnicalDetailsAccordion,
+  SofiaLiveStatusDot,
+  SofiaReadinessGauge,
+  SofiaLiveSignalCard,
+  SofiaBlockerChecklist,
+  SofiaScopeComparison,
+  SofiaActionMatrixCard,
+  SofiaReadinessGrid,
+  SofiaTimeline,
+  humanizeSecurityStatus,
+  humanizeCheckStatus,
+  humanizeEventStatus,
+  humanizeEventType,
+  humanizeReasonCode,
+  humanizeSofiaMode,
 } from '@/components/sofia';
+import type { SofiaOperatorTone, ReadinessItem, TimelineEvent } from '@/components/sofia';
 
 type CountGroup = {
   totalDecisions: number;
@@ -117,6 +135,58 @@ type DashboardSummary = {
   };
 };
 
+type ReadinessResponse = {
+  status: 'PASS' | 'WARNING' | 'BLOCKED';
+  blockers: string[];
+  warnings: string[];
+  nextRequiredAction: string;
+  checklist: Array<{
+    key: string;
+    label: string;
+    status: 'PASS' | 'WARNING' | 'BLOCKED';
+    reason: string;
+    evidence?: string;
+  }>;
+};
+
+type GovernanceEvent = {
+  type: string;
+  status: string;
+  detail: string;
+  createdAt: string;
+};
+
+type SofiaAlert = {
+  id: string;
+  type: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+  title: string;
+  message: string;
+  createdAt: string;
+};
+
+type GovernancePauseResponse = { paused: boolean; status: string; message: string };
+
+const READINESS_GROUP: Record<string, ReadinessItem['group']> = {
+  prompt_active: 'core',
+  catalog_active: 'core',
+  memory_active: 'core',
+  safetyguard_active: 'core',
+  kill_switch: 'core',
+  secret_rotation: 'security',
+  qr_gateway_architecture: 'whatsapp',
+  qr_receive_only: 'whatsapp',
+  qr_gateway_real_send: 'whatsapp',
+  qr_gateway_real: 'whatsapp',
+  whatsapp_real: 'whatsapp',
+  whatsapp_no_paid: 'whatsapp',
+  auto_safe_sandbox: 'ai',
+  deepseek_real: 'ai',
+  maxi_family_protected: 'operations',
+  checkout_cash_stock_regression: 'operations',
+};
+
 function formatDate(value: string | null) {
   if (!value) return 'No disponible';
   return new Date(value).toLocaleString('es-CO', {
@@ -134,10 +204,67 @@ function blockedLabel(value: boolean) {
 }
 
 export default function SofiaMainDashboardPage() {
+  const [showFullChecklist, setShowFullChecklist] = useState(false);
+  const queryClient = useQueryClient();
+
   const summary = useQuery({
     queryKey: ['sofia-main-dashboard-real-summary'],
     queryFn: () => apiFetch<DashboardSummary>('/admin/sofia/dashboard/summary'),
     refetchInterval: 30_000,
+  });
+
+  const readiness = useQuery({
+    queryKey: ['sofia-main-readiness'],
+    queryFn: () => apiFetch<ReadinessResponse>('/admin/sofia/readiness'),
+    refetchInterval: 30_000,
+  });
+
+  const events = useQuery({
+    queryKey: ['sofia-main-governance-events'],
+    queryFn: () => apiFetch<GovernanceEvent[]>('/admin/sofia/governance/events'),
+    refetchInterval: 30_000,
+  });
+
+  const alerts = useQuery({
+    queryKey: ['sofia-main-alerts'],
+    queryFn: () => apiFetch<SofiaAlert[]>('/admin/sofia/alerts'),
+    refetchInterval: 30_000,
+  });
+
+  const invalidateOperationalQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['sofia-main-dashboard-real-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['sofia-main-governance-events'] });
+  };
+
+  const pauseSofia = useMutation({
+    mutationFn: () =>
+      apiFetch<GovernancePauseResponse>('/admin/sofia/governance/pause', {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'Pausa manual desde Centro de Mando' }),
+      }),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      invalidateOperationalQueries();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo pausar Sofía'),
+  });
+
+  const resumeSofia = useMutation({
+    mutationFn: () => apiFetch<GovernancePauseResponse>('/admin/sofia/governance/resume', { method: 'POST' }),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      invalidateOperationalQueries();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reanudar Sofía'),
+  });
+
+  const ackAlert = useMutation({
+    mutationFn: (id: string) => apiFetch(`/admin/sofia/alerts/${id}/ack`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Alerta reconocida');
+      queryClient.invalidateQueries({ queryKey: ['sofia-main-alerts'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reconocer la alerta'),
   });
 
   const data = summary.data;
@@ -146,10 +273,8 @@ export default function SofiaMainDashboardPage() {
     return (
       <div className="flex min-h-[60vh] items-center justify-center" data-testid="sofia-admin-page">
         <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-purple-200 border-t-purple-600" />
-          <p className="mt-4 text-sm font-bold text-stone-500">
-            Cargando datos reales del backend...
-          </p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-sofia-200 border-t-sofia-600" />
+          <p className="mt-4 text-sm font-bold text-stone-500">Cargando datos reales del backend...</p>
         </div>
       </div>
     );
@@ -158,16 +283,12 @@ export default function SofiaMainDashboardPage() {
   if (summary.isError || !data) {
     return (
       <div
-        className="flex min-h-[50vh] flex-col items-center justify-center rounded-[2rem] border border-red-200 bg-red-50 p-10 text-center"
+        className="flex min-h-[50vh] flex-col items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-10 text-center"
         data-testid="sofia-admin-page"
       >
         <AlertTriangle className="h-10 w-10 text-red-500" />
-        <p className="mt-4 text-base font-extrabold text-red-800">
-          No se pudo cargar el resumen real de Sofia
-        </p>
-        <p className="mt-2 max-w-md text-sm font-medium text-red-600">
-          POS, Domicilios, Caja, Stock y Checkout no se ven afectados.
-        </p>
+        <p className="mt-4 text-base font-extrabold text-red-800">No se pudo cargar el resumen real de Sofía</p>
+        <p className="mt-2 max-w-md text-sm font-medium text-red-600">POS, Domicilios, Caja, Stock y Checkout no se ven afectados.</p>
       </div>
     );
   }
@@ -175,39 +296,72 @@ export default function SofiaMainDashboardPage() {
   const deepSeekLabel = data.ai.dryRunEnabled
     ? 'DeepSeek dry-run'
     : data.ai.deepSeekEnabled
-      ? 'DeepSeek habilitado sin dry-run'
+      ? 'DeepSeek sin dry-run'
       : 'IA no disponible';
   const qrStatusLabel = data.whatsappQr.connected
     ? 'Conectado'
     : data.whatsappQr.qrAvailable
       ? 'QR listo'
-      : data.whatsappQr.status || 'No disponible';
+      : data.whatsappQr.status
+        ? humanizeEventStatus(data.whatsappQr.status)
+        : 'No disponible';
+
+  const passedCount = readiness.data ? readiness.data.checklist.filter((i) => i.status === 'PASS').length : data.security.passedChecks.length;
+  const totalChecks = readiness.data
+    ? readiness.data.checklist.length
+    : data.security.passedChecks.length + data.security.blockedChecks.length + data.security.pendingChecks.length;
+
+  const blockerItems = [
+    ...data.security.blockedChecks.map((label) => ({ label, tone: 'blocked' as const })),
+    ...data.security.pendingChecks.map((label) => ({ label, tone: 'pending' as const })),
+  ];
+
+  const readinessItems: ReadinessItem[] = (readiness.data?.checklist ?? []).map((item) => ({
+    key: item.key,
+    label: item.label,
+    status: item.status,
+    reason: item.reason,
+    evidence: item.evidence,
+    group: READINESS_GROUP[item.key] ?? 'operations',
+  }));
+
+  const timelineEvents: TimelineEvent[] = (events.data ?? []).map((event) => {
+    const viaEventStatus = humanizeEventStatus(event.status);
+    const viaEventType = humanizeEventType(event.status);
+    const viaReasonCode = humanizeReasonCode(event.status);
+    const status =
+      viaEventStatus !== event.status ? viaEventStatus : viaEventType !== event.status ? viaEventType : viaReasonCode;
+    const detail =
+      event.type === 'AUTO_SAFE_DECISION'
+        ? event.detail.split(', ').map((code) => humanizeReasonCode(code.trim())).join(' · ')
+        : event.type === 'COMMERCIAL_RULE'
+          ? event.detail.split(': ').map((part) => humanizeReasonCode(part.trim())).join(': ')
+          : event.detail;
+    return {
+      type: humanizeEventType(event.type),
+      status,
+      detail,
+      createdAt: event.createdAt,
+    };
+  });
+
+  const whatsappTone: SofiaOperatorTone = data.whatsappQr.connected ? 'safe' : data.whatsappQr.qrAvailable ? 'pending' : 'off';
+  const aiTone: SofiaOperatorTone = data.ai.dryRunEnabled ? 'dryRun' : data.ai.deepSeekEnabled ? 'pending' : 'off';
+  const safetyTone: SofiaOperatorTone = data.safetyGuard.real.blockedCount > 0 ? 'blocked' : 'safe';
+  const productionTone: SofiaOperatorTone = data.general.productionBlocked ? 'blocked' : 'pending';
 
   return (
-    <div className="space-y-6" data-testid="sofia-admin-page">
+    <SofiaPageShell data-testid="sofia-admin-page">
       <SofiaPageHero
-        eyebrow="Centro de Gobierno Sofia"
-        title="Consola supervisada"
-        description="Consola supervisada para conversaciones, IA y seguridad operativa. Sofia analiza mensajes, genera sugerencias y protege la operación. Los pedidos reales siguen en POS y Domicilios."
+        eyebrow="Sofía"
+        title="Centro de Gobierno Sofía"
+        description="IA supervisada para conversación, seguridad y readiness operativo."
         statusChips={
           <>
-            <SofiaStatusPill
-              status={data.general.sofiaMode === 'paused' ? 'BLOCKED' : 'INFO'}
-              label={data.general.sofiaMode === 'paused' ? 'Sofía pausada' : 'Modo supervisado'}
-            />
-            <SofiaStatusPill
-              status={data.general.receiveOnly ? 'RECEIVE_ONLY' : 'WARNING'}
-              label={data.general.receiveOnly ? 'Receive-only' : 'Receive-only no confirmado'}
-            />
-            <SofiaStatusPill status={data.ai.dryRunEnabled ? 'DRY_RUN' : 'WARNING'} label={deepSeekLabel} />
-            <SofiaStatusPill
-              status={data.general.realSendingEnabled ? 'WARNING' : 'BLOCKED'}
-              label={data.general.realSendingEnabled ? 'Envío real activo' : 'Envío real bloqueado'}
-            />
-            <SofiaStatusPill
-              status={data.general.productionBlocked ? 'BLOCKED' : 'WARNING'}
-              label={data.general.productionBlocked ? 'Producción bloqueada' : 'Producción no bloqueada'}
-            />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-extrabold text-white">
+              <SofiaLiveStatusDot tone={summary.isError ? 'blocked' : 'safe'} size="sm" />
+              {summary.isFetching ? 'Actualizando…' : 'Live'} · {formatDate(data.generatedAt)}
+            </span>
           </>
         }
         actions={
@@ -217,14 +371,14 @@ export default function SofiaMainDashboardPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-xs font-extrabold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
             >
               <Radio className="h-3.5 w-3.5" />
-              Ver QR
+              QR
             </Link>
             <Link
               href={data.routes.conversationsUrl}
               className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-xs font-extrabold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
             >
               <MessageCircle className="h-3.5 w-3.5" />
-              Conversations
+              Conversaciones
             </Link>
             <Link
               href={data.routes.sandboxUrl}
@@ -239,244 +393,217 @@ export default function SofiaMainDashboardPage() {
       />
 
       <section
-        className="rounded-[1.75rem] border border-red-200 bg-red-50/80 p-5"
-        data-testid="sofia-main-production-blocked"
+        className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+        data-testid="sofia-main-control-bar"
       >
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600">
-            <AlertTriangle className="h-4 w-4" />
-          </span>
+        <div className="flex items-center gap-3">
+          <SofiaLiveStatusDot tone={data.general.sofiaMode === 'paused' ? 'blocked' : 'safe'} />
           <div>
-            <p className="text-sm font-extrabold text-red-800">Producción bloqueada</p>
-            <p className="mt-1 max-w-3xl text-xs font-semibold leading-5 text-red-700">
-              Sofia está en modo seguro. Faltan validaciones finales antes de operar con clientes reales.
-              La vista principal no suma sandbox, mocks ni validaciones internas como operación real.
+            <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Control operativo</p>
+            <p className="text-base font-extrabold text-stone-900">
+              Sofía {humanizeSofiaMode(data.general.sofiaMode)}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <SofiaModeBadge label={`Allowlist: ${data.security.allowlistFinalStatus}`} tone="pending" />
-              <SofiaModeBadge label={`Security cleanup: ${data.security.securityCleanupStatus}`} tone="pending" />
-              <SofiaModeBadge label={`Scope: ${data.dataPolicy.mainDashboardScope}`} tone="info" />
-            </div>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {data.general.sofiaMode === 'paused' ? (
+            <Button
+              size="sm"
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => resumeSofia.mutate()}
+              disabled={resumeSofia.isPending}
+              data-testid="sofia-main-resume"
+            >
+              <Play className="mr-2 h-4 w-4" />
+              Reanudar Sofía
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="bg-red-50 text-red-700 ring-red-200 hover:bg-red-100"
+              onClick={() => {
+                if (window.confirm('¿Pausar Sofía globalmente? Deja de generar sugerencias y análisis hasta reanudar.')) {
+                  pauseSofia.mutate();
+                }
+              }}
+              disabled={pauseSofia.isPending}
+              data-testid="sofia-main-pause"
+            >
+              <Pause className="mr-2 h-4 w-4" />
+              Pausar Sofía
+            </Button>
+          )}
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-primary-real-cards">
-        <SofiaStatusCard
-          title="WhatsApp QR"
-          value={qrStatusLabel}
-          description="Estado real desde backend. Canal físico receive-only; no responde al cliente."
-          detail={`Provider: ${data.whatsappQr.provider} · Adapter real: ${boolText(data.whatsappQr.adapterReal)}`}
+      {alerts.isLoading && <SectionSkeleton rows={2} data-testid="sofia-main-alerts-skeleton" />}
+      {alerts.isError && (
+        <DegradedSection
+          label="Alertas operativas no disponibles"
+          detail="El resto del panel sigue operativo."
+          data-testid="sofia-main-alerts-degraded"
+        />
+      )}
+      {alerts.data && alerts.data.some((alert) => alert.status === 'OPEN') && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4" data-testid="sofia-main-alerts">
+          <p className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-amber-700">
+            <Bell className="h-3.5 w-3.5" />
+            Alertas operativas
+          </p>
+          <div className="grid gap-2">
+            {alerts.data
+              .filter((alert) => alert.status === 'OPEN')
+              .map((alert) => (
+                <div
+                  key={alert.id}
+                  className="flex items-start justify-between gap-3 rounded-xl border border-amber-100 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-extrabold text-stone-900">{alert.title}</p>
+                    <p className="text-xs font-semibold text-stone-500">{alert.message}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={() => ackAlert.mutate(alert.id)}
+                    disabled={ackAlert.isPending}
+                    data-testid={`sofia-alert-ack-${alert.id}`}
+                  >
+                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                    Reconocer
+                  </Button>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-live-signals">
+        <SofiaLiveSignalCard
           icon={Radio}
-          tone={data.whatsappQr.connected ? 'safe' : data.whatsappQr.qrAvailable ? 'pending' : 'off'}
+          title="WhatsApp QR"
+          tone={whatsappTone}
+          statusLabel={qrStatusLabel}
+          chips={['Receive-only', data.whatsappQr.adapterReal ? 'Adapter real' : 'Adapter pendiente']}
+          lastReading={`Inbound: ${formatDate(data.whatsappQr.lastInboundAt)}`}
+          suggestedAction={data.whatsappQr.connected ? 'Monitorear' : 'Revisar QR Gateway'}
+          data-testid="sofia-signal-whatsapp"
         />
-        <SofiaStatusCard
-          title="IA"
-          value={deepSeekLabel}
-          description="Genera sugerencias internas. No responde al cliente."
-          detail={`Provider: ${data.ai.aiProvider} · Fallback: ${data.ai.fallbackProvider}`}
+        <SofiaLiveSignalCard
           icon={Brain}
-          tone={data.ai.dryRunEnabled ? 'dryRun' : 'pending'}
+          title="IA"
+          tone={aiTone}
+          statusLabel={deepSeekLabel}
+          chips={[`Fallback: ${data.ai.fallbackProvider}`]}
+          lastReading={`Lectura: ${formatDate(data.ai.lastAiCheckAt)}`}
+          suggestedAction="No responde al cliente"
+          data-testid="sofia-signal-ai"
         />
-        <SofiaStatusCard
-          title="Envío real"
-          value={data.general.realSendingEnabled ? 'Activo' : 'Bloqueado'}
-          description="El envío por WhatsApp está desactivado."
-          detail={`SENT real hoy: ${data.whatsappQr.realSendingEnabled ? 'riesgo' : '0 esperado'}`}
-          icon={Ban}
-          tone="blocked"
-        />
-        <SofiaStatusCard
-          title="Producción"
-          value={blockedLabel(data.general.productionBlocked)}
-          description="Faltan validaciones finales antes de preproducción formal."
-          detail={`Readiness: ${data.security.productionReadinessStatus}`}
+        <SofiaLiveSignalCard
           icon={ShieldCheck}
-          tone={data.general.productionBlocked ? 'blocked' : 'pending'}
+          title="SafetyGuard"
+          tone={safetyTone}
+          statusLabel={`${data.safetyGuard.real.blockedCount} bloqueos reales`}
+          chips={[`${data.safetyGuard.real.totalDecisions} decisiones`, `${data.safetyGuard.real.paymentSensitiveCount} pago sensible`]}
+          lastReading={`Última decisión: ${formatDate(data.safetyGuard.real.lastDecisionAt)}`}
+          suggestedAction="Monitorear"
+          data-testid="sofia-signal-safetyguard"
+        />
+        <SofiaLiveSignalCard
+          icon={Lock}
+          title="Producción"
+          tone={productionTone}
+          statusLabel={blockedLabel(data.general.productionBlocked)}
+          chips={[`Allowlist: ${humanizeSecurityStatus(data.security.allowlistFinalStatus)}`, `Readiness: ${humanizeCheckStatus(data.security.productionReadinessStatus)}`]}
+          suggestedAction="Cerrar allowlist final"
+          data-testid="sofia-signal-production"
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_0.9fr]" data-testid="sofia-main-real-vs-validation">
-        <div className="rounded-[1.75rem] border border-stone-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-600">
-                Operación real
-              </p>
-              <h2 className="mt-2 text-xl font-black text-stone-950">
-                Datos reales visibles en esta consola
-              </h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">
-                La operación real comercial sigue bloqueada hasta cerrar allowlist final.
-                Por eso los conteos reales se muestran en cero si no hay fuente aprobada.
-              </p>
-            </div>
-            <SofiaStatusPill
-              status={data.dataPolicy.realOperationEnabled ? 'PASS' : 'WARNING'}
-              label={data.dataPolicy.realOperationEnabled ? 'Real habilitado' : 'Pendiente'}
-            />
-          </div>
+      <SofiaScopeComparison
+        data-testid="sofia-main-scope-comparison"
+        note="Validación interna no cuenta como operación real."
+        rows={[
+          { label: 'Conversaciones', real: data.conversations.realConversations, internal: data.conversations.sandboxConversations + data.conversations.internalValidationConversations },
+          { label: 'Inbound hoy', real: data.whatsappQr.inboundToday, internal: data.internalValidation.qrGatewayValidationInboundToday },
+          { label: 'Safety decisions', real: data.safetyGuard.real.totalDecisions, internal: data.safetyGuard.sandbox.totalDecisions },
+        ]}
+      />
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl bg-emerald-50 p-4">
-              <p className="text-2xl font-black text-emerald-800">{data.conversations.realConversations}</p>
-              <p className="mt-1 text-[11px] font-bold text-emerald-700">Conversaciones reales</p>
-            </div>
-            <div className="rounded-2xl bg-sky-50 p-4">
-              <p className="text-2xl font-black text-sky-800">{data.whatsappQr.inboundToday}</p>
-              <p className="mt-1 text-[11px] font-bold text-sky-700">Inbound real hoy</p>
-            </div>
-            <div className="rounded-2xl bg-amber-50 p-4">
-              <p className="text-2xl font-black text-amber-800">{data.conversations.humanRequired}</p>
-              <p className="mt-1 text-[11px] font-bold text-amber-700">Requieren humano</p>
-            </div>
-            <div className="rounded-2xl bg-red-50 p-4">
-              <p className="text-2xl font-black text-red-800">{data.safetyGuard.real.blockedCount}</p>
-              <p className="mt-1 text-[11px] font-bold text-red-700">Safety blocks reales</p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-xs font-semibold leading-5 text-stone-600">
-            Último inbound QR registrado: {formatDate(data.whatsappQr.lastInboundAt)}. Fuente actual:
-            {' '}
-            <strong>{data.whatsappQr.source === 'real_operation' ? 'operación real' : 'validación interna'}</strong>.
-          </div>
-        </div>
-
-        <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50/80 p-5 shadow-sm md:p-6">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">
-            Validación interna
-          </p>
-          <h2 className="mt-2 text-xl font-black text-amber-950">
-            Datos de pruebas separados
-          </h2>
-          <p className="mt-2 text-sm font-semibold leading-6 text-amber-800">
-            Estos datos pueden venir de sandbox, QR test-inbound o validaciones previas. No se suman como operación real.
-          </p>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-white/70 p-4">
-              <p className="text-xl font-black text-amber-900">{data.internalValidation.qrGatewayValidationInboundToday}</p>
-              <p className="mt-1 text-[11px] font-bold text-amber-700">Inbound QR validación</p>
-            </div>
-            <div className="rounded-2xl bg-white/70 p-4">
-              <p className="text-xl font-black text-amber-900">{data.conversations.sandboxConversations}</p>
-              <p className="mt-1 text-[11px] font-bold text-amber-700">Conversaciones sandbox</p>
-            </div>
-            <div className="rounded-2xl bg-white/70 p-4">
-              <p className="text-xl font-black text-amber-900">{data.safetyGuard.sandbox.totalDecisions}</p>
-              <p className="mt-1 text-[11px] font-bold text-amber-700">Safety sandbox hoy</p>
-            </div>
-            <div className="rounded-2xl bg-white/70 p-4">
-              <p className="text-xl font-black text-amber-900">{data.internalValidation.simulatedInboundToday}</p>
-              <p className="mt-1 text-[11px] font-bold text-amber-700">Simulados hoy</p>
-            </div>
-          </div>
-        </div>
+      <section className="grid items-start gap-4 sm:grid-cols-2" data-testid="sofia-main-pending-and-actions">
+        <SofiaActionMatrixCard tone="allowed" items={['Revisar sugerencias', 'Validar inbound', 'Monitorear SafetyGuard', 'Documentar pendientes']} data-testid="sofia-main-action-allowed" />
+        <SofiaActionMatrixCard tone="blocked" items={['Enviar WhatsApp real', 'Auto reply', 'Marcar PAID', 'Mover pedidos desde Sofía']} data-testid="sofia-main-action-blocked" />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3" data-testid="sofia-main-operational-state">
-        <div className="rounded-[1.75rem] border border-stone-200 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">
-            Estado general
-          </p>
-          <div className="mt-4 space-y-3 text-sm font-semibold text-stone-700">
-            <Row label="Modo Sofia" value={data.general.sofiaMode} />
-            <Row label="Receive-only" value={boolText(data.general.receiveOnly)} />
-            <Row label="Auto reply" value={data.general.autoReplyEnabled ? 'Activo' : 'OFF'} />
-            <Row label="Auto Safe productivo" value={data.general.autoSafeEnabled ? 'Activo' : 'OFF'} />
-          </div>
-        </div>
-
-        <div className="rounded-[1.75rem] border border-stone-200 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">
-            SafetyGuard
-          </p>
-          <div className="mt-4 space-y-3 text-sm font-semibold text-stone-700">
-            <Row label="Decisiones reales" value={String(data.safetyGuard.real.totalDecisions)} />
-            <Row label="Pago sensible real" value={String(data.safetyGuard.real.paymentSensitiveCount)} />
-            <Row label="Producto no reconocido real" value={String(data.safetyGuard.real.unknownProductCount)} />
-            <Row label="Última decisión real" value={formatDate(data.safetyGuard.real.lastDecisionAt)} />
-          </div>
-        </div>
-
-        <div className="rounded-[1.75rem] border border-stone-200 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">
-            Seguridad / readiness
-          </p>
-          <div className="mt-4 space-y-3 text-sm font-semibold text-stone-700">
-            <Row label="Rotación secretos" value={data.security.secretRotationStatus} />
-            <Row label="Cleanup seguridad" value={data.security.securityCleanupStatus} />
-            <Row label="Allowlist final" value={data.security.allowlistFinalStatus} />
-            <Row label="Readiness" value={data.security.productionReadinessStatus} />
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-[1fr_1fr]" data-testid="sofia-main-pending-and-actions">
-        <div className="rounded-[1.75rem] border border-stone-200 bg-white p-5 shadow-sm md:p-6">
-          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-red-600">
-            Pendientes y bloqueos
-          </p>
-          <div className="mt-4 grid gap-3">
-            {[...data.security.blockedChecks, ...data.security.pendingChecks].slice(0, 10).map((item) => (
-              <div key={item} className="rounded-2xl border border-stone-100 bg-stone-50 p-3 text-sm font-semibold text-stone-700">
-                {item}
-              </div>
-            ))}
-            {data.security.blockedChecks.length === 0 && data.security.pendingChecks.length === 0 ? (
-              <div className="rounded-2xl border border-stone-100 bg-stone-50 p-3 text-sm font-semibold text-stone-500">
-                Sin pendientes reportados por backend.
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-3">
-          <SofiaOperatorActionCard
-            title="Acciones permitidas"
-            description="Revisar sugerencias, monitorear SafetyGuard, validar inbound y documentar pendientes."
-            icon={CheckCircle2}
-            tone="safe"
-          />
-          <SofiaOperatorActionCard
-            title="Acciones bloqueadas"
-            description="Enviar WhatsApp real, activar auto reply, marcar PAID o mover pedidos desde Sofia."
-            icon={Ban}
-            tone="blocked"
-          />
-        </div>
-      </section>
+      {events.isLoading ? (
+        <SectionSkeleton rows={4} data-testid="sofia-main-timeline-skeleton" />
+      ) : events.isError ? (
+        <DegradedSection
+          label="Actividad reciente no disponible"
+          detail="Los eventos de auditoría no cargaron; reintento automático cada 30 s."
+          data-testid="sofia-main-timeline-degraded"
+        />
+      ) : (
+        <SofiaTimeline
+          events={timelineEvents}
+          emptyMessage="Sin actividad real reciente. Última actividad corresponde a validación interna."
+          data-testid="sofia-main-activity-timeline"
+        />
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-navigation">
-        <SofiaCommandCard
-          href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'}
-          label="WhatsApp QR"
-          description="Estado Baileys receive-only"
-          icon={Radio}
-        />
-        <SofiaCommandCard
-          href={data.routes.conversationsUrl}
-          label="Conversations"
-          description="Inbox supervisado"
-          icon={MessageCircle}
-        />
-        <SofiaCommandCard
-          href={data.routes.sandboxUrl}
-          label="Sandbox"
-          description="Laboratorio separado"
-          icon={Sparkles}
-        />
-        <SofiaCommandCard
-          href={data.routes.posUrl}
-          label="POS"
-          description="Operación real separada"
-          icon={Database}
-        />
+        <SofiaCommandCard href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'} label="WhatsApp QR" description="Estado Baileys receive-only" icon={Radio} />
+        <SofiaCommandCard href={data.routes.conversationsUrl} label="Conversations" description="Inbox supervisado" icon={MessageCircle} />
+        <SofiaCommandCard href={data.routes.sandboxUrl} label="Sandbox" description="Laboratorio separado" icon={Sparkles} />
+        <SofiaCommandCard href={data.routes.posUrl} label="POS" description="Operación real separada" icon={Database} />
       </section>
 
       <SofiaTechnicalDetailsAccordion
+        title="Camino a producción"
+        description="Informativo, no es un panel de activación. Producción real sigue bloqueada aquí y a nivel de servidor."
+        data-testid="sofia-main-production-path"
+      >
+        <div className="grid gap-4">
+          <SofiaReadinessGauge
+            passed={passedCount}
+            total={totalChecks}
+            subtitle={readiness.data?.nextRequiredAction}
+            topBlockers={data.security.blockedChecks}
+            data-testid="sofia-main-readiness-gauge"
+          />
+          <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-[11px] font-black uppercase tracking-[0.16em] text-red-600">Bloqueadores hacia producción</p>
+            <SofiaBlockerChecklist items={blockerItems} />
+          </div>
+          {readinessItems.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowFullChecklist((v) => !v)}
+                className="text-xs font-extrabold text-sofia-700 underline underline-offset-2 hover:text-sofia-900"
+                data-testid="sofia-main-readiness-toggle"
+              >
+                {showFullChecklist ? 'Ocultar checklist completo' : `Ver checklist completo (${totalChecks})`}
+              </button>
+              {showFullChecklist && (
+                <SofiaReadinessGrid
+                  className="mt-3"
+                  items={readinessItems}
+                  overallStatus={readiness.data?.status ?? 'BLOCKED'}
+                  overallLabel="Checklist de readiness — historia 10"
+                  data-testid="sofia-main-readiness-grid"
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </SofiaTechnicalDetailsAccordion>
+
+      <SofiaTechnicalDetailsAccordion
         title="Detalle técnico"
-        description="Fuente backend, politicas de datos y checks sin PII."
+        description="Fuente backend, políticas de datos y checks sin PII."
         data-testid="sofia-main-technical-details"
       >
         <div className="grid gap-3 text-xs font-semibold text-stone-600 md:grid-cols-2">
@@ -492,7 +619,7 @@ export default function SofiaMainDashboardPage() {
           <Row label="Real operation reason" value={data.dataPolicy.realOperationReason} />
         </div>
       </SofiaTechnicalDetailsAccordion>
-    </div>
+    </SofiaPageShell>
   );
 }
 
@@ -500,9 +627,43 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1 rounded-xl bg-stone-50 px-3 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
       <span className="text-stone-500">{label}</span>
-      <span className="break-words font-extrabold text-stone-900 sm:max-w-[60%] sm:text-right">
-        {value || 'No disponible'}
-      </span>
+      <span className="break-words font-extrabold text-stone-900 sm:max-w-[60%] sm:text-right">{value || 'No disponible'}</span>
+    </div>
+  );
+}
+
+function SectionSkeleton({ rows, 'data-testid': testId }: { rows: number; 'data-testid'?: string }) {
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm" data-testid={testId} aria-busy="true">
+      <div className="grid gap-2.5">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div key={index} className="h-9 animate-pulse rounded-xl bg-stone-100" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DegradedSection({
+  label,
+  detail,
+  'data-testid': testId,
+}: {
+  label: string;
+  detail: string;
+  'data-testid'?: string;
+}) {
+  return (
+    <div
+      className="flex items-start gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-4"
+      data-testid={testId}
+      role="status"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-stone-400" />
+      <div>
+        <p className="text-sm font-extrabold text-stone-700">{label}</p>
+        <p className="text-xs font-semibold text-stone-500">{detail}</p>
+      </div>
     </div>
   );
 }

@@ -24,12 +24,12 @@ export function SofiaEmptyState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-[1.75rem] border border-dashed border-purple-200 bg-purple-50/30 p-10 text-center',
+        'flex flex-col items-center justify-center rounded-2xl border border-dashed border-sofia-200 bg-sofia-50/30 p-10 text-center',
         className,
       )}
       data-testid={testId}
     >
-      <Icon className="mb-4 h-10 w-10 text-purple-300" />
+      <Icon className="mb-4 h-10 w-10 text-sofia-300" />
       <p className="text-base font-extrabold text-stone-700">{title}</p>
       {description && (
         <p className="mt-2 max-w-sm text-sm font-medium text-stone-500">{description}</p>

@@ -30,6 +30,10 @@ export const SECURITY_STATUS_LABELS: Record<string, string> = {
   UNKNOWN: 'Desconocido',
   SECRET_ROTATION_PENDING: 'Governance pendiente de sincronización',
   SECRET_ROTATION_COMPLETE: 'Rotación completada',
+  GO_CONDICIONADO: 'Go condicionado',
+  PASS: 'Listo',
+  BLOCKED: 'Bloqueado',
+  WARNING: 'Precaución',
 };
 
 export function humanizeSecurityStatus(code: string): string {
@@ -67,6 +71,12 @@ export const REASON_CODE_LABELS: Record<string, string> = {
   MAX_RETRIES_EXCEEDED: 'Máximo de reintentos excedido',
   ALLOWLIST_BLOCKED: 'Remitente no autorizado',
   PHONE_NOT_IN_ALLOWLIST: 'Teléfono no está en allowlist',
+  P0_COMMERCIAL: 'Riesgo comercial P0',
+  MAXI_FAMILY_COPY_RISK: 'Riesgo comercial',
+  MAXI_FAMILY_COPY: 'Copy Maxy Family',
+  CORRECTED_RESPONSE: 'Respuesta corregida',
+  COMMERCIAL_RULE: 'Requiere revisión comercial',
+  HUMAN_REQUIRED: 'Requiere revisión humana',
 };
 
 export function humanizeReasonCode(code: string): string {
@@ -83,6 +93,8 @@ export function humanizeBlocker(code: string): string {
 
 export const EVENT_TYPE_LABELS: Record<string, string> = {
   AUTO_SAFE_DECISION: 'Auto Safe — Decisión',
+  COMMERCIAL_RULE: 'Regla comercial',
+  GOVERNANCE: 'Gobernanza',
   SOFIA_GOVERNANCE_GLOBAL_PAUSE: 'Sofía pausada globalmente',
   SOFIA_GOVERNANCE_GLOBAL_RESUME: 'Sofía reactivada en modo gobernado',
   QR_STATUS_CHANGE: 'QR Gateway — Cambio de estado',
@@ -115,8 +127,40 @@ export function humanizeEventStatus(status: string): string {
     DISCONNECTED: 'Desconectado',
     PENDING: 'Pendiente',
     COMPLETE: 'Completado',
+    QR_READY: 'QR listo',
+    WAITING_QR: 'Esperando QR',
+    CONNECTING: 'Conectando',
+    RECONNECTING: 'Reconectando',
+    LOGGED_OUT: 'Sesión cerrada',
+    DISABLED: 'Deshabilitado',
+    FAILED: 'Falló',
   };
   return labels[status] ?? status;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sofía operating mode                                              */
+/* ------------------------------------------------------------------ */
+
+export const SOFIA_MODE_LABELS: Record<string, string> = {
+  paused: 'Pausada',
+  supervised: 'Supervisada',
+};
+
+export function humanizeSofiaMode(mode: string): string {
+  return SOFIA_MODE_LABELS[mode] ?? mode;
+}
+
+export const SCOPE_LABELS: Record<string, string> = {
+  SUPERVISED_PREPRODUCTION: 'Preproducción supervisada',
+  REAL: 'Operación real',
+  INTERNAL_VALIDATION: 'Validación interna',
+  SANDBOX: 'Sandbox',
+  HISTORICAL: 'Histórico',
+};
+
+export function humanizeScope(scope: string): string {
+  return SCOPE_LABELS[scope] ?? scope;
 }
 
 /* ------------------------------------------------------------------ */

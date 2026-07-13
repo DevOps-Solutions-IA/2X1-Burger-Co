@@ -23,11 +23,14 @@ import { Card } from '@/components/ui/card';
 import { SectionTitle } from '@/components/ui/section-title';
 import { apiFetch } from '@/lib/api';
 import {
-  SofiaConversationStateBadge,
+  SofiaConversationCard,
   SofiaEmptyState,
   SofiaModeBadge,
   SofiaPageHero,
+  SofiaPageShell,
+  SofiaRiskBanner,
   SofiaSafetyDecisionBadge,
+  SofiaScopeTabs,
   SofiaStatusCard,
   SofiaStatusPill,
   SofiaTechnicalDetailsAccordion,
@@ -252,7 +255,7 @@ function selectedEmptyCopy(filter: ConversationFilter, realOperationEnabled: boo
     return {
       title: 'Operación real pendiente',
       description:
-        'Las conversaciones comerciales reales se activarán después de validar allowlist final e inbound aceptado. Mientras tanto, revisa validaciones internas y sandbox por separado.',
+        'Aún no hay conversaciones comerciales habilitadas. Falta cerrar allowlist final e inbound real aceptado.',
     };
   }
   if (filter === 'sandbox') {
@@ -344,7 +347,7 @@ export default function SofiaWhatsappConversationsPage() {
   if (inbox.isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center" data-testid="sofia-whatsapp-conversations-page">
-        <div className="max-w-md rounded-[1.75rem] border border-stone-200 bg-white p-8 text-center shadow-sm">
+        <div className="max-w-md rounded-2xl border border-stone-200 bg-white p-8 text-center shadow-sm">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-stone-200 border-t-stone-900" />
           <h1 className="mt-5 text-xl font-black text-stone-950">Cargando inbox real de Sofía</h1>
           <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">
@@ -358,7 +361,7 @@ export default function SofiaWhatsappConversationsPage() {
   if (inbox.isError || !data) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center" data-testid="sofia-whatsapp-conversations-page">
-        <div className="max-w-md rounded-[1.75rem] border border-red-200 bg-red-50 p-8 text-center">
+        <div className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
           <AlertTriangle className="mx-auto h-10 w-10 text-red-600" />
           <h1 className="mt-5 text-xl font-black text-red-900">No se pudo cargar Conversations</h1>
           <p className="mt-2 text-sm font-semibold leading-6 text-red-700">
@@ -378,7 +381,7 @@ export default function SofiaWhatsappConversationsPage() {
         : 'IA rules/fallback';
 
   return (
-    <div className="space-y-6" data-testid="sofia-whatsapp-conversations-page">
+    <SofiaPageShell data-testid="sofia-whatsapp-conversations-page">
       <SofiaPageHero
         eyebrow="Sofía Conversations"
         title="Conversaciones Sofía"
@@ -429,18 +432,12 @@ export default function SofiaWhatsappConversationsPage() {
         />
       </section>
 
-      <div className="rounded-[1.5rem] border border-red-200 bg-red-50 p-4 text-red-900">
-        <div className="flex gap-3">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-          <div>
-            <p className="text-sm font-black">Acciones bloqueadas</p>
-            <p className="mt-1 text-sm font-semibold leading-6">
-              Envío real bloqueado, Auto reply OFF, PAID bloqueado y producción bloqueada.
-              Sandbox e histórico no se suman como operación real.
-            </p>
-          </div>
-        </div>
-      </div>
+      <SofiaRiskBanner
+        tone="blocked"
+        icon={AlertTriangle}
+        title="Envío, auto reply y PAID bloqueados"
+        description="Sandbox e histórico no se suman como operación real."
+      />
 
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.55fr]">
         <Card className="space-y-4 p-5" data-testid="sofia-whatsapp-conversations-list">
@@ -450,28 +447,19 @@ export default function SofiaWhatsappConversationsPage() {
             description="La clasificación viene del backend sanitizado. No se muestran teléfonos completos, QR raw ni payloads crudos."
           />
 
-          <div className="flex flex-wrap gap-2" data-testid="sofia-conversation-filters">
-            {FILTERS.map((item) => {
-              const count = countForFilter(data, item.key);
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => {
-                    setFilter(item.key);
-                    setSelectedId('');
-                  }}
-                  className={`rounded-full border px-3 py-2 text-[11px] font-black transition ${
-                    filter === item.key
-                      ? 'border-stone-950 bg-stone-950 text-white shadow-sm'
-                      : 'border-stone-200 bg-white text-stone-600 hover:border-stone-400 hover:text-stone-950'
-                  }`}
-                >
-                  {item.label} ({count})
-                </button>
-              );
-            })}
-          </div>
+          <SofiaScopeTabs
+            data-testid="sofia-conversation-filters"
+            value={filter}
+            onChange={(key) => {
+              setFilter(key as ConversationFilter);
+              setSelectedId('');
+            }}
+            items={FILTERS.map((item) => ({
+              key: item.key,
+              label: item.label,
+              count: countForFilter(data, item.key),
+            }))}
+          />
 
           {!data?.scope.realOperationEnabled ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
@@ -481,41 +469,23 @@ export default function SofiaWhatsappConversationsPage() {
 
           <div className="space-y-3">
             {filteredConversations.map((conversation) => (
-              <button
+              <SofiaConversationCard
                 key={conversation.id}
-                type="button"
+                customerLabel={conversation.customerLabel}
+                phoneMasked={conversation.phoneMasked}
+                phoneHash={conversation.phoneHash}
+                scope={conversation.scope}
+                scopeLabel={scopeLabel(conversation.scope)}
+                lastMessagePreview={conversation.lastMessagePreview}
+                operationalState={conversation.operationalState}
+                mode={conversation.mode}
+                recommendedAction={conversation.recommendedAction}
+                aiDryRun={conversation.ai.dryRun}
+                sentFalseExpected={conversation.safety.sentFalseExpected}
+                selected={selectedConversation?.id === conversation.id}
                 onClick={() => setSelectedId(conversation.id)}
-                className={`w-full rounded-2xl border p-4 text-left transition-all duration-200 ${
-                  selectedConversation?.id === conversation.id
-                    ? 'border-stone-950 bg-stone-50 shadow-sm ring-1 ring-stone-200'
-                    : 'border-stone-200 bg-white hover:border-stone-400 hover:shadow-sm'
-                }`}
                 data-testid="sofia-conversation-card"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-extrabold text-stone-900" title={conversation.customerLabel}>
-                      {conversation.customerLabel}
-                    </p>
-                    <p className="text-xs font-medium text-stone-500">
-                      {conversation.phoneMasked ?? 'Teléfono no disponible'} · hash {conversation.phoneHash ?? 'n/d'}
-                    </p>
-                  </div>
-                  <Badge tone={toneForScope(conversation.scope)}>{scopeLabel(conversation.scope)}</Badge>
-                </div>
-                <p className="mt-3 line-clamp-2 text-sm text-stone-600">
-                  {conversation.lastMessagePreview || 'Sin preview sanitizado'}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <SofiaConversationStateBadge state={conversation.operationalState} />
-                  <SofiaModeBadge label={conversation.mode} tone={conversation.mode === 'receive_only' ? 'info' : 'pending'} />
-                  {conversation.ai.dryRun ? <SofiaSafetyDecisionBadge status="DeepSeek dry-run" /> : null}
-                  {conversation.safety.sentFalseExpected ? <SofiaModeBadge label="sent=false" tone="blocked" /> : null}
-                </div>
-                <p className="mt-3 text-xs font-bold text-stone-500">
-                  Acción recomendada: {conversation.recommendedAction}
-                </p>
-              </button>
+              />
             ))}
 
             {!filteredConversations.length && (
@@ -864,7 +834,7 @@ export default function SofiaWhatsappConversationsPage() {
           <TechnicalRow label="Payload proveedor excluido" value={data?.security.dataPolicy.providerPayloadExcluded ? 'Sí' : 'No disponible'} />
         </div>
       </SofiaTechnicalDetailsAccordion>
-    </div>
+    </SofiaPageShell>
   );
 }
 

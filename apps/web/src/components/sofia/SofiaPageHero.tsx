@@ -25,7 +25,7 @@ export function SofiaPageHero({
   return (
     <header
       className={cn(
-        'relative overflow-hidden rounded-[2rem] border border-purple-200/30 p-6 text-white shadow-lg md:p-8',
+        'relative overflow-hidden rounded-[1.5rem] border border-sofia-200/30 p-6 text-white shadow-lg md:p-8',
         className,
       )}
       style={{
@@ -47,13 +47,13 @@ export function SofiaPageHero({
 
       <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-xl">
-          <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-purple-200/90">
+          <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-sofia-200/90">
             {eyebrow}
           </span>
           <h1 className="mt-3 text-2xl font-extrabold leading-tight tracking-tight text-white md:text-3xl">
             {title}
           </h1>
-          <p className="mt-2 max-w-lg text-sm leading-relaxed text-purple-100/80">
+          <p className="mt-2 max-w-lg text-sm leading-relaxed text-sofia-100/80">
             {description}
           </p>
         </div>
