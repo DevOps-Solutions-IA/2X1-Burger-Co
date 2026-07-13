@@ -66,6 +66,10 @@ services:
     environment: *api-environment
     ports:
       - "127.0.0.1:${CANARY_API_PORT:-4400}:3000"
+    networks:
+      default:
+        aliases:
+          - api
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
       interval: 5s
