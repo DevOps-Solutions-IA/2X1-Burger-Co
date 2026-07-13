@@ -1,0 +1,2 @@
+ALTER TABLE "order_tickets"
+ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 0;

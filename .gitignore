@@ -19,6 +19,7 @@ coverage
 *.old
 *.dump
 *.sql
+!prisma/migrations/**/migration.sql
 *.sqlite
 *.db
 storage/whatsapp-sessions/
