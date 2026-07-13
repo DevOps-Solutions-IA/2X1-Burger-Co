@@ -21,15 +21,18 @@ export class WhatsappProviderFactory {
 
   resolveMode(headers?: Record<string, string | string[] | undefined>): WhatsappMode {
     const headerMode = this.headerValue(headers, 'x-sofia-whatsapp-mode');
-    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') !== 'production';
+    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') === 'test';
     const requested = canUseHeaderOverride && headerMode ? headerMode : this.configService.get<string>('WHATSAPP_MODE');
     return WHATSAPP_MODES.includes(requested as WhatsappMode) ? (requested as WhatsappMode) : 'disabled';
   }
 
   resolveProviderName(routeProvider?: string | null, headers?: Record<string, string | string[] | undefined>): WhatsappProviderName {
     const headerProvider = this.headerValue(headers, 'x-sofia-whatsapp-provider');
-    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') !== 'production';
-    const configured = canUseHeaderOverride && headerProvider ? headerProvider : routeProvider || this.configService.get<string>('WHATSAPP_PROVIDER');
+    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') === 'test';
+    const configuredProvider = this.configService.get<string>('WHATSAPP_PROVIDER');
+    const configured = canUseHeaderOverride
+      ? headerProvider || routeProvider || configuredProvider
+      : configuredProvider;
     return WHATSAPP_PROVIDERS.includes(configured as WhatsappProviderName) ? (configured as WhatsappProviderName) : 'none';
   }
 
@@ -61,7 +64,7 @@ export class WhatsappProviderFactory {
 
   isAutoReplyAllowed(confidence: number, isOpen: boolean, headers?: Record<string, string | string[] | undefined>) {
     const headerEnabled = this.headerValue(headers, 'x-sofia-auto-reply-enabled');
-    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') !== 'production';
+    const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') === 'test';
     const enabled =
       canUseHeaderOverride && headerEnabled != null
         ? headerEnabled === 'true'

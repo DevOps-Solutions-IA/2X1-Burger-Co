@@ -390,6 +390,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         'x-sofia-whatsapp-mode': 'receive_only',
         'x-sofia-whatsapp-provider': 'qr_gateway',
       },
+      { trustedInternalValidation: true },
     );
 
     return {

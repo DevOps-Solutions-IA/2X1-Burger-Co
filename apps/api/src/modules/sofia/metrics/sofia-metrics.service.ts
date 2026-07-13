@@ -85,7 +85,7 @@ export class SofiaMetricsService {
       governance: {
         productionStatus: governance.productionReadiness.status,
         activeBlockers: governance.productionReadiness.blockers,
-        killSwitchState: governance.sofia.globalPaused ? 'PAUSED' : 'ACTIVE',
+        killSwitchState: governance.sofia.killSwitchActive ? 'KILLED' : governance.sofia.globalPaused ? 'PAUSED' : 'ACTIVE',
         qrReceiveOnlyStatus: governance.whatsapp.qrReceiveOnlyReady ? 'PASS' : 'WARNING',
       },
       system: {

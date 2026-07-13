@@ -14,6 +14,7 @@ describe('environment boolean parsing', () => {
       WHATSAPP_QR_ALLOW_REAL_SEND: 'false',
       SOFIA_AUTO_REPLY_ENABLED: 'false',
       SOFIA_AUTO_SAFE_ENABLED: '0',
+      SOFIA_PRODUCTION_ENABLED: 'FALSE',
       DEEPSEEK_ENABLED: 'false',
       DELIVERY_EXTERNAL_PROVIDERS_ENABLED: '0',
     });
@@ -21,6 +22,7 @@ describe('environment boolean parsing', () => {
     expect(env.WHATSAPP_QR_ALLOW_REAL_SEND).toBe(false);
     expect(env.SOFIA_AUTO_REPLY_ENABLED).toBe(false);
     expect(env.SOFIA_AUTO_SAFE_ENABLED).toBe(false);
+    expect(env.SOFIA_PRODUCTION_ENABLED).toBe(false);
     expect(env.DEEPSEEK_ENABLED).toBe(false);
     expect(env.DELIVERY_EXTERNAL_PROVIDERS_ENABLED).toBe(false);
   });

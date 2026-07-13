@@ -6,6 +6,7 @@ import { SofiaAIProviderFactory } from '../ai/sofia-ai-provider.factory';
 import { SofiaCommercialCatalogService } from '../catalog/sofia-commercial-catalog.service';
 import { SofiaPromptService } from '../prompt/sofia-prompt.service';
 import { SofiaWhatsappService } from '../sofia-whatsapp.service';
+import { SofiaRuntimeSafetyService } from '../runtime-safety/sofia-runtime-safety.service';
 import { SofiaWhatsappQrGatewayService } from '../whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service';
 import { SofiaReadinessService } from './sofia-readiness.service';
 import {
@@ -16,6 +17,7 @@ import {
 
 const GOVERNANCE_KEYS = {
   globalPaused: 'SOFIA_GLOBAL_PAUSED',
+  killSwitch: 'SOFIA_KILL_SWITCH',
   autoSafeProductionAllowed: 'SOFIA_AUTO_SAFE_PRODUCTION_ALLOWED',
   qrRealAllowed: 'SOFIA_QR_REAL_ALLOWED',
   deepSeekRealAllowed: 'SOFIA_DEEPSEEK_REAL_ALLOWED',
@@ -33,21 +35,23 @@ export class SofiaGovernanceService {
     private readonly sofiaWhatsappService: SofiaWhatsappService,
     private readonly qrGatewayService: SofiaWhatsappQrGatewayService,
     private readonly readinessService: SofiaReadinessService,
+    private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
 
   async getEnterpriseStatus(): Promise<SofiaEnterpriseStatusResponse> {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const [activePrompt, catalogItems, governanceSettings] = await Promise.all([
+    const [activePrompt, catalogItems, governanceSettings, runtimeSafety] = await Promise.all([
       this.promptService.getActivePrompt().catch(() => null),
       this.catalogService.listActiveItems().catch(() => []),
       this.getGovernanceSettings(),
+      this.runtimeSafetyService.getState(),
     ]);
     const aiStatus = this.aiProviderFactory.getStatus();
     const whatsappStatus = this.sofiaWhatsappService.getStatus();
     const qrStatus = await this.qrGatewayService.getStatus();
     const secretRotationStatus = this.secretRotationStatus(governanceSettings.secretRotationStatus);
-    const globalPaused = governanceSettings.globalPaused.paused === true;
+    const globalPaused = runtimeSafety.globalPaused;
     const qrAllowed = governanceSettings.qrRealAllowed.allowed === true;
     const deepSeekAllowed = governanceSettings.deepSeekRealAllowed.allowed === true;
     const autoSafeProductionAllowed = governanceSettings.autoSafeProductionAllowed.allowed === true;
@@ -131,9 +135,10 @@ export class SofiaGovernanceService {
         blockers: this.unique(securityBlockers),
       },
       sofia: {
-        enabled: !globalPaused,
+        enabled: !globalPaused && !runtimeSafety.killSwitchActive,
         globalPaused,
-        mode: globalPaused ? 'paused' : 'governed_sandbox',
+        killSwitchActive: runtimeSafety.killSwitchActive,
+        mode: runtimeSafety.killSwitchActive ? 'killed' : globalPaused ? 'paused' : 'governed_sandbox',
         activePromptVersion: activePrompt?.version ?? null,
         promptStatus: activePrompt?.status ?? null,
         promptUpdatedAt: activePrompt?.activatedAt ?? null,
@@ -147,7 +152,7 @@ export class SofiaGovernanceService {
         healthStatus: aiStatus.safeByDefault ? 'PASS' : 'WARNING',
       },
       autoSafe: {
-        enabled: this.configService.get<boolean>('SOFIA_AUTO_SAFE_ENABLED') === true,
+        enabled: runtimeSafety.effective.autoSafeEnabled,
         sandboxOnly: true,
         lastDecisionAt: lastAutoSafeDecision?.createdAt.toISOString() ?? null,
         decisionsToday: autoSafeCounts.total,
@@ -258,7 +263,7 @@ export class SofiaGovernanceService {
       ]);
 
     const productionBlocked = enterprise.productionReadiness.status === 'BLOCKED';
-    const deepSeekDryRun = aiStatus.provider === 'deepseek' && aiStatus.mode === 'dry_run' && aiStatus.deepseekEnabled === true;
+    const deepSeekDryRun = aiStatus.provider === 'deepseek' && aiStatus.mode === 'dry_run';
     const allowlistFinalStatus = 'PENDING' as const;
     const realOperationEnabled = false;
     const realConversations = realOperationEnabled ? conversationSummary.realConversations : 0;
@@ -276,7 +281,10 @@ export class SofiaGovernanceService {
         mainDashboardScope: 'SUPERVISED_PREPRODUCTION',
       },
       general: {
-        sofiaMode: enterprise.sofia.globalPaused ? 'paused' : 'supervised',
+        sofiaMode: enterprise.sofia.killSwitchActive ? 'killed' : enterprise.sofia.globalPaused ? 'paused' : 'supervised',
+        globalPaused: enterprise.sofia.globalPaused,
+        killSwitchActive: enterprise.sofia.killSwitchActive,
+        automationBlocked: enterprise.sofia.globalPaused || enterprise.sofia.killSwitchActive,
         productionEnabled: false,
         productionBlocked,
         receiveOnly: qrStatus.mode === 'receive_only',
@@ -302,6 +310,7 @@ export class SofiaGovernanceService {
         aiMode: aiStatus.mode,
         deepSeekEnabled: aiStatus.deepseekEnabled,
         dryRunEnabled: deepSeekDryRun,
+        externalProviderEnabled: aiStatus.deepseekEnabled,
         fallbackProvider: 'rules',
         lastAiCheckAt: enterprise.autoSafe.lastDecisionAt,
         source: 'backend_status',
@@ -368,12 +377,26 @@ export class SofiaGovernanceService {
     const settings = await this.getGovernanceSettings();
     return {
       globalPaused: settings.globalPaused.paused === true,
+      killSwitchActive: settings.killSwitch.active === true,
       qrRealAllowed: settings.qrRealAllowed.allowed === true,
       deepSeekRealAllowed: settings.deepSeekRealAllowed.allowed === true,
       autoSafeProductionAllowed: settings.autoSafeProductionAllowed.allowed === true,
       secretRotationStatus: this.secretRotationStatus(settings.secretRotationStatus),
       phase: 'F3_GOVERNANCE_ONLY',
     };
+  }
+
+  async activateKillSwitch(actorId: string, reason?: string) {
+    const safeReason = (reason ?? 'Activacion manual de emergencia').slice(0, 180);
+    await this.upsertSetting(GOVERNANCE_KEYS.killSwitch, { active: true, reason: safeReason }, actorId);
+    await this.audit('SOFIA_GOVERNANCE_KILL_SWITCH_ACTIVATED', actorId, { reason: safeReason });
+    return { active: true, status: 'PASS', message: 'Kill switch activo. Automatizacion y envios permanecen bloqueados.' };
+  }
+
+  async deactivateKillSwitch(actorId: string) {
+    await this.upsertSetting(GOVERNANCE_KEYS.killSwitch, { active: false }, actorId);
+    await this.audit('SOFIA_GOVERNANCE_KILL_SWITCH_DEACTIVATED', actorId, {});
+    return { active: false, status: 'PASS', message: 'Kill switch desactivado. Los demas gates de seguridad siguen vigentes.' };
   }
 
   async pauseGlobal(actorId: string, reason?: string) {
@@ -423,6 +446,7 @@ export class SofiaGovernanceService {
     const byKey = new Map(settings.map((setting) => [setting.key, this.settingValue(setting.value)]));
     return {
       globalPaused: byKey.get(GOVERNANCE_KEYS.globalPaused) ?? { paused: false },
+      killSwitch: byKey.get(GOVERNANCE_KEYS.killSwitch) ?? { active: false },
       autoSafeProductionAllowed: byKey.get(GOVERNANCE_KEYS.autoSafeProductionAllowed) ?? { allowed: false },
       qrRealAllowed: byKey.get(GOVERNANCE_KEYS.qrRealAllowed) ?? { allowed: false },
       deepSeekRealAllowed: byKey.get(GOVERNANCE_KEYS.deepSeekRealAllowed) ?? { allowed: false },

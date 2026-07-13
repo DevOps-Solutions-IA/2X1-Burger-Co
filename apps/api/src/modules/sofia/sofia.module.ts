@@ -23,6 +23,7 @@ import { PaymentProviderFactory } from './payments/payment-provider.factory';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
+import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaController } from './sofia.controller';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
@@ -84,6 +85,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaAlertsService,
     SofiaBackupsService,
     SofiaHardeningService,
+    SofiaRuntimeSafetyService,
   ],
   exports: [
     SofiaService,
@@ -106,6 +108,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaAlertsService,
     SofiaBackupsService,
     SofiaHardeningService,
+    SofiaRuntimeSafetyService,
   ],
 })
 export class SofiaModule {}

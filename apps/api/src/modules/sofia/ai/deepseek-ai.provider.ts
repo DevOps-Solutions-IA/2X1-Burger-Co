@@ -150,7 +150,7 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
   }
 
   private isMockScenarioAllowed(input: SofiaAIAnalysisInput) {
-    return process.env.NODE_ENV !== 'production' && input.mockScenario && input.mockScenario !== 'none';
+    return process.env.NODE_ENV === 'test' && input.mockScenario && input.mockScenario !== 'none';
   }
 
   private mockDeepSeekResponse(input: SofiaAIAnalysisInput): SofiaAIAnalysisOutput {

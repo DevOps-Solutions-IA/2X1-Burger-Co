@@ -38,6 +38,7 @@ import { SofiaMetricsService } from './metrics/sofia-metrics.service';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
+import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaService } from './sofia.service';
@@ -68,6 +69,7 @@ export class SofiaController {
     private readonly hardeningService: SofiaHardeningService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
 
   @Get('prompt/active')
@@ -573,6 +575,21 @@ export class SofiaController {
   @Get('security-status')
   getSecurityStatus() {
     return this.governanceService.getSecurityStatus();
+  }
+
+  @Get('runtime-safety')
+  getRuntimeSafety() {
+    return this.runtimeSafetyService.getPublicStatus();
+  }
+
+  @Post('control/kill-switch/activate')
+  activateKillSwitch(@Body('reason') reason: string, @CurrentUser() actor: AuthUser) {
+    return this.governanceService.activateKillSwitch(actor.sub, reason);
+  }
+
+  @Post('control/kill-switch/deactivate')
+  deactivateKillSwitch(@CurrentUser() actor: AuthUser) {
+    return this.governanceService.deactivateKillSwitch(actor.sub);
   }
 
   @Get('governance/events')

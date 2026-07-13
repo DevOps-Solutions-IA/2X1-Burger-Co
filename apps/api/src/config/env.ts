@@ -56,6 +56,7 @@ const envSchema = z
     HERMES_MAX_RETRIES: z.coerce.number().int().positive().default(3),
     SOFIA_AUTO_REPLY_ENABLED: envBoolean.default(false),
     SOFIA_AUTO_SAFE_ENABLED: envBoolean.default(false),
+    SOFIA_PRODUCTION_ENABLED: envBoolean.default(false),
     SOFIA_AUTO_REPLY_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.82),
     SOFIA_HUMAN_HANDOFF_ENABLED: envBoolean.default(true),
     SOFIA_REPLY_OUTSIDE_HOURS: envBoolean.default(false),

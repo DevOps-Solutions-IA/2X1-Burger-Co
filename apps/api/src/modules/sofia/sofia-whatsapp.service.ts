@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
   WhatsappConversationStatus,
@@ -9,6 +8,7 @@ import {
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SofiaAgentService } from './sofia-agent.service';
+import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
 import { ParsedWhatsappInbound, WhatsappMode, WhatsappProviderName } from './whatsapp/whatsapp-provider.adapter';
 
@@ -26,14 +26,19 @@ export class SofiaWhatsappService {
     private readonly prisma: PrismaService,
     private readonly providerFactory: WhatsappProviderFactory,
     private readonly sofiaAgentService: SofiaAgentService,
-    private readonly configService: ConfigService,
+    private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
 
   getStatus() {
     return this.providerFactory.getStatus();
   }
 
-  async processInboundWebhook(providerParam: string, rawPayload: Record<string, unknown>, headers: HeaderMap) {
+  async processInboundWebhook(
+    providerParam: string,
+    rawPayload: Record<string, unknown>,
+    headers: HeaderMap,
+    options: { trustedInternalValidation?: boolean } = {},
+  ) {
     const mode = this.providerFactory.resolveMode(headers);
     const providerName = this.providerFactory.resolveProviderName(providerParam, headers);
     const provider = this.providerFactory.getProvider(providerName);
@@ -59,6 +64,11 @@ export class SofiaWhatsappService {
     const duplicated = await this.findDuplicateInbound(parsed, eventHash);
     if (duplicated) {
       await this.safeMarkDuplicate(parsed, effectiveProvider, eventHash);
+      await this.runtimeSafetyService.recordBlocked('DUPLICATE_INBOUND', {
+        phone: parsed.phone,
+        reason: 'DUPLICATE_IGNORED',
+        idempotencyKey: eventHash,
+      });
       return {
         duplicate: true,
         mode,
@@ -91,7 +101,10 @@ export class SofiaWhatsappService {
       };
     }
 
-    if (effectiveProvider === 'qr_gateway' && !this.isQrPilotInboundAllowed(parsed)) {
+    const allowlist = options.trustedInternalValidation
+      ? { allowed: true, reason: 'ALLOWLIST_DISABLED' as const, phoneMasked: null, phoneHash: null }
+      : this.runtimeSafetyService.evaluateAllowlist(parsed.phone);
+    if (effectiveProvider === 'qr_gateway' && !allowlist.allowed) {
       const conversation = await this.getOrCreateWhatsappConversation(parsed, 'receive_only', effectiveProvider);
       const inboundMessage = await this.prisma.whatsappMessage.create({
         data: {
@@ -137,6 +150,11 @@ export class SofiaWhatsappService {
           processingStatus: 'ALLOWLIST_REQUIRED',
           errorMessage: 'Número fuera de allowlist piloto QR.',
         },
+      });
+      await this.runtimeSafetyService.recordBlocked('ALLOWLIST', {
+        phone: parsed.phone,
+        reason: allowlist.reason,
+        idempotencyKey: eventHash,
       });
 
       return {
@@ -259,6 +277,17 @@ export class SofiaWhatsappService {
       return outbound;
     }
     const providerName = (outbound.provider || 'mock') as WhatsappProviderName;
+    const gate = await this.runtimeSafetyService.evaluate('OUTBOUND_SEND', { simulated: providerName === 'mock' });
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('OUTBOUND_SEND', {
+        actorId,
+        phone: outbound.conversation.phone,
+        reason: gate.reason,
+        blockers: gate.blockers,
+        idempotencyKey: outbound.idempotencyKey,
+      });
+      throw new ForbiddenException({ status: 'BLOCKED', reason: gate.reason, blockers: gate.blockers, sent: false });
+    }
     const provider = this.providerFactory.getProvider(providerName);
     if (provider.provider === 'none') throw new ForbiddenException('WhatsApp provider no configurado para enviar.');
     const sent = outbound.mediaUrl
@@ -300,6 +329,16 @@ export class SofiaWhatsappService {
     const outbound = await this.prisma.whatsappOutboundMessage.findUnique({ where: { id: outboundId }, include: { conversation: true } });
     if (!outbound) throw new NotFoundException('No se encontró el mensaje saliente Sofía.');
     if (!['QUEUED', 'RETRYING', 'FAILED'].includes(outbound.status)) return outbound;
+    const gate = await this.runtimeSafetyService.evaluate('OUTBOUND_SEND', { simulated: outbound.provider === 'mock' });
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('OUTBOUND_SEND', {
+        phone: outbound.conversation.phone,
+        reason: gate.reason,
+        blockers: gate.blockers,
+        idempotencyKey: outbound.idempotencyKey,
+      });
+      throw new ForbiddenException({ status: 'BLOCKED', reason: gate.reason, blockers: gate.blockers, sent: false });
+    }
     return this.sendOrRetryOutbound(outbound.id);
   }
 
@@ -312,6 +351,21 @@ export class SofiaWhatsappService {
     headers: HeaderMap;
   }) {
     const { mode, providerName, parsed, conversationId, inboundMessageId, headers } = input;
+    const automationGate = await this.runtimeSafetyService.evaluate('INBOUND_ANALYSIS');
+    if (!automationGate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('INBOUND_ANALYSIS', {
+        phone: parsed.phone,
+        reason: automationGate.reason,
+        blockers: automationGate.blockers,
+        idempotencyKey: inboundMessageId,
+      });
+      return {
+        processingStatus: automationGate.reason,
+        outbound: null,
+        sofiaResult: null,
+        errorMessage: automationGate.reason,
+      };
+    }
     if (mode === 'disabled') {
       return { processingStatus: 'DISABLED_STORED', outbound: null, sofiaResult: null, errorMessage: null };
     }
@@ -497,6 +551,19 @@ export class SofiaWhatsappService {
   private async sendOrRetryOutbound(outboundId: string) {
     const outbound = await this.prisma.whatsappOutboundMessage.findUnique({ where: { id: outboundId }, include: { conversation: true } });
     if (!outbound) throw new NotFoundException('No se encontró el mensaje saliente Sofía.');
+    const gate = await this.runtimeSafetyService.evaluate('OUTBOUND_SEND', { simulated: outbound.provider === 'mock' });
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('OUTBOUND_SEND', {
+        phone: outbound.conversation.phone,
+        reason: gate.reason,
+        blockers: gate.blockers,
+        idempotencyKey: outbound.idempotencyKey,
+      });
+      return this.prisma.whatsappOutboundMessage.update({
+        where: { id: outbound.id },
+        data: { status: 'FAILED', lastError: gate.reason, nextRetryAt: null },
+      });
+    }
     const provider = this.providerFactory.getProvider((outbound.provider || 'mock') as WhatsappProviderName);
     if (provider.provider === 'none') {
       return this.prisma.whatsappOutboundMessage.update({
@@ -693,31 +760,6 @@ export class SofiaWhatsappService {
       '/uploads/sofia-offers/doble-todo.webp',
       '/uploads/sofia-offers/hamburguesa-sencilla.webp',
     ].includes(mediaUrl);
-  }
-
-  private isQrPilotInboundAllowed(parsed: ParsedWhatsappInbound) {
-    const summary = parsed.rawPayload.summary;
-    const source = summary && typeof summary === 'object' && !Array.isArray(summary) ? String((summary as { source?: unknown }).source ?? '') : '';
-    if (source === 'F4_TEST_INBOUND' || source === 'F5_TEST_INBOUND') return true;
-    if (!this.configBoolean('SOFIA_QR_PILOT_ALLOWLIST_ENABLED')) return true;
-    const allowedPhones = (process.env.SOFIA_QR_PILOT_ALLOWED_PHONES ?? this.configService.get<string>('SOFIA_QR_PILOT_ALLOWED_PHONES') ?? '')
-      .split(',')
-      .map((phone) => this.normalizePhoneForAllowlist(phone))
-      .filter(Boolean);
-    if (allowedPhones.length === 0) return false;
-    return allowedPhones.includes(this.normalizePhoneForAllowlist(parsed.phone));
-  }
-
-  private configBoolean(key: string) {
-    const value = process.env[key] ?? this.configService.get<boolean | string>(key);
-    return value === true || String(value).toLowerCase() === 'true';
-  }
-
-  private normalizePhoneForAllowlist(phone: string) {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.startsWith('57') && digits.length === 12) return digits;
-    if (digits.length === 10) return `57${digits}`;
-    return digits;
   }
 
   private isUniqueConstraintError(error: unknown) {

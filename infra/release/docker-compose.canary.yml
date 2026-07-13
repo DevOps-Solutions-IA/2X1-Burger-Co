@@ -25,7 +25,7 @@ services:
       canary-postgres:
         condition: service_healthy
     environment: &api-environment
-      NODE_ENV: development
+      NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${CANARY_POSTGRES_USER}:${CANARY_POSTGRES_PASSWORD}@canary-postgres:5432/${CANARY_POSTGRES_DB}?schema=public
       CORS_ORIGIN: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
@@ -37,17 +37,19 @@ services:
       ADMIN_PASSWORD: ${CANARY_ADMIN_PASSWORD:?required}
       COOKIE_SECURE: "false"
       WHATSAPP_INTERNAL_ENABLED: "false"
-      WHATSAPP_MODE: disabled
-      WHATSAPP_PROVIDER: none
+      WHATSAPP_MODE: receive_only
+      WHATSAPP_PROVIDER: qr_gateway
       WHATSAPP_QR_ENABLED: "false"
       WHATSAPP_QR_ALLOW_RECEIVE: "false"
       WHATSAPP_QR_ALLOW_REAL_SEND: "false"
       WHATSAPP_QR_RECONNECT_ENABLED: "false"
-      SOFIA_QR_PILOT_ALLOWLIST_ENABLED: "false"
+      SOFIA_QR_PILOT_ALLOWLIST_ENABLED: "true"
+      SOFIA_QR_PILOT_ALLOWED_PHONES: ${CANARY_SAFETY_ALLOWED_PHONES:?required}
       SOFIA_QR_PILOT_RECEIVE_ONLY: "true"
       SOFIA_QR_PILOT_REAL_SEND: "false"
       SOFIA_AUTO_REPLY_ENABLED: "false"
       SOFIA_AUTO_SAFE_ENABLED: "false"
+      SOFIA_PRODUCTION_ENABLED: "false"
       SOFIA_AI_PROVIDER: deepseek
       SOFIA_AI_MODE: dry_run
       DEEPSEEK_ENABLED: "false"

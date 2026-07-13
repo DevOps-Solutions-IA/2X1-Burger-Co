@@ -66,6 +66,9 @@ type DashboardSummary = {
   };
   general: {
     sofiaMode: string;
+    globalPaused: boolean;
+    killSwitchActive: boolean;
+    automationBlocked: boolean;
     productionEnabled: boolean;
     productionBlocked: boolean;
     receiveOnly: boolean;
@@ -91,6 +94,7 @@ type DashboardSummary = {
     aiMode: string;
     deepSeekEnabled: boolean;
     dryRunEnabled: boolean;
+    externalProviderEnabled: boolean;
     fallbackProvider: string;
     lastAiCheckAt: string | null;
     source: string;
@@ -294,7 +298,9 @@ export default function SofiaMainDashboardPage() {
   }
 
   const deepSeekLabel = data.ai.dryRunEnabled
-    ? 'DeepSeek dry-run'
+    ? data.ai.externalProviderEnabled
+      ? 'DeepSeek dry-run'
+      : 'DeepSeek dry-run · proveedor externo OFF'
     : data.ai.deepSeekEnabled
       ? 'DeepSeek sin dry-run'
       : 'IA no disponible';
@@ -397,11 +403,14 @@ export default function SofiaMainDashboardPage() {
         data-testid="sofia-main-control-bar"
       >
         <div className="flex items-center gap-3">
-          <SofiaLiveStatusDot tone={data.general.sofiaMode === 'paused' ? 'blocked' : 'safe'} />
+          <SofiaLiveStatusDot tone={data.general.automationBlocked ? 'blocked' : 'safe'} />
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Control operativo</p>
             <p className="text-base font-extrabold text-stone-900">
               Sofía {humanizeSofiaMode(data.general.sofiaMode)}
+            </p>
+            <p className="text-xs font-semibold text-stone-500">
+              Kill switch: {data.general.killSwitchActive ? 'ACTIVO' : 'inactivo'} · Envío real: bloqueado
             </p>
           </div>
         </div>
@@ -613,6 +622,10 @@ export default function SofiaMainDashboardPage() {
           <Row label="Sin PII" value={boolText(data.dataPolicy.noPii)} />
           <Row label="Sin QR raw" value={boolText(data.dataPolicy.noQrRaw)} />
           <Row label="Sandbox separado" value={boolText(data.dataPolicy.sandboxSeparated)} />
+          <Row label="Pausa global" value={data.general.globalPaused ? 'ACTIVA' : 'inactiva'} />
+          <Row label="Kill switch" value={data.general.killSwitchActive ? 'ACTIVO' : 'inactivo'} />
+          <Row label="Automatización bloqueada" value={boolText(data.general.automationBlocked)} />
+          <Row label="Proveedor IA externo" value={data.ai.externalProviderEnabled ? 'habilitado' : 'OFF'} />
           <Row label="QR status raw" value={data.whatsappQr.status} />
           <Row label="QR available" value={boolText(data.whatsappQr.qrAvailable)} />
           <Row label="Last AI check" value={formatDate(data.ai.lastAiCheckAt)} />

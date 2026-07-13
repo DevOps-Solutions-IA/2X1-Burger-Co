@@ -105,7 +105,9 @@ export class SofiaAIProviderFactory {
     const provider = this.resolveProvider(headers);
     const mode = this.resolveMode(headers);
     const deepseekConfigured = Boolean(this.configService.get<string>('DEEPSEEK_API_KEY') && this.configService.get<string>('DEEPSEEK_BASE_URL'));
-    const deepseekEnabled = this.configService.get<boolean>('DEEPSEEK_ENABLED') === true || this.headerValue(headers, 'x-sofia-deepseek-enabled') === 'true';
+    const deepseekEnabled =
+      this.configService.get<boolean>('DEEPSEEK_ENABLED') === true ||
+      (this.canUseHeaderOverride() && this.headerValue(headers, 'x-sofia-deepseek-enabled') === 'true');
     return {
       provider,
       mode,
@@ -129,7 +131,7 @@ export class SofiaAIProviderFactory {
   }
 
   private canUseHeaderOverride() {
-    return process.env.NODE_ENV !== 'production';
+    return process.env.NODE_ENV === 'test';
   }
 
   private headerValue(headers: HeaderMap | undefined, key: string) {

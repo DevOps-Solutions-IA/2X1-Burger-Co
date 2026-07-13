@@ -30,6 +30,7 @@ export type SofiaEnterpriseStatusResponse = {
   sofia: {
     enabled: boolean;
     globalPaused: boolean;
+    killSwitchActive: boolean;
     mode: string;
     activePromptVersion: string | null;
     promptStatus: string | null;
@@ -120,9 +121,10 @@ export type SofiaEnterpriseStatusResponse = {
 export type SofiaGovernanceSettingValue = {
   enabled?: boolean;
   allowed?: boolean;
+  active?: boolean;
+  paused?: boolean;
+  reason?: string;
   status?: string;
   updatedAt?: string;
   updatedBy?: string;
-  reason?: string;
-  paused?: boolean;
 };
