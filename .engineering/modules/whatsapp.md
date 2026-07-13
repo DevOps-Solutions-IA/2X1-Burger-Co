@@ -1,50 +1,42 @@
 # WhatsApp
 
 ## Estado
+AMARILLO
 
-ROJO
-
-## Semáforo
-
-🔴
+## Semaforo
+🟡
 
 ## Enterprise Score
-
-58%
+67%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-FAIL
+PASS CANARY SEGURO / CANAL REAL NO EJECUTADO
 
 ## Operational State
-
-FAIL
+NO DEMOSTRADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| WHA-01 | CRITICA | Runtime fue construido antes de fixes de flags/timeouts y QR esta desconectado. | `container-images.txt; sofia-effective-status.json` | Estado operativo no coincide con source. |
-| WHA-02 | ALTA | Adapter real no disponible y no hay QR conectado actual. | `sofia-effective-status.json` | Inbound fisico no operativo actualmente. |
-| WHA-03 | ALTA | No hay artifact/version endpoint para demostrar el binario ejecutado. | `container-images.txt` | Deploy/recovery no auditables. |
+| WHA-01 | ALTA | QR real no se inicia en canary por diseno y el canal operativo no fue modificado. | `safety-smoke.md` | Conectividad real no validada en este artifact. |
+| WHA-02 | ALTA | Allowlist comercial e inbound final siguen pendientes. | Estado Sofia vigente | Canal no habilitable para clientes. |
+| WHA-03 | MEDIA | Observabilidad de retries/dedup aun no tiene metricas persistidas. | Inventario Phase 1 | Incidentes dificiles de cuantificar. |
 
 ## Bloqueadores
 
-- Runtime drift critico.
-- QR/adapter desconectados.
-- Release provenance y reconnect gate fisico.
+- Gate humano de QR/allowlist/inbound.
+- Staging remoto con canal controlado.
+- Metricas de retries/dedup/timeouts.
 
 ## Dependencias
 
@@ -56,28 +48,27 @@ NOT READY
 - Deployment
 - Testing
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Construir artifact limpio con parser y timeout fixes.
-2. Desplegar en staging/canary con labels de commit.
-3. Validar flags efectivos y send OFF.
-4. Reconectar QR bajo gate humano y validar inbound/dedup.
+1. Ejecutar Phase 2.2 safety gates sobre el artifact trazable.
+2. Validar QR/allowlist bajo gate humano sin envio.
+3. Instrumentar timeout/retry/dedup.
+4. Repetir SENT=0 y rollback en staging.
 
 ## Criterio de GO
 
-- Runtime coincide con commit y artifact.
+- Artifact remoto identificable.
 - QR CONNECTED e inbound allowlist con evidencia.
 - SENT=0 mientras receive-only.
-- Timeouts, retries y dedup observables.
+- Timeout/retry/dedup observables y sin duplicados.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: source/tests PASS; runtime QR DISCONNECTED y drift confirmado.
+- Phase 1: ROJO 58% por runtime drift.
+- Phase 2.1: timeout cancelable 3/3 PASS, artifact trazable y canal canary OFF; pasa a AMARILLO sin afirmar conectividad real.
 
 ## GO
-
 NO

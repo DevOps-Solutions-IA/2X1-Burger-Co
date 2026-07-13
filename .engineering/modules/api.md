@@ -1,50 +1,42 @@
 # API
 
 ## Estado
-
 AMARILLO
 
-## Semáforo
-
+## Semaforo
 🟡
 
 ## Enterprise Score
-
-82%
+88%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-PASS
+PASS CANARY
 
 ## Operational State
-
-CONDICIONADO
+PASS CANARY / CONDICIONADO REMOTO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| API-01 | ALTA | 91 tests criticos PASS, pero runtime no expone commit/build version. | `app-critical.log; container-images.txt` | No hay equivalencia source-runtime. |
-| API-02 | MEDIA | No existe matriz completa de contratos/endpoints versionados. | `api-endpoints.txt` | Drift frontend/backend posible. |
-| API-03 | MEDIA | RequestId existe, pero no hay tracing/metrics infra demostrados. | `phase-1-inventory.md` | Diagnostico productivo limitado. |
+| API-01 | MEDIA | No existe matriz completa de contratos/endpoints y RBAC. | Inventario Phase 1 | Drift contractual posible. |
+| API-02 | MEDIA | No hay tracing ni metricas persistidas de plataforma. | Inventario Phase 1 | Diagnostico productivo limitado. |
+| API-03 | MEDIA | Runtime remoto no fue desplegado ni comparado. | `owner-gates.md` | Canary PASS no habilita produccion. |
 
 ## Bloqueadores
 
-- Runtime provenance.
-- Contrato API formal/versionado.
+- Contratos/RBAC completos.
 - Observabilidad de plataforma.
+- Gate de staging remoto.
 
 ## Dependencias
 
@@ -54,28 +46,26 @@ NOT READY
 - Deployment
 - Frontend
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Agregar metadata de build y endpoint sanitizado.
-2. Generar contratos OpenAPI/typed client si arquitectura lo permite.
-3. Instrumentar metrics/tracing.
-4. Agregar contract tests required.
+1. Generar matriz de contratos/RBAC y contract tests.
+2. Instrumentar metrics/tracing y SLO.
+3. Desplegar el mismo digest en staging remoto.
 
 ## Criterio de GO
 
-- Source=artifact=runtime verificable.
-- Contratos consumidos por frontend.
-- SLO/errores observables.
-- Critical y contract tests required.
+- Contratos/RBAC required PASS.
+- Metrics/tracing operativos.
+- Artifact remoto coincide con commit/manifest.
+- Critical y smoke required PASS.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: typecheck/build y 91/91 critical PASS; release no demostrado.
+- Phase 1: 82%, builds/tests PASS sin identidad runtime.
+- Phase 2.1: `/version` sanitizado, contract tests y canary por digest PASS.
 
 ## GO
-
 NO

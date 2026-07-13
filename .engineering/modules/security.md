@@ -1,52 +1,44 @@
 # Security
 
 ## Estado
+AMARILLO
 
-ROJO
-
-## Semáforo
-
-🔴
+## Semaforo
+🟡
 
 ## Enterprise Score
-
-55%
+64%
 
 ## Source State
-
-CONDICIONADO
+PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-FAIL
+PASS CANARY
 
 ## Operational State
-
-FAIL
+CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| SEC-01 | CRITICA | Runtime interpreta Auto Safe como activo pese al flag false por imagen anterior. | `sofia-effective-status.json` | Gate de seguridad efectivo incorrecto. |
-| SEC-02 | ALTA | CSP permite unsafe-inline y unsafe-eval; X-Powered-By visible. | `web-health-headers.txt` | Superficie XSS/fingerprinting mayor. |
-| SEC-03 | ALTA | Multiples procesos cloudflared/puertos no forman parte de un inventario de exposicion gobernado. | `listening-ports.txt` | Exposicion y ownership no claros. |
-| SEC-04 | ALTA | No hay remote/protections ni secrets management productivo demostrado. | `remotes.txt; cd-workflow.txt` | Gobierno de cambios y secretos incompleto. |
+| SEC-01 | ALTA | CSP mantiene `unsafe-inline`/`unsafe-eval`; headers requieren Phase 5. | Evidencia Phase 1 | Superficie XSS/fingerprinting pendiente. |
+| SEC-02 | ALTA | No hay secret store, protections ni approvals remotos demostrados. | `owner-gates.md` | Custodia y gobierno incompletos. |
+| SEC-03 | MEDIA | Runtime web reporta 2 vulnerabilidades moderadas. | `final-build-output.log` | Dependencias requieren triage/upgrade. |
+| SEC-04 | MEDIA | Procesos/puertos externos del host no tienen ownership formal. | Evidencia Phase 1 | Superficie de exposicion no gobernada. |
 
 ## Bloqueadores
 
-- Runtime flag drift.
 - Hardening CSP/headers.
-- Inventario/ownership de procesos y puertos.
-- Secrets/protections productivos.
+- Triage de vulnerabilidades runtime.
+- Secret store/protections/approvals.
+- Inventario formal de exposicion del host.
 
 ## Dependencias
 
@@ -56,30 +48,28 @@ NOT READY
 - Users
 - WhatsApp
 - Sofia
-- Database
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Priorizar release foundation y parser fix desplegable.
-2. Cerrar CSP sin romper Next mediante nonces/hashes.
-3. Auditar tunnels/procesos y reducir superficie.
-4. Implementar secret store y required reviews.
+1. Resolver gates externos de release y secretos.
+2. Corregir vulnerabilidades sin upgrade destructivo.
+3. Implementar CSP con nonces/hashes y validar UI.
+4. Inventariar tunnels, puertos y owners.
 
 ## Criterio de GO
 
-- Flags efectivos coinciden con declarados.
-- CSP sin unsafe-eval en produccion.
-- Puertos/tunnels autorizados e inventariados.
-- Secrets y changes protegidos.
+- Secret/protection gates activos.
+- Cero vulnerabilidades bloqueantes.
+- CSP/headers endurecidos y probados.
+- Exposicion de red inventariada y autorizada.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: bloqueo critico de runtime confirmado; no se activaron funciones.
+- Phase 1: ROJO 55% por Auto Safe efectivo incorrecto y release sin gobierno.
+- Phase 2.1: parser fail-safe, secret scan, usuario no root y flags efectivos OFF en canary; pasa a AMARILLO.
 
 ## GO
-
 NO

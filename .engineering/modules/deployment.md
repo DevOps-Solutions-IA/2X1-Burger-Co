@@ -1,81 +1,72 @@
 # Deployment
 
 ## Estado
+AMARILLO
 
-ROJO
-
-## Semáforo
-
-🔴
+## Semaforo
+🟡
 
 ## Enterprise Score
-
-31%
+68%
 
 ## Source State
-
-FAIL
+PASS
 
 ## Test State
-
-NO EJECUTADO
+PASS
 
 ## Runtime State
-
-FAIL
+PASS CANARY / NO DEMOSTRADO REMOTO
 
 ## Operational State
-
-FAIL
+CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| DEP-01 | CRITICA | CD es un placeholder y no despliega artifacts. | `cd-workflow.txt` | No existe release automatizado/reproducible. |
-| DEP-02 | CRITICA | No hay remote, tags ni branch protections verificables. | `remotes.txt; tags.txt` | Sin governance de release. |
-| DEP-03 | CRITICA | No puede demostrarse SOURCE=COMMIT=ARTIFACT=RUNTIME. | `git-status.txt; container-images.txt` | Runtime drift confirmado. |
-| DEP-04 | ALTA | Working tree mezcla dominios y archivos nuevos/eliminados. | `git-status.txt` | Rebuild directo desplegaria cambios no revisados. |
-| DEP-05 | ALTA | No hay canary/rollback de imagen versionada demostrado. | `phase-1-inventory.md` | Recuperacion de deploy fragil. |
+| DEP-01 | ALTA | No hay remote, registry, protections ni approvals verificables. | `owner-gates.md` | No existe gobierno de release remoto. |
+| DEP-02 | MEDIA | Buildx no esta disponible y Docker usa builder legado. | `final-build-output.log` | Builder no sostenible para CI futuro. |
+| DEP-03 | MEDIA | Staging remoto y firma/attestation no fueron demostrados. | `owner-gates.md` | Provenance local no equivale a release remoto. |
+| DEP-04 | BAJA | El runtime operativo anterior se preservo deliberadamente. | `phase-2-1-before.md` | El hotfix solo esta demostrado en canary. |
 
 ## Bloqueadores
 
-- Release foundation inexistente.
-- Working tree mezclado.
-- Sin provenance/remote/protections.
-- Sin canary/rollback probado.
+- Owner gate de remote, registry, protections, approvals y secrets.
+- Staging remoto no disponible.
+- Buildx y firma de artefactos pendientes.
 
 ## Dependencias
 
-- Todos los modulos
+- Security
+- Testing
+- API
+- Frontend
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Separar cambios por dominio sin perdida.
-2. Configurar remote y required checks/reviews.
-3. Crear artifacts inmutables con OCI labels/SBOM.
-4. Implementar staging, canary, smoke y rollback.
-5. Exponer version sanitizada en runtime.
+1. Configurar remote y registry reales.
+2. Aplicar branch protections, required CI y environment approvals.
+3. Instalar Buildx y agregar firma/attestation.
+4. Ejecutar el pipeline sobre staging remoto y repetir rollback por digest.
 
 ## Criterio de GO
 
-- SOURCE=COMMIT=ARTIFACT=RUNTIME demostrado.
-- CD con approvals y rollback probado.
-- Working tree release limpio.
-- Artifact firmado y observable.
+- Remote/registry/protections/approvals demostrados.
+- Staging remoto despliega por digest con firma y SBOM.
+- Smoke y rollback remoto PASS.
+- Runtime remoto coincide con manifest y commit.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: seleccionado como primer bloque de Phase 2.
+- Phase 1: ROJO 31%, sin provenance ni rollback.
+- Phase 2.1: cadena local/canary, CI/CD, OCI, SBOM y rollback por digest PASS; owner gates mantienen AMARILLO.
 
 ## GO
-
 NO

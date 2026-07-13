@@ -1,52 +1,44 @@
 # Frontend
 
 ## Estado
-
 AMARILLO
 
-## Semáforo
-
+## Semaforo
 🟡
 
 ## Enterprise Score
-
-63%
+70%
 
 ## Source State
-
 CONDICIONADO
 
 ## Test State
-
-NO EJECUTADO
+CONDICIONADO
 
 ## Runtime State
-
-PASS
+PASS CANARY
 
 ## Operational State
-
 CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| FRO-01 | ALTA | Build pasa con 88 warnings no-explicit-any y plugin Next ESLint no detectado. | `web-build.log` | Calidad no bloquea release. |
-| FRO-02 | ALTA | Inventario fuente contiene 157 ocurrencias de any en frontend/backend. | `explicit-any.txt` | Contratos debiles y regresiones silenciosas. |
-| FRO-03 | ALTA | E2E es manual y no se ejecuto por requerir preparacion destructiva. | `ci-workflow.txt` | Botones/rutas pueden romperse sin gate. |
-| FRO-04 | MEDIA | Runtime web es anterior al working tree. | `container-images.txt; git-status.txt` | UI validada no equivale al source. |
+| FRO-01 | ALTA | Build conserva 88 warnings y plugin Next ESLint no detectado. | `final-web-build.log` | Calidad no bloquea release. |
+| FRO-02 | ALTA | E2E UI required aun no existe sobre DB efimera. | Inventario Phase 1 | Botones/rutas pueden degradarse. |
+| FRO-03 | MEDIA | Contratos tipados mantienen deuda de `any`. | Inventario Phase 1 | Regresiones silenciosas. |
+| FRO-04 | MEDIA | Dependencias runtime muestran 2 vulnerabilidades moderadas. | `final-build-output.log` | Upgrade/triage pendiente. |
 
 ## Bloqueadores
 
-- Lint estricto.
-- E2E no destructivo obligatorio.
-- Artifact provenance.
-- Contratos tipados.
+- Cero warnings en build.
+- E2E UI seguro y required.
+- Contratos tipados en rutas criticas.
+- Triage de dependencias.
 
 ## Dependencias
 
@@ -55,30 +47,28 @@ NOT READY
 - Security
 - Testing
 - Deployment
-- Dashboard
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Corregir configuracion ESLint Next.
-2. Reducir any por rutas criticas primero.
-3. Crear harness E2E con DB efimera segura.
-4. Versionar web artifact y validar headers/cache.
+1. Crear E2E con DB efimera.
+2. Corregir ESLint Next y reducir `any` por criticidad.
+3. Resolver dependencias moderadas.
+4. Validar staging remoto y cache headers.
 
 ## Criterio de GO
 
-- Cero warnings en build.
-- E2E critical UI required.
-- Typed contracts sin any en modulos criticos.
-- Runtime ligado a commit.
+- Cero warnings.
+- E2E UI critical PASS.
+- Contratos criticos sin `any`.
+- Runtime remoto ligado al mismo release manifest.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: typecheck/build PASS condicionado; E2E no ejecutado.
+- Phase 1: 63%, runtime anterior y sin provenance.
+- Phase 2.1: `/version` web, OCI identity y smoke de login PASS; deuda visual/testing mantiene AMARILLO.
 
 ## GO
-
 NO

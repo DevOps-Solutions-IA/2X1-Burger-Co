@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 0 | Engineering Framework | COMPLETA | GO |
 | 1 | Global Audit | COMPLETA | GO documental |
-| 2 | Core Remediation | PLANIFICADA | NO INICIADA |
+| 2 | Core Remediation | EN PROGRESO | 2.1 GO CONDICIONADO |
 | 3 | Business Rules | PENDIENTE | BLOQUEADA |
 | 4 | Performance | PENDIENTE | BLOQUEADA |
 | 5 | Security | PENDIENTE | BLOQUEADA |
@@ -23,9 +23,27 @@ Objetivo: separar cambios, crear artifacts inmutables, vincular source/commit/ar
 
 Desbloquea: Deployment, Security, WhatsApp, Sofia, API, Frontend, Testing y evidencia runtime del resto.
 
+Estado: **GO CONDICIONADO (2026-07-13)**.
+
+Completado local/canary:
+
+- changesets y commits separados por dominio;
+- manifest comun API/web;
+- `/version` sanitizado;
+- OCI labels, digests y SBOM;
+- CI y pipeline staging implementados;
+- canary aislado;
+- parser seguro y timeout WhatsApp consolidados;
+- smoke con cinco controles efectivos OFF;
+- rollback por digest PASS.
+
+Pendiente owner gate: remote, registry, protections, approvals, secret store, Buildx y staging remoto.
+
 ### Bloque 2.2 - P0 Runtime Safety Gates
 
 Objetivo: demostrar flags efectivos OFF, send blocking, pause, PAID blocking, QR/allowlist y kill switches sobre el artifact trazable.
+
+Estado: **SIGUIENTE BLOQUE**. No iniciado en Phase 2.1.
 
 ### Bloque 2.3 - P1 Ephemeral Test Platform
 

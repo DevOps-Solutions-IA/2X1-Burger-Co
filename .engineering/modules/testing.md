@@ -1,52 +1,44 @@
 # Testing
 
 ## Estado
-
 AMARILLO
 
-## Semáforo
-
+## Semaforo
 🟡
 
 ## Enterprise Score
-
-69%
+80%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-CONDICIONADO
+PASS CANARY
 
 ## Operational State
-
 CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| TST-01 | ALTA | 91 critical, 11 Delivery y 67 unit PASS sin handles. | `app-critical.log; delivery-phase-a.log; config-delivery-unit.log` | Buena cobertura backend actual. |
-| TST-02 | ALTA | E2E solo se ejecuta manualmente y su preparacion usa flujo destructivo bloqueado para esta fase. | `ci-workflow.txt` | UI/runtime no bloquean release. |
-| TST-03 | MEDIA | Suite critica tarda 320 s. | `app-critical.log` | Feedback lento. |
-| TST-04 | MEDIA | No hay evidencia de mutation/contract/performance testing. | `phase-1-inventory.md` | Cobertura puede no detectar drift contractual. |
+| TST-01 | ALTA | E2E UI required no esta automatizado sobre DB efimera. | Inventario Phase 1 | UI no bloquea release. |
+| TST-02 | MEDIA | Suite critica tarda 336 s. | `release-critical-test.log` | Feedback lento. |
+| TST-03 | MEDIA | No hay performance/mutation testing required. | Inventario Phase 1 | Cobertura de capacidad incompleta. |
+| TST-04 | BAJA | Primer intento focalizado detecto URL operacional y fue bloqueado correctamente. | `final-focused-tests.log` | Los comandos deben inyectar DB test explicita. |
 
 ## Bloqueadores
 
-- Harness E2E efimero seguro.
-- E2E required.
+- Plataforma efimera automatizada por run.
+- E2E UI required.
 - Contract/performance gates.
-- Tiempo de suite.
+- Budget de duracion de la suite.
 
 ## Dependencias
 
@@ -54,28 +46,27 @@ NOT READY
 - Deployment
 - Database
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Separar DB efimera por run.
-2. Hacer E2E critical required y no destructivo.
-3. Agregar contract tests y cobertura por riesgo.
-4. Particionar suite manteniendo aislamiento.
+1. Convertir la DB efimera local demostrada en fixture CI.
+2. Agregar E2E UI y contratos/RBAC required.
+3. Particionar critical conservando aislamiento.
+4. Agregar performance baselines.
 
 ## Criterio de GO
 
-- Critical unit/integration/E2E required PASS.
-- Sin reset de DB operacional.
+- Unit/integration/contract/E2E required PASS.
+- DB efimera por run sin reset operacional.
 - Duracion dentro de budget.
 - Warnings/skips visibles y justificados.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-13.
 
 ## Historial
 
-- Phase 1: 169 tests observados PASS; E2E no ejecutado.
+- Phase 1: 69%, backend PASS y E2E no ejecutado.
+- Phase 2.1: config/provenance/timeout/Delivery 20/20, critical 91/91 y smoke artifact PASS; pasa a 80%.
 
 ## GO
-
 NO
