@@ -1,0 +1,548 @@
+apps/api/src/config/env.ts:37:    WHATSAPP_MODE: z.enum(['disabled', 'mock', 'receive_only', 'supervised', 'auto']).default('disabled'),
+apps/api/src/config/env.ts:38:    WHATSAPP_PROVIDER: z.enum(['hermes', 'mock', 'qr_gateway', 'none']).default('none'),
+apps/api/src/config/env.ts:104:          'JWT_ACCESS_SECRET contiene un placeholder. Genera uno real con: openssl rand -base64 48',
+apps/api/src/config/env.ts:112:          'JWT_REFRESH_SECRET contiene un placeholder. Genera uno real con: openssl rand -base64 48',
+apps/api/src/tests/app.critical.spec.ts:2972:    estimateSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3222:    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+apps/api/src/tests/app.critical.spec.ts:3289:    sendSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3316:    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+apps/api/src/tests/app.critical.spec.ts:3335:    sendSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3362:    const sendSpy = jest.spyOn(whatsappService, 'sendDeliveryOrderSummary').mockResolvedValue({
+apps/api/src/tests/app.critical.spec.ts:3381:    sendSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3415:      .mockRejectedValue(new Error('WhatsApp desconectado para test'));
+apps/api/src/tests/app.critical.spec.ts:3449:    sendSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3521:    sendSpy.mockRestore();
+apps/api/src/tests/app.critical.spec.ts:3910:  it('creates an internal Sofia/WhatsApp delivery order from mock/admin without payments, stock or cash side effects', async () => {
+apps/api/src/tests/app.critical.spec.ts:3930:      .post('/admin/sofia/conversations/mock-inbound')
+apps/api/src/tests/app.critical.spec.ts:3936:        rawPayload: { provider: 'mock-admin' },
+apps/api/src/tests/app.critical.spec.ts:3945:      .post('/admin/sofia/conversations/mock-inbound')
+apps/api/src/tests/app.critical.spec.ts:3958:      .post(`/admin/sofia/conversations/${inbound.body.id}/mock-outbound`)
+apps/api/src/tests/app.critical.spec.ts:3960:      .send({ body: 'Pedido recibido en modo mock. Te confirmo el resumen.' })
+apps/api/src/tests/app.critical.spec.ts:3974:        aiSummary: 'Pedido mock creado desde admin para validar núcleo interno.',
+apps/api/src/tests/app.critical.spec.ts:4204:  it('processes Sofia online mock payments through provider adapter and idempotent webhooks', async () => {
+apps/api/src/tests/app.critical.spec.ts:4226:        mockOnlinePaymentsEnabled: true,
+apps/api/src/tests/app.critical.spec.ts:4232:      .post('/admin/sofia/conversations/mock-inbound')
+apps/api/src/tests/app.critical.spec.ts:4284:    expect(onlineSelected.body.checkoutUrl).toContain('/pagos/mock/');
+apps/api/src/tests/app.critical.spec.ts:4293:      .post('/integrations/payments/webhook/mock')
+apps/api/src/tests/app.critical.spec.ts:4294:      .set('x-mock-payment-signature', 'mock-dev-signature')
+apps/api/src/tests/app.critical.spec.ts:4296:        eventId: 'mock-paid-critical-1',
+apps/api/src/tests/app.critical.spec.ts:4297:        eventType: 'mock.payment.paid',
+apps/api/src/tests/app.critical.spec.ts:4309:      .post('/integrations/payments/webhook/mock')
+apps/api/src/tests/app.critical.spec.ts:4310:      .set('x-mock-payment-signature', 'mock-dev-signature')
+apps/api/src/tests/app.critical.spec.ts:4312:        eventId: 'mock-paid-critical-1',
+apps/api/src/tests/app.critical.spec.ts:4324:      .post('/integrations/payments/webhook/mock')
+apps/api/src/tests/app.critical.spec.ts:4325:      .set('x-mock-payment-signature', 'mock-dev-signature')
+apps/api/src/tests/app.critical.spec.ts:4327:        eventId: 'mock-mismatch-critical-1',
+apps/api/src/tests/app.critical.spec.ts:4339:      .post('/integrations/payments/webhook/mock')
+apps/api/src/tests/app.critical.spec.ts:4340:      .set('x-mock-payment-signature', 'bad-signature')
+apps/api/src/tests/app.critical.spec.ts:4342:        eventId: 'mock-invalid-critical-1',
+apps/api/src/tests/app.critical.spec.ts:4370:      .post('/dev/sofia/payments/mock-webhook')
+apps/api/src/tests/app.critical.spec.ts:4411:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4418:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4429:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4436:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4444:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4451:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4469:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4476:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4483:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4489:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4497:      .post('/admin/sofia/sandbox/commercial-message')
+apps/api/src/tests/app.critical.spec.ts:4504:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:4524:        .post('/admin/sofia/sandbox/auto-safe-evaluate')
+apps/api/src/tests/app.critical.spec.ts:4545:      sandbox: true,
+apps/api/src/tests/app.critical.spec.ts:4555:      sandbox: false,
+apps/api/src/tests/app.critical.spec.ts:4679:    expect(enterprise.body.autoSafe.sandboxOnly).toBe(true);
+apps/api/src/tests/app.critical.spec.ts:4697:    expect(readiness.body.checklist.some((item: { key: string; status: string }) => item.key === 'auto_safe_sandbox' && item.status === 'PASS')).toBe(true);
+apps/api/src/tests/app.critical.spec.ts:5193:  it('processes Sofia conversational sandbox messages without inventing data and creates operational delivery orders', async () => {
+apps/api/src/tests/app.critical.spec.ts:5215:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5235:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5258:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5274:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5289:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5302:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5315:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5330:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5343:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5355:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5367:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5386:        sandboxNow: '2026-07-01T10:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5399:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5422:  it('processes Sofia WhatsApp/Hermes mock inbound with safe modes, deduplication, supervised approval and human pause', async () => {
+apps/api/src/tests/app.critical.spec.ts:5443:        mode: 'disabled' | 'mock' | 'receive_only' | 'supervised' | 'auto',
+apps/api/src/tests/app.critical.spec.ts:5448:          .post('/integrations/whatsapp/mock/webhook')
+apps/api/src/tests/app.critical.spec.ts:5450:          .set('x-sofia-whatsapp-provider', 'mock')
+apps/api/src/tests/app.critical.spec.ts:5470:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5472:      const maxi = await whatsappWebhook('mock', maxiPayload).expect(201);
+apps/api/src/tests/app.critical.spec.ts:5481:      const duplicate = await whatsappWebhook('mock', maxiPayload).expect(201);
+apps/api/src/tests/app.critical.spec.ts:5493:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5509:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5519:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5531:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5536:      const handoff = await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5541:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5549:      const pausedFollowUp = await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5554:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5567:      const audio = await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5572:          mediaUrl: 'mock://audio.ogg',
+apps/api/src/tests/app.critical.spec.ts:5579:      await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5584:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5587:      await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5592:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5595:      await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5600:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5603:      const confirmed = await whatsappWebhook('mock', {
+apps/api/src/tests/app.critical.spec.ts:5608:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5726:      .set('x-sofia-ai-mock-scenario', 'valid')
+apps/api/src/tests/app.critical.spec.ts:5732:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/app.critical.spec.ts:5740:      .post('/integrations/whatsapp/mock/webhook')
+apps/api/src/tests/app.critical.spec.ts:5742:      .set('x-sofia-whatsapp-provider', 'mock')
+apps/api/src/tests/app.critical.spec.ts:5745:      .set('x-sofia-ai-mock-scenario', 'valid')
+apps/api/src/tests/app.critical.spec.ts:5751:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:48:  it('omits seed placeholder business contact data from delivery receipts', () => {
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:263:    const assertEnabledSpy = jest.spyOn(service, 'assertEnabled').mockImplementation(() => undefined);
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:264:    const connectedSpy = jest.spyOn(service, 'ensureConnectedOrThrow').mockResolvedValue(undefined);
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:265:    const sendMessage = jest.fn().mockResolvedValue(undefined);
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:289:      assertEnabledSpy.mockRestore();
+apps/api/src/tests/delivery-receipt-phase-a.spec.ts:290:      connectedSpy.mockRestore();
+apps/api/src/tests/setup-env.ts:10:process.env.WHATSAPP_PROVIDER = 'mock';
+apps/web/src/app/(app)/settings/page.tsx:294:            <Input value={form.logoUrl} onChange={(event) => setForm((current) => ({ ...current, logoUrl: event.target.value }))} placeholder="https://..." />
+apps/web/src/app/(app)/settings/page.tsx:378:              placeholder="Ej. Equipo cierre nocturno"
+apps/web/src/app/(app)/settings/page.tsx:390:              placeholder="https://chat.whatsapp.com/..."
+apps/web/src/app/(app)/settings/page.tsx:394:            <Input value={form.closingSummaryGroupJid} readOnly placeholder="Se completa al validar" />
+apps/web/src/app/(app)/expenses/page.tsx:179:                <Input data-testid="expense-concept" value={form.concept} onChange={(e) => setForm((c) => ({ ...c, concept: e.target.value }))} placeholder="Ej. Gas, transporte" />
+apps/web/src/app/(app)/expenses/page.tsx:182:                <Input data-testid="expense-classification" value={form.classification} onChange={(e) => setForm((c) => ({ ...c, classification: e.target.value }))} placeholder="Ej. Operación, logística" />
+apps/web/src/app/(app)/expenses/page.tsx:197:              <Textarea value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} className="min-h-[5rem]" placeholder="Ej. Compra urgente de servilletas turno noche" />
+apps/web/src/app/(app)/expenses/page.tsx:216:              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por concepto, clasificación o metodo" className="pl-9" data-testid="expense-history-search" />
+apps/web/src/app/(app)/inventory/page.tsx:334:            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ítem" />
+apps/web/src/app/(app)/inventory/page.tsx:411:              <Input value={countNotes} onChange={(event) => setCountNotes(event.target.value)} placeholder="Turno, responsable, novedad..." />
+apps/web/src/app/(app)/inventory/page.tsx:475:            <Input value={movementSearch} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Buscar movimiento" />
+apps/web/src/app/(app)/categories/page.tsx:126:                placeholder="Buscar categoría..."
+apps/web/src/app/(app)/categories/page.tsx:212:                placeholder="Ej. Hamburguesas premium"
+apps/web/src/app/(app)/categories/page.tsx:219:                placeholder="Uso comercial y operativo"
+apps/web/src/app/(app)/cash/page.tsx:653:                    <Input value={openingNotes} onChange={(event) => setOpeningNotes(event.target.value)} placeholder="Cambio entregado, novedades..." />
+apps/web/src/app/(app)/cash/page.tsx:673:                      <Input value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} placeholder="Motivo de reapertura controlada" />
+apps/web/src/app/(app)/cash/page.tsx:891:                        placeholder="CERRAR"
+apps/web/src/app/(app)/cash/page.tsx:1029:                <Input value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Soporte o detalle del movimiento" />
+apps/web/src/app/(app)/cash/page.tsx:1301:                                placeholder="Ejemplo: la comanda se cerró antes de tiempo y debe seguir abierta."
+apps/web/src/app/(app)/cash/page.tsx:1367:                              placeholder="Ejemplo: el pedido se cerró por error y debía seguir abierto."
+apps/web/src/app/(app)/cash/page.tsx:1426:                    placeholder="3001234567"
+apps/web/src/features/pos/PosProductBrowser.tsx:57:              placeholder="Busca por nombre, código o categoría"
+apps/web/src/features/pos/PosCartPanel.tsx:140:              className="h-9 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[13px] font-semibold tabular-nums text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
+apps/web/src/features/pos/PosCartPanel.tsx:143:              placeholder="Ajuste global"
+apps/web/src/app/(app)/purchases/page.tsx:237:                        <Input value={tempProviderName} onChange={(event) => setTempProviderName(event.target.value)} placeholder="Ej. Don Carlos - Carnes del Valle" data-testid="purchase-temp-provider-name" />
+apps/web/src/app/(app)/purchases/page.tsx:248:                    <Input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="Ej. FAC-2026-031" data-testid="purchase-invoice" />
+apps/web/src/app/(app)/purchases/page.tsx:330:                <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-[5rem]" placeholder="Novedades de entrega, soporte o diferencias." />
+apps/web/src/app/(app)/purchases/page.tsx:360:                  placeholder="Busca por número, factura o proveedor"
+apps/web/src/features/pos/PosDeliveryPanel.tsx:272:              placeholder="Ej: Alborada, Condados"
+apps/web/src/features/pos/PosWhatsappReceiptModal.tsx:132:                    placeholder="3001234567"
+apps/web/src/app/(app)/tables/page.tsx:811:                  placeholder="Salón, Exterior, Auxiliar"
+apps/web/src/app/(app)/tables/page.tsx:818:                  placeholder="Salón principal"
+apps/web/src/app/(app)/tables/page.tsx:900:                      placeholder="#F59E0B"
+apps/web/src/components/ui/textarea.tsx:11:        'min-h-24 w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 text-[14px] leading-6 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] outline-none transition placeholder:text-[13px] placeholder:text-stone-400 focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-500',
+apps/api/src/delivery/providers/delivery-provider-usage.spec.ts:7:      findUnique: jest.fn().mockResolvedValue(record),
+apps/api/src/delivery/providers/delivery-provider-usage.spec.ts:8:      upsert: jest.fn().mockResolvedValue({}),
+apps/web/src/app/(app)/suppliers/page.tsx:152:              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar proveedor..." className="pl-9" />
+apps/web/src/components/ui/input.tsx:9:        'h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[13px] font-semibold leading-5 text-ink shadow-sm outline-none transition-all duration-200 placeholder:text-[13px] placeholder:font-medium placeholder:text-stone-400 hover:border-stone-300 focus:border-brand-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(255,159,28,0.12)] focus:outline-none disabled:cursor-not-allowed disabled:border-stone-100 disabled:bg-stone-50 disabled:text-stone-400',
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:29:    jest.spyOn(prisma.externalApiCache, 'findUnique').mockResolvedValue({
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:50:    jest.spyOn(prisma.externalApiCache, 'findUnique').mockResolvedValue({
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:62:    jest.spyOn(prisma.externalApiCache, 'update').mockResolvedValue({} as never);
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:76:    jest.spyOn(prisma.externalApiCache, 'upsert').mockResolvedValue({} as never);
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:98:    jest.spyOn(prisma.externalApiCache, 'deleteMany').mockResolvedValue({ count: 1 });
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:114:    jest.spyOn(prisma.externalApiCache, 'upsert').mockResolvedValue({} as never);
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:147:    getCurrentWeather: jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:159:    geocodeAddress: jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:173:    getRoute: jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:200:      get: jest.fn().mockRejectedValue(new Error('cache unavailable')),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:201:      set: jest.fn().mockRejectedValue(new Error('cache unavailable')),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:261:    get: jest.fn().mockResolvedValue(null),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:262:    set: jest.fn().mockResolvedValue(undefined),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:263:    delete: jest.fn().mockResolvedValue(undefined),
+tests/e2e/sofia-qr-receive-only-physical-pilot-5.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-qr-receive-only-physical-pilot-5.spec.ts:115:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-qr-receive-only-physical-pilot-5.spec.ts:116:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 20_000 });
+tests/e2e/sofia-qr-receive-only-physical-pilot-5.spec.ts:117:  await page.screenshot({ path: path.join(screenshotsDir, '04-sofia-sandbox.png'), fullPage: true });
+apps/api/src/modules/sofia/dto/sofia.dto.ts:212:  mockOnlinePaymentsEnabled?: boolean;
+apps/api/src/modules/sofia/dto/sofia.dto.ts:320:  sandboxNow?: string;
+apps/api/src/modules/sofia/dto/sofia.dto.ts:399:  sandbox?: boolean;
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:21:    provider: 'mock-weather',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:34:    provider: 'mock-geocode',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:48:    provider: 'mock-route',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:63:    providerName: 'mock-weather',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:64:    getCurrentWeather: jest.fn().mockResolvedValue(weatherResult()),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:68:    providerName: 'mock-geocode',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:69:    geocodeAddress: jest.fn().mockResolvedValue(geocodeResult()),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:70:    reverseGeocode: jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:71:      provider: 'mock-geocode',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:80:    providerName: 'mock-route',
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:81:    getRoute: jest.fn().mockResolvedValue(routeResult()),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:100:      weather: { getCurrentWeather: jest.fn().mockResolvedValue(weatherResult({ precipitationMm: 0, isRaining: false, rainIntensity: 'NONE' })) },
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:116:      weather: { getCurrentWeather: jest.fn().mockResolvedValue(weatherResult({ precipitationMm: 3, isRaining: true, rainIntensity: 'MODERATE' })) },
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:131:        getCurrentWeather: jest.fn().mockRejectedValue(new DeliveryProviderError('timeout', 'WEATHER_UNAVAILABLE', 'mock-weather')),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:146:      geocoding: { geocodeAddress: jest.fn().mockResolvedValue(geocodeResult({ matchQuality: 'EXACT', confidence: 'HIGH' })) },
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:162:        geocodeAddress: jest.fn().mockResolvedValue(
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:186:        geocodeAddress: jest.fn().mockResolvedValue(
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:222:        getRoute: jest.fn().mockRejectedValue(new DeliveryProviderError('timeout', 'ROUTING_UNAVAILABLE', 'mock-route')),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:305:        geocodeAddress: jest.fn().mockRejectedValue(new DeliveryProviderError('down', 'GEOCODING_UNAVAILABLE', 'mock-geocode')),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:308:        getRoute: jest.fn().mockRejectedValue(new DeliveryProviderError('down', 'ROUTING_UNAVAILABLE', 'mock-route')),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:311:        getCurrentWeather: jest.fn().mockRejectedValue(new DeliveryProviderError('down', 'WEATHER_UNAVAILABLE', 'mock-weather')),
+apps/api/src/delivery/providers/openrouteservice-routing.provider.spec.ts:11:    global.fetch = jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/openrouteservice-geocoding.provider.spec.ts:11:    global.fetch = jest.fn().mockResolvedValue({
+apps/api/src/delivery/providers/openrouteservice-geocoding.provider.spec.ts:36:    global.fetch = jest.fn().mockResolvedValue({
+apps/api/src/modules/sofia/ai/sofia-ai-provider.factory.ts:51:    return this.headerValue(headers, 'x-sofia-ai-mock-scenario') ?? null;
+apps/api/src/modules/sofia/ai/sofia-ai-provider.factory.ts:55:    input: Omit<SofiaAIAnalysisInput, 'mode' | 'mockScenario'>,
+apps/api/src/modules/sofia/ai/sofia-ai-provider.factory.ts:60:    const mockScenario = this.resolveMockScenario(headers);
+apps/api/src/modules/sofia/ai/sofia-ai-provider.factory.ts:61:    const analysisInput = { ...input, mode, mockScenario };
+apps/web/src/components/sofia/SofiaConversationCard.tsx:8:export type SofiaConversationCardScope = 'real' | 'internal_validation' | 'sandbox' | 'historical';
+apps/web/src/components/sofia/SofiaConversationCard.tsx:31:  sandbox: 'info',
+apps/web/src/components/sofia/sofia-status-humanize.ts:69:  SANDBOX_ONLY: 'Solo sandbox permitido',
+apps/web/src/components/sofia/sofia-status-humanize.ts:167:/*  Fallback placeholders                                             */
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:41:      return this.mockDeepSeekResponse(input);
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:153:    return process.env.NODE_ENV !== 'production' && input.mockScenario && input.mockScenario !== 'none';
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:156:  private mockDeepSeekResponse(input: SofiaAIAnalysisInput): SofiaAIAnalysisOutput {
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:157:    const scenario = input.mockScenario;
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:167:        ...this.rulesOutput(input, ['AI_PROVIDER_USED:deepseek-mock']),
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:180:        ...this.rulesOutput(input, ['AI_PROVIDER_USED:deepseek-mock']),
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:189:        ...this.rulesOutput(input, ['AI_PROVIDER_USED:deepseek-mock']),
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:197:      ...this.rulesOutput(input, ['AI_PROVIDER_USED:deepseek-mock']),
+apps/api/src/modules/sofia/ai/sofia-ai-provider.adapter.ts:50:  mockScenario?: string | null;
+apps/api/src/modules/sofia/governance/sofia-governance.types.ts:48:    sandboxOnly: boolean;
+apps/api/src/modules/sofia/governance/sofia-governance.types.ts:106:    sandboxUrl: string;
+apps/api/src/modules/sofia/governance/sofia-readiness.service.ts:26:      this.item('auto_safe_sandbox', 'Auto Safe sandbox', input.autoSafeReady, 'Auto Safe Engine registra decisiones auditables.'),
+apps/web/src/app/(app)/users/page.tsx:381:              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar usuario..." className="pl-9" />
+apps/web/src/app/(app)/users/page.tsx:470:                placeholder="Ej. Laura Mejía"
+apps/web/src/app/(app)/users/page.tsx:478:                placeholder="usuario@correo.com"
+apps/web/src/app/(app)/users/page.tsx:486:                placeholder={selectedSystemUser ? 'Solo si deseas rotarla' : 'Minimo 8 caracteres'}
+apps/web/src/app/(app)/users/page.tsx:504:                  placeholder="Repite la contrasena"
+apps/web/src/app/(app)/users/page.tsx:653:                placeholder="Ej. Laura"
+apps/web/src/app/(app)/users/page.tsx:662:                  placeholder="Ej. M124578"
+apps/web/src/app/(app)/users/page.tsx:801:                placeholder="Ej. Andrés"
+apps/web/src/app/(app)/users/page.tsx:810:                  placeholder="Ej. D124578"
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:136:        mode: globalPaused ? 'paused' : 'governed_sandbox',
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:151:        sandboxOnly: true,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:203:        sandboxUrl: '/sofia/sandbox',
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:275:        sandboxSeparated: true,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:320:        sandbox: safetySummary.sandbox,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:326:        sandboxConversations: conversationSummary.sandboxConversations,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:337:        autoSafeDecisionsToday: safetySummary.sandbox.totalDecisions + safetySummary.real.totalDecisions,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:388:    return { paused: false, status: 'PASS', message: 'Sofía reactivada en modo gobernado/sandbox.' };
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:493:            { provider: 'mock' },
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:509:    const [totalConversations, sandboxConversations, internalValidationConversations, humanRequired, paymentSensitive, unknownProduct, pendingReview] =
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:513:          where: { OR: [{ provider: 'mock' }, { mode: 'mock' }] },
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:516:          where: { provider: { in: ['mock', 'qr_gateway'] } },
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:546:    const realConversations = Math.max(0, totalConversations - sandboxConversations);
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:550:      sandboxConversations,
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:578:    const sandbox = build(events.filter((event) => event.isSandbox !== false).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
+apps/api/src/modules/sofia/governance/sofia-governance.service.ts:581:      sandbox,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.spec.ts:25:        provider: 'mock-geocode',
+apps/api/src/delivery/delivery-pricing/delivery-pricing.spec.ts:40:        provider: 'mock-route',
+apps/api/src/delivery/delivery-pricing/delivery-pricing.spec.ts:53:        provider: 'mock-weather',
+apps/api/src/modules/sofia/sofia-payment-webhooks.controller.ts:30:  @Post('mock-webhook')
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:12:  readonly provider = 'mock' as const;
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:17:    const providerMessageId = String(rawPayload.providerMessageId ?? rawPayload.messageId ?? nestedMessage?.id ?? `mock-${Date.now()}`);
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:18:    const providerEventId = rawPayload.providerEventId ? String(rawPayload.providerEventId) : `mock-event-${providerMessageId}`;
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:49:      providerMessageId: `mock-out-${suffix}`,
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:51:      rawPayload: { mock: true, to: input.to, body: input.body },
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:58:      providerMessageId: `mock-media-${suffix}`,
+apps/api/src/modules/sofia/whatsapp/mock-whatsapp.provider.ts:60:      rawPayload: { mock: true, to: input.to, body: input.body, mediaUrl: input.mediaUrl },
+apps/api/src/modules/sofia/sofia.controller.ts:98:  @Post('sandbox/commercial-message')
+apps/api/src/modules/sofia/sofia.controller.ts:107:  @Post('sandbox/auto-safe-evaluate')
+apps/api/src/modules/sofia/sofia.controller.ts:120:          sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/modules/sofia/sofia.controller.ts:165:      channelMode: dto.simulateChannelMode ?? 'sandbox',
+apps/api/src/modules/sofia/sofia.controller.ts:166:      isSandbox: dto.sandbox ?? true,
+apps/api/src/modules/sofia/sofia.controller.ts:209:      ...(dto.scenario ? { 'x-sofia-ai-mock-scenario': dto.scenario } : {}),
+apps/api/src/modules/sofia/sofia.controller.ts:217:        sandboxNow: '2026-07-01T23:00:00.000Z',
+apps/api/src/modules/sofia/sofia.controller.ts:268:  @Post('conversations/mock-inbound')
+apps/api/src/modules/sofia/sofia.controller.ts:269:  mockInbound(@Body() dto: CreateMockConversationDto, @CurrentUser() actor: AuthUser) {
+apps/api/src/modules/sofia/sofia.controller.ts:273:  @Post('conversations/:id/mock-outbound')
+apps/api/src/modules/sofia/sofia.controller.ts:274:  mockOutbound(
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:4:import { MockWhatsappProvider } from './mock-whatsapp.provider';
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:9:const WHATSAPP_MODES: WhatsappMode[] = ['disabled', 'mock', 'receive_only', 'supervised', 'auto'];
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:10:const WHATSAPP_PROVIDERS: WhatsappProviderName[] = ['mock', 'hermes', 'qr_gateway', 'none'];
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:16:    private readonly mockProvider: MockWhatsappProvider,
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:37:    if (providerName === 'mock') return this.mockProvider;
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.factory.ts:58:      safeByDefault: mode === 'disabled' || mode === 'receive_only' || provider === 'none' || provider === 'mock' || provider === 'qr_gateway',
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.adapter.ts:1:export type WhatsappMode = 'disabled' | 'mock' | 'receive_only' | 'supervised' | 'auto';
+apps/api/src/modules/sofia/whatsapp/whatsapp-provider.adapter.ts:2:export type WhatsappProviderName = 'mock' | 'hermes' | 'qr_gateway' | 'none';
+apps/api/src/modules/sofia/sofia-agent.service.ts:471:    const outsideHours = !this.isInsideBusinessHours(dto.sandboxNow);
+apps/api/src/modules/sofia/sofia-agent.service.ts:502:            sandbox: options.source !== 'WHATSAPP',
+apps/api/src/modules/sofia/sofia-agent.service.ts:612:        deliveryNotes: 'Pedido armado por Sofía sandbox. Sin WhatsApp real.',
+apps/api/src/modules/sofia/sofia-agent.service.ts:749:      channelMode: options.source === 'WHATSAPP' ? 'whatsapp_adapter' : 'sandbox',
+apps/api/src/modules/sofia/sofia-agent.service.ts:821:      sandbox: options.source !== 'WHATSAPP',
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:244:  const [sandboxNow, setSandboxNow] = useState('2026-07-01T23:00:00.000Z');
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:259:      apiFetch<AgentResult>('/admin/sofia/sandbox/commercial-message', {
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:269:          sandboxNow: sandboxNow || undefined,
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:276:      toast.success('Sofía procesó el mensaje en sandbox');
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:293:      toast.success('Recuperación sandbox generada');
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:300:    <SofiaPageShell data-testid="sofia-sandbox-agent">
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:313:        data-testid="sofia-sandbox-hero"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:320:        description="Este sandbox no envía WhatsApp real, no marca pagos como PAID y no confirma pagos desde Sofía. Solo se convierte en operación real si confirmas explícitamente un pedido de prueba hasta el final, con el mismo flujo que un pedido real de Domicilios/POS."
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:321:        data-testid="sofia-sandbox-risk-banner"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:383:              <Input value={phone} onChange={(event) => setPhone(event.target.value)} data-testid="sofia-sandbox-phone" />
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:386:              <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} data-testid="sofia-sandbox-customer" />
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:392:                data-testid="sofia-sandbox-message-type"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:407:                data-testid="sofia-sandbox-confidence"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:411:              <Field label="Hora sandbox">
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:412:                <Input value={sandboxNow} onChange={(event) => setSandboxNow(event.target.value)} data-testid="sofia-sandbox-now" />
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:423:                data-testid="sofia-sandbox-message"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:445:              data-testid="sofia-sandbox-process"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:478:                <p className="text-[10px] font-bold text-stone-400">Total sandbox</p>
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:750:                      Este pedido de prueba ya no es solo sandbox: quedó registrado igual que un pedido confirmado por un cliente real. Si usaste datos ficticios, cancélalo o márcalo desde Domicilios/POS.
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:837:                data-testid="sofia-sandbox-case-card"
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:842:              title="Sin eventos sandbox"
+apps/web/src/app/(app)/sofia/page.tsx:64:    sandboxSeparated: boolean;
+apps/web/src/app/(app)/sofia/page.tsx:100:    sandbox: CountGroup;
+apps/web/src/app/(app)/sofia/page.tsx:106:    sandboxConversations: number;
+apps/web/src/app/(app)/sofia/page.tsx:130:    sandboxUrl: string;
+apps/web/src/app/(app)/sofia/page.tsx:184:  auto_safe_sandbox: 'ai',
+apps/web/src/app/(app)/sofia/page.tsx:384:              href={data.routes.sandboxUrl}
+apps/web/src/app/(app)/sofia/page.tsx:529:          { label: 'Conversaciones', real: data.conversations.realConversations, internal: data.conversations.sandboxConversations + data.conversations.internalValidationConversations },
+apps/web/src/app/(app)/sofia/page.tsx:531:          { label: 'Safety decisions', real: data.safetyGuard.real.totalDecisions, internal: data.safetyGuard.sandbox.totalDecisions },
+apps/web/src/app/(app)/sofia/page.tsx:559:        <SofiaCommandCard href={data.routes.sandboxUrl} label="Sandbox" description="Laboratorio separado" icon={Sparkles} />
+apps/web/src/app/(app)/sofia/page.tsx:615:          <Row label="Sandbox separado" value={boolText(data.dataPolicy.sandboxSeparated)} />
+apps/api/src/modules/sofia/sofia-whatsapp.service.ts:261:    const providerName = (outbound.provider || 'mock') as WhatsappProviderName;
+apps/api/src/modules/sofia/sofia-whatsapp.service.ts:420:          sandboxNow: typeof parsed.rawPayload.sandboxNow === 'string' ? parsed.rawPayload.sandboxNow : undefined,
+apps/api/src/modules/sofia/sofia-whatsapp.service.ts:475:    if (mode === 'mock') status = 'QUEUED';
+apps/api/src/modules/sofia/sofia-whatsapp.service.ts:500:    const provider = this.providerFactory.getProvider((outbound.provider || 'mock') as WhatsappProviderName);
+tests/e2e/pos-monolith-safe-split-screenshots.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+apps/web/src/app/(app)/sofia/whatsapp-qr/page.tsx:458:              data-testid="sofia-qr-placeholder"
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:61:            ? 'Pago online mock controlado para desarrollo.'
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:66:          ((settings.onlinePaymentProvider === 'MOCK' && settings.mockOnlinePaymentsEnabled && process.env.NODE_ENV !== 'production') ||
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:239:      mockOnlinePaymentsEnabled?: boolean;
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:267:        ...(dto.mockOnlinePaymentsEnabled != null ? { mockOnlinePaymentsEnabled: dto.mockOnlinePaymentsEnabled } : {}),
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:286:        mockOnlinePaymentsEnabled: dto.mockOnlinePaymentsEnabled ?? true,
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:307:        mockOnlinePaymentsEnabled: updated.mockOnlinePaymentsEnabled,
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:930:      throw new BadRequestException('Webhook mock no disponible en producción.');
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:933:      eventId: input.eventId ?? `mock_evt_${randomBytes(8).toString('hex')}`,
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:934:      eventType: `mock.payment.${input.status.toLowerCase()}`,
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:942:    return this.processPaymentWebhook('mock', payload, {
+apps/api/src/modules/sofia/sofia-payment-link.service.ts:943:      'x-mock-payment-signature': 'mock-dev-signature',
+apps/web/src/app/(app)/sofia/conversations/page.tsx:39:type InboxScope = 'real' | 'internal_validation' | 'sandbox' | 'historical';
+apps/web/src/app/(app)/sofia/conversations/page.tsx:118:    sandboxHiddenByDefault: boolean;
+apps/web/src/app/(app)/sofia/conversations/page.tsx:123:  sandbox: { total: number; hiddenByDefault: boolean; conversations: InboxConversation[] };
+apps/web/src/app/(app)/sofia/conversations/page.tsx:137:    sandboxConversations: number;
+apps/web/src/app/(app)/sofia/conversations/page.tsx:165:  | 'sandbox'
+apps/web/src/app/(app)/sofia/conversations/page.tsx:175:  { key: 'sandbox', label: 'Sandbox' },
+apps/web/src/app/(app)/sofia/conversations/page.tsx:189:  if (filter === 'sandbox') return data.sandbox.conversations;
+apps/web/src/app/(app)/sofia/conversations/page.tsx:204:  if (filter === 'sandbox') return data.sandbox.total;
+apps/web/src/app/(app)/sofia/conversations/page.tsx:216:  if (scope === 'sandbox') return 'info';
+apps/web/src/app/(app)/sofia/conversations/page.tsx:223:  if (scope === 'sandbox') return 'Sandbox';
+apps/web/src/app/(app)/sofia/conversations/page.tsx:261:  if (filter === 'sandbox') {
+apps/web/src/app/(app)/sofia/conversations/page.tsx:264:      description: 'Los registros sandbox no se mezclan con operación real. Esta pestaña es solo para auditoría.',
+apps/web/src/app/(app)/sofia/conversations/page.tsx:368:            El inbox requiere `/admin/sofia/conversations/inbox`. No se usan mocks ni datos estáticos como respaldo.
+apps/web/src/app/(app)/ingredients/page.tsx:224:                <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar insumo..." />
+apps/web/src/app/(app)/products/page.tsx:324:                  <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, código o categoría" className="pl-9" />
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:64:  await expect(page.getByTestId('sofia-access-sandbox')).toBeVisible();
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:83:  await expect(page.getByTestId('sofia-access-sandbox')).toHaveAttribute('href', '/sofia/sandbox');
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:145:/*  08. No mocks / drafts / fake clients                              */
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:148:test('08 - Home has zero mock forms, drafts, or fake clients', async ({ page }) => {
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:152:    'sofia-technical-sandbox',
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:167:    'ai-sandbox-test',
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:211:test('11 - /sofia/sandbox still loads', async ({ page }) => {
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:212:  await page.goto('/sofia/sandbox');
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:213:  await page.waitForSelector('[data-testid="sofia-sandbox-agent"]', { timeout: 15_000 });
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:214:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible();
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:215:  await expect(page.getByTestId('sofia-sandbox-agent')).toContainText('Sandbox técnico');
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:217:    path: path.join(screenshotsDir, '07-sofia-sandbox-still-works.png'),
+tests/e2e/sofia-enterprise-config-panel-redesign-1.spec.ts:250:  await expect(page.getByTestId('sofia-access-sandbox')).toBeVisible();
+apps/api/src/modules/sofia/sofia.module.ts:20:import { MockPaymentProvider } from './payments/mock-payment.provider';
+apps/api/src/modules/sofia/sofia.module.ts:35:import { MockWhatsappProvider } from './whatsapp/mock-whatsapp.provider';
+tests/e2e/runtime-delivery-geo-address-fix-1.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/runtime-delivery-geo-address-fix-1.spec.ts:104:    auditId: 'runtime-ui-fixture',
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1672:                placeholder="Instrucciones especiales..."
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1673:                className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-[12px] font-medium text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-200" />
+tests/e2e/sofia-whatsapp-qr-gateway-4.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-whatsapp-qr-gateway-4.spec.ts:103:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-whatsapp-qr-gateway-4.spec.ts:104:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 20_000 });
+tests/e2e/sofia-whatsapp-qr-gateway-4.spec.ts:105:  await page.screenshot({ path: path.join(screenshotsDir, '04-sofia-sandbox-still-separated.png'), fullPage: true });
+apps/api/src/modules/sofia/payments/payment-provider.factory.ts:4:import { MockPaymentProvider } from './mock-payment.provider';
+apps/api/src/modules/sofia/payments/payment-provider.factory.ts:11:    private readonly mockPaymentProvider: MockPaymentProvider,
+apps/api/src/modules/sofia/payments/payment-provider.factory.ts:18:    if (normalized === 'MOCK') return this.mockPaymentProvider;
+apps/api/src/modules/sofia/payments/payment-provider.factory.ts:25:    if (settings.onlinePaymentProvider === 'MOCK' && settings.mockOnlinePaymentsEnabled && process.env.NODE_ENV !== 'production') {
+apps/api/src/modules/sofia/payments/payment-provider.factory.ts:26:      return this.mockPaymentProvider;
+apps/web/src/app/waiter/login/page.tsx:73:                <Input data-testid="waiter-login-name" {...register('name')} placeholder="Tu nombre de acceso"
+apps/web/src/app/waiter/login/page.tsx:74:                  className="border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:ring-brand-500/20" />
+apps/web/src/app/waiter/login/page.tsx:79:                <Input data-testid="waiter-login-code" {...register('accessCode')} type="password" placeholder="Ingresa tu codigo"
+apps/web/src/app/waiter/login/page.tsx:80:                  className="uppercase tracking-[0.18em] border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:ring-brand-500/20" />
+apps/api/src/modules/sofia/payments/mock-payment.provider.ts:29:    const providerPaymentId = `mock_pay_${randomBytes(8).toString('hex')}`;
+apps/api/src/modules/sofia/payments/mock-payment.provider.ts:35:      checkoutUrl: `${this.publicBaseUrl()}/pagos/mock/${encodeURIComponent(providerReference)}`,
+apps/api/src/modules/sofia/payments/mock-payment.provider.ts:56:      throw new BadRequestException('Webhook mock inválido.');
+apps/api/src/modules/sofia/payments/mock-payment.provider.ts:71:      eventType: typeof payload.eventType === 'string' ? payload.eventType : `mock.payment.${status.toLowerCase()}`,
+apps/api/src/modules/sofia/payments/mock-payment.provider.ts:84:    return headerValue(headers, 'x-mock-payment-signature') === 'mock-dev-signature';
+apps/api/src/modules/sofia/sofia.service.ts:332:    const sandbox = mapped.filter((conversation) => conversation.scope === 'sandbox');
+apps/api/src/modules/sofia/sofia.service.ts:342:        sandboxHiddenByDefault: true,
+apps/api/src/modules/sofia/sofia.service.ts:353:      sandbox: {
+apps/api/src/modules/sofia/sofia.service.ts:354:        total: sandbox.length,
+apps/api/src/modules/sofia/sofia.service.ts:356:        conversations: sandbox,
+apps/api/src/modules/sofia/sofia.service.ts:375:        sandboxConversations: sandbox.length,
+apps/api/src/modules/sofia/sofia.service.ts:380:        sandboxOutboundSent: sandbox.reduce((sum, conversation) => sum + conversation.outboundSentCount, 0),
+apps/api/src/modules/sofia/sofia.service.ts:433:      conversation.provider === 'mock' ||
+apps/api/src/modules/sofia/sofia.service.ts:434:      conversation.mode === 'mock' ||
+apps/api/src/modules/sofia/sofia.service.ts:435:      lower.includes('sandbox') ||
+apps/api/src/modules/sofia/sofia.service.ts:437:      lower.includes('mock-');
+apps/api/src/modules/sofia/sofia.service.ts:440:      ? 'sandbox'
+apps/api/src/modules/sofia/sofia.service.ts:613:    if (scope === 'sandbox') return 'Sandbox';
+apps/api/src/modules/sofia/sofia.service.ts:628:    if (scope === 'sandbox') return 'Revisar solo en sandbox; no es operación real';
+apps/web/src/app/pagos/mock/[reference]/page.tsx:14:      data-testid="mock-payment-checkout-page"
+apps/web/src/app/pagos/mock/[reference]/page.tsx:23:          <h1 className="mt-2 break-all text-3xl font-black tracking-tight" data-testid="mock-payment-reference">
+apps/web/src/app/pagos/mock/[reference]/page.tsx:31:          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4" data-testid="mock-payment-approved-info">
+apps/web/src/app/pagos/mock/[reference]/page.tsx:38:          <div className="rounded-2xl border border-red-100 bg-red-50 p-4" data-testid="mock-payment-failed-info">
+apps/web/src/app/pagos/mock/[reference]/page.tsx:49:          data-testid="mock-payment-back-home"
+tests/e2e/fiscal-operational-receipt-0.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+apps/web/src/app/delivery/login/page.tsx:73:                <Input data-testid="delivery-login-name" {...register('name')} placeholder="Tu nombre de acceso"
+apps/web/src/app/delivery/login/page.tsx:74:                  className="border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:ring-brand-500/20" />
+apps/web/src/app/delivery/login/page.tsx:79:                <Input data-testid="delivery-login-code" {...register('accessCode')} type="password" placeholder="Ingresa tu codigo"
+apps/web/src/app/delivery/login/page.tsx:80:                  className="uppercase tracking-[0.18em] border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:ring-brand-500/20" />
+tests/e2e/sys2-cash-degraded-errors.spec.ts:33:const fakeSale = {
+tests/e2e/sys2-cash-degraded-errors.spec.ts:102:        body: JSON.stringify([fakeSale]),
+apps/web/src/app/login/page.tsx:90:                  placeholder="tu@correo.com"
+apps/web/src/app/login/page.tsx:91:                  className="border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:bg-black focus:ring-brand-500/20"
+apps/web/src/app/login/page.tsx:102:                  placeholder="Ingresa tu contraseña"
+apps/web/src/app/login/page.tsx:103:                  className="border-white/12 bg-black text-stone-50 placeholder:text-stone-500 focus:border-brand-500 focus:bg-black focus:ring-brand-500/20"
+apps/api/src/modules/sofia/auto-safe/sofia-auto-safe-policy.ts:24:    when: 'secret rotation is pending outside sandbox',
+tests/e2e/ui-consistency-cash-invoice-0.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:39:  await expect(page.getByTestId('sofia-sandbox-status')).toContainText('Sandbox: PASS');
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:52:  await expect(page.getByTestId('sofia-readiness-auto_safe_sandbox')).toContainText('PASS');
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:54:  await expect(page.getByTestId('sofia-access-sandbox')).toHaveAttribute('href', '/sofia/sandbox');
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:64:  for (const tid of ['sofia-technical-sandbox', 'sofia-conversation-phone', 'sofia-create-conversation', 'sofia-draft-customer', 'sofia-create-draft']) {
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:69:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:70:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 20_000 });
+tests/e2e/sofia-enterprise-governance-panel-3.spec.ts:71:  await page.screenshot({ path: path.join(screenshotsDir, '02-sofia-sandbox-separated.png'), fullPage: true });
+tests/e2e/delivery-google-maps-core-0.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/delivery-google-maps-core-0.spec.ts:85:    auditId: 'delivery-google-maps-core-ui-fixture',
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:29:        notes: 'Apertura controlada para E2E agente Sofía sandbox',
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:37:  await page.getByTestId('sofia-sandbox-message').fill(text);
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:42:          response.url().includes('/api/admin/sofia/sandbox/commercial-message')) &&
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:45:    page.getByTestId('sofia-sandbox-process').click(),
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:50:test('Sofia sandbox processes typos, multimedia, upsell, recovery, handoff and creates operational order', async ({
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:56:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:57:  await expect(page, 'sofia sandbox redirected to login').not.toHaveURL(/\/login/);
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:58:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 15000 });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:59:  await page.getByTestId('sofia-sandbox-phone').fill(`573001${Date.now().toString().slice(-6)}`);
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:65:  await page.screenshot({ path: path.join(screenshotsDir, '01-sofia-sandbox-catalogo-visual.png'), fullPage: true });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:103:  await page.getByTestId('sofia-sandbox-message-type').selectOption('AUDIO_TRANSCRIPT');
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:104:  await page.getByTestId('sofia-sandbox-confidence').fill('0.6');
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:109:  await page.getByTestId('sofia-sandbox-message-type').selectOption('TEXT');
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:126:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:132:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:137:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:138:  await page.getByTestId('sofia-sandbox-phone').fill(`5730099${Date.now().toString().slice(-5)}`);
+tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts:139:  await page.getByTestId('sofia-sandbox-customer').fill('Cliente No Inventar');
+tests/e2e/sofia-pos-delivery-operations-phase-4.spec.ts:5:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-pos-delivery-operations-phase-4.spec.ts:67:  const conversation = await page.request.post('/api/admin/sofia/conversations/mock-inbound', {
+tests/e2e/waiter.mobile.spec.ts:3:import { test, expect } from './fixtures/worker-auth';
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:5:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:52:      mockOnlinePaymentsEnabled: true,
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:69:  const conversation = await page.request.post('/api/admin/sofia/conversations/mock-inbound', {
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:158:  const response = await page.request.post('/api/integrations/payments/webhook/mock', {
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:159:    headers: { 'x-mock-payment-signature': 'mock-dev-signature' },
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:242:test('Sofia online payments use mock adapter, idempotent webhooks and POS/deliveries reflection', async ({
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:256:  const mockCheckoutPage = await paidOnline.publicContext.newPage();
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:257:  await mockCheckoutPage.goto(paidOnline.checkoutUrl, { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:258:  await expect(mockCheckoutPage.getByTestId('mock-payment-checkout-page')).toBeVisible({ timeout: 15000 });
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:259:  await mockCheckoutPage.screenshot({ path: path.join(screenshotsDir, '03-mock-checkout.png'), fullPage: true });
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:269:  await mockCheckoutPage.screenshot({ path: path.join(screenshotsDir, '04-mock-payment-approved.png'), fullPage: true });
+tests/e2e/sofia-online-payments-phase-5-6.spec.ts:294:  await failedOnline.publicPage.screenshot({ path: path.join(screenshotsDir, '07-mock-payment-failed.png'), fullPage: true });
+tests/e2e/pos-monolith-safe-split-2.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/pos-monolith-safe-split-1.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-order-flow-architecture-correction.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-order-flow-architecture-correction.spec.ts:43:  await expect(page.getByText('Conversación mock creada')).toBeVisible({ timeout: 15000 });
+tests/e2e/sofia-order-flow-architecture-correction.spec.ts:52:  await page.getByTestId('sofia-draft-notes').fill('Pedido sandbox para validar flujo normal');
+tests/e2e/sofia-order-flow-architecture-correction.spec.ts:77:  await page.screenshot({ path: path.join(screenshotsDir, '02-create-sofia-mock-order.png'), fullPage: true });
+tests/e2e/suppliers-safe-delete-0.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/cash-revenue-enterprise-reconciliation.spec.ts:1:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/reports-current-session-vs-range-0.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-config-panel-cleanup.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-config-panel-cleanup.spec.ts:46:  await page.getByTestId('sofia-technical-sandbox').scrollIntoViewIfNeeded();
+tests/e2e/sofia-config-panel-cleanup.spec.ts:49:  await page.getByTestId('sofia-conversation-body').fill('Hola Sofía, quiero validar un pedido desde sandbox');
+tests/e2e/sofia-config-panel-cleanup.spec.ts:51:  await expect(page.getByText('Conversación mock creada')).toBeVisible({ timeout: 15000 });
+tests/e2e/sofia-config-panel-cleanup.spec.ts:60:  await page.getByTestId('sofia-draft-notes').fill('Pedido sandbox para validar panel limpio');
+tests/e2e/phase-delivery-auto-4-cash-whatsapp-degraded.spec.ts:47:const fakeDeliverySale = {
+tests/e2e/phase-delivery-auto-4-cash-whatsapp-degraded.spec.ts:115:        body: JSON.stringify([fakeDeliverySale]),
+tests/e2e/phase-delivery-auto-4-cash-whatsapp-degraded.spec.ts:128:    await expect(page.getByTestId(`cash-sale-delivery-fee-${fakeDeliverySale.id}`)).toContainText('COP 8.500');
+tests/e2e/phase-delivery-auto-4-harness-stability.spec.ts:2:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-order-core.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-order-core.spec.ts:36:test('admin creates Sofia mock conversation, draft and internal WhatsApp delivery order', async ({
+tests/e2e/sofia-order-core.spec.ts:52:  await expect(page.getByText('Conversación mock creada')).toBeVisible({ timeout: 15000 });
+tests/e2e/sofia-order-core.spec.ts:53:  await page.screenshot({ path: path.join(screenshotsDir, '02-create-mock-conversation.png'), fullPage: true });
+tests/e2e/sofia-order-core.spec.ts:62:  await page.getByTestId('sofia-draft-notes').fill('Casa blanca, pedido creado por mock admin');
+tests/e2e/sofia-learning-metrics-hardening-6.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-learning-metrics-hardening-6.spec.ts:89:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-learning-metrics-hardening-6.spec.ts:90:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 20_000 });
+tests/e2e/sofia-learning-metrics-hardening-6.spec.ts:91:  await page.screenshot({ path: path.join(screenshotsDir, '04-sofia-sandbox.png'), fullPage: true });
+tests/e2e/delivery-weather-rain-surcharge-google-0.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/delivery-weather-rain-surcharge-google-0.spec.ts:90:    auditId: 'delivery-weather-rain-surcharge-google-ui-fixture',
+tests/e2e/delivery-weather-rain-surcharge-google-0.spec.ts:206:  await page.screenshot({ path: path.join(screenshotRoot, '02-rain-surcharge-mock-breakdown.png'), fullPage: true });
+tests/e2e/phase-delivery-auto-2-pos-display.spec.ts:4:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/phase-delivery-auto-2-pos-display.spec.ts:138:    auditId: 'phase-auto-2-provider-fixture',
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:26:      data: { openingAmount: 50000, notes: 'Apertura E2E WhatsApp/Hermes mock Sofía' },
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:34:  mode: 'disabled' | 'mock' | 'receive_only' | 'supervised' | 'auto',
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:37:  const response = await page.request.post('/api/integrations/whatsapp/mock/webhook', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:40:      'x-sofia-whatsapp-provider': 'mock',
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:43:      sandboxNow: '2026-07-01T23:00:00.000Z',
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:51:test('Sofia WhatsApp/Hermes mock modes handle deduplication, supervised approval, human pause, audio and operational order', async ({
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:63:  const inbound = await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:80:  await page.screenshot({ path: path.join(screenshotsDir, '03-inbound-mock-message.png'), fullPage: true });
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:82:  await page.screenshot({ path: path.join(screenshotsDir, '06-outbound-sent-mock.png'), fullPage: true });
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:86:  const duplicate = await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:113:  const human = await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:136:  const audio = await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:141:    mediaUrl: 'mock://audio.ogg',
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:147:  await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:153:  await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:159:  await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-hermes-whatsapp-phase-8.spec.ts:165:  const confirmed = await sendMockWhatsapp(page, 'mock', {
+tests/e2e/sofia-commercial-brain-prompt-catalog-memory-1.spec.ts:1:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-commercial-brain-prompt-catalog-memory-1.spec.ts:11:  const response = await page.request.post('/api/admin/sofia/sandbox/commercial-message', {
+tests/e2e/sofia-commercial-brain-prompt-catalog-memory-1.spec.ts:15:      sandboxNow: '2026-07-01T23:00:00.000Z',
+tests/e2e/sofia-manual-payments-phase-3.spec.ts:5:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-manual-payments-phase-3.spec.ts:67:  const conversation = await page.request.post('/api/admin/sofia/conversations/mock-inbound', {
+tests/e2e/sofia-payment-link-page-phase-2.spec.ts:5:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-payment-link-page-phase-2.spec.ts:68:  const conversation = await page.request.post('/api/admin/sofia/conversations/mock-inbound', {
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:1:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:11:  const response = await page.request.post('/api/admin/sofia/sandbox/auto-safe-evaluate', {
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:19:test('Sofia Auto Safe Engine evaluates sandbox decisions without QR, DeepSeek or real WhatsApp', async ({
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:28:    sandbox: true,
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:66:  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:67:  await expect(page, 'sofia sandbox redirected to login').not.toHaveURL(/\/login/);
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:68:  await page.getByTestId('sofia-sandbox-phone').fill(`57320${Date.now().toString().slice(-7)}`);
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:69:  await page.getByTestId('sofia-sandbox-message').fill('qué trae el Maxi Family');
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:72:      (response) => response.url().includes('/api/admin/sofia/sandbox/commercial-message') && response.status() === 201,
+tests/e2e/sofia-auto-safe-engine-2.spec.ts:74:    page.getByTestId('sofia-sandbox-process').click(),
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:141:/*  12. No mocks/drafts on home                                        */
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:143:test('12 - Home has zero mock forms or draft elements', async ({ page }) => {
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:145:  for (const tid of ['sofia-technical-sandbox', 'sofia-conversation-phone', 'sofia-create-conversation', 'sofia-draft-customer', 'sofia-create-draft', 'sofia-drafts-list', 'sofia-confirm-draft']) {
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:158:  await expect(page.getByTestId('sofia-access-sandbox')).toHaveAttribute('href', '/sofia/sandbox');
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:164:test('14 - /sofia/sandbox still loads', async ({ page }) => {
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:165:  await page.goto('/sofia/sandbox');
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:166:  await page.waitForSelector('[data-testid="sofia-sandbox-agent"]', { timeout: 15_000 });
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:167:  await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible();
+tests/e2e/sofia-enterprise-config-panel-redesign-2.spec.ts:168:  await page.screenshot({ path: path.join(screenshotsDir, '11-sandbox-still-works.png'), fullPage: true });
+tests/e2e/dashboard-sales-stock-attention-audit-0.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:5:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:301:      deliveryZoneLabel: 'Ruta fixture backend',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:309:      deliveryCalculationVersion: 'phase-delivery-auto-3-fixture',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:311:      deliveryRouteProvider: 'fixture',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:312:      deliveryWeatherProvider: 'fixture',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:313:      deliveryGeocodingProvider: 'fixture',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:329:        calculationVersion: 'phase-delivery-auto-3-fixture',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:333:        humanMessage: 'Tarifa automática fixture validada por backend.',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:339:        providersUsed: { routing: 'fixture', geocoding: 'fixture', weather: 'fixture' },
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:340:        providerUsage: { routingProvider: 'fixture', geocodingProvider: 'fixture', weatherProvider: 'fixture' },
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:348:        zoneMatch: { matched: false, zoneLabel: 'Ruta fixture backend' },
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:350:        zoneLabel: 'Ruta fixture backend',
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:377:  expect(autoCheckout.sale.deliveryCalculationVersion).toBe('phase-delivery-auto-3-fixture');
+tests/e2e/phase-delivery-auto-3-checkout-cash-audit.spec.ts:462:      deliveryCalculationVersion: 'phase-delivery-auto-3-provider-fixture',
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:3:import { expect, test } from './fixtures/worker-auth';
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:17:test('Sofia DeepSeek AI provider stays backend-only, guarded and compatible with WhatsApp mock', async ({
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:50:  await page.screenshot({ path: path.join(screenshotsDir, '04-ai-sandbox-test.png'), fullPage: true });
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:86:  const whatsapp = await page.request.post('/api/integrations/whatsapp/mock/webhook', {
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:90:      'x-sofia-whatsapp-provider': 'mock',
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:93:      'x-sofia-ai-mock-scenario': 'valid',
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:100:      sandboxNow: '2026-07-01T23:00:00.000Z',
+tests/e2e/sofia-deepseek-ai-provider-phase-8-5.spec.ts:111:  await page.screenshot({ path: path.join(screenshotsDir, '09-whatsapp-mock-with-ai.png'), fullPage: true });

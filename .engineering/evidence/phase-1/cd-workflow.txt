@@ -1,0 +1,10 @@
+name: CD
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Configure your VPS deployment target and secrets before enabling automated CD."

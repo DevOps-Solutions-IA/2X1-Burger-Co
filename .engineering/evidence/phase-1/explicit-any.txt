@@ -1,0 +1,157 @@
+apps/api/src/tests/app.critical.spec.ts:214:    expect((auditEntry.newValues as Record<string, any>)._audit.source).toBe('catalog_sync');
+apps/api/src/tests/app.critical.spec.ts:215:    expect((auditEntry.newValues as Record<string, any>)._audit.reason).toBe('Prueba de trazabilidad de catalogo');
+apps/api/src/tests/app.critical.spec.ts:2097:    expect(purchases.body.some((purchase: any) => purchase.supplier.id === supplier.id)).toBe(true);
+apps/api/src/tests/app.critical.spec.ts:3249:      expect.any(String),
+apps/api/src/tests/app.critical.spec.ts:3683:      operationalLog.body.items.some((item: any) => item.type === 'CAJA_REAPERTURA' || item.type === 'CAJA_APERTURA'),
+apps/api/src/tests/app.critical.spec.ts:3698:    expect(preview.body.items.some((item: any) => item.id === ingredient.id)).toBe(true);
+apps/web/src/app/(app)/expenses/page.tsx:60:  const [selectedExpense, setSelectedExpense] = useState<any>(null);
+apps/web/src/app/(app)/expenses/page.tsx:65:    queryFn: () => apiFetch<any[]>('/expenses'),
+apps/web/src/app/(app)/expenses/page.tsx:69:    queryFn: () => apiFetch<any[]>('/payment-methods'),
+apps/web/src/app/(app)/expenses/page.tsx:73:    queryFn: () => apiFetch<any>('/reports/daily'),
+apps/web/src/app/(app)/inventory/page.tsx:57:    queryFn: () => apiFetch<any>('/inventory/stock'),
+apps/web/src/app/(app)/inventory/page.tsx:68:      return apiFetch<any[]>(`/inventory/movements?${params.toString()}`);
+apps/web/src/app/(app)/inventory/page.tsx:73:    queryFn: () => apiFetch<any>('/inventory/reorder-suggestions'),
+apps/web/src/app/(app)/inventory/page.tsx:77:    queryFn: () => apiFetch<any>(`/inventory/stock-counts/preview?scope=${scope}`),
+apps/web/src/app/(app)/inventory/page.tsx:81:    queryFn: () => apiFetch<any[]>('/inventory/stock-counts'),
+apps/web/src/app/(app)/inventory/page.tsx:86:    return (stock.data?.items ?? []).filter((item: any) => {
+apps/web/src/app/(app)/inventory/page.tsx:97:    () => (stock.data?.items ?? []).filter((item: any) => item.itemType === adjustmentItemType),
+apps/web/src/app/(app)/inventory/page.tsx:102:    () => adjustmentOptions.find((item: any) => item.id === adjustmentItemId) ?? null,
+apps/web/src/app/(app)/inventory/page.tsx:108:  const createAdjustment = useMutation<any, Error, string>({
+apps/web/src/app/(app)/inventory/page.tsx:136:          items: (stockCountPreview.data?.items ?? []).map((item: any) => ({
+apps/web/src/app/(app)/inventory/page.tsx:154:    () => (reorderSuggestions.data?.alerts ?? []).filter((item: any) => item.severity === 'CRITICAL' || item.severity === 'OUT_OF_STOCK').slice(0, 4),
+apps/web/src/app/(app)/inventory/page.tsx:175:      (item: any) => item.id === editItemId && item.itemType === validType,
+apps/web/src/app/(app)/inventory/page.tsx:246:                {adjustmentOptions.map((item: any) => (
+apps/web/src/app/(app)/inventory/page.tsx:300:            {criticalAlerts.length ? criticalAlerts.map((item: any) => (
+apps/web/src/app/(app)/inventory/page.tsx:361:            {!stock.isLoading && filteredItems.length ? filteredItems.map((item: any) => (
+apps/web/src/app/(app)/inventory/page.tsx:416:            {(stockCountPreview.data?.items ?? []).map((item: any) => (
+apps/web/src/app/(app)/inventory/page.tsx:555:            {(reorderSuggestions.data?.alerts ?? []).map((item: any) => (
+apps/web/src/components/app-shell.tsx:268:    queryFn: () => apiFetch<any>('/reports/operational'),
+apps/web/src/components/app-shell.tsx:272:  const sellers: any[] = (data as any)?.sales?.bestSellers ?? [];
+apps/web/src/components/app-shell.tsx:273:  const itemsSold = Number((data as any)?.sales?.itemsSold ?? 0);
+apps/web/src/components/app-shell.tsx:283:    const found = sellers.find((s: any) =>
+apps/web/src/app/(app)/recipes/page.tsx:54:    queryFn: () => apiFetch<any[]>('/products'),
+apps/web/src/app/(app)/recipes/page.tsx:58:    queryFn: () => apiFetch<any[]>('/ingredients'),
+apps/web/src/app/(app)/recipes/page.tsx:62:    queryFn: () => apiFetch<any | null>(`/recipes/${productId}`),
+apps/web/src/app/(app)/recipes/page.tsx:69:        recipe.data.items.map((item: any) => ({
+apps/web/src/app/(app)/recipes/page.tsx:217:            {!recipe.isLoading && !recipe.isFetching && recipe.data?.items?.map((item: any) => (
+apps/web/src/app/(app)/dashboard/page.tsx:73:    queryFn: () => apiFetch<any>('/reports/operational'),
+apps/web/src/app/(app)/dashboard/page.tsx:77:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(app)/dashboard/page.tsx:81:    queryFn: () => apiFetch<any[]>('/inventory/movements'),
+apps/web/src/app/(app)/dashboard/page.tsx:264:              dailyReport.data.sales.bestSellers.map((item: any) => (
+apps/web/src/app/(app)/dashboard/page.tsx:357:function buildDashboardAlerts(replenishment: any): DashboardStockAlert[] {
+apps/web/src/app/(app)/pos/page.tsx:88:      return apiFetch<any[]>(`/orders/customers/search?q=${encodeURIComponent(q)}`);
+apps/web/src/app/(app)/pos/page.tsx:96:    const results = (customerSearch.data ?? []) as any[];
+apps/web/src/app/(app)/pos/page.tsx:105:  const customerLookup: any = { data: (customerSearch.data ?? [])[0] ?? null, isFetched: customerSearch.isFetched };
+apps/web/src/app/(app)/pos/page.tsx:132:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(app)/pos/page.tsx:151:    queryFn: () => apiFetch<any>('/reports/operational'),
+apps/web/src/app/(app)/pos/page.tsx:267:    (operational.data?.sales?.bestSellers ?? []).forEach((item: any, index: number) => {
+apps/web/src/components/ui/field.tsx:22:    ? React.cloneElement(children as React.ReactElement<any>, {
+apps/web/src/app/(waiter)/waiter/page.client.tsx:430:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1635:                      <button type="button" onClick={() => setCart((c: any[]) => { const n = [...c]; (n[i] as any).quantity = Math.max(0, (n[i] as any).quantity - 1); return n.filter((x: any) => x.quantity > 0); })}
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1638:                      <button type="button" onClick={() => setCart((c: any[]) => { const n = [...c]; (n[i] as any).quantity = (n[i] as any).quantity + 1; return n; })}
+apps/web/src/app/(app)/reports/page.tsx:35:        ? apiFetch<any>('/reports/operational')
+apps/web/src/app/(app)/reports/page.tsx:36:        : apiFetch<any>(`/reports/range?from=${from}&to=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:40:    queryFn: () => apiFetch<any[]>(`/reports/daily-closures?from=${from}&to=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:47:    queryFn: () => apiFetch<any>('/reports/supply-alerts'),
+apps/web/src/app/(app)/reports/page.tsx:51:    queryFn: () => apiFetch<any[]>(`/reports/sales-by-hour?from=${from}&to=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:55:    queryFn: () => apiFetch<any[]>(`/reports/product-margins?from=${from}&to=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:59:    queryFn: () => apiFetch<any[]>(`/reports/ingredient-rotation?from=${from}&to=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:63:    queryFn: () => apiFetch<any>(`/reports/comparisons?date=${to}`),
+apps/web/src/app/(app)/reports/page.tsx:67:    queryFn: () => apiFetch<any[]>('/reports/supplier-notifications'),
+apps/web/src/app/(app)/reports/page.tsx:97:      apiFetch<any>('/reports/supplier-notifications/manual', {
+apps/web/src/app/(app)/reports/page.tsx:280:              {(summary.data?.sales?.byPaymentMethod ?? []).map((item: any) => {
+apps/web/src/app/(app)/reports/page.tsx:297:              {(summary.data?.sales?.byChannel ?? []).map((item: any) => (
+apps/web/src/app/(app)/reports/page.tsx:323:            {(supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group: any) => (
+apps/web/src/app/(app)/reports/page.tsx:326:                  {group.items.slice(0, 3).map((item: any) => (
+apps/web/src/app/(app)/reports/page.tsx:353:            {hourlyTop.length ? hourlyTop.map((item: any) => (
+apps/web/src/app/(app)/reports/page.tsx:368:            {(productMargins.data ?? []).map((item: any) => (
+apps/web/src/app/(app)/reports/page.tsx:385:            {(ingredientRotation.data ?? []).map((item: any) => (
+apps/web/src/app/(app)/reports/page.tsx:458:function ComparisonCard({ title, data, loading }: { title: string; data: any; loading: boolean }) {
+apps/web/src/app/(app)/purchases/page.tsx:64:    queryFn: () => apiFetch<any[]>('/purchases'),
+apps/web/src/app/(app)/purchases/page.tsx:68:    queryFn: () => apiFetch<any>(`/purchases/${selectedPurchaseId}`),
+apps/web/src/app/(app)/purchases/page.tsx:73:    queryFn: () => apiFetch<any[]>('/suppliers'),
+apps/web/src/app/(app)/purchases/page.tsx:81:    queryFn: () => apiFetch<any[]>('/ingredients'),
+apps/web/src/app/(app)/purchases/page.tsx:85:    queryFn: () => apiFetch<any[]>('/products'),
+apps/web/src/app/(app)/purchases/page.tsx:89:    queryFn: () => apiFetch<any[]>('/payment-methods'),
+apps/web/src/app/(app)/purchases/page.tsx:151:    onSuccess: async (purchase: any) => {
+apps/web/src/app/(app)/purchases/page.tsx:299:                              {(item.targetType === 'ingredient' ? ingredients.data : products.data)?.map((t: any) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+apps/web/src/app/(app)/purchases/page.tsx:339:                    <p className="mt-1 text-[11px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((s: any) => s.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
+apps/web/src/app/(app)/purchases/page.tsx:433:              {purchaseDetail.data.items.map((item: any) => (
+apps/web/src/app/(app)/cash/page.tsx:198:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(app)/cash/page.tsx:202:    queryFn: () => apiFetch<any[]>('/cash-register/history'),
+apps/web/src/app/(app)/cash/page.tsx:206:    queryFn: () => apiFetch<any>('/reports/operational'),
+apps/web/src/app/(app)/cash/page.tsx:211:    queryFn: () => apiFetch<any>(`/cash-register/daily-summary?actualAmount=${encodeURIComponent(String(closingAmount))}`),
+apps/web/src/app/(app)/cash/page.tsx:216:    queryFn: () => apiFetch<any>('/cash-register/operational-log'),
+apps/web/src/app/(app)/cash/page.tsx:273:    .map((item: any) => ({ ...item, totalValue: Number(item.total ?? 0) }))
+apps/web/src/app/(app)/cash/page.tsx:361:    onSuccess: async (response: any) => {
+apps/web/src/app/(app)/cash/page.tsx:987:              {paymentBreakdown.length ? paymentBreakdown.map((item: any) => (
+apps/web/src/app/(app)/cash/page.tsx:1198:            {!operationalLog.isLoading && operationalLog.data?.items?.length ? operationalLog.data.items.map((item: any) => (
+apps/api/src/delivery/delivery-pricing/delivery-pricing.legacy.ts:5: * path. This file documents the old domain location without exporting any
+apps/api/src/modules/whatsapp/whatsapp.service.ts:51:  private socket: any = null;
+apps/api/src/modules/whatsapp/whatsapp.service.ts:111:      .map((group: any) => ({
+apps/api/src/modules/whatsapp/whatsapp.service.ts:835:  private async handleMessagesUpsert(payload: any) {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:921:  private unwrapWhatsappMessageContent(message: any): any {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:947:  private extractLocationPayload(input: any): Record<string, unknown> | null {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:984:  private extractSenderPhoneCandidates(message: any) {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:1235:        const groupEntry = Object.values(participating).find((group: any) => {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:1238:        }) as any | undefined;
+apps/api/src/delivery/providers/delivery-provider-usage.spec.ts:40:          circuitOpenUntil: expect.any(Date),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:132:          expiresAt: expect.any(Date),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:137:          expiresAt: expect.any(Date),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:224:      expect.any(Object),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:238:      expect.any(Object),
+apps/api/src/delivery/providers/prisma-external-cache.spec.ts:253:      expect.any(Object),
+apps/api/src/delivery/providers/delivery-external-data.service.spec.ts:241:    expect(result.route.haversineReferenceKm).toEqual(expect.any(Number));
+apps/api/src/modules/orders/orders.service.ts:4120:      const where: any = { fullNameNormalized: { contains: normalizedName } };
+apps/api/src/modules/orders/orders.service.ts:4133:      const updates: any = {};
+apps/api/src/modules/reports/reports.service.ts:1385:  private async renderDailyPdf(data: any): Promise<Buffer> {
+apps/api/src/modules/reports/reports.service.ts:1444:        rows: (data.sales.byPaymentMethod ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1483:      rows: (data.sales.byPaymentMethod ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1522:      rows: (data.sales.byChannel ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1539:        rows: (data.sales.byTable ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1553:      rows: (data.sales.byTable ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1566:      rows: (data.sales.byDelivery ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1579:      rows: (data.sales.commandasClosed ?? []).slice(0, 24).map((sale: any) => [
+apps/api/src/modules/reports/reports.service.ts:1593:      rows: (data.sales.adjustments?.details ?? []).map((sale: any) => [
+apps/api/src/modules/reports/reports.service.ts:1612:        rows: (data.sales.bestSellers ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1626:      rows: (data.sales.bestSellers ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1639:      rows: (data.sales.leastSellers ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1652:      rows: (data.sales.nonMovingProducts ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1669:        rows: (data.purchases.details ?? []).map((purchase: any) => [
+apps/api/src/modules/reports/reports.service.ts:1684:      rows: (data.purchases.details ?? []).map((purchase: any) => [
+apps/api/src/modules/reports/reports.service.ts:1698:      rows: (data.expenses.details ?? []).map((expense: any) => [
+apps/api/src/modules/reports/reports.service.ts:1742:        ...(data.replenishment.outOfStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1749:        ...(data.replenishment.criticalStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1756:        ...(data.replenishment.lowStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1772:        ...(data.replenishment.productOutOfStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1778:        ...(data.replenishment.productCriticalStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1784:        ...(data.replenishment.productLowStock ?? []).map((item: any) => [
+apps/api/src/modules/reports/reports.service.ts:1799:      rows: (data.replenishment.groupedBySupplier ?? []).map((group: any) => [
+apps/api/src/modules/reports/reports.service.ts:1820:  private async renderPremiumHeader(document: any, data: any) {
+apps/api/src/modules/reports/reports.service.ts:1940:  private renderStatusChip(document: any, x: number, y: number, width: number, label: string) {
+apps/api/src/modules/reports/reports.service.ts:1948:  private renderMetaPair(document: any, label: string, value: string, x: number, y: number, width: number) {
+apps/api/src/modules/reports/reports.service.ts:1961:    document: any,
+apps/api/src/modules/reports/reports.service.ts:1982:  private renderSectionTitle(document: any, title: string, subtitle?: string, nextBlockMinHeight = 0) {
+apps/api/src/modules/reports/reports.service.ts:2010:    document: any,
+apps/api/src/modules/reports/reports.service.ts:2048:  private renderParagraphBlock(document: any, title: string, text: string) {
+apps/api/src/modules/reports/reports.service.ts:2081:    document: any,
+apps/api/src/modules/reports/reports.service.ts:2184:  private renderSignatureBlock(document: any) {
+apps/api/src/modules/reports/reports.service.ts:2209:  private renderFooter(document: any, data: any) {
+apps/api/src/modules/reports/reports.service.ts:2251:  private ensurePageSpace(document: any, height: number) {
+apps/api/src/modules/reports/reports.service.ts:2257:  private ensureSectionStart(document: any, height: number) {
+apps/api/src/modules/reports/reports.service.ts:2264:    document: any,
+apps/api/src/modules/reports/reports.service.ts:2285:    document: any,
+apps/api/src/modules/reports/reports.service.ts:2303:    document: any,
+apps/api/src/modules/reports/reports.service.ts:2330:  private ensureTableStart(document: any, initialHeight: number, fullHeight: number, rowCount: number) {
+apps/api/src/modules/reports/reports.service.ts:2343:  private pageBottom(document: any) {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:38:/** Real Baileys socket internal state — `any` for socket matches existing whatsapp.service.ts pattern */
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:40:  socket: any;
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:546:  private async onRealConnectionUpdate(update: any) {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:571:      const rawJid = (this.real.socket as any)?.user?.id ?? null;
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:603:  private async onRealMessagesUpsert(payload: any) {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:619:        (msgContent as any).conversation ??
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:620:        (msgContent as any).extendedTextMessage?.text ??
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:621:        (msgContent as any).imageMessage?.caption ??
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:622:        (msgContent as any).videoMessage?.caption ??
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:673:      await (socket as any)?.end?.(undefined);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:692:      const e = error as any;

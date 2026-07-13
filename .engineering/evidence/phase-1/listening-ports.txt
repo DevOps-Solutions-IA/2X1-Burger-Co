@@ -1,0 +1,41 @@
+State  Recv-Q Send-Q  Local Address:Port  Peer Address:PortProcess                                       
+LISTEN 0      4096        127.0.0.1:45711      0.0.0.0:*    users:(("cloudflared",pid=2366603,fd=11))    
+LISTEN 0      5             0.0.0.0:9993       0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:11434      0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:43995      0.0.0.0:*    users:(("cloudflared",pid=2135837,fd=11))    
+LISTEN 0      4096        127.0.0.1:43831      0.0.0.0:*    users:(("cloudflared",pid=2201249,fd=11))    
+LISTEN 0      4096        127.0.0.1:42425      0.0.0.0:*    users:(("cloudflared",pid=2184407,fd=11))    
+LISTEN 0      4096        127.0.0.1:42637      0.0.0.0:*    users:(("cloudflared",pid=2166674,fd=10))    
+LISTEN 0      4096        127.0.0.1:42757      0.0.0.0:*    users:(("cloudflared",pid=2188052,fd=11))    
+LISTEN 0      4096        127.0.0.1:9050       0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:40849      0.0.0.0:*                                                 
+LISTEN 0      1000   10.255.255.254:53         0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:39115      0.0.0.0:*    users:(("cloudflared",pid=2159755,fd=11))    
+LISTEN 0      4096        127.0.0.1:39113      0.0.0.0:*    users:(("cloudflared",pid=2134343,fd=11))    
+LISTEN 0      4096          0.0.0.0:3301       0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:39931      0.0.0.0:*    users:(("cloudflared",pid=2199981,fd=11))    
+LISTEN 0      4096          0.0.0.0:80         0.0.0.0:*                                                 
+LISTEN 0      128           0.0.0.0:22         0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:5432       0.0.0.0:*                                                 
+LISTEN 0      4096          0.0.0.0:443        0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:37145      0.0.0.0:*    users:(("cloudflared",pid=2142001,fd=11))    
+LISTEN 0      4096        127.0.0.1:36213      0.0.0.0:*    users:(("cloudflared",pid=1897922,fd=11))    
+LISTEN 0      4096        127.0.0.1:36539      0.0.0.0:*    users:(("cloudflared",pid=2169053,fd=11))    
+LISTEN 0      4096          0.0.0.0:4300       0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:34335      0.0.0.0:*    users:(("cloudflared",pid=2306715,fd=11))    
+LISTEN 0      4096          0.0.0.0:58084      0.0.0.0:*                                                 
+LISTEN 0      4096          0.0.0.0:58081      0.0.0.0:*                                                 
+LISTEN 0      4096          0.0.0.0:58082      0.0.0.0:*                                                 
+LISTEN 0      4096          0.0.0.0:58083      0.0.0.0:*                                                 
+LISTEN 0      4096          0.0.0.0:55432      0.0.0.0:*                                                 
+LISTEN 0      4096        127.0.0.1:20244      0.0.0.0:*    users:(("cloudflared",pid=2099026,fd=11))    
+LISTEN 0      4096        127.0.0.1:20245      0.0.0.0:*    users:(("cloudflared",pid=2117652,fd=11))    
+LISTEN 0      4096        127.0.0.1:20242      0.0.0.0:*    users:(("cloudflared",pid=2068111,fd=11))    
+LISTEN 0      4096        127.0.0.1:20243      0.0.0.0:*    users:(("cloudflared",pid=2084206,fd=11))    
+LISTEN 0      4096        127.0.0.1:20241      0.0.0.0:*    users:(("cloudflared",pid=2049862,fd=11))    
+LISTEN 0      5                   *:9993             *:*                                                 
+LISTEN 0      511                 *:3008             *:*    users:(("next-server (v1",pid=1896209,fd=22))
+LISTEN 0      511                 *:3040             *:*    users:(("next-server (v1",pid=1619034,fd=21))
+LISTEN 0      128              [::]:22            [::]:*                                                 
+LISTEN 0      511                 *:4110             *:*    users:(("next-server (v1",pid=2115493,fd=22))
+LISTEN 0      511                 *:5050             *:*    users:(("next-server (v1",pid=2158971,fd=22))

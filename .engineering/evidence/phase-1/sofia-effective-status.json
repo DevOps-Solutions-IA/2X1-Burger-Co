@@ -1,0 +1,26 @@
+{
+  "credentialsPrinted": false,
+  "dashboard": {
+    "httpStatus": 200,
+    "realSendingEnabled": false,
+    "autoReplyEnabled": false,
+    "autoSafeEnabled": true,
+    "productionEnabled": false
+  },
+  "ai": {
+    "httpStatus": 200,
+    "provider": "deepseek",
+    "mode": "dry_run",
+    "enabled": null,
+    "apiKeyExposed": false
+  },
+  "qr": {
+    "httpStatus": 200,
+    "status": "DISCONNECTED",
+    "connected": false,
+    "adapterReal": false,
+    "realSendingEnabled": false,
+    "autoReplyEnabled": false,
+    "productionBlocked": true
+  }
+}

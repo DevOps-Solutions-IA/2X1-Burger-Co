@@ -1,0 +1,5 @@
+f6a49cf61b2414e306919adfdeadab56b1082103011014355713814962e088b2  apps/api/src/config/env.ts
+7d56c2243b64b863cfedeafa7ed8c0b15448ad1a5e222a8ed662582480a5bfeb  apps/api/src/modules/whatsapp/whatsapp.service.ts
+2e58fb381b487e63cb3e306ba02a8b515b249f3cf3f8b49c98375b1fa1b8936f  infra/docker/Dockerfile.api
+94a55a012f535607888c1719c80eb4a07e3bf94e15fdccd00162d6983a4f443a  infra/docker/Dockerfile.web
+7ea991e89954cb99ea54cfd669c5761c11ae261f8667d7153bcac962b6e02b76  docker-compose.yml

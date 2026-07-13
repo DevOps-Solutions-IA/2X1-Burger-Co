@@ -1,0 +1,1 @@
+{"status":"ok","timestamp":"2026-07-13T06:03:42.983Z","uptimeSeconds":168665,"services":{"api":"ok","database":"ok"},"checks":{"databaseLatencyMs":1},"environment":"development"}

@@ -1,0 +1,57 @@
+ M .agents/tasks/prd-sofia-ultra-premium.json
+ M .claude/scheduled_tasks.lock
+ M .gitignore
+ M apps/api/jest.config.ts
+ M apps/api/src/config/env.ts
+ M apps/api/src/modules/orders/delivery-receipt.renderer.ts
+ M apps/api/src/modules/orders/orders.service.ts
+ M apps/api/src/modules/sofia/backups/sofia-backups.service.ts
+ M apps/api/src/modules/sofia/governance/sofia-governance.service.ts
+ M apps/api/src/modules/sofia/sofia.service.ts
+ M apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts
+ M apps/api/src/modules/whatsapp/whatsapp.service.ts
+ M apps/api/src/tests/app.critical.spec.ts
+ M apps/api/src/tests/delivery-receipt-phase-a.spec.ts
+ M apps/api/src/tests/helpers/test-data.ts
+ M apps/web/src/app/(app)/sofia/conversations/page.tsx
+ M apps/web/src/app/(app)/sofia/page.tsx
+ M apps/web/src/app/(app)/sofia/sandbox/page.tsx
+ M apps/web/src/app/(app)/sofia/whatsapp-qr/page.tsx
+ M apps/web/src/components/sofia/SofiaCommandCard.tsx
+ M apps/web/src/components/sofia/SofiaEmptyState.tsx
+ D apps/web/src/components/sofia/SofiaInsightCard.tsx
+ D apps/web/src/components/sofia/SofiaMetricCard.tsx
+ M apps/web/src/components/sofia/SofiaOperatorConsole.tsx
+ M apps/web/src/components/sofia/SofiaPageHero.tsx
+ D apps/web/src/components/sofia/SofiaQrStatusPanel.tsx
+ M apps/web/src/components/sofia/SofiaReadinessGrid.tsx
+ M apps/web/src/components/sofia/SofiaSectionHeader.tsx
+ D apps/web/src/components/sofia/SofiaSecurityPanel.tsx
+ M apps/web/src/components/sofia/SofiaStatusPill.tsx
+ M apps/web/src/components/sofia/SofiaTimeline.tsx
+ M apps/web/src/components/sofia/index.ts
+ M apps/web/src/components/sofia/sofia-status-humanize.ts
+?? .engineering/
+?? apps/api/src/config/env.spec.ts
+?? apps/api/src/tests/setup-env.ts
+?? apps/web/src/components/sofia/SofiaActionMatrix.tsx
+?? apps/web/src/components/sofia/SofiaBlockerChecklist.tsx
+?? apps/web/src/components/sofia/SofiaConversationCard.tsx
+?? apps/web/src/components/sofia/SofiaLiveSignalCard.tsx
+?? apps/web/src/components/sofia/SofiaLiveStatusDot.tsx
+?? apps/web/src/components/sofia/SofiaPageShell.tsx
+?? apps/web/src/components/sofia/SofiaProgressBar.tsx
+?? apps/web/src/components/sofia/SofiaReadinessGauge.tsx
+?? apps/web/src/components/sofia/SofiaRiskBanner.tsx
+?? apps/web/src/components/sofia/SofiaSandboxCaseCard.tsx
+?? apps/web/src/components/sofia/SofiaScopeComparison.tsx
+?? apps/web/src/components/sofia/SofiaScopeTabs.tsx
+?? apps/web/src/components/sofia/SofiaSectionCard.tsx
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-phase-a-commit/
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-real-receipt-validation/
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-test-handle-fix/
+?? infra/environments/staging/selfhosted-data/deployment-prep/engineering-framework-foundation/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-claude-direct-ultra-premium/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-extreme-live-dashboard/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-fable5-command-center/
+?? infra/environments/staging/selfhosted-data/deployment-prep/system-total-audit-final/

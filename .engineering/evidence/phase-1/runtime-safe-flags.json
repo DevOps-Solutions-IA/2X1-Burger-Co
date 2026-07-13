@@ -1,0 +1,12 @@
+{
+  "NODE_ENV": "development",
+  "WHATSAPP_MODE": "receive_only",
+  "WHATSAPP_PROVIDER": "qr_gateway",
+  "WHATSAPP_QR_ENABLED": "true",
+  "WHATSAPP_QR_ALLOW_REAL_SEND": "false",
+  "SOFIA_AUTO_REPLY_ENABLED": "false",
+  "SOFIA_AUTO_SAFE_ENABLED": "false",
+  "DEEPSEEK_ENABLED": "true",
+  "SOFIA_AI_PROVIDER": "deepseek",
+  "SOFIA_AI_MODE": "dry_run"
+}

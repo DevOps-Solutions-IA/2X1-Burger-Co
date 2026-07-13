@@ -1,0 +1,126 @@
+apps/web/src/app/(app)/pos/page.tsx:14:  printThermalReceipt,
+apps/web/src/app/(app)/pos/page.tsx:132:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(app)/pos/page.tsx:1016:      apiFetch<WhatsappReceiptResponse>(`/whatsapp/sales/${saleId}/send-receipt`, {
+apps/web/src/app/(app)/pos/page.tsx:1401:                await printThermalReceipt(receipt);
+apps/api/src/modules/cash-register/cash-register.service.spec.ts:59:      .post('/cash-register/open')
+apps/api/src/modules/cash-register/cash-register.service.spec.ts:67:        .post('/cash-register/close')
+apps/api/src/modules/cash-register/cash-register.service.spec.ts:71:        .post('/cash-register/close')
+apps/api/src/modules/whatsapp/whatsapp.controller.ts:61:  @Post('sales/:id/send-receipt')
+apps/api/src/modules/whatsapp/whatsapp.service.ts:627:      printQRInTerminal: false,
+apps/web/src/app/(app)/cash/page.tsx:101:  conversion?: {
+apps/web/src/app/(app)/cash/page.tsx:182:  const [reopenReason, setReopenReason] = useState('');
+apps/web/src/app/(app)/cash/page.tsx:198:    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+apps/web/src/app/(app)/cash/page.tsx:202:    queryFn: () => apiFetch<any[]>('/cash-register/history'),
+apps/web/src/app/(app)/cash/page.tsx:211:    queryFn: () => apiFetch<any>(`/cash-register/daily-summary?actualAmount=${encodeURIComponent(String(closingAmount))}`),
+apps/web/src/app/(app)/cash/page.tsx:216:    queryFn: () => apiFetch<any>('/cash-register/operational-log'),
+apps/web/src/app/(app)/cash/page.tsx:244:      apiFetch<CloseChecklist>(`/cash-register/close-checklist?actualAmount=${encodeURIComponent(String(closingAmount))}`),
+apps/web/src/app/(app)/cash/page.tsx:334:      apiFetch('/cash-register/open', {
+apps/web/src/app/(app)/cash/page.tsx:353:      apiFetch('/cash-register/close', {
+apps/web/src/app/(app)/cash/page.tsx:386:  const reopenCash = useMutation({
+apps/web/src/app/(app)/cash/page.tsx:388:      apiFetch('/cash-register/reopen', {
+apps/web/src/app/(app)/cash/page.tsx:392:          reason: reopenReason,
+apps/web/src/app/(app)/cash/page.tsx:405:      apiFetch('/cash-register/movements/manual', {
+apps/web/src/app/(app)/cash/page.tsx:444:        `/whatsapp/sales/${selectedSale.id}/send-receipt`,
+apps/web/src/app/(app)/cash/page.tsx:503:  const reopenConvertedOrder = useMutation({
+apps/web/src/app/(app)/cash/page.tsx:505:      if (!selectedSale?.conversion) {
+apps/web/src/app/(app)/cash/page.tsx:510:        `/sales/${selectedSale.id}/reopen-converted-order`,
+apps/web/src/app/(app)/cash/page.tsx:539:      const blob = await apiFetchBlob(`/sales/${saleId}/receipt-pdf`);
+apps/web/src/app/(app)/cash/page.tsx:562:  const canReopen = Boolean(reopenReason.trim()) && !reopenCash.isPending;
+apps/web/src/app/(app)/cash/page.tsx:567:    !selectedSale?.conversion &&
+apps/web/src/app/(app)/cash/page.tsx:572:    Boolean(selectedSale?.conversion) &&
+apps/web/src/app/(app)/cash/page.tsx:573:    selectedSale?.conversion?.orderTicket.status === 'PAID' &&
+apps/web/src/app/(app)/cash/page.tsx:575:    !reopenConvertedOrder.isPending;
+apps/web/src/app/(app)/cash/page.tsx:673:                      <Input value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} placeholder="Motivo de reapertura controlada" />
+apps/web/src/app/(app)/cash/page.tsx:674:                      <Button variant="secondary" disabled={!canReopen} onClick={() => reopenCash.mutate()}>
+apps/web/src/app/(app)/cash/page.tsx:675:                        {reopenCash.isPending ? 'Reabriendo...' : 'Reabrir'}
+apps/web/src/app/(app)/cash/page.tsx:934:                    <p className="text-sm text-stone-500">{translateSessionStatus(session.status)}{session.reopenedFromSessionId ? ' · Reapertura' : ''}</p>
+apps/web/src/app/(app)/cash/page.tsx:1067:                            {sale.conversion ? (
+apps/web/src/app/(app)/cash/page.tsx:1068:                              <Badge tone="warning">Convertida a {sale.conversion.orderTicket.number}</Badge>
+apps/web/src/app/(app)/cash/page.tsx:1119:                            {sale.conversion ? (
+apps/web/src/app/(app)/cash/page.tsx:1124:                                  sale.conversion.orderTicket.status === 'PAID'
+apps/web/src/app/(app)/cash/page.tsx:1129:                                  sale.conversion.orderTicket.status === 'PAID'
+apps/web/src/app/(app)/cash/page.tsx:1135:                                  sale.conversion?.orderTicket.status === 'PAID'
+apps/web/src/app/(app)/cash/page.tsx:1137:                                    : openConvertedOrder(sale.conversion!.orderTicket.id)
+apps/web/src/app/(app)/cash/page.tsx:1140:                                {sale.conversion.orderTicket.status === 'PAID' ? 'Reabrir' : 'Abrir'}
+apps/web/src/app/(app)/cash/page.tsx:1143:                            {!sale.conversion && sale.status !== 'CANCELLED' ? (
+apps/web/src/app/(app)/cash/page.tsx:1278:                    {selectedSale.conversion ? (
+apps/web/src/app/(app)/cash/page.tsx:1280:                        {selectedSale.conversion.orderTicket.status === 'PAID'
+apps/web/src/app/(app)/cash/page.tsx:1281:                          ? `Convertida y cobrada como ${selectedSale.conversion.orderTicket.number}`
+apps/web/src/app/(app)/cash/page.tsx:1282:                          : `Ya convertida a ${selectedSale.conversion.orderTicket.number}`}
+apps/web/src/app/(app)/cash/page.tsx:1286:                  {selectedSale.conversion ? (
+apps/web/src/app/(app)/cash/page.tsx:1288:                      {selectedSale.conversion.orderTicket.status === 'PAID' ? (
+apps/web/src/app/(app)/cash/page.tsx:1291:                            Esta venta ya fue convertida y esa comanda se cobró después como {selectedSale.conversion.orderTicket.number}.
+apps/web/src/app/(app)/cash/page.tsx:1310:                              onClick={() => reopenConvertedOrder.mutate()}
+apps/web/src/app/(app)/cash/page.tsx:1312:                              {reopenConvertedOrder.isPending ? 'Reabriendo...' : 'Reabrir comanda'}
+apps/web/src/app/(app)/cash/page.tsx:1319:                            Esta venta ya quedó abierta otra vez como {selectedSale.conversion.orderTicket.number}.
+apps/web/src/app/(app)/cash/page.tsx:1328:                              onClick={() => openConvertedOrder(selectedSale.conversion!.orderTicket.id)}
+apps/api/src/modules/cash-register/cash-register.controller.ts:7:import { CashRegisterService } from './cash-register.service';
+apps/api/src/modules/cash-register/cash-register.controller.ts:11:import { ReopenCashSessionDto } from './dto/reopen-cash-session.dto';
+apps/api/src/modules/cash-register/cash-register.controller.ts:13:@Controller('cash-register')
+apps/api/src/modules/cash-register/cash-register.controller.ts:67:  @Post('reopen')
+apps/api/src/modules/cash-register/cash-register.controller.ts:69:  reopen(@Body() dto: ReopenCashSessionDto, @CurrentUser('sub') actorId: string) {
+apps/api/src/modules/cash-register/cash-register.controller.ts:70:    return this.cashRegisterService.reopen(dto, actorId);
+apps/api/src/modules/cash-register/cash-register.module.ts:2:import { CashRegisterController } from './cash-register.controller';
+apps/api/src/modules/cash-register/cash-register.module.ts:4:import { CashRegisterService } from './cash-register.service';
+apps/api/src/modules/orders/orders.controller.ts:13:import { ReopenOrderTicketDto } from './dto/reopen-order-ticket.dto';
+apps/api/src/modules/orders/orders.controller.ts:230:  @Post(':id/reopen')
+apps/api/src/modules/orders/orders.controller.ts:232:  reopen(
+apps/api/src/modules/orders/orders.controller.ts:237:    return this.ordersService.reopen(id, dto, actorId);
+apps/api/src/modules/cash-register/cash-register.service.ts:17:import { ReopenCashSessionDto } from './dto/reopen-cash-session.dto';
+apps/api/src/modules/cash-register/cash-register.service.ts:42:        reopenedFromSession: true,
+apps/api/src/modules/cash-register/cash-register.service.ts:80:        reopenedBy: {
+apps/api/src/modules/cash-register/cash-register.service.ts:87:        reopenedFromSession: true,
+apps/api/src/modules/cash-register/cash-register.service.ts:124:      module: 'cash-register',
+apps/api/src/modules/cash-register/cash-register.service.ts:202:      module: 'cash-register',
+apps/api/src/modules/cash-register/cash-register.service.ts:260:  async reopen(dto: ReopenCashSessionDto, actorId: string) {
+apps/api/src/modules/cash-register/cash-register.service.ts:283:    const reopenedSession = await this.prisma.$transaction(async (tx) => {
+apps/api/src/modules/cash-register/cash-register.service.ts:287:          reopenedAt: new Date(),
+apps/api/src/modules/cash-register/cash-register.service.ts:288:          reopenedById: actorId,
+apps/api/src/modules/cash-register/cash-register.service.ts:289:          reopenReason: dto.reason,
+apps/api/src/modules/cash-register/cash-register.service.ts:298:          reopenedFromSessionId: targetSession.id,
+apps/api/src/modules/cash-register/cash-register.service.ts:312:          reopenedFromSession: true,
+apps/api/src/modules/cash-register/cash-register.service.ts:320:      module: 'cash-register',
+apps/api/src/modules/cash-register/cash-register.service.ts:322:      entityId: reopenedSession.id,
+apps/api/src/modules/cash-register/cash-register.service.ts:324:        reopenedFromSessionId: targetSession.id,
+apps/api/src/modules/cash-register/cash-register.service.ts:329:    return reopenedSession;
+apps/api/src/modules/cash-register/cash-register.service.ts:361:      module: 'cash-register',
+apps/api/src/modules/cash-register/cash-register.service.ts:564:            { reopenedAt: { gte: start, lt: end } },
+apps/api/src/modules/cash-register/cash-register.service.ts:570:          reopenedBy: true,
+apps/api/src/modules/cash-register/cash-register.service.ts:619:        if (session.reopenedAt && session.reopenedBy) {
+apps/api/src/modules/cash-register/cash-register.service.ts:621:            id: `${session.id}-reopen`,
+apps/api/src/modules/cash-register/cash-register.service.ts:622:            at: session.reopenedAt,
+apps/api/src/modules/cash-register/cash-register.service.ts:625:            detail: session.reopenReason ?? `Reapertura por ${session.reopenedBy.fullName}`,
+apps/api/src/modules/cash-register/cash-register.service.ts:748:      module: 'cash-register',
+apps/api/src/modules/sales/sales.service.spec.ts:67:      .post('/cash-register/open')
+apps/api/src/modules/sales/sales.service.spec.ts:118:      .post('/cash-register/open')
+apps/api/src/modules/sales/sales.service.ts:21:import { ReopenConvertedSaleDto } from './dto/reopen-converted-sale.dto';
+apps/api/src/modules/sales/sales.service.ts:48:        conversion: {
+apps/api/src/modules/sales/sales.service.ts:78:        conversion: {
+apps/api/src/modules/sales/sales.service.ts:101:          conversion: true,
+apps/api/src/modules/sales/sales.service.ts:136:      if (sale.orderTicketId || sale.conversion) {
+apps/api/src/modules/sales/sales.service.ts:176:              referenceType: 'sale_conversion',
+apps/api/src/modules/sales/sales.service.ts:223:      const conversion = await tx.saleConversion.create({
+apps/api/src/modules/sales/sales.service.ts:232:      return { sale, order, conversion };
+apps/api/src/modules/sales/sales.service.ts:257:      conversionId: result.conversion.id,
+apps/api/src/modules/sales/sales.service.ts:867:  async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string) {
+apps/api/src/modules/sales/sales.service.ts:875:          conversion: {
+apps/api/src/modules/sales/sales.service.ts:931:      if (!sourceSale.conversion) {
+apps/api/src/modules/sales/sales.service.ts:939:      const order = sourceSale.conversion.orderTicket;
+apps/api/src/modules/sales/sales.service.ts:963:              referenceType: 'sale_reopen',
+apps/api/src/modules/sales/sales.service.ts:1000:      const reopenedOrder = await tx.orderTicket.update({
+apps/api/src/modules/sales/sales.service.ts:1037:      return { sourceSale, order: reopenedOrder };
+apps/api/src/modules/sales/sales.service.ts:1048:        orderTicketId: result.sourceSale.conversion?.orderTicketId,
+apps/api/src/modules/sales/sales.service.ts:1281:            referenceType: 'sale_conversion',
+apps/api/src/modules/sales/sales.service.ts:1320:            referenceType: 'sale_conversion',
+apps/api/src/modules/sales/sales.controller.ts:9:import { ReopenConvertedSaleDto } from './dto/reopen-converted-sale.dto';
+apps/api/src/modules/sales/sales.controller.ts:29:  @Get(':id/receipt-pdf')
+apps/api/src/modules/sales/sales.controller.ts:54:  @Post(':id/reopen-converted-order')
+apps/api/src/modules/sales/sales.controller.ts:56:  reopenConvertedOrder(
+apps/api/src/modules/sales/sales.controller.ts:61:    return this.salesService.reopenConvertedOrder(id, dto, actorId);
+apps/api/src/modules/orders/orders.service.ts:47:import { ReopenOrderTicketDto } from './dto/reopen-order-ticket.dto';
+apps/api/src/modules/orders/orders.service.ts:2901:  async reopen(id: string, dto: ReopenOrderTicketDto, actorId: string) {
+apps/api/src/modules/orders/orders.service.ts:2978:              referenceType: 'order_reopen',
+apps/api/src/modules/orders/orders.service.ts:2996:      const reopenedOrder = await tx.orderTicket.update({
+apps/api/src/modules/orders/orders.service.ts:3027:      return reopenedOrder;
+apps/api/src/modules/orders/orders.service.ts:3913:            referenceType: 'order_reopen',
+apps/api/src/modules/orders/orders.service.ts:3952:            referenceType: 'order_reopen',

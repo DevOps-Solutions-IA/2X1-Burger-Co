@@ -1,0 +1,161 @@
+infra/scripts/install-backup-cron.sh:12:command -v crontab >/dev/null 2>&1 || fail "crontab is not available on this host."
+infra/scripts/install-backup-cron.sh:15:crontab -l 2>/dev/null \
+infra/scripts/install-backup-cron.sh:19:crontab "$TMP_CRON"
+infra/scripts/install-backup-cron.sh:22:info "Installed backup cron: $CRON_SCHEDULE"
+infra/scripts/provision-https.sh:37:# Configurar renovacion automatica de certificados via cron
+infra/scripts/provision-https.sh:39:  local cron_job="0 3 * * * docker run --rm \\
+infra/scripts/provision-https.sh:46:  if command -v crontab &>/dev/null; then
+infra/scripts/provision-https.sh:47:    local existing_cron
+infra/scripts/provision-https.sh:48:    existing_cron="$(crontab -l 2>/dev/null || true)"
+infra/scripts/provision-https.sh:49:    if ! echo "$existing_cron" | grep -q "certbot renew"; then
+infra/scripts/provision-https.sh:50:      (echo "$existing_cron"; echo "$cron_job") | crontab -
+infra/scripts/provision-https.sh:56:    warn "crontab no disponible. Instale cron manualmente o ejecute certbot renew periodicamente."
+infra/scripts/sync-beverage-catalog.mjs:9:    'Catalog sync bloqueado para proteger datos vivos. Usa CATALOG_SYNC_ALLOW_WRITE=true solo cuando decidas sincronizar el catálogo explícitamente.',
+infra/scripts/sync-beverage-catalog.mjs:15:  console.error('ADMIN_PASSWORD es obligatorio para sincronizar catálogo.');
+infra/scripts/sync-beverage-catalog.mjs:78:  'X-Audit-Reason': 'Sincronización controlada del catálogo de bebidas y aguas',
+apps/web/src/app/(app)/settings/page.tsx:41:    cronExpression: string;
+apps/web/src/app/(app)/settings/page.tsx:225:          : operationsStatus.data?.backup.cronExpression ?? 'No configurado',
+apps/web/src/app/(app)/settings/page.tsx:448:              <div className="flex justify-between gap-2"><span className="text-stone-500">Cron</span><span className="font-bold text-ink">{operationsStatus.data?.backup.cronExpression ?? '—'}</span></div>
+apps/web/src/app/(app)/settings/page.tsx:458:            <p className="mt-0.5 text-[12px] text-stone-500">Cambios recientes de sincronizacion.</p>
+apps/web/src/app/(waiter)/waiter/page.client.tsx:162:  queuedAt: string;
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1070:  const queueWaiterOperation = useCallback(
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1172:    const queue = readWaiterOutbox(user.sub);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1173:    if (!queue.length) {
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1181:      for (const operation of queue) {
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1261:        queuedAt: new Date().toISOString(),
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1266:        queueWaiterOperation(operation);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1267:        return { queued: true as const };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1272:        return { queued: false as const, order };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1275:          queueWaiterOperation(operation);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1276:          return { queued: true as const };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1283:      if (result.queued) {
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1295:      setTimeout(() => setSaveFeedback(null), 4000);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1303:      setTimeout(() => setSaveFeedback(null), 5000);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1359:        queuedAt: new Date().toISOString(),
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1364:        queueWaiterOperation(operation);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1365:        return { queued: true as const };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1370:        return { queued: false as const, order };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1373:          queueWaiterOperation(operation);
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1374:          return { queued: true as const };
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1381:      if (result.queued) {
+apps/web/src/app/(waiter)/waiter/page.client.tsx:1474:          {isFlushingQueue ? `Sincronizando ${pendingQueueCount}` : `${pendingQueueCount} en cola`}
+apps/web/src/lib/api.ts:501:      reconnectTimer = window.setTimeout(() => {
+apps/web/src/lib/thermal-receipt.ts:403:  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+apps/web/src/app/(delivery)/delivery/page.tsx:86:    return 'Sin sincronización reciente';
+apps/web/src/components/sofia/sofia-status-humanize.ts:31:  SECRET_ROTATION_PENDING: 'Governance pendiente de sincronización',
+apps/web/src/components/sofia/sofia-status-humanize.ts:53:  SECRET_ROTATION_PENDING: 'Governance pendiente de sincronización',
+apps/web/src/features/auth/auth-provider.tsx:60:          if (attempt === 0) await new Promise((r) => setTimeout(r, 500));
+apps/web/src/app/(app)/pos/page.tsx:258:    const timeout = window.setTimeout(() => {
+apps/web/src/app/(app)/pos/page.tsx:721:            schedule: { mode: 'NORMAL', surcharge: 0 },
+apps/web/src/app/(app)/pos/page.tsx:1176:    const timeout = window.setTimeout(() => requestDeliveryEstimate(false), 950);
+apps/web/src/app/(app)/sofia/sandbox/page.tsx:102:  businessStatus: { isOpen: boolean; timezone: string; schedule: string };
+apps/web/src/app/(app)/deliveries/page.tsx:241:    return 'Sin sincronización reciente';
+apps/web/src/app/(app)/deliveries/page.tsx:358:  const [queueFilter, setQueueFilter] = useState<DeliveryQueueFilter>('all');
+apps/web/src/app/(app)/deliveries/page.tsx:570:    if (queueFilter === 'all') return true;
+apps/web/src/app/(app)/deliveries/page.tsx:571:    if (queueFilter === 'pending') return !order.deliveryWorkflowStatus || order.deliveryWorkflowStatus === 'PENDING_ASSIGNMENT';
+apps/web/src/app/(app)/deliveries/page.tsx:572:    if (queueFilter === 'assigned') return order.deliveryWorkflowStatus === 'ASSIGNED';
+apps/web/src/app/(app)/deliveries/page.tsx:573:    if (queueFilter === 'intransit') return order.deliveryWorkflowStatus === 'IN_TRANSIT';
+apps/web/src/app/(app)/deliveries/page.tsx:574:    if (queueFilter === 'issue') return order.deliveryWorkflowStatus === 'ISSUE';
+apps/web/src/app/(app)/deliveries/page.tsx:575:    if (queueFilter === 'sofia') return isSofiaDeliveryOrder(order);
+apps/web/src/app/(app)/deliveries/page.tsx:576:    if (queueFilter === 'manual') return !isSofiaDeliveryOrder(order);
+apps/web/src/app/(app)/deliveries/page.tsx:577:    if (queueFilter === 'unselected') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'UNSELECTED';
+apps/web/src/app/(app)/deliveries/page.tsx:578:    if (queueFilter === 'online_pending') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'PENDING_ONLINE_PAYMENT';
+apps/web/src/app/(app)/deliveries/page.tsx:579:    if (queueFilter === 'nequi_pending') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'PENDING_MANUAL_VERIFICATION';
+apps/web/src/app/(app)/deliveries/page.tsx:580:    if (queueFilter === 'cash') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'CASH_ON_DELIVERY';
+apps/web/src/app/(app)/deliveries/page.tsx:581:    if (queueFilter === 'paid') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'PAID';
+apps/web/src/app/(app)/deliveries/page.tsx:582:    if (queueFilter === 'manual_review') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'MANUAL_REVIEW';
+apps/web/src/app/(app)/deliveries/page.tsx:583:    if (queueFilter === 'failed') return isSofiaDeliveryOrder(order) && order.whatsappDeliveryOrder?.paymentStatus === 'FAILED';
+apps/web/src/app/(app)/deliveries/page.tsx:602:      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+apps/web/src/app/(app)/deliveries/page.tsx:802:          {/* 1. REVIEW MODULE — separated card, outside queue */}
+apps/web/src/app/(app)/deliveries/page.tsx:874:                      queueFilter === tab
+apps/web/src/app/(app)/deliveries/page.tsx:902:                      queueFilter === tab
+apps/web/src/app/(app)/deliveries/page.tsx:915:            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-4 pt-3" data-testid="deliveries-queue-list">
+apps/web/src/app/(app)/deliveries/page.tsx:941:                    data-testid={isSofia ? 'deliveries-sofia-queue-item' : 'deliveries-queue-item'}
+apps/web/src/features/pos/pos.types.ts:205:  schedule: { mode: string; surcharge: number };
+apps/api/src/delivery/providers/provider-http.ts:12:  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+apps/api/src/delivery/delivery-pricing/delivery-pricing.config.ts:22:  scheduleSurcharge: {
+apps/api/src/delivery/delivery-pricing/delivery-pricing.types.ts:57:  scheduleMode?: DeliveryScheduleMode | string | null;
+apps/api/src/delivery/delivery-pricing/delivery-pricing.types.ts:101:  schedule: {
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:21:    const scheduleMode = resolveScheduleMode(request.scheduleMode, request.requestedAt);
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:50:        scheduleMode: 'NORMAL',
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:51:        scheduleSurcharge: 0,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:177:    const scheduleSurcharge = deliveryPricingConfig.scheduleSurcharge[scheduleMode] ?? 0;
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:186:      scheduleSurcharge +
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:199:      { code: 'SCHEDULE_SURCHARGE', label: 'Horario', amount: scheduleSurcharge, metadata: { scheduleMode } },
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:216:      scheduleMode,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:217:      scheduleSurcharge,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:248:      scheduleMode: resolveScheduleMode(input.request.scheduleMode, input.request.requestedAt),
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:249:      scheduleSurcharge: 0,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:272:  scheduleMode: DeliveryScheduleMode;
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:273:  scheduleSurcharge: number;
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:318:    schedule: {
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:319:      mode: input.scheduleMode,
+apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts:320:      surcharge: input.scheduleSurcharge,
+infra/environments/staging/selfhosted-data/deployment-prep/delivery-phase-a-commit/delivery-phase-a-commit-report.md:37:| `.claude/scheduled_tasks.lock` | SOFIA_ONLY | Excluido | PASS |
+infra/environments/staging/selfhosted-data/deployment-prep/delivery-phase-a-commit/delivery-phase-a-commit-report.md:71:- `.claude/scheduled_tasks.lock`
+infra/environments/staging/selfhosted-data/deployment-prep/delivery-phase-a-commit/delivery-phase-a-commit-report.md:119:| `.claude/scheduled_tasks.lock` | Sofia/Claude | Conservado sin commit |
+apps/api/src/modules/settings/settings.service.ts:45:    const cronExpression = process.env.BACKUP_CRON_SCHEDULE ?? '0 2 * * *';
+apps/api/src/modules/settings/settings.service.ts:49:        cronExpression,
+apps/api/src/modules/settings/settings.service.ts:50:        nextRunAt: this.estimateNextRun(cronExpression)?.toISOString() ?? null,
+apps/api/src/modules/settings/settings.service.ts:139:  private estimateNextRun(cronExpression: string) {
+apps/api/src/modules/settings/settings.service.ts:140:    const [minuteToken, hourToken, dayToken, monthToken, weekDayToken] = cronExpression.trim().split(/\s+/);
+infra/environments/staging/selfhosted-data/deployment-prep/codex-waiter-table-groups-assignment-0/codex-waiter-table-groups-assignment-0-report.md:103:`OrdersService` usa esa regla para crear, actualizar, reemplazar ítems, sincronizar desde Waiter y reclamar comandas.
+infra/environments/staging/selfhosted-data/deployment-prep/sofia-enterprise-frontend-uiux-premium-8a2-clean-governance-dashboard/sofia-enterprise-frontend-uiux-premium-8a2-clean-governance-dashboard-report.md:113:| `SECRET_ROTATION_PENDING` as main badge | Humanized to "Governance: pendiente sincronización" | Build ✅ | GO |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-redesign-2/deepseek-sofia-enterprise-config-panel-redesign-2-report.md:31:| Outbox global no visible | P1 | ✅ Total | Card con approvalPending, queued, sentToday, failedToday, retrying, cancelledToday |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-redesign-2/deepseek-sofia-enterprise-config-panel-redesign-2-report.md:50:  "outbox": { "approvalPending": 0, "queued": 0, "sentToday": 0, ... },
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-redesign-2/deepseek-sofia-enterprise-config-panel-redesign-2-report.md:89:- approvalPending, queued, sentToday, failedToday, retrying, cancelledToday
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-redesign-2/deepseek-sofia-enterprise-config-panel-redesign-2-report.md:231:| Outbox Global | approvalPending, queued, sent, failed, retrying, cancelled | enterprise-status.outbox | ✅ Datos reales |
+apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts:72:      const timer = setTimeout(() => controller.abort(), timeoutMs);
+apps/api/src/modules/sofia/sofia.controller.ts:173:      businessStatus: { isOpen: true, timezone: 'America/Bogota', schedule: '5:00 p.m. a 12:00 a.m.' },
+infra/environments/staging/selfhosted-data/deployment-prep/audit-7a-production-v2-predeploy-hardline-report.md:28:| `infra/scripts/sync-beverage-catalog.mjs` | `ADMIN_PASSWORD` ahora es obligatorio, sin default debil. | Bajo, protege sincronizacion. |
+infra/environments/staging/selfhosted-data/deployment-prep/audit-7a-production-v2-predeploy-hardline-report.md:43:| `infra/scripts/sync-beverage-catalog.mjs` | Sincronizacion catalogo protegida por flag. | Catalogo. | SI parcial | Tenia default admin debil. | Corregido: exige password explicito. |
+apps/api/src/modules/sofia/sofia-whatsapp.service.ts:392:        businessStatus: { isOpen: true, timezone: 'America/Bogota', schedule: '5:00 p.m. a 12:00 a.m.' },
+apps/api/src/modules/sofia/auto-safe/sofia-auto-safe.types.ts:69:  businessStatus?: { isOpen: boolean; timezone?: string; schedule?: string };
+infra/environments/staging/selfhosted-data/deployment-prep/codex-sofia-qr-truthful-state-fix-1b/codex-sofia-qr-truthful-state-fix-1b-report.md:232:| `WAITING_QR` | Esperando QR real de WhatsApp | Socket iniciado sin QR | PASS |
+apps/api/src/modules/sofia/whatsapp/hermes-whatsapp.provider.ts:81:    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:39:type RealSocketState = {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:59:  private real: RealSocketState = {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:82:    await this.teardownRealSocket(false);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:217:      await this.bootstrapRealSocket(sessionName);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:286:    await this.teardownRealSocket(true);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:315:    await this.teardownRealSocket(true);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:470:  private async bootstrapRealSocket(sessionName: string) {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:482:    this.real.bootstrapPromise = this.createRealSocket(sessionName);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:501:      await new Promise((resolve) => setTimeout(resolve, 250));
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:505:  private async createRealSocket(sessionName: string) {
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:591:      await this.teardownRealSocket(false);
+apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts:658:  private async teardownRealSocket(resetPhone: boolean) {
+apps/api/src/modules/sofia/sofia-agent.service.ts:760:        schedule: '5:00 p.m. a 12:00 a.m.',
+apps/api/src/modules/sofia/sofia-agent.service.ts:799:        schedule: '5:00 p.m. a 12:00 a.m.',
+infra/environments/staging/selfhosted-data/deployment-prep/codex-sofia-hermes-whatsapp-real-resilience-phase-8/codex-sofia-hermes-whatsapp-real-resilience-phase-8-report.md:371:| Web typecheck | PASS | `/tmp/codex-sofia-hermes-whatsapp-real-resilience-phase-8/web-typecheck-after-queue-testid.log` |
+infra/environments/staging/selfhosted-data/deployment-prep/codex-sofia-hermes-whatsapp-real-resilience-phase-8/codex-sofia-hermes-whatsapp-real-resilience-phase-8-report.md:372:| Web build | PASS | `/tmp/codex-sofia-hermes-whatsapp-real-resilience-phase-8/web-build-after-queue-testid.log` |
+infra/environments/staging/selfhosted-data/deployment-prep/system-total-audit-final/system-total-audit-final-report.md:45:| Timer WhatsApp de 45 s quedaba vivo | Timeout perdedor de `Promise.race` no cancelado | `withTimeout()` con `clearTimeout` en `finally` | Delivery 11/11 sin warning; critical PASS | PASS fuente |
+infra/environments/staging/selfhosted-data/deployment-prep/sofia-enterprise-frontend-uiux-premium-8a/sofia-enterprise-frontend-uiux-premium-8a-report.md:181:| `La rotación externa de secretos sigue pendiente...` | `Rotación verificada localmente. Falta sincronizar governance autenticado y validar QR físico.` |
+infra/environments/staging/selfhosted-data/deployment-prep/phase-delivery-auto-3-checkout-cash-audit-report.md:97:- Para E2E local se sincronizó build compilado con contenedores mediante `docker compose cp` y restart controlado.
+apps/api/src/modules/whatsapp/whatsapp.service.ts:81:    await this.teardownSocket(false);
+apps/api/src/modules/whatsapp/whatsapp.service.ts:86:      void this.ensureSocket();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:94:    await this.teardownSocket(false);
+apps/api/src/modules/whatsapp/whatsapp.service.ts:95:    await this.ensureSocket();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:132:    await this.teardownSocket(true);
+apps/api/src/modules/whatsapp/whatsapp.service.ts:476:    await this.ensureSocket();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:553:  private async ensureSocket() {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:567:    this.bootstrapPromise = this.bootstrapSocket();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:574:    await this.ensureSocket();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:603:      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+apps/api/src/modules/whatsapp/whatsapp.service.ts:609:  private async bootstrapSocket() {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:684:      await this.teardownSocket(false);
+apps/api/src/modules/whatsapp/whatsapp.service.ts:698:  private async teardownSocket(resetBusinessPhone: boolean) {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:952:    const queue: unknown[] = [input];
+apps/api/src/modules/whatsapp/whatsapp.service.ts:955:    while (queue.length > 0) {
+apps/api/src/modules/whatsapp/whatsapp.service.ts:956:      const current = queue.shift();
+apps/api/src/modules/whatsapp/whatsapp.service.ts:976:          queue.push(value);
+apps/api/src/modules/whatsapp/whatsapp.service.ts:1103:      timer = setTimeout(
+apps/api/src/modules/whatsapp/whatsapp.service.ts:1110:      return await Promise.race([operation, timeout]);
+infra/environments/staging/selfhosted-data/deployment-prep/delivery-test-handle-fix/delivery-test-handle-fix-report.md:11:`WhatsappService.sendDeliveryOrderSummary()` usa un `Promise.race()` entre el envio y `timeoutAfter(45000)`. En el test, `sendMessage` resuelve inmediatamente, pero el timer perdedor mantenia el event loop vivo y generaba `Jest did not exit one second after the test run has completed`.
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:33:- Dashboard de monitoreo (webhook health, outbox queue depth, errores)
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:60:| Sección "Agente" (modo, horario, estado) | ✅ SÍ | No | No | Expandir con toggle global ON/OFF, schedule config |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:68:| Sección "Monitoreo" (placeholder) | ✅ SÍ | No | No | Poblar con datos reales: outbox queue, errores, latencia |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:108:| H5 | No hay contador de outbox queue pendiente en `/sofia` | P1 | Los mensajes salientes atascados no son visibles sin entrar a conversations | Agregar badge con conteo de outbox pendientes en el dashboard principal |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:112:| H9 | La sección "Monitoreo" en `/sofia` es un placeholder sin datos reales | P2 | Da falsa sensación de monitoreo | Poblar con datos reales del backend: logs de errores, outbox queue depth, webhook latency |
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:173:5. **Monitor de outbox queue** (P1): Conteo de mensajes pendientes, reintentos, fallos.
+infra/environments/staging/selfhosted-data/deployment-prep/deepseek-sofia-enterprise-config-panel-audit-0/deepseek-sofia-enterprise-config-panel-audit-0-report.md:223:- Sin monitor de outbox queue → mensajes atascados sin visibilidad

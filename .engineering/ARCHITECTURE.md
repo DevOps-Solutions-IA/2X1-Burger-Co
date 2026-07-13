@@ -1,0 +1,49 @@
+# Architecture Map
+
+```text
+Frontend
+   |
+   v
+API
+   |
+   v
+Backend
+   |
+   v
+Database
+   |
+   v
+Infrastructure
+   |
+   v
+Realtime
+   |
+   v
+WhatsApp
+   |
+   v
+Sofia
+   |
+   v
+Delivery
+   |
+   v
+POS
+   |
+   v
+Caja
+   |
+   v
+Inventario
+   |
+   v
+Usuarios
+   |
+   v
+Seguridad
+   |
+   v
+Deployment
+```
+
+Este mapa define el orden documental de revision. No afirma que cada relacion sea una dependencia fisica directa ni sustituye una auditoria de arquitectura.

@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Run E2E tests'
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_fastfood_system
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d inventory_fastfood_system"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inventory_fastfood_system?schema=public
+      JWT_ACCESS_SECRET: [REDACTED_TEST_SECRET]
+      JWT_REFRESH_SECRET: [REDACTED_TEST_SECRET]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
+      - run: pnpm db:migrate
+      - run: pnpm --filter @inventory-fastfood/api typecheck
+      - run: pnpm --filter @inventory-fastfood/api build
+      - run: pnpm --filter @inventory-fastfood/api test
+      - run: pnpm --filter @inventory-fastfood/web typecheck
+      - run: pnpm --filter @inventory-fastfood/web build
+
+  # E2E tests require both API and Web servers, prepare-test-db.sh, and Playwright browsers.
+  # Running these on every push/PR would consume ~15-20min of CI time.
+  # They are available on-demand via workflow_dispatch with run_e2e=true.
+  # To run locally: pnpm e2e (requires docker-compose up -d first).
+  e2e-tests:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: inventory_fastfood_system
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d inventory_fastfood_system"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inventory_fastfood_system?schema=public
+      JWT_ACCESS_SECRET: [REDACTED_TEST_SECRET]
+      JWT_REFRESH_SECRET: [REDACTED_TEST_SECRET]
+      CORS_ORIGIN: http://127.0.0.1:3302
+      APP_URL: http://127.0.0.1:3302
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
+      - run: pnpm db:migrate
+      - run: pnpm --filter @inventory-fastfood/api build
+      - run: pnpm --filter @inventory-fastfood/web build
+      - name: Prepare test database
+        run: bash infra/scripts/prepare-test-db.sh
+      - name: Run Playwright tests
+        run: pnpm e2e
