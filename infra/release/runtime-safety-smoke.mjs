@@ -40,6 +40,14 @@ const auth = {
   Authorization: `Bearer ${login.body.accessToken}`,
   'Content-Type': 'application/json',
 };
+const priorInbox = await request('/admin/sofia/conversations/inbox', { headers: auth });
+for (const conversation of priorInbox.body.internalValidation?.conversations ?? []) {
+  await request(`/admin/sofia/conversations/${conversation.id}/release`, {
+    method: 'POST',
+    headers: auth,
+    body: '{}',
+  });
+}
 const eventPrefix = `p22-${Date.now()}`;
 const postInbound = (payload) =>
   request('/integrations/whatsapp/qr_gateway/webhook', {
