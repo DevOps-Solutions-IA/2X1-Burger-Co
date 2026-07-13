@@ -29,6 +29,7 @@ whatsapp-auth/
 **/creds.json
 **/session-*.json
 *.quarantine
+.release/
 infra/environments/*/secrets/
 infra/environments/staging/selfhosted-data/private-quarantine/
 infra/environments/staging/selfhosted-data/backups/sofia-sanitized/

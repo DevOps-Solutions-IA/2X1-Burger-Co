@@ -1,10 +1,78 @@
-name: CD
+name: CD Staging
 
 on:
   workflow_dispatch:
+    inputs:
+      api_image:
+        description: API image pinned by registry digest
+        required: true
+        type: string
+      web_image:
+        description: Web image pinned by registry digest
+        required: true
+        type: string
+      release_commit:
+        description: Full Git commit represented by both artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Configure your VPS deployment target and secrets before enabling automated CD."
+      - uses: actions/checkout@v4
+      - name: Validate immutable inputs
+        env:
+          API_IMAGE: ${{ inputs.api_image }}
+          WEB_IMAGE: ${{ inputs.web_image }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          [[ "$API_IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]
+          [[ "$WEB_IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+      - name: Validate owner gates
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_PATH: ${{ vars.STAGING_PATH }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          test -n "$STAGING_HOST"
+          test -n "$STAGING_USER"
+          test -n "$STAGING_PATH"
+          test -n "$STAGING_SSH_KEY"
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$STAGING_HOST" > ~/.ssh/known_hosts
+      - name: Deploy staging artifact by digest
+        env:
+          API_IMAGE: ${{ inputs.api_image }}
+          WEB_IMAGE: ${{ inputs.web_image }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_PATH: ${{ vars.STAGING_PATH }}
+        run: |
+          scp infra/release/staging-deploy.sh "$STAGING_USER@$STAGING_HOST:/tmp/inventory-staging-deploy.sh"
+          ssh "$STAGING_USER@$STAGING_HOST" \
+            "API_IMAGE='$API_IMAGE' WEB_IMAGE='$WEB_IMAGE' RELEASE_COMMIT='$RELEASE_COMMIT' STAGING_PATH='$STAGING_PATH' bash /tmp/inventory-staging-deploy.sh"

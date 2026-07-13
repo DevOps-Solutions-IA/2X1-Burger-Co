@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: __dirname,
+  generateBuildId: async () => process.env.RELEASE_BUILD_ID ?? 'development-untracked',
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
   async rewrites() {
     return [

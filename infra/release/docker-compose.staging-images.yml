@@ -1,0 +1,7 @@
+services:
+  api:
+    image: ${API_IMAGE:?API_IMAGE must be pinned by digest}
+    build: null
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE must be pinned by digest}
+    build: null

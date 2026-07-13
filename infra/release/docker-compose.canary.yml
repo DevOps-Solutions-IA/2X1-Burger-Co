@@ -1,0 +1,95 @@
+name: inventory-fastfood-canary
+
+services:
+  canary-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CANARY_POSTGRES_DB:?required}
+      POSTGRES_USER: ${CANARY_POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${CANARY_POSTGRES_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:${CANARY_POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - canary_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  canary-migrate:
+    image: ${CANARY_API_IMAGE:?required}
+    profiles: ["tools"]
+    depends_on:
+      canary-postgres:
+        condition: service_healthy
+    environment: &api-environment
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://${CANARY_POSTGRES_USER}:${CANARY_POSTGRES_PASSWORD}@canary-postgres:5432/${CANARY_POSTGRES_DB}?schema=public
+      CORS_ORIGIN: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
+      APP_URL: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
+      PUBLIC_PAYMENTS_BASE_URL: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
+      JWT_ACCESS_SECRET: ${CANARY_JWT_ACCESS_SECRET:?required}
+      JWT_REFRESH_SECRET: ${CANARY_JWT_REFRESH_SECRET:?required}
+      ADMIN_EMAIL: ${CANARY_ADMIN_EMAIL:?required}
+      ADMIN_PASSWORD: ${CANARY_ADMIN_PASSWORD:?required}
+      COOKIE_SECURE: "false"
+      WHATSAPP_INTERNAL_ENABLED: "false"
+      WHATSAPP_MODE: disabled
+      WHATSAPP_PROVIDER: none
+      WHATSAPP_QR_ENABLED: "false"
+      WHATSAPP_QR_ALLOW_RECEIVE: "false"
+      WHATSAPP_QR_ALLOW_REAL_SEND: "false"
+      WHATSAPP_QR_RECONNECT_ENABLED: "false"
+      SOFIA_QR_PILOT_ALLOWLIST_ENABLED: "false"
+      SOFIA_QR_PILOT_RECEIVE_ONLY: "true"
+      SOFIA_QR_PILOT_REAL_SEND: "false"
+      SOFIA_AUTO_REPLY_ENABLED: "false"
+      SOFIA_AUTO_SAFE_ENABLED: "false"
+      SOFIA_AI_PROVIDER: deepseek
+      SOFIA_AI_MODE: dry_run
+      DEEPSEEK_ENABLED: "false"
+      DELIVERY_EXTERNAL_PROVIDERS_ENABLED: "false"
+      DELIVERY_EXTERNAL_SMOKE_ENABLED: "false"
+      RELEASE_ARTIFACT_DIGEST: ${CANARY_API_DIGEST:?required}
+
+  canary-api:
+    image: ${CANARY_API_IMAGE:?required}
+    restart: unless-stopped
+    depends_on:
+      canary-postgres:
+        condition: service_healthy
+    environment: *api-environment
+    ports:
+      - "127.0.0.1:${CANARY_API_PORT:-4400}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  canary-web:
+    image: ${CANARY_WEB_IMAGE:?required}
+    restart: unless-stopped
+    depends_on:
+      canary-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      RELEASE_ARTIFACT_DIGEST: ${CANARY_WEB_DIGEST:?required}
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:${CANARY_API_PORT:-4400}
+    ports:
+      - "127.0.0.1:${CANARY_WEB_PORT:-3401}:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  canary_postgres_data:

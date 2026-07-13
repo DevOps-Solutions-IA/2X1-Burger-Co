@@ -16,20 +16,35 @@ FROM deps AS build
 WORKDIR /app
 COPY apps/web apps/web
 ARG NEXT_PUBLIC_API_URL
+ARG RELEASE_BUILD_ID
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV RELEASE_BUILD_ID=${RELEASE_BUILD_ID}
 RUN pnpm --filter @inventory-fastfood/web build
 
 FROM node:22-alpine AS runner
+ARG OCI_REVISION
+ARG OCI_CREATED
+ARG OCI_VERSION
+ARG RELEASE_BUILD_ID
+LABEL org.opencontainers.image.revision=$OCI_REVISION \
+      org.opencontainers.image.created=$OCI_CREATED \
+      org.opencontainers.image.version=$OCI_VERSION \
+      org.opencontainers.image.title="2X1 Burger Co Web" \
+      org.opencontainers.image.source="inventory-fastfood-system" \
+      org.opencontainers.image.description="Inventory Fastfood web release artifact"
 WORKDIR /app/apps/web
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV RELEASE_MANIFEST_PATH=/app/release-manifest.json
+ENV RELEASE_BUILD_ID=$RELEASE_BUILD_ID
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY apps/web/package.json ./package.json
 RUN npm install --omit=dev --ignore-scripts
 COPY --from=build /app/apps/web/.next ./.next
 COPY --from=build /app/apps/web/public ./public
+COPY .release/release-manifest.json /app/release-manifest.json
 RUN chown -R node:node /app/apps/web
 EXPOSE 3001
 USER node

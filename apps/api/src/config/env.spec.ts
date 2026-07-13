@@ -36,4 +36,18 @@ describe('environment boolean parsing', () => {
     expect(env.SOFIA_HUMAN_HANDOFF_ENABLED).toBe(true);
     expect(() => validateEnv({ ...requiredEnv, SOFIA_AUTO_REPLY_ENABLED: 'yes' })).toThrow();
   });
+
+  it('normalizes case, defaults undefined and rejects empty critical flags', () => {
+    const env = validateEnv({
+      ...requiredEnv,
+      SOFIA_AUTO_SAFE_ENABLED: 'FALSE',
+      SOFIA_AUTO_REPLY_ENABLED: 'TRUE',
+      WHATSAPP_QR_ALLOW_REAL_SEND: undefined,
+    });
+
+    expect(env.SOFIA_AUTO_SAFE_ENABLED).toBe(false);
+    expect(env.SOFIA_AUTO_REPLY_ENABLED).toBe(true);
+    expect(env.WHATSAPP_QR_ALLOW_REAL_SEND).toBe(false);
+    expect(() => validateEnv({ ...requiredEnv, SOFIA_AUTO_SAFE_ENABLED: '' })).toThrow();
+  });
 });

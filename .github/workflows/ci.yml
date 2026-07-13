@@ -2,85 +2,43 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
-    inputs:
-      run_e2e:
-        description: 'Run E2E tests'
-        type: boolean
-        default: false
-        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: inventory_fastfood_system
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d inventory_fastfood_system"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inventory_fastfood_system?schema=public
-      JWT_ACCESS_SECRET: ci-access-secret-only-for-tests-2026-2x1burger-strong-value
-      JWT_REFRESH_SECRET: ci-refresh-secret-only-for-tests-2026-2x1burger-different-strong-value
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.16.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
-      - run: pnpm db:migrate
-      - run: pnpm --filter @inventory-fastfood/api typecheck
-      - run: pnpm --filter @inventory-fastfood/api build
-      - run: pnpm --filter @inventory-fastfood/api test
-      - run: pnpm --filter @inventory-fastfood/web typecheck
-      - run: pnpm --filter @inventory-fastfood/web build
-
-  # E2E tests require both API and Web servers, prepare-test-db.sh, and Playwright browsers.
-  # Running these on every push/PR would consume ~15-20min of CI time.
-  # They are available on-demand via workflow_dispatch with run_e2e=true.
-  # To run locally: pnpm e2e (requires docker-compose up -d first).
-  e2e-tests:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: inventory_fastfood_system
+          POSTGRES_DB: inventory_fastfood_system_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
+        ports: [5432:5432]
         options: >-
-          --health-cmd "pg_isready -U postgres -d inventory_fastfood_system"
-          --health-interval 10s
+          --health-cmd "pg_isready -U postgres -d inventory_fastfood_system_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 20
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inventory_fastfood_system?schema=public
-      JWT_ACCESS_SECRET: ci-access-secret-only-for-e2e-2026-2x1burger-strong-value
-      JWT_REFRESH_SECRET: ci-refresh-secret-only-for-e2e-2026-2x1burger-different-strong-value
-      CORS_ORIGIN: http://127.0.0.1:3302
-      APP_URL: http://127.0.0.1:3302
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inventory_fastfood_system_test?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-only-for-tests-2026-2x1burger-strong-value
+      JWT_REFRESH_SECRET: ci-refresh-secret-only-for-tests-2026-2x1burger-different-strong-value
+      ADMIN_PASSWORD: ci-admin-password-not-for-runtime
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10.16.0
@@ -89,11 +47,56 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
-      - run: pnpm db:migrate
+      - name: Local secret scan
+        run: ./infra/release/secret-scan.sh
+      - name: Generate Prisma client
+        run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
+      - name: Deploy migrations to ephemeral database
+        run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+      - name: Lint with tracked warning budget
+        run: |
+          pnpm --filter @inventory-fastfood/api lint
+          pnpm exec eslint apps/web/src apps/web/next.config.ts apps/web/tailwind.config.ts --max-warnings=88
+      - run: pnpm --filter @inventory-fastfood/api typecheck
       - run: pnpm --filter @inventory-fastfood/api build
+      - run: pnpm --filter @inventory-fastfood/web typecheck
       - run: pnpm --filter @inventory-fastfood/web build
-      - name: Prepare test database
-        run: bash infra/scripts/prepare-test-db.sh
-      - name: Run Playwright tests
-        run: pnpm e2e
+      - name: Config and provenance contracts
+        run: pnpm --dir apps/api exec jest src/config/env.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+      - name: WhatsApp timeout lifecycle
+        run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
+      - name: Delivery Phase A
+        run: pnpm --dir apps/api exec jest src/tests/delivery-receipt-phase-a.spec.ts --runInBand --detectOpenHandles
+      - name: Critical integration
+        run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
+      - name: Generate CycloneDX SBOM
+        run: SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) node infra/release/generate-sbom.mjs --output .release/sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-evidence-${{ github.sha }}
+          path: |
+            .release/sbom.cdx.json
+            apps/api/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  artifact:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject dirty release source
+        run: test -z "$(git status --porcelain)"
+      - name: Build immutable local artifacts
+        env:
+          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-artifacts
+        run: ./infra/release/build-artifacts.sh "${{ github.sha }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
+          retention-days: 30

@@ -29,6 +29,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { SofiaModule } from './modules/sofia/sofia.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { ReleaseModule } from './release/release.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { DeliveryModule } from './delivery/delivery.module';
     RealtimeModule,
     WhatsappModule,
     SofiaModule,
+    ReleaseModule,
   ],
 })
 export class AppModule implements NestModule {
