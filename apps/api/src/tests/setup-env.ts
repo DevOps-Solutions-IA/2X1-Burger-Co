@@ -1,0 +1,14 @@
+process.env.NODE_ENV = 'test';
+process.env.DEEPSEEK_ENABLED = 'false';
+process.env.SOFIA_AI_PROVIDER = 'rules';
+process.env.SOFIA_AI_MODE = 'disabled';
+process.env.SOFIA_AUTO_REPLY_ENABLED = 'false';
+process.env.SOFIA_AUTO_SAFE_ENABLED = 'false';
+process.env.SOFIA_PRODUCTION_ENABLED = 'false';
+process.env.WHATSAPP_INTERNAL_ENABLED = 'false';
+process.env.WHATSAPP_MODE = 'disabled';
+process.env.WHATSAPP_PROVIDER = 'mock';
+process.env.WHATSAPP_QR_ALLOW_REAL_SEND = 'false';
+process.env.WHATSAPP_QR_ENABLED = 'false';
+process.env.DELIVERY_EXTERNAL_PROVIDERS_ENABLED = 'false';
+process.env.DELIVERY_EXTERNAL_SMOKE_ENABLED = 'false';

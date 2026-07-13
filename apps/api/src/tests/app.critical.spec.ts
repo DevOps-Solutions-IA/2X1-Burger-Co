@@ -4763,7 +4763,7 @@ describe('Critical business flows', () => {
     expect(await prisma.sale.count()).toBe(salesBefore);
   });
 
-  it('runs Sofia WhatsApp QR Gateway in receive_only with deduplication and real send blocked', async () => {
+  it('keeps Sofia WhatsApp QR Gateway disabled in tests while validating deduplication and real send blocking', async () => {
     const { accessToken } = await login();
     const stockBefore = await prisma.product.aggregate({ _sum: { currentStock: true } });
     const cashMovementsBefore = await prisma.cashMovement.count();
@@ -4788,15 +4788,17 @@ describe('Critical business flows', () => {
       .post('/admin/sofia/whatsapp/qr/connect')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(201);
-    expect(connected.body.status).toBe('QR_READY');
-    expect(connected.body.qrAvailable).toBe(true);
+    expect(connected.body.status).toBe('DISABLED');
+    expect(connected.body.reason).toBe('QR_GATEWAY_DISABLED');
+    expect(connected.body.qrAvailable).toBe(false);
     expect(connected.body.realSendingEnabled).toBe(false);
 
     const code = await request(app.getHttpServer())
       .get('/admin/sofia/whatsapp/qr/code')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(code.body.qrAvailable).toBe(true);
+    expect(code.body.status).toBe('DISABLED');
+    expect(code.body.qrAvailable).toBe(false);
     expect(code.body.noSecrets).toBe(true);
 
     const inbound = await request(app.getHttpServer())

@@ -10,6 +10,7 @@ const config: Config = {
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/tests/setup-env.ts'],
   testTimeout: 30_000,
 };
 

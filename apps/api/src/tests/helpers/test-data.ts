@@ -56,6 +56,8 @@ export async function resetDatabase(prisma: PrismaService) {
     'order_tickets',
     'cash_sessions',
     'delivery_customers',
+    'waiter_table_group_assignments',
+    'table_groups',
     'dining_tables',
     'payment_methods',
     'inventory_movements',
