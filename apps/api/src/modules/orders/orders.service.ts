@@ -24,7 +24,11 @@ import {
   SaleStatus,
 } from '@prisma/client';
 import QRCode from 'qrcode';
-import { renderDeliveryReceiptPdf } from './delivery-receipt.renderer';
+import {
+  normalizeReceiptBusinessAddress,
+  normalizeReceiptBusinessPhone,
+  renderDeliveryReceiptPdf,
+} from './delivery-receipt.renderer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { toDecimal, toNumber } from '../../common/utils/decimal.util';
@@ -387,8 +391,20 @@ const ACTIVE_DELIVERY_WORKFLOW_STATUSES: DeliveryWorkflowStatus[] = [
   DeliveryWorkflowStatus.ISSUE,
 ];
 
-const DELIVERY_PAYMENT_METHOD_LABEL = 'Nequi';
 const DELIVERY_PAYMENT_TARGET = '3160527403';
+
+export function resolveDeliveryReceiptPayment(paymentMethod?: string | null) {
+  if (paymentMethod === 'NEQUI_MANUAL') {
+    return { label: 'Nequi', target: DELIVERY_PAYMENT_TARGET };
+  }
+  if (paymentMethod === 'CASH') {
+    return { label: 'Efectivo contra entrega', target: null };
+  }
+  if (paymentMethod === 'ONLINE') {
+    return { label: 'Pago en línea', target: null };
+  }
+  return { label: null, target: null };
+}
 
 type DeliveryReceiptSender = {
   sendDeliveryOrderSummary: (
@@ -1089,8 +1105,12 @@ export class OrdersService {
       typeof businessProfile.name === 'string' && businessProfile.name.trim()
         ? businessProfile.name.trim()
         : '2X1 Burger Co.';
-    const address = typeof businessProfile.address === 'string' ? businessProfile.address.trim() : '';
-    const phone = typeof businessProfile.phone === 'string' ? businessProfile.phone.trim() : '';
+    const address = normalizeReceiptBusinessAddress(
+      typeof businessProfile.address === 'string' ? businessProfile.address : '',
+    );
+    const phone = normalizeReceiptBusinessPhone(
+      typeof businessProfile.phone === 'string' ? businessProfile.phone : '',
+    );
     const receiptFooter =
       typeof posDefaults.receiptFooter === 'string' && posDefaults.receiptFooter.trim()
         ? posDefaults.receiptFooter.trim()
@@ -1109,6 +1129,7 @@ export class OrdersService {
 
     const version = await this.getDeliveryCommercialVersion(id);
     const itemsSubtotal = order.items.reduce((acc, item) => acc + Number(item.totalPrice), 0);
+    const payment = resolveDeliveryReceiptPayment(order.whatsappDeliveryOrder?.paymentMethod);
 
     const pdf = await renderDeliveryReceiptPdf({
       businessName,
@@ -1122,8 +1143,8 @@ export class OrdersService {
       customerName: order.customerName,
       deliveryReference: order.deliveryReference,
       notes: order.notes,
-      paymentMethodLabel: DELIVERY_PAYMENT_METHOD_LABEL,
-      paymentTarget: DELIVERY_PAYMENT_TARGET,
+      paymentMethodLabel: payment.label,
+      paymentTarget: payment.target,
       items: order.items.map((item) => ({
         name: item.product.name,
         quantity: Number(item.quantity),

@@ -2778,7 +2778,13 @@ describe('Critical business flows', () => {
       where: { phone: '573001234567' },
     });
     expect(savedCustomer.fullName).toBe('Cliente Domicilio');
-    expect(Number(savedCustomer.lastDistanceKm)).toBeGreaterThan(0);
+    expect(Number(savedCustomer.lastLatitude)).toBeCloseTo(3.2556, 4);
+    expect(Number(savedCustomer.lastLongitude)).toBeCloseTo(-76.5417, 4);
+    expect(savedCustomer.lastDistanceKm?.toString() ?? null).toBe(
+      createResponse.body.deliveryDistanceKm == null
+        ? null
+        : String(createResponse.body.deliveryDistanceKm),
+    );
   });
 
   it('delivery pricing endpoint handles local free and ambiguous local text safely', async () => {

@@ -42,6 +42,8 @@ const PAGE_WIDTH = 58 * 2.83465; // 58 mm térmico
 const MARGIN = 11;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const BLACK = '#000000';
+const PLACEHOLDER_BUSINESS_ADDRESSES = new Set(['bogota, colombia', 'bogotá, colombia']);
+const PLACEHOLDER_BUSINESS_PHONE_DIGITS = new Set(['573000000000', '3000000000']);
 
 /* Helvetica usa WinAnsi: cualquier carácter fuera del set (emoji, símbolos
    exóticos) rompería o ensuciaría la impresión. Se eliminan de forma segura. */
@@ -61,6 +63,17 @@ export function sanitizeForReceipt(value: string | null | undefined): string {
     }
   }
   return result.replace(/\s+/g, ' ').trim();
+}
+
+export function normalizeReceiptBusinessAddress(value: string | null | undefined): string {
+  const normalized = sanitizeForReceipt(value);
+  return PLACEHOLDER_BUSINESS_ADDRESSES.has(normalized.toLocaleLowerCase('es-CO')) ? '' : normalized;
+}
+
+export function normalizeReceiptBusinessPhone(value: string | null | undefined): string {
+  const normalized = sanitizeForReceipt(value);
+  const digits = normalized.replace(/\D/g, '');
+  return PLACEHOLDER_BUSINESS_PHONE_DIGITS.has(digits) ? '' : normalized;
 }
 
 function formatCop(value: number): string {
@@ -118,6 +131,8 @@ export async function renderDeliveryReceiptPdf(data: DeliveryReceiptRenderData):
 
 function layoutReceipt(doc: PDFKit.PDFDocument, data: DeliveryReceiptRenderData, measureOnly: boolean): number {
   const logo = data.logoBuffer ?? loadBrandLogo();
+  const businessAddress = normalizeReceiptBusinessAddress(data.businessAddress);
+  const businessPhone = normalizeReceiptBusinessPhone(data.businessPhone);
 
   doc.fillColor(BLACK);
 
@@ -142,13 +157,13 @@ function layoutReceipt(doc: PDFKit.PDFDocument, data: DeliveryReceiptRenderData,
     { width: CONTENT_WIDTH, align: 'center', characterSpacing: 0.3 },
   );
 
-  if (data.businessAddress || data.businessPhone) {
+  if (businessAddress || businessPhone) {
     doc.font('Helvetica').fontSize(6.4);
-    if (data.businessAddress) {
-      doc.text(sanitizeForReceipt(data.businessAddress), MARGIN, doc.y + 2, { width: CONTENT_WIDTH, align: 'center' });
+    if (businessAddress) {
+      doc.text(businessAddress, MARGIN, doc.y + 2, { width: CONTENT_WIDTH, align: 'center' });
     }
-    if (data.businessPhone) {
-      doc.text(sanitizeForReceipt(data.businessPhone), MARGIN, doc.y + 1, { width: CONTENT_WIDTH, align: 'center' });
+    if (businessPhone) {
+      doc.text(businessPhone, MARGIN, doc.y + 1, { width: CONTENT_WIDTH, align: 'center' });
     }
   }
 

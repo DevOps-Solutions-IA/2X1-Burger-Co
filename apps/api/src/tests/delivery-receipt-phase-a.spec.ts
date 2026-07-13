@@ -3,9 +3,11 @@ import type { INestApplication } from '@nestjs/common';
 import { closeTestApp, createTestApp } from './helpers/test-app';
 import { resetDatabase, seedTestData } from './helpers/test-data';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrdersService } from '../modules/orders/orders.service';
+import { OrdersService, resolveDeliveryReceiptPayment } from '../modules/orders/orders.service';
 import { WhatsappService } from '../modules/whatsapp/whatsapp.service';
 import {
+  normalizeReceiptBusinessAddress,
+  normalizeReceiptBusinessPhone,
   renderDeliveryReceiptPdf,
   sanitizeForReceipt,
   type DeliveryReceiptRenderData,
@@ -41,6 +43,20 @@ describe('Delivery receipt renderer (Phase A)', () => {
     expect(sanitizeForReceipt('Adición: carne extra 🍔')).toBe('Adición: carne extra');
     expect(sanitizeForReceipt('Ñáñez Gutiérrez — “premium”')).toBe('Ñáñez Gutiérrez — “premium”');
     expect(sanitizeForReceipt(null)).toBe('');
+  });
+
+  it('omits seed placeholder business contact data from delivery receipts', () => {
+    expect(normalizeReceiptBusinessAddress('Bogota, Colombia')).toBe('');
+    expect(normalizeReceiptBusinessAddress('Bogotá, Colombia')).toBe('');
+    expect(normalizeReceiptBusinessPhone('+57 3000000000')).toBe('');
+    expect(normalizeReceiptBusinessAddress('Cra 10 # 12-34, Jamundí')).toBe('Cra 10 # 12-34, Jamundí');
+    expect(normalizeReceiptBusinessPhone('+57 316 052 7403')).toBe('+57 316 052 7403');
+  });
+
+  it('prints a payment method only when the delivery order actually has one', () => {
+    expect(resolveDeliveryReceiptPayment(null)).toEqual({ label: null, target: null });
+    expect(resolveDeliveryReceiptPayment('CASH')).toEqual({ label: 'Efectivo contra entrega', target: null });
+    expect(resolveDeliveryReceiptPayment('NEQUI_MANUAL')).toMatchObject({ label: 'Nequi' });
   });
 
   it('renders a valid single-page PDF for a short order', async () => {
@@ -244,28 +260,35 @@ describe('Delivery receipt versioning (Phase A)', () => {
       socket: { sendMessage: jest.Mock } | null;
       sendDeliveryOrderSummary: WhatsappService['sendDeliveryOrderSummary'];
     };
-    jest.spyOn(service, 'assertEnabled').mockImplementation(() => undefined);
-    jest.spyOn(service, 'ensureConnectedOrThrow').mockResolvedValue(undefined);
+    const assertEnabledSpy = jest.spyOn(service, 'assertEnabled').mockImplementation(() => undefined);
+    const connectedSpy = jest.spyOn(service, 'ensureConnectedOrThrow').mockResolvedValue(undefined);
     const sendMessage = jest.fn().mockResolvedValue(undefined);
+    const previousSocket = service.socket;
     service.socket = { sendMessage } as never;
 
-    const admin = await prisma.user.findFirstOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
-    const first = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
-    expect(first.success).toBe(true);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    try {
+      const admin = await prisma.user.findFirstOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
+      const first = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
+      expect(first.success).toBe(true);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
 
-    const second = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
-    expect((second as { alreadySent?: boolean }).alreadySent).toBe(true);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+      const second = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
+      expect((second as { alreadySent?: boolean }).alreadySent).toBe(true);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
 
-    const sentAudits = await prisma.auditLog.findMany({
-      where: { entityId: order.id, action: 'DELIVERY_RECEIPT_INITIAL_SENT' },
-    });
-    expect(sentAudits).toHaveLength(1);
-    const payload = sentAudits[0]!.newValues as Record<string, unknown>;
-    expect(payload.phoneMasked).toBe('********0001');
-    expect(JSON.stringify(payload)).not.toContain('573009990001');
-    expect(token).toBeTruthy();
+      const sentAudits = await prisma.auditLog.findMany({
+        where: { entityId: order.id, action: 'DELIVERY_RECEIPT_INITIAL_SENT' },
+      });
+      expect(sentAudits).toHaveLength(1);
+      const payload = sentAudits[0]!.newValues as Record<string, unknown>;
+      expect(payload.phoneMasked).toBe('********0001');
+      expect(JSON.stringify(payload)).not.toContain('573009990001');
+      expect(token).toBeTruthy();
+    } finally {
+      service.socket = previousSocket;
+      assertEnabledSpy.mockRestore();
+      connectedSpy.mockRestore();
+    }
   });
 
   it('current receipt endpoint serves the latest version as PDF', async () => {
