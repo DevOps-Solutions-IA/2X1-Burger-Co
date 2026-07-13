@@ -102,10 +102,10 @@ export class WhatsappService implements OnModuleDestroy {
       'WhatsApp del negocio no está vinculado todavía. Escanea el QR antes de consultar grupos.',
     );
 
-    const participating = await Promise.race([
+    const participating = await this.withTimeout(
       this.socket.groupFetchAllParticipating?.() ?? Promise.resolve({}),
-      this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-    ]);
+      this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+    );
 
     return Object.values(participating ?? {})
       .map((group: any) => ({
@@ -161,7 +161,7 @@ export class WhatsappService implements OnModuleDestroy {
     const receiptNumber = formatReceiptNumber(sale.number);
     const jid = `${normalizedPhone}@s.whatsapp.net`;
 
-    await Promise.race([
+    await this.withTimeout(
       this.socket.sendMessage(jid, {
         document: pdf,
         mimetype: 'application/pdf',
@@ -173,8 +173,8 @@ export class WhatsappService implements OnModuleDestroy {
           total: Number(sale.total),
         }),
       }),
-      this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-    ]);
+      this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+    );
 
     await this.auditService.log({
       userId: actorId,
@@ -268,7 +268,7 @@ export class WhatsappService implements OnModuleDestroy {
     const jid = `${normalizedPhone}@s.whatsapp.net`;
 
     try {
-      await Promise.race([
+      await this.withTimeout(
         this.socket.sendMessage(jid, {
           document: pdf,
           mimetype: 'application/pdf',
@@ -282,8 +282,8 @@ export class WhatsappService implements OnModuleDestroy {
             version,
           }),
         }),
-        this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-      ]);
+        this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+      );
     } catch (error) {
       if (!isUpdated) {
         await this.auditService.log({
@@ -366,19 +366,19 @@ export class WhatsappService implements OnModuleDestroy {
       throw new BadRequestException('Pega un enlace o código válido del grupo de WhatsApp.');
     }
 
-    const metadata = await Promise.race([
+    const metadata = await this.withTimeout<{ id?: string; subject?: string }>(
       this.socket.groupGetInviteInfo(inviteCode),
-      this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-    ]);
+      this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+    );
 
     let groupJid = current.groupJid ?? null;
 
     try {
       groupJid =
-        (await Promise.race([
+        (await this.withTimeout(
           this.socket.groupAcceptInvite(inviteCode),
-          this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-        ])) ?? null;
+          this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+        )) ?? null;
     } catch (error) {
       const discoveredGroupId = metadata?.id ? `${metadata.id}` : null;
       groupJid = discoveredGroupId ? (discoveredGroupId.endsWith('@g.us') ? discoveredGroupId : `${discoveredGroupId}@g.us`) : groupJid;
@@ -508,22 +508,22 @@ export class WhatsappService implements OnModuleDestroy {
     const fileName = `cierre-diario-${closureDateLabel}.pdf`;
 
     try {
-      await Promise.race([
+      await this.withTimeout(
         this.socket.sendMessage(groupJid, {
           text: summaryText,
         }),
-        this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-      ]);
+        this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+      );
 
-      await Promise.race([
+      await this.withTimeout(
         this.socket.sendMessage(groupJid, {
           document: pdf,
           mimetype: 'application/pdf',
           fileName,
           caption: `Cierre diario ${closureDateLabel}`,
         }),
-        this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-      ]);
+        this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+      );
     } catch (error) {
       throw new ConflictException(this.describeClosingSendFailure(error, settings.groupLabel ?? null));
     }
@@ -905,7 +905,7 @@ export class WhatsappService implements OnModuleDestroy {
         `Ubicación logística aplicada a ${updatedOrder.number} para ${matchedSender || remoteJid}${usedSingleOrderFallback ? ' usando fallback de única comanda activa' : ''}. Tarifa conservada.`,
       );
 
-      await Promise.race([
+      await this.withTimeout(
         this.socket.sendMessage(remoteJid, {
           text: [
             `Ubicación recibida para tu pedido ${updatedOrder.number}.`,
@@ -913,8 +913,8 @@ export class WhatsappService implements OnModuleDestroy {
             'Tu cuenta conserva la tarifa de domicilio ya calculada.',
           ].join('\n'),
         }),
-        this.timeoutAfter(this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000),
-      ]);
+        this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+      );
     }
   }
 
@@ -1097,10 +1097,20 @@ export class WhatsappService implements OnModuleDestroy {
     }
   }
 
-  private timeoutAfter(ms: number) {
-    return new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new ConflictException('WhatsApp no respondió a tiempo. Intenta nuevamente.')), ms);
+  private async withTimeout<T>(operation: Promise<T>, ms: number): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new ConflictException('WhatsApp no respondió a tiempo. Intenta nuevamente.')),
+        ms,
+      );
     });
+
+    try {
+      return await Promise.race([operation, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private extractStatusCode(error: unknown) {
