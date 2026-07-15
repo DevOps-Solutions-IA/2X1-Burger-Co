@@ -1,106 +1,106 @@
 # GLOBAL STATUS
 
-Fecha de evaluacion: 2026-07-13
+Fecha de evaluacion: 2026-07-15
 
 | Modulo | Score | Semaforo | Bloqueadores | Estado runtime | Prioridad |
 | --- | ---: | --- | ---: | --- | --- |
-| Caja | 77% | 🟡 | 3 | PASS read-only | P2 |
-| POS | 76% | 🟡 | 3 | PASS condicionado | P2 |
-| Delivery | 87% | 🟡 | 3 | PASS condicionado | P1 |
-| WhatsApp | 67% | 🟡 | 3 | PASS canary seguro; canal real no ejecutado | P0 |
-| Sofia | 68% | 🟡 | 4 | PASS canary | P0 |
-| Dashboard | 75% | 🟡 | 3 | PASS condicionado | P1 |
-| Inventory | 72% | 🟡 | 3 | PASS read-only | P2 |
-| Users | 79% | 🟡 | 3 | PASS condicionado | P1 |
-| Security | 64% | 🟡 | 4 | PASS canary | P0 |
-| Database | 78% | 🟡 | 3 | PASS condicionado | P1 |
-| API | 88% | 🟡 | 3 | PASS canary | P1 |
-| Frontend | 70% | 🟡 | 4 | PASS canary | P1 |
-| Deployment | 68% | 🟡 | 3 | PASS local/canary; remoto no demostrado | P0 |
-| Performance | 36% | 🔴 | 3 | NO DEMOSTRADO | P1 |
-| Testing | 80% | 🟡 | 4 | PASS backend/artifact; E2E UI pendiente | P1 |
-| UI/UX | 61% | 🟡 | 4 | PASS condicionado | P2 |
+| Caja | 90% | 🟡 | 3 | PASS E2E/audit 3X; release NO-GO | P1 |
+| POS | 90% | 🟡 | 3 | PASS E2E/audit 3X; release NO-GO | P1 |
+| Delivery | 95% | 🟡 | 3 | PASS E2E/audit 3X; provider externo pendiente | P1 |
+| WhatsApp | 83% | 🟡 | 3 | PASS canary seguro; canal real OFF | P1 |
+| Sofia | 84% | 🟡 | 3 | PASS canary; owner gates pendientes | P1 |
+| Dashboard | 80% | 🟡 | 3 | Snapshot operacional real; backend remoto pendiente | P1 |
+| Inventory | 88% | 🟡 | 3 | PASS E2E/audit 3X; release NO-GO | P1 |
+| Users | 82% | 🟡 | 3 | RBAC audit PASS; lifecycle remoto pendiente | P1 |
+| Security | 79% | 🟡 | 4 | PASS local; artifact/KMS pendientes | P0 |
+| Database | 93% | 🟡 | 3 | 30 fresh y 29→30 PASS; recovery smoke NO-GO | P1 |
+| API | 96% | 🟡 | 3 | Audit/core PASS; release/recovery NO-GO | P1 |
+| Frontend | 81% | 🟡 | 4 | PASS artifact/UI efimero | P1 |
+| Deployment | 72% | 🟡 | 3 | PASS local/canary; remoto no demostrado | P0 |
+| Performance | 65% | 🟡 | 3 | Baseline local; capacidad no demostrada | P1 |
+| Testing | 94% | 🟡 | 4 | Audit/core 3X PASS; recovery 0/3 | P1 |
+| UI/UX | 66% | 🟡 | 4 | Evidencia visual PASS; quality debt pendiente | P2 |
 
 ## Enterprise Score global
 
-**72%**. Promedio de los 16 scores. No habilita produccion: Performance sigue ROJO y ningun modulo cumple todavia todos sus criterios de GO.
+**84%**. No habilita produccion: el contrato v2 ya pasa, pero recovery agotó tres iteraciones y no existe artifact limpio con rollback demostrado.
 
 ## Production Readiness Score
 
-**72%**. Ponderacion: Deployment 30%, Security 20%, Testing 15%, Database 10%, API 10%, Frontend 5%, WhatsApp 5% y Sofia 5%. Los owner gates y la ausencia de staging remoto fuerzan `NOT READY`.
+**81%**. Estado: **NOT READY**.
 
 ## Distribucion
 
-- ROJO: **1**.
-- AMARILLO: **15**.
+- ROJO: **0**.
+- AMARILLO: **16**.
 - VERDE: **0**.
 
-## Top 10 riesgos
+## Top riesgos y bloqueadores
 
-1. No hay remote, registry, protections ni approvals verificables.
-2. Staging remoto y firma/attestation no estan demostrados.
-3. Performance carece de SLO, capacidad, tracing y load tests.
-4. E2E UI required no dispone de DB efimera automatizada.
-5. QR/allowlist/inbound comercial requieren gate humano posterior.
-6. CSP mantiene `unsafe-inline`/`unsafe-eval`.
-7. Web conserva 88 warnings y plugin Next ESLint no detectado.
-8. Dependencias runtime web reportan 2 vulnerabilidades moderadas.
-9. Backup/restore operacional, RTO y RPO siguen pendientes.
-10. El host usa builder Docker legado por ausencia de Buildx.
+1. No hay remote, registry, protections, approvals ni staging remoto.
+2. No hay storage offsite, WAL archive, KMS o secret store.
+3. Monitoring/tracing backend y alert channel reales no estan configurados.
+4. RPO/RTO productivos no estan aprobados ni medidos con volumen representativo.
+5. Recovery harness conserva una expectativa hardcoded de 29 migraciones en `restore-smoke.mjs`.
+6. QR, allowlist e inbound comercial requieren owner gate fisico.
+7. Performance no tiene load/soak/capacity tests.
+8. CSP y 2 vulnerabilidades moderadas web requieren hardening.
+9. Jobs E2E/recovery/core no son required sin remote/protections.
+10. Working tree mezclado impide un changeset/artefacto limpio de R1 sin contaminar dominios.
 
-## Top 10 bloqueadores
+## Evidencia Phase 2.5.1-R1
 
-1. Configurar remote, registry, protections, approvals y secret store.
-2. Ejecutar staging remoto con artefactos por digest.
-3. Completar Phase 2.2 Runtime Safety Gates.
-4. Crear plataforma de tests efimeros y E2E UI required.
-5. Instrumentar observabilidad, SLO y performance baselines.
-6. Cerrar QR/allowlist/inbound con gate humano.
-7. Corregir CSP y dependencias moderadas.
-8. Eliminar warnings/`any` por criticidad.
-9. Probar backup/restore y formalizar RTO/RPO.
-10. Instalar Buildx y agregar firma/attestations.
+- `RBAC_DENIED.actorRole` se hidrata desde el principal autenticado; spoofing por header rechazado.
+- Cuatro denegaciones autenticadas y una no autenticada quedan persistidas sin side effects.
+- Fresh 30 y upgrade 29→30, legacy, query API, transaccionalidad y reconciliación PASS.
+- Tres runs audit/core consecutivos PASS con DB nueva y cleanup a cero.
+- Delivery Phase A 11/11 y critical 91/91 PASS sin `forceExit`.
+- Artifact test `0.1.0-66c54785f6d1-phase24-ca4d7b81adf5` pasa smoke, pero es `dirtyBuild=true` y no elegible para producción.
+- Recovery agotó tres iteraciones por sucesivos hardcodes de migration count; rollback no demostrado.
+- Scans: cero secretos/activaciones; cero recursos huérfanos; DB operativa/producción intactas y WhatsApp real OFF.
 
-## Dependencias criticas
+## Evidencia Phase 2.5
 
-- Deployment y Security siguen bloqueando produccion, aunque la cadena local/canary ya es trazable.
-- Testing y Database bloquean E2E completo de Caja, POS, Delivery e Inventory.
-- WhatsApp bloquea Sofia/Delivery para operacion con clientes.
-- Performance bloquea capacity planning y SLO.
+- Artifact local: `0.1.0-66c54785f6d1-phase24-fcd7e2335240`, `dirtyBuild=true`, `productionEligible=false`.
+- Caja, POS, Delivery e Inventory pasan 3 runs finales sobre DB nueva: 49 s, 49 s y 50 s.
+- Cada run aplico 29 migraciones, 12 contratos, 70 checks RBAC y 6 tests Playwright.
+- Regresion API: 3 suites, 156/156 tests, 516.884 s, sin forceExit.
+- Concurrencia exactly-once: cash close/reopen, recovery, reopen converted/direct, Delivery stale revision e Inventory adjustments.
+- PDFs POS/Delivery extraidos y renderizados; contenido semantico correcto, hash binario variable por metadata temporal.
+- Failure injection despues de runtime: exit 71 esperado y cleanup a cero.
+- DB operativa y produccion intactas; WhatsApp real OFF.
+- Bloqueador interno: contrato universal de auditoria incompleto.
 
-## Deuda tecnica cuantificada
+## Evidencia Phase 2.5.1
 
-- 88 warnings `no-explicit-any` en build web.
-- 157 ocurrencias fuente de `any` inventariadas en Phase 1.
-- 2 vulnerabilidades moderadas en dependencias runtime web.
-- 1 modulo ROJO, 15 AMARILLO y 0 VERDE.
+- Schema y migracion aditiva v2 implementados; 30 migraciones desde cero PASS en DB efimera.
+- Contexto ALS, redaccion central, API de consulta y eliminacion de bypasses directos implementados.
+- Unit tests: 16/16 PASS; API/web typecheck y build PASS.
+- E2E final: FAIL porque `RBAC_DENIED.actorRole` es null; causa raiz guard anterior al interceptor.
+- Repetibilidad requerida: 0/3 runs PASS. No se creo commit ni artifact limpio.
+- Cleanup: 0 contenedores, 0 volumenes, 0 redes; DB operativa y produccion intactas.
+
+## Evidencia Phase 2.4
+
+- Artifact de test: `0.1.0-66c54785f6d1-phase24-0799d8d57701`, productionEligible=false.
+- Tres backups cifrados y tres restores finales PASS sobre DB aisladas.
+- Reconciliacion exacta: 60 tablas, 240 indices, 29 migraciones, conteos, sumas e invariantes logicos.
+- RPO observado controlado: 0 s. RTO promedio: 11.729 s.
+- Liveness/readiness, DB failure, migration mismatch, restart y SIGTERM probados.
+- HTTP/system/DB/recovery metrics disponibles; business metrics protegidas por RBAC.
+- Trace/request/correlation IDs propagados a logs estructurados sanitizados.
+- Runbooks, SLO y alert catalog creados; canales externos permanecen owner-gated.
+
+## Deuda cuantificada
+
+- 0 modulos ROJO, 16 AMARILLO, 0 VERDE.
+- 7 owner gates externos principales y 1 bloqueador interno de auditoria.
+- 88 warnings web y 2 vulnerabilidades moderadas runtime web.
 - 0 remotes y 0 tags observados.
-- 7 owner gates externos sin configurar.
-- 1 builder host sin plugin Buildx operativo.
-
-## Tests
-
-- Critical integration: 91/91 PASS, 336.439 s, sin warning de open handles.
-- Config/provenance/timeout/Delivery: 20/20 PASS sobre DB efimera separada.
-- Delivery Phase A: 11/11 PASS.
-- Canary smoke: PASS sobre artifact por digest.
-- E2E UI: NO EJECUTADO; permanece visible y bloqueante.
-
-## Builds
-
-- API typecheck/build: PASS.
-- Web typecheck/build: PASS con 88 warnings conocidos.
-- Imagen API/web: PASS, usuario `node`, labels OCI y manifest compartido.
-- SBOM CycloneDX: PASS, 1074 componentes.
-
-## Runtime provenance
-
-- Canary: `SOURCE = COMMIT = ARTIFACT = RUNTIME` demostrado para `e2bffe97d76a`.
-- API/web comparten build ID `0.1.0-e2bffe97d76a-1783925108`.
-- Rollback por digest y restauracion del candidato: PASS.
-- Runtime operativo anterior: preservado; no fue sustituido en esta fase.
-- Runtime remoto: NO DEMOSTRADO.
+- 1 backend persistente de observabilidad pendiente.
+- 1 estrategia offsite/WAL/KMS pendiente.
+- 1 cobertura UI mutante completa pendiente.
 
 ## Release readiness
 
-**NOT READY**. Phase 2.1 queda `GO CONDICIONADO`: la cadena local/canary es reproducible, trazable y reversible; los gates externos del owner y las fases de safety/E2E/observabilidad siguen bloqueando produccion.
+**NOT READY**. Phase 2.5.1-R1 es `NO-GO`: auditoría interna PASS, pero recovery/regresión, artifact limpio y rollback no cerraron. Offsite, KMS, alerting remoto, staging, approvals, UI mutante completa y capacidad siguen abiertos.

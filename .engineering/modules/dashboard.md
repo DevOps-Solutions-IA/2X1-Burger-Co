@@ -1,82 +1,68 @@
 # Dashboard
 
 ## Estado
-
 AMARILLO
 
-## Semáforo
-
+## Semaforo
 🟡
 
 ## Enterprise Score
-
-75%
+80%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-PASS
+PASS CANARY/EFIMERO
 
 ## Operational State
-
 CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| DAS-01 | ALTA | Dashboard consume backend real, pero refleja Auto Safe efectivo contradictorio. | `sofia-effective-status.json` | Puede comunicar un estado inseguro originado en runtime viejo. |
-| DAS-02 | MEDIA | Pagina dashboard conserva 5 warnings no-explicit-any. | `web-build.log` | Metricas sin contratos fuertes. |
-| DAS-03 | MEDIA | No existe version/build visible para el operador. | `container-images.txt` | No puede asociarse una captura a un release. |
+| DAS-01 | MEDIA | Snapshot operacional existe bajo RBAC, pero no hay backend historico. | `/health/observability` | Graficas/SLO persistentes no disponibles. |
+| DAS-02 | MEDIA | No existe canal de alertas real ni owner asignado. | alert catalog | Panel no reemplaza incident response. |
+| DAS-03 | MEDIA | UI operacional Phase 2.4 no fue redisenada; endpoint es la base preparada. | restore smoke | Visualizacion final pendiente. |
 
 ## Bloqueadores
 
-- Corregir runtime de flags.
-- Tipar metricas.
-- Exponer provenance sanitizado.
+- Monitoring backend y alert channel.
+- UI interna consumiendo series reales.
+- Owner y acceso remoto.
 
 ## Dependencias
 
 - API
-- Frontend
 - Database
 - Security
 - Deployment
-- Sofia
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Definir contrato versionado de resumen.
-2. Eliminar any y estados derivados ambiguos.
-3. Agregar build metadata sanitizada.
-4. Validar loading/error/empty y datos reales por release.
+1. Conectar exporter/backend aprobado.
+2. Consumir series reales sin inventar metricas.
+3. Validar RBAC, desktop/mobile y alert states.
 
 ## Criterio de GO
 
-- Metricas backend/UI reconciliadas.
-- Cero contradicciones de flags.
-- Cero warnings en dashboard.
-- Captura ligada a artifact.
+- Panel historico real, protegido y trazable.
+- Alertas con owners/canales.
+- SLO/error budgets calculables.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-14.
 
 ## Historial
 
-- Phase 1: runtime carga; estado efectivo revela drift de seguridad.
+- Phase 2.4: snapshot real de system/HTTP/DB/recovery/safety disponible; business metrics protegidas por RBAC.
 
 ## GO
-
 NO

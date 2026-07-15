@@ -1,50 +1,43 @@
 # Delivery
 
 ## Estado
-
 AMARILLO
 
 ## Semáforo
-
 🟡
 
 ## Enterprise Score
-
-87%
+95%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-PASS
+PASS EFIMERO
 
 ## Operational State
-
-CONDICIONADO
+PASS LOCAL / EXTERNOS PENDIENTES
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| DEL-01 | ALTA | Phase A pasa 11/11 y critical, pero cambios Delivery siguen mezclados sin release reproducible. | `delivery-phase-a.log; git-status.txt` | Runtime puede servir una revision distinta. |
-| DEL-02 | MEDIA | UI runtime carga, pero no se creo/modifico una orden operativa en Phase 1. | `api-health.json; evidencia historica revalidada por tests` | E2E operacional actual incompleto. |
-| DEL-03 | MEDIA | Providers externos permanecen fuera del gate principal. | `config-delivery-unit.log` | Comportamiento externo requiere smoke controlado. |
+| DEL-01 | BAJA | Cuenta inicial/actualizada, versión vigente, historial y ubicación logistics-only pasan 3X. | PDFs y `core-reconciliation.json` | Lógica principal demostrada. |
+| DEL-02 | MEDIA | WhatsApp real, impresión física y staging remoto permanecen fuera del entorno aislado. | Artifact `productionEligible=false` | Gate físico/externo pendiente. |
+| DEL-03 | BAJA | El PDF conserva contenido determinístico, no hash binario por timestamp de generación. | Evidencia PDF final | Comparación debe ser semántica/visual. |
+| DEL-04 | BAJA | Eventos comerciales/location usan contrato v2 transaccional y pasan 3X. | Phase 2.5.1-R1 | Auditoría local cerrada. |
 
 ## Bloqueadores
 
-- Release limpio y provenance.
-- E2E efimero cuenta inicial/actualizada/ubicacion.
-- Smoke externo controlado y no destructivo.
+- Provider externo y envío real controlado por owner gate.
+- Impresión física y aprobación visual final.
+- Staging remoto/required CI.
 
 ## Dependencias
 
@@ -58,26 +51,23 @@ NOT READY
 
 ## Plan de remediación
 
-1. Congelar diff Delivery en artifact revisable.
-2. Ejecutar E2E efimero de version, PDF, autoenvio bloqueado y logistics-only.
-3. Validar runtime hash y assets.
-4. Definir fallback/provider SLO.
+1. Validar artifact limpio en staging remoto.
+2. Ejecutar impresión física controlada.
+3. Ejecutar provider externo solo bajo gate explícito.
 
 ## Criterio de GO
 
-- Source=commit=artifact=runtime.
-- Cuenta vigente y actualizada verificadas desde UI.
-- Ubicacion no altera pricing.
-- Provider/fallback observables y rollback probado.
+- Required E2E y staging remoto PASS.
+- Impresión física aprobada.
+- Provider/fallback observable sin repricing por ubicación.
 
 ## Última auditoría
-
-2026-07-12.
+2026-07-14.
 
 ## Historial
 
-- Phase 1: 11/11 Delivery y 67/67 config/delivery PASS; runtime release no demostrado.
+- Phase 2.5: versionado, PDF, stale revision, fee persistido y location-only 3X PASS.
+- Phase 2.5.1: centralización audit aplicada; gate universal NO-GO, lógica Delivery no alterada.
 
 ## GO
-
 NO

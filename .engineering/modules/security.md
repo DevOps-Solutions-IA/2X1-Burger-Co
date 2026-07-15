@@ -3,11 +3,11 @@
 ## Estado
 AMARILLO
 
-## Semaforo
+## Semáforo
 🟡
 
 ## Enterprise Score
-64%
+79%
 
 ## Source State
 PASS
@@ -16,7 +16,7 @@ PASS
 PASS
 
 ## Runtime State
-PASS CANARY
+PASS EFIMERO/CANARY
 
 ## Operational State
 CONDICIONADO
@@ -28,48 +28,44 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| SEC-01 | ALTA | CSP mantiene `unsafe-inline`/`unsafe-eval`; headers requieren Phase 5. | Evidencia Phase 1 | Superficie XSS/fingerprinting pendiente. |
-| SEC-02 | ALTA | No hay secret store, protections ni approvals remotos demostrados. | `owner-gates.md` | Custodia y gobierno incompletos. |
-| SEC-03 | MEDIA | Runtime web reporta 2 vulnerabilidades moderadas. | `final-build-output.log` | Dependencias requieren triage/upgrade. |
-| SEC-04 | MEDIA | Procesos/puertos externos del host no tienen ownership formal. | Evidencia Phase 1 | Superficie de exposicion no gobernada. |
+| SEC-01 | ALTA | KMS/secret store/security owner no configurados. | Phase 2.4 | Custodia productiva incompleta. |
+| SEC-02 | ALTA | CSP y 2 vulnerabilidades moderadas web pendientes. | build Phase 2.5 | Hardening incompleto. |
+| SEC-03 | BAJA | RBAC 70/70, negaciones sin side effects y actorRole confiable pasan 3X. | Phase 2.5.1-R1 | Autorización y trazabilidad local demostradas. |
+| SEC-04 | BAJA | Secret scan PASS y real activation assignments 0. | `secret-scan.log` | Sin exposición detectada en scope. |
+| SEC-05 | MEDIA | Artifact sigue dirty y no existe release/rollback limpio. | Phase 2.5.1-R1 | No elegible para producción. |
 
 ## Bloqueadores
 
-- Hardening CSP/headers.
-- Triage de vulnerabilidades runtime.
-- Secret store/protections/approvals.
-- Inventario formal de exposicion del host.
+- Secret store/KMS y security owner.
+- CSP/dependency hardening.
+- Artifact limpio, recovery y rollback PASS.
 
 ## Dependencias
 
 - Deployment
 - API
 - Frontend
-- Users
-- WhatsApp
-- Sofia
+- Database
 
-## Plan de remediacion
+## Plan de remediación
 
-1. Resolver gates externos de release y secretos.
-2. Corregir vulnerabilidades sin upgrade destructivo.
-3. Implementar CSP con nonces/hashes y validar UI.
-4. Inventariar tunnels, puertos y owners.
+1. Diseñar auditoría contextual sin PII.
+2. Cerrar CSP y dependencias.
+3. Configurar KMS/rotación.
 
 ## Criterio de GO
 
-- Secret/protection gates activos.
-- Cero vulnerabilidades bloqueantes.
-- CSP/headers endurecidos y probados.
-- Exposicion de red inventariada y autorizada.
+- Auditoría completa, secrets gobernados y cero vulnerabilidades bloqueantes.
+- RBAC required PASS.
+- Observabilidad sin PII.
 
-## Ultima auditoria
-2026-07-13.
+## Última auditoría
+2026-07-14.
 
 ## Historial
 
-- Phase 1: ROJO 55% por Auto Safe efectivo incorrecto y release sin gobierno.
-- Phase 2.1: parser fail-safe, secret scan, usuario no root y flags efectivos OFF en canary; pasa a AMARILLO.
+- Phase 2.5: RBAC, rollback de operaciones denegadas, secret scan y flags seguros PASS.
+- Phase 2.5.1: redacción central y bypasses cerrados; contrato RBAC continúa NO-GO.
 
 ## GO
 NO

@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-68%
+84%
 
 ## Source State
 PASS
@@ -28,50 +28,44 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| SOF-01 | ALTA | QR/allowlist/inbound comercial no se ejecutaron en canary. | `safety-smoke.md` | Operacion real sigue pendiente. |
-| SOF-02 | ALTA | Security owner gate y rotacion siguen pendientes. | `owner-gates.md` | Produccion bloqueada. |
-| SOF-03 | MEDIA | El canary declara DeepSeek dry-run pero deshabilita el proveedor externo. | `safety-smoke.md` | No valida llamada externa en esta fase. |
-| SOF-04 | MEDIA | E2E visual required aun no existe. | Modulo Frontend/Testing | UI no es gate automatizado. |
+| SOF-01 | ALTA | QR/allowlist comercial y staging remoto siguen owner-gated. | Phase 2.2 | Clientes no habilitables. |
+| SOF-02 | MEDIA | Counters locales no tienen exporter persistente. | protected observability | Incident history incompleto. |
+| SOF-03 | MEDIA | Security owner/alert channel no asignados. | alert catalog | Escalamiento no operativo. |
+| SOF-04 | BAJA | Escrituras directas eliminadas y contrato central validado 3X. | Phase 2.5.1-R1 | Centralización local cerrada. |
 
 ## Bloqueadores
 
-- Phase 2.2 de safety gates operativos.
-- QR/allowlist final bajo intervencion humana.
-- Security owner gate/rotacion.
-- E2E visual seguro.
+- QR/allowlist fisicos aprobados.
+- Staging remoto y security owner.
+- Monitoring/alerting persistentes.
 
 ## Dependencias
 
 - WhatsApp
 - Security
 - API
-- Frontend
-- Database
-- Dashboard
-- Testing
 - Deployment
 
 ## Plan de remediacion
 
-1. Repetir pause/send/PAID/allowlist gates en artifact remoto trazable.
-2. Cerrar QR e inbound bajo gate humano.
-3. Automatizar E2E de dashboard/conversations/QR.
-4. Mantener sandbox separado y produccion bloqueada.
+1. Exportar counters seguros.
+2. Completar owner gates remotos.
+3. Ejecutar validacion fisica receive-only final.
 
 ## Criterio de GO
 
-- Auto Safe, auto reply, send, production y PAID efectivos false.
-- QR/allowlist validados segun gate aprobado.
-- Sandbox no suma como real.
-- UI/API/runtime coinciden en staging remoto.
+- QR/allowlist owner-approved y SENT=0.
+- UI/API/runtime/metrics consistentes remotamente.
+- Alertas y runbooks operativos.
 
 ## Ultima auditoria
-2026-07-13.
+2026-07-14.
 
 ## Historial
 
-- Phase 1: ROJO 58% por Auto Safe efectivo true y runtime drift.
-- Phase 2.1: Auto Safe efectivo false, cinco safety flags bloqueados y artifact canary trazable; pasa a AMARILLO.
+- Phase 2.2: safety gates internos PASS.
+- Phase 2.4: counters/flags incluidos en observabilidad protegida; real WhatsApp OFF.
+- Phase 2.5.1: seis bypasses directos migrados a AuditService; gate global NO-GO y real send permanece OFF.
 
 ## GO
 NO

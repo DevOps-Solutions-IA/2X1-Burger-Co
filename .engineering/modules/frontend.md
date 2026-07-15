@@ -3,20 +3,20 @@
 ## Estado
 AMARILLO
 
-## Semaforo
+## Semáforo
 🟡
 
 ## Enterprise Score
-70%
+81%
 
 ## Source State
-CONDICIONADO
+PASS
 
 ## Test State
-CONDICIONADO
+PASS CON DEUDA
 
 ## Runtime State
-PASS CANARY
+PASS EFIMERO
 
 ## Operational State
 CONDICIONADO
@@ -28,17 +28,16 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| FRO-01 | ALTA | Build conserva 88 warnings y plugin Next ESLint no detectado. | `final-web-build.log` | Calidad no bloquea release. |
-| FRO-02 | ALTA | E2E UI required aun no existe sobre DB efimera. | Inventario Phase 1 | Botones/rutas pueden degradarse. |
-| FRO-03 | MEDIA | Contratos tipados mantienen deuda de `any`. | Inventario Phase 1 | Regresiones silenciosas. |
-| FRO-04 | MEDIA | Dependencias runtime muestran 2 vulnerabilidades moderadas. | `final-build-output.log` | Upgrade/triage pendiente. |
+| FRO-01 | ALTA | Build conserva 88 warnings y 2 vulnerabilidades moderadas. | `web-build.log` | Gate de calidad incompleto. |
+| FRO-02 | MEDIA | 6/6 Playwright muestran efectos reales en Caja/POS/Delivery/Inventory y estados seguros. | Phase 2.5 screenshots/report | Validación visual local demostrada. |
+| FRO-03 | MEDIA | Mutaciones principales se ejecutaron vía API real y se observaron en UI; no todas nacieron de clicks UI. | `core-operational-ui.spec.ts` | Cobertura UI mutante parcial. |
+| FRO-04 | BAJA | Build y typecheck no deben correr concurrentes porque comparten `.next`. | logs Phase 2.5 | Carrera del pipeline local. |
 
 ## Bloqueadores
 
-- Cero warnings en build.
-- E2E UI seguro y required.
-- Contratos tipados en rutas criticas.
-- Triage de dependencias.
+- Reducir warnings/vulnerabilidades.
+- E2E UI mutante completo.
+- Required CI y staging remoto.
 
 ## Dependencias
 
@@ -48,27 +47,24 @@ NOT READY
 - Testing
 - Deployment
 
-## Plan de remediacion
+## Plan de remediación
 
-1. Crear E2E con DB efimera.
-2. Corregir ESLint Next y reducir `any` por criticidad.
-3. Resolver dependencias moderadas.
-4. Validar staging remoto y cache headers.
+1. Phase 2.6: tipado y UI quality.
+2. Serializar build/typecheck o aislar output directories.
+3. Activar visual E2E required.
 
 ## Criterio de GO
 
-- Cero warnings.
-- E2E UI critical PASS.
-- Contratos criticos sin `any`.
-- Runtime remoto ligado al mismo release manifest.
+- Cero warnings bloqueantes y vulnerabilidades resueltas.
+- Operaciones críticas nacen desde UI y reconcilian DB.
+- Runtime remoto ligado al release manifest.
 
-## Ultima auditoria
-2026-07-13.
+## Última auditoría
+2026-07-14.
 
 ## Historial
 
-- Phase 1: 63%, runtime anterior y sin provenance.
-- Phase 2.1: `/version` web, OCI identity y smoke de login PASS; deuda visual/testing mantiene AMARILLO.
+- Phase 2.5: Playwright 6/6 3X, screenshots operativos y web build/typecheck secuencial PASS.
 
 ## GO
 NO

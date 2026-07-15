@@ -1,50 +1,43 @@
 # Caja
 
 ## Estado
-
 AMARILLO
 
 ## Semáforo
-
 🟡
 
 ## Enterprise Score
-
-77%
+90%
 
 ## Source State
-
 PASS
 
 ## Test State
-
 PASS
 
 ## Runtime State
-
-PASS
+PASS EFIMERO
 
 ## Operational State
-
-NO DEMOSTRADO
+PASS LOCAL / AUDITORIA CONDICIONADA
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| CAJ-01 | ALTA | Reimpresion y recovery existen en UI/API, pero no se recorrieron sobre DB efimera en Phase 1. | `sales.controller.ts; cash/page.tsx; app-critical.log` | Doble aplicacion o recuperacion incorrecta no descartada E2E. |
-| CAJ-02 | MEDIA | La pagina Caja conserva 9 warnings no-explicit-any. | `web-build.log` | Contratos frontend debiles en operaciones financieras. |
-| CAJ-03 | MEDIA | Runtime carga datos reales, pero no expone build provenance. | `container-images.txt; api-health.json` | No se demuestra que UI/API correspondan al source actual. |
+| CAJ-01 | MEDIA | Apertura, cierre, reapertura concurrente y movimiento pasan 3X; el lock evita dos sesiones reabiertas. | `phase-2-5/repeatability-3x.json` | Riesgo de doble reapertura corregido y validado localmente. |
+| CAJ-02 | BAJA | AuditLog v2 persiste rol/request/correlation/idempotency y snapshots. | Phase 2.5.1-R1 | Contrato local validado. |
+| CAJ-03 | MEDIA | UI observa estados y efectos reales, pero no todas las mutaciones se ejecutaron desde clicks Playwright. | `phase25-final3/playwright.log` | Cobertura UI mutante parcial. |
+| CAJ-04 | MEDIA | Open/close/reopen/movement audit transaccional pasa 3X; recovery/release sigue NO-GO. | Phase 2.5.1-R1 | Producción bloqueada por release gate. |
 
 ## Bloqueadores
 
-- E2E efimero de reimpresion, conversion, reapertura e idempotencia.
-- Eliminar tipos inseguros en contratos financieros.
-- Artifact/runtime provenance.
+- Cerrar recovery y artifact release limpio.
+- E2E UI mutante de cierre/reapertura como required check remoto.
+- Resolver warnings de tipos del frontend financiero.
 
 ## Dependencias
 
@@ -59,26 +52,23 @@ NOT READY
 
 ## Plan de remediación
 
-1. Disenar fixture efimera de caja con snapshot y rollback.
-2. Ejecutar escenarios de reimpresion/recovery por rol y estado.
-3. Tipar payloads de Caja y hacer lint bloqueante.
-4. Vincular evidencia al artifact versionado.
+1. Persistir contexto de auditoría e idempotencia de operaciones financieras.
+2. Ejecutar cierre/reapertura desde UI con reconciliación DB.
+3. Activar el job E2E como required check.
 
 ## Criterio de GO
 
-- Todos los escenarios de recovery pasan exactamente una vez.
-- PDF, DB, auditoria y UI muestran el mismo estado.
-- Cero warnings de tipos en Caja.
-- Runtime identificado por commit y artifact.
+- Auditoría contiene todos los campos operativos requeridos.
+- UI/API/DB pasan exactamente una vez bajo concurrencia.
+- Required CI y staging remoto PASS.
 
 ## Última auditoría
-
-2026-07-12.
+2026-07-14.
 
 ## Historial
 
-- Phase 1: backend/tests PASS; runtime read-only PASS; mutaciones E2E pendientes.
+- Phase 2.5: close/reopen concurrente 3X PASS; carrera de reapertura corregida con advisory lock transaccional.
+- Phase 2.5.1: auditoria transaccional integrada; gate global NO-GO antes de repetibilidad.
 
 ## GO
-
 NO

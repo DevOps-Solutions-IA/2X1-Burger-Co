@@ -1,83 +1,70 @@
 # Performance
 
 ## Estado
+AMARILLO
 
-ROJO
-
-## Semáforo
-
-🔴
+## Semaforo
+🟡
 
 ## Enterprise Score
-
-36%
+65%
 
 ## Source State
-
-CONDICIONADO
+PASS
 
 ## Test State
-
-NO EJECUTADO
+PASS BASELINE
 
 ## Runtime State
-
-NO DEMOSTRADO
+PASS EFIMERO
 
 ## Operational State
-
-NO DEMOSTRADO
+CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| PER-01 | ALTA | No existen benchmarks/SLO/capacity tests actuales en evidencia Phase 1. | `phase-1-inventory.md` | Capacidad productiva desconocida. |
-| PER-02 | ALTA | Suite critica tarda 320 s por resets secuenciales. | `app-critical.log` | Feedback loop costoso y baja escalabilidad de CI. |
-| PER-03 | ALTA | Multiples procesos/tunnels y puertos sin baseline de recursos. | `listening-ports.txt` | Consumo y contencion no gobernados. |
-| PER-04 | MEDIA | No hay metricas de latencia/CPU/memoria persistidas. | `api-health.json` | Degradacion no detectable. |
+| PER-01 | ALTA | No hay load/concurrency test ni capacity limit. | Phase 2.4 | Capacidad productiva desconocida. |
+| PER-02 | MEDIA | Metricas son in-memory y se reinician con el proceso. | `/health/metrics` | No hay tendencias ni error budget persistente. |
+| PER-03 | MEDIA | Critical/RBAC siguen siendo lentos. | Phase 2.3 | Feedback CI costoso. |
+| PER-04 | MEDIA | Backend remoto de metricas/traces no existe. | alert/SLO catalogs | Diagnostico historico bloqueado. |
 
 ## Bloqueadores
 
-- SLO y baseline inexistentes.
-- Load/concurrency tests no ejecutados.
-- Observabilidad de recursos ausente.
+- Backend persistente de metricas/traces.
+- Load, soak y concurrencia sobre artifact remoto.
+- Capacity plan y budgets aprobados.
 
 ## Dependencias
 
 - API
 - Database
-- Frontend
 - Deployment
 - Testing
-- WhatsApp
 
-## Plan de remediación
+## Plan de remediacion
 
-1. Definir SLI/SLO por flujo critico.
-2. Instrumentar metricas y trazas.
-3. Crear carga no destructiva y escenarios de concurrencia.
-4. Optimizar harness de tests sin perder aislamiento.
+1. Exportar metricas/traces a backend aprobado.
+2. Ejecutar carga no destructiva y establecer budgets.
+3. Particionar suites lentas sin reducir cobertura.
 
 ## Criterio de GO
 
-- SLO medidos y cumplidos.
-- Capacidad y limites documentados.
-- Alertas de saturacion probadas.
-- Regresion de performance en CI.
+- SLO medidos en ventana representativa.
+- Capacidad y saturacion documentadas.
+- Alertas persistentes y performance regression required.
 
-## Última auditoría
-
-2026-07-12.
+## Ultima auditoria
+2026-07-14.
 
 ## Historial
 
-- Phase 1: sin evidencia suficiente; ROJO por capacidad no demostrada.
+- Phase 1: ROJO 36%, sin observabilidad ni SLO.
+- Phase 2.4: AMARILLO 65%, metricas locales, tracing base, baseline de recovery y catalogo SLO disponibles.
 
 ## GO
-
 NO

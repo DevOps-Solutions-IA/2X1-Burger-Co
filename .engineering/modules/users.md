@@ -10,7 +10,7 @@ AMARILLO
 
 ## Enterprise Score
 
-79%
+82%
 
 ## Source State
 
@@ -39,6 +39,7 @@ NOT READY
 | USR-01 | ALTA | Roles principales pasan tests, pero no existe matriz automatizada endpoint-permiso completa. | `app-critical.log; api-endpoints.txt` | Ruta nueva puede quedar sobreexpuesta. |
 | USR-02 | MEDIA | No hay remote ni branch protections para cambios de seguridad. | `remotes.txt` | Cambios sensibles sin reviewers obligatorios. |
 | USR-03 | MEDIA | No se demostro lifecycle completo de cuentas en runtime operativo. | `api-health.json` | Revocacion/recuperacion operacional incompleta. |
+| USR-04 | BAJA | `RBAC_DENIED` persiste el rol del principal y rechaza spoofing por header. | Phase 2.5.1-R1 | Gate local cerrado. |
 
 ## Bloqueadores
 
@@ -76,6 +77,7 @@ NOT READY
 ## Historial
 
 - Phase 1: auth/RBAC critical PASS; cobertura completa no demostrada.
+- Phase 2.5.1: query audit restringida a admin/supervisor; rol en rechazo sigue NO-GO.
 
 ## GO
 

@@ -3,23 +3,23 @@
 ## Estado
 AMARILLO
 
-## Semaforo
+## Semáforo
 🟡
 
 ## Enterprise Score
-80%
+94%
 
 ## Source State
 PASS
 
 ## Test State
-PASS
+PASS CORE / FAIL RECOVERY GATE
 
 ## Runtime State
-PASS CANARY
+PASS EFIMERO
 
 ## Operational State
-CONDICIONADO
+CONDICIONADO POR REQUIRED CI
 
 ## Production State
 NOT READY
@@ -28,45 +28,44 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| TST-01 | ALTA | E2E UI required no esta automatizado sobre DB efimera. | Inventario Phase 1 | UI no bloquea release. |
-| TST-02 | MEDIA | Suite critica tarda 336 s. | `release-critical-test.log` | Feedback lento. |
-| TST-03 | MEDIA | No hay performance/mutation testing required. | Inventario Phase 1 | Cobertura de capacidad incompleta. |
-| TST-04 | BAJA | Primer intento focalizado detecto URL operacional y fue bloqueado correctamente. | `final-focused-tests.log` | Los comandos deben inyectar DB test explicita. |
+| TST-01 | ALTA | Jobs no son required sin remote/protections. | CI workflow | No bloquean merges. |
+| TST-02 | MEDIA | Regresión 156/156 tarda 516.884 s. | `api-regression.log` | Feedback lento. |
+| TST-03 | BAJA | Suite operacional final pasa 3X en 49/49/50 s con teardown cero. | `repeatability-3x.json` | Repetibilidad local demostrada. |
+| TST-04 | MEDIA | Falta performance/load required. | Performance module | Capacidad no cubierta. |
+| TST-05 | ALTA | Audit/core pasa 3X, pero recovery agotó tres intentos por asserts hardcoded 29. | Phase 2.5.1-R1 | Regresión completa permanece bloqueada. |
 
 ## Bloqueadores
 
-- Plataforma efimera automatizada por run.
-- E2E UI required.
-- Contract/performance gates.
-- Budget de duracion de la suite.
+- Required checks remotos.
+- Performance regression.
+- Optimizar partición de suites sin reducir cobertura.
+- Eliminar migration-count hardcodes del restore smoke.
 
 ## Dependencias
 
-- Todos los modulos
 - Deployment
 - Database
+- Todos los módulos
 
-## Plan de remediacion
+## Plan de remediación
 
-1. Convertir la DB efimera local demostrada en fixture CI.
-2. Agregar E2E UI y contratos/RBAC required.
-3. Particionar critical conservando aislamiento.
-4. Agregar performance baselines.
+1. Activar jobs required.
+2. Particionar `app.critical` preservando aislamiento.
+3. Añadir budgets de carga.
 
 ## Criterio de GO
 
-- Unit/integration/contract/E2E required PASS.
-- DB efimera por run sin reset operacional.
-- Duracion dentro de budget.
-- Warnings/skips visibles y justificados.
+- Unit/integration/contract/RBAC/E2E/recovery required PASS.
+- Performance gate y teardown sin recursos.
+- Sin skips, forceExit ni warnings de handles.
 
-## Ultima auditoria
-2026-07-13.
+## Última auditoría
+2026-07-14.
 
 ## Historial
 
-- Phase 1: 69%, backend PASS y E2E no ejecutado.
-- Phase 2.1: config/provenance/timeout/Delivery 20/20, critical 91/91 y smoke artifact PASS; pasa a 80%.
+- Phase 2.5: core E2E 3X PASS, 156/156 regresión PASS, failure teardown PASS.
+- Phase 2.5.1: unit 16/16 PASS; E2E final FAIL por contrato de rol; cleanup PASS.
 
 ## GO
 NO

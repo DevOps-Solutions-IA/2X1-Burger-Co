@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-67%
+83%
 
 ## Source State
 PASS
@@ -19,7 +19,7 @@ PASS
 PASS CANARY SEGURO / CANAL REAL NO EJECUTADO
 
 ## Operational State
-NO DEMOSTRADO
+CONDICIONADO
 
 ## Production State
 NOT READY
@@ -28,47 +28,44 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| WHA-01 | ALTA | QR real no se inicia en canary por diseno y el canal operativo no fue modificado. | `safety-smoke.md` | Conectividad real no validada en este artifact. |
-| WHA-02 | ALTA | Allowlist comercial e inbound final siguen pendientes. | Estado Sofia vigente | Canal no habilitable para clientes. |
-| WHA-03 | MEDIA | Observabilidad de retries/dedup aun no tiene metricas persistidas. | Inventario Phase 1 | Incidentes dificiles de cuantificar. |
+| WHA-01 | ALTA | QR/sesion/allowlist comercial no se montaron. | Phase 2.2/2.4 snapshots | Canal real no demostrado en artifact final. |
+| WHA-02 | MEDIA | Counters timeout/dedup/send no tienen exporter persistente. | observability snapshot | Tendencia no disponible. |
+| WHA-03 | MEDIA | Alert channel/security owner pendientes. | alert catalog | Respuesta a incidentes incompleta. |
+| WHA-04 | BAJA | Eventos usan servicio central y audit/core completó 3X sin envío real. | Phase 2.5.1-R1 | Evidencia local cerrada. |
 
 ## Bloqueadores
 
-- Gate humano de QR/allowlist/inbound.
-- Staging remoto con canal controlado.
-- Metricas de retries/dedup/timeouts.
+- Gate humano QR/allowlist/inbound.
+- Staging remoto sin envio.
+- Exporter y alert channel.
 
 ## Dependencias
 
 - Security
 - Sofia
-- Delivery
 - API
-- Database
 - Deployment
-- Testing
 
 ## Plan de remediacion
 
-1. Ejecutar Phase 2.2 safety gates sobre el artifact trazable.
-2. Validar QR/allowlist bajo gate humano sin envio.
-3. Instrumentar timeout/retry/dedup.
-4. Repetir SENT=0 y rollback en staging.
+1. Exportar counters sin phone/order labels.
+2. Configurar owner/canal y SLO.
+3. Validar fisicamente receive-only con el mismo digest.
 
 ## Criterio de GO
 
-- Artifact remoto identificable.
-- QR CONNECTED e inbound allowlist con evidencia.
-- SENT=0 mientras receive-only.
-- Timeout/retry/dedup observables y sin duplicados.
+- QR/inbound owner-approved, SENT=0 y dedup observable.
+- Timeout/allowlist/PAID alerts persistentes.
+- Runtime remoto trazable.
 
 ## Ultima auditoria
-2026-07-13.
+2026-07-14.
 
 ## Historial
 
-- Phase 1: ROJO 58% por runtime drift.
-- Phase 2.1: timeout cancelable 3/3 PASS, artifact trazable y canal canary OFF; pasa a AMARILLO sin afirmar conectividad real.
+- Phase 2.2: gates, dedup y cero envio PASS.
+- Phase 2.4: metrics timeout/send/allowlist y runbook disponibles; real session OFF.
+- Phase 2.5.1: contrato audit v2 compila; no se montó sesión ni canal real y el gate E2E quedó NO-GO.
 
 ## GO
 NO

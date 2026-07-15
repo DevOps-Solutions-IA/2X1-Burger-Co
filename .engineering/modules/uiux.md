@@ -1,52 +1,43 @@
 # UI/UX
 
 ## Estado
-
 AMARILLO
 
 ## Semáforo
-
 🟡
 
 ## Enterprise Score
-
-61%
+66%
 
 ## Source State
-
 CONDICIONADO
 
 ## Test State
-
-NO EJECUTADO
+PASS PARCIAL
 
 ## Runtime State
-
-PASS
+PASS EFIMERO
 
 ## Operational State
-
 CONDICIONADO
 
 ## Production State
-
 NOT READY
 
 ## Problemas encontrados
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| UIX-01 | ALTA | Rutas principales cargan, pero Phase 1 no ejecuto validacion visual E2E completa/mobile. | `web-routes.txt; web-health-headers.txt` | Estados y acciones pueden fallar en escenarios no vistos. |
-| UIX-02 | ALTA | 88 warnings y contratos any afectan consistencia de estados. | `web-build.log; explicit-any.txt` | Errores visuales/operativos no tipados. |
-| UIX-03 | MEDIA | Headers muestran cache HIT y runtime anterior al source. | `web-health-headers.txt; container-images.txt` | Captura puede pertenecer a build obsoleto. |
-| UIX-04 | MEDIA | No hay accessibility/performance budget actual. | `phase-1-inventory.md` | Calidad enterprise no medible. |
+| UIX-01 | MEDIA | Caja, POS, Delivery e Inventory fueron inspeccionados visualmente con datos sintéticos reales. | screenshots Phase 2.5 | Estado principal demostrado. |
+| UIX-02 | MEDIA | Tarjetas de métricas estrechas truncan o parten copy; top bar desborda contenido secundario. | screenshots finales | Legibilidad responsive incompleta. |
+| UIX-03 | ALTA | 88 warnings y contratos `any` siguen activos. | web build | Estados UI pueden degradarse sin type safety. |
+| UIX-04 | MEDIA | No hay visual regression/a11y budget requerido. | Testing/Frontend | Calidad no bloquea merge. |
 
 ## Bloqueadores
 
-- Visual regression/mobile/accessibility.
-- Runtime provenance.
-- Tipado y lint.
-- Performance budget.
+- Phase 2.6 typed frontend/UI quality.
+- Visual regression y a11y.
+- E2E UI mutante completo.
 
 ## Dependencias
 
@@ -59,26 +50,22 @@ NOT READY
 
 ## Plan de remediación
 
-1. Crear matriz de estados/loading/error/empty por ruta.
-2. Ejecutar visual regression desktop/mobile sobre artifact.
-3. Auditar WCAG y performance budgets.
-4. Eliminar copy/estado sin fuente real.
+1. Corregir truncamientos y responsive con contratos tipados.
+2. Ejecutar WCAG y visual regression.
+3. Convertir UI critical en required check.
 
 ## Criterio de GO
 
-- Rutas criticas pasan visual/a11y/mobile.
-- Acciones reales verificadas.
-- Cero estados contradictorios.
-- Artifact/capturas trazables.
+- Rutas críticas pasan visual/a11y/mobile.
+- Mutaciones UI reconciliadas con DB.
+- Cero estados contradictorios y artifact remoto trazable.
 
 ## Última auditoría
-
-2026-07-12.
+2026-07-14.
 
 ## Historial
 
-- Phase 1: runtime web responde; validacion visual exhaustiva pendiente.
+- Phase 2.5: 6/6 Playwright y cuatro capturas operativas 3X; deudas visuales documentadas.
 
 ## GO
-
 NO
