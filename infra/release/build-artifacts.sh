@@ -36,8 +36,16 @@ COMMON_ARGS=(
 
 API_TAG="inventory-fastfood-api:$BUILD_ID"
 WEB_TAG="inventory-fastfood-web:$BUILD_ID"
-docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.api" -t "$API_TAG" "$TEMP_DIR"
-docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.web" -t "$WEB_TAG" "$TEMP_DIR"
+if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.api" -t "$API_TAG" "$TEMP_DIR" \
+  >"$OUTPUT_DIR/api-build.log" 2>&1; then
+  cat "$OUTPUT_DIR/api-build.log" >&2
+  exit 1
+fi
+if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.web" -t "$WEB_TAG" "$TEMP_DIR" \
+  >"$OUTPUT_DIR/web-build.log" 2>&1; then
+  cat "$OUTPUT_DIR/web-build.log" >&2
+  exit 1
+fi
 
 API_DIGEST="$(docker image inspect --format '{{.Id}}' "$API_TAG")"
 WEB_DIGEST="$(docker image inspect --format '{{.Id}}' "$WEB_TAG")"

@@ -15,6 +15,8 @@ const manifest = {
   artifactDigest: null,
   apiVersion: '0.0.1',
   schemaCompatibilityVersion: 'prisma-20260701000000_example',
+  schemaMigrationCount: 30,
+  schemaFingerprint: 'a'.repeat(64),
   dirtyBuild: false,
   sourceRepository: 'inventory-fastfood-system',
 };

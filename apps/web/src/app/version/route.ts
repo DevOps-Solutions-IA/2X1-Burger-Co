@@ -15,6 +15,8 @@ type SafeReleaseManifest = {
   artifactDigest: string | null;
   apiVersion: string;
   schemaCompatibilityVersion: string | null;
+  schemaMigrationCount?: number | null;
+  schemaFingerprint?: string | null;
   dirtyBuild: boolean;
   sourceRepository: string;
 };
@@ -30,6 +32,8 @@ const manifestSchema = z.object({
   artifactDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/).nullable(),
   apiVersion: z.string().min(1).max(40),
   schemaCompatibilityVersion: z.string().min(1).max(160).nullable(),
+  schemaMigrationCount: z.number().int().positive().nullable().optional(),
+  schemaFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   dirtyBuild: z.boolean(),
   sourceRepository: z.string().min(1).max(120),
 });
@@ -47,6 +51,8 @@ function readManifest(): SafeReleaseManifest {
       artifactDigest: null,
       apiVersion: '0.0.1',
       schemaCompatibilityVersion: null,
+      schemaMigrationCount: null,
+      schemaFingerprint: null,
       dirtyBuild: true,
       sourceRepository: 'inventory-fastfood-system',
     };
