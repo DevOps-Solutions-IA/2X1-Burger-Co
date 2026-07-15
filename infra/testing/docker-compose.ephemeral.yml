@@ -1,0 +1,118 @@
+services:
+  ephemeral-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${EPHEMERAL_POSTGRES_DB:?required}
+      POSTGRES_USER: ${EPHEMERAL_POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${EPHEMERAL_POSTGRES_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:${EPHEMERAL_DB_PORT:?required}:5432"
+    volumes:
+      - ephemeral_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  ephemeral-tools:
+    image: ${EPHEMERAL_API_IMAGE:?required}
+    profiles: ["tools"]
+    depends_on:
+      ephemeral-postgres:
+        condition: service_healthy
+    working_dir: /app
+    environment: &api_environment
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgresql://${EPHEMERAL_POSTGRES_USER}:${EPHEMERAL_POSTGRES_PASSWORD}@ephemeral-postgres:5432/${EPHEMERAL_POSTGRES_DB}?schema=public
+      TEST_DATABASE_URL: postgresql://${EPHEMERAL_POSTGRES_USER}:${EPHEMERAL_POSTGRES_PASSWORD}@ephemeral-postgres:5432/${EPHEMERAL_POSTGRES_DB}?schema=public
+      EPHEMERAL_TEST_MODE: "true"
+      EPHEMERAL_TEST_RUN_ID: ${EPHEMERAL_TEST_RUN_ID:?required}
+      EPHEMERAL_DB_PORT: ${EPHEMERAL_DB_PORT:?required}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:?required}
+      JWT_ACCESS_SECRET: ${EPHEMERAL_JWT_ACCESS_SECRET:?required}
+      JWT_REFRESH_SECRET: ${EPHEMERAL_JWT_REFRESH_SECRET:?required}
+      ADMIN_EMAIL: ${EPHEMERAL_ADMIN_EMAIL:?required}
+      ADMIN_PASSWORD: ${EPHEMERAL_ADMIN_PASSWORD:?required}
+      CASHIER_PASSWORD: ${EPHEMERAL_CASHIER_PASSWORD:?required}
+      INVENTORY_PASSWORD: ${EPHEMERAL_INVENTORY_PASSWORD:?required}
+      WAITER_PASSWORD: ${EPHEMERAL_WAITER_PASSWORD:?required}
+      DELIVERY_PASSWORD: ${EPHEMERAL_DELIVERY_PASSWORD:?required}
+      WAITER_ACCESS_NAME: E2E Waiter
+      WAITER_ACCESS_CODE: W230001
+      DELIVERY_ACCESS_NAME: E2E Rider
+      DELIVERY_ACCESS_CODE: D230001
+      CORS_ORIGIN: http://127.0.0.1:${EPHEMERAL_WEB_PORT:?required}
+      APP_URL: http://127.0.0.1:${EPHEMERAL_WEB_PORT:?required}
+      PUBLIC_PAYMENTS_BASE_URL: http://127.0.0.1:${EPHEMERAL_WEB_PORT:?required}
+      COOKIE_SECURE: "false"
+      WHATSAPP_INTERNAL_ENABLED: "false"
+      WHATSAPP_MODE: receive_only
+      WHATSAPP_PROVIDER: qr_gateway
+      WHATSAPP_QR_ENABLED: "false"
+      WHATSAPP_QR_ALLOW_RECEIVE: "false"
+      WHATSAPP_QR_ALLOW_REAL_SEND: "false"
+      WHATSAPP_QR_RECONNECT_ENABLED: "false"
+      SOFIA_QR_PILOT_ALLOWLIST_ENABLED: "true"
+      SOFIA_QR_PILOT_ALLOWED_PHONES: "573000002301,573000002302,573000002303"
+      SOFIA_QR_PILOT_RECEIVE_ONLY: "true"
+      SOFIA_QR_PILOT_REAL_SEND: "false"
+      SOFIA_AUTO_REPLY_ENABLED: "false"
+      SOFIA_AUTO_SAFE_ENABLED: "false"
+      SOFIA_PRODUCTION_ENABLED: "false"
+      SOFIA_AI_PROVIDER: deepseek
+      SOFIA_AI_MODE: dry_run
+      DEEPSEEK_ENABLED: "false"
+      DELIVERY_EXTERNAL_PROVIDERS_ENABLED: "false"
+      DELIVERY_EXTERNAL_SMOKE_ENABLED: "false"
+      RELEASE_MANIFEST_PATH: /app/release-manifest.json
+      RELEASE_ARTIFACT_DIGEST: ${EPHEMERAL_API_DIGEST:?required}
+    volumes:
+      - ${EPHEMERAL_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+      - ${EPHEMERAL_FIXTURES_FILE:?required}:/app/infra/testing/ephemeral-fixtures.ts:ro
+
+  ephemeral-api:
+    image: ${EPHEMERAL_API_IMAGE:?required}
+    depends_on:
+      ephemeral-postgres:
+        condition: service_healthy
+    environment: *api_environment
+    volumes:
+      - ${EPHEMERAL_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+    ports:
+      - "127.0.0.1:${EPHEMERAL_API_PORT:?required}:3000"
+    networks:
+      default:
+        aliases: [api]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+  ephemeral-web:
+    image: ${EPHEMERAL_WEB_IMAGE:?required}
+    depends_on:
+      ephemeral-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      PORT: 3001
+      RELEASE_MANIFEST_PATH: /app/release-manifest.json
+      RELEASE_ARTIFACT_DIGEST: ${EPHEMERAL_WEB_DIGEST:?required}
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:${EPHEMERAL_API_PORT:?required}
+    ports:
+      - "127.0.0.1:${EPHEMERAL_WEB_PORT:?required}:3001"
+    volumes:
+      - ${EPHEMERAL_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+volumes:
+  ephemeral_db:

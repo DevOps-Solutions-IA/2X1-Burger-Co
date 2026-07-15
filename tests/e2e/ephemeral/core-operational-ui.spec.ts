@@ -1,0 +1,54 @@
+import { expect, test, type Page } from '@playwright/test';
+import path from 'node:path';
+
+const email = process.env.EPHEMERAL_ADMIN_EMAIL;
+const password = process.env.EPHEMERAL_ADMIN_PASSWORD;
+const evidenceDir = process.env.EPHEMERAL_EVIDENCE_DIR;
+if (!email || !password || !evidenceDir) throw new Error('Ephemeral UI evidence configuration is required.');
+
+async function login(page: Page) {
+  await page.goto('/login');
+  await page.getByTestId('login-email').fill(email);
+  await page.getByTestId('login-password').fill(password);
+  await page.getByTestId('login-submit').click();
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 20_000 });
+}
+
+test('core operational API effects are visible and actionable in the real UI', async ({ page }) => {
+  const serverFailures: string[] = [];
+  page.on('response', (response) => {
+    if (response.status() >= 500) serverFailures.push(`${response.status()} ${response.url()}`);
+  });
+  await login(page);
+
+  await page.goto('/cash');
+  await expect(page.getByTestId('cash-current-status')).toContainText(/Caja operativa.*Activa/is);
+  await expect(page.locator('body')).toContainText(/Phase 2\.5 controlled reopen/i);
+  await page.screenshot({ path: path.join(evidenceDir, 'cash-operational-ui.png'), fullPage: true });
+
+  await page.goto('/pos');
+  await expect(page.getByTestId('pos-page')).toBeVisible();
+  await expect(page.locator('body')).toContainText('Coca-Cola Original 400 ml');
+  await page.screenshot({ path: path.join(evidenceDir, 'pos-operational-ui.png'), fullPage: true });
+
+  await page.goto('/deliveries');
+  const delivery = page.getByTestId('deliveries-queue-item').filter({ hasText: 'Phase 2.5 Synthetic Delivery' });
+  await expect(delivery).toHaveCount(1);
+  await delivery.click();
+  await expect(page.getByTestId('deliveries-receipt-version')).toContainText(/versión 2/i);
+  await expect(page.getByTestId('deliveries-detail')).toContainText(/Ubicacion\s*Confirmada/i);
+  await expect(page.getByRole('link', { name: 'Mapa' })).toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/search\//);
+  const receiptResponse = page.waitForResponse((response) =>
+    response.url().includes('/delivery-receipt') && response.status() === 200,
+  );
+  await page.getByTestId('deliveries-receipt-view').click();
+  await receiptResponse;
+  await page.screenshot({ path: path.join(evidenceDir, 'delivery-operational-ui.png'), fullPage: true });
+
+  await page.goto('/inventory');
+  await expect(page.locator('body')).toContainText('Pan de hamburguesa');
+  await expect(page.locator('body')).toContainText(/PHASE_2_5|Ajuste/i);
+  await page.screenshot({ path: path.join(evidenceDir, 'inventory-operational-ui.png'), fullPage: true });
+
+  expect(serverFailures).toEqual([]);
+});

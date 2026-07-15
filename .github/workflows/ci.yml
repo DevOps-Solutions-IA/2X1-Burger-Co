@@ -100,3 +100,51 @@ jobs:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
           retention-days: 30
+
+  ephemeral-e2e:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for isolated UI tests
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Ephemeral contracts, RBAC, business and UI E2E
+        env:
+          EPHEMERAL_BUILD_IF_MISSING: "true"
+        run: pnpm test:e2e:ephemeral
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ephemeral-e2e-evidence-${{ github.sha }}
+          path: .engineering/evidence/phase-2-3/runs
+          if-no-files-found: error
+          retention-days: 14
+
+  recovery-drill:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Encrypted backup, isolated restore and reconciliation
+        run: bash infra/recovery/run-ephemeral-recovery-drill.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-drill-evidence-${{ github.sha }}
+          path: .engineering/evidence/phase-2-4/runs
+          if-no-files-found: error
+          retention-days: 14
