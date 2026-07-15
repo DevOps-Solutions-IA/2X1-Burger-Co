@@ -1,0 +1,150 @@
+services:
+  source-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${RECOVERY_SOURCE_DB:?required}
+      POSTGRES_USER: ${RECOVERY_DB_USER:?required}
+      POSTGRES_PASSWORD: ${RECOVERY_DB_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:${RECOVERY_SOURCE_DB_PORT:?required}:5432"
+    volumes:
+      - recovery_source:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  restore-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${RECOVERY_RESTORE_DB:?required}
+      POSTGRES_USER: ${RECOVERY_DB_USER:?required}
+      POSTGRES_PASSWORD: ${RECOVERY_DB_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:${RECOVERY_RESTORE_DB_PORT:?required}:5432"
+    volumes:
+      - recovery_restore:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  source-tools:
+    image: ${RECOVERY_API_IMAGE:?required}
+    profiles: ["tools"]
+    depends_on:
+      source-db:
+        condition: service_healthy
+    working_dir: /app
+    environment: &source_environment
+      NODE_ENV: test
+      DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@source-db:5432/${RECOVERY_SOURCE_DB}?schema=public
+      TEST_DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@source-db:5432/${RECOVERY_SOURCE_DB}?schema=public
+      EPHEMERAL_TEST_MODE: "true"
+      EPHEMERAL_TEST_RUN_ID: ${RECOVERY_RUN_ID:?required}
+      EPHEMERAL_DB_PORT: ${RECOVERY_SOURCE_DB_PORT:?required}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:?required}
+      JWT_ACCESS_SECRET: ${RECOVERY_JWT_ACCESS_SECRET:?required}
+      JWT_REFRESH_SECRET: ${RECOVERY_JWT_REFRESH_SECRET:?required}
+      ADMIN_EMAIL: ${RECOVERY_ADMIN_EMAIL:?required}
+      ADMIN_PASSWORD: ${RECOVERY_ADMIN_PASSWORD:?required}
+      CASHIER_PASSWORD: ${RECOVERY_CASHIER_PASSWORD:?required}
+      INVENTORY_PASSWORD: ${RECOVERY_INVENTORY_PASSWORD:?required}
+      WAITER_PASSWORD: ${RECOVERY_WAITER_PASSWORD:?required}
+      DELIVERY_PASSWORD: ${RECOVERY_DELIVERY_PASSWORD:?required}
+      CORS_ORIGIN: http://127.0.0.1:${RECOVERY_WEB_PORT:?required}
+      APP_URL: http://127.0.0.1:${RECOVERY_WEB_PORT:?required}
+      PUBLIC_PAYMENTS_BASE_URL: http://127.0.0.1:${RECOVERY_WEB_PORT:?required}
+      COOKIE_SECURE: "false"
+      EXPECTED_MIGRATION_COUNT: "${RECOVERY_EXPECTED_MIGRATION_COUNT}"
+      WHATSAPP_INTERNAL_ENABLED: "false"
+      WHATSAPP_MODE: receive_only
+      WHATSAPP_PROVIDER: qr_gateway
+      WHATSAPP_QR_ENABLED: "false"
+      WHATSAPP_QR_ALLOW_RECEIVE: "false"
+      WHATSAPP_QR_ALLOW_REAL_SEND: "false"
+      WHATSAPP_QR_RECONNECT_ENABLED: "false"
+      SOFIA_QR_PILOT_ALLOWLIST_ENABLED: "true"
+      SOFIA_QR_PILOT_ALLOWED_PHONES: "573000002301,573000002302,573000002303"
+      SOFIA_QR_PILOT_RECEIVE_ONLY: "true"
+      SOFIA_QR_PILOT_REAL_SEND: "false"
+      SOFIA_AUTO_REPLY_ENABLED: "false"
+      SOFIA_AUTO_SAFE_ENABLED: "false"
+      SOFIA_PRODUCTION_ENABLED: "false"
+      SOFIA_AI_PROVIDER: rules
+      SOFIA_AI_MODE: dry_run
+      DEEPSEEK_ENABLED: "false"
+      DELIVERY_EXTERNAL_PROVIDERS_ENABLED: "false"
+      DELIVERY_EXTERNAL_SMOKE_ENABLED: "false"
+      RELEASE_MANIFEST_PATH: /app/release-manifest.json
+      RELEASE_ARTIFACT_DIGEST: ${RECOVERY_API_DIGEST:?required}
+    volumes:
+      - ${RECOVERY_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+      - ${RECOVERY_FIXTURES_FILE:?required}:/app/infra/testing/ephemeral-fixtures.ts:ro
+
+  restore-tools:
+    image: ${RECOVERY_API_IMAGE:?required}
+    profiles: ["tools"]
+    depends_on:
+      restore-db:
+        condition: service_healthy
+    working_dir: /app
+    environment:
+      <<: *source_environment
+      DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@restore-db:5432/${RECOVERY_RESTORE_DB}?schema=public
+      TEST_DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@restore-db:5432/${RECOVERY_RESTORE_DB}?schema=public
+      EPHEMERAL_DB_PORT: ${RECOVERY_RESTORE_DB_PORT:?required}
+    volumes:
+      - ${RECOVERY_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+
+  restore-api:
+    image: ${RECOVERY_API_IMAGE:?required}
+    depends_on:
+      restore-db:
+        condition: service_healthy
+    environment:
+      <<: *source_environment
+      PORT: 3000
+      DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@restore-db:5432/${RECOVERY_RESTORE_DB}?schema=public
+      TEST_DATABASE_URL: postgresql://${RECOVERY_DB_USER}:${RECOVERY_DB_PASSWORD}@restore-db:5432/${RECOVERY_RESTORE_DB}?schema=public
+      EPHEMERAL_DB_PORT: ${RECOVERY_RESTORE_DB_PORT:?required}
+      RECOVERY_STATUS_PATH: /app/recovery-status.json
+    volumes:
+      - ${RECOVERY_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+      - ${RECOVERY_STATUS_FILE:?required}:/app/recovery-status.json:ro
+    ports:
+      - "127.0.0.1:${RECOVERY_API_PORT:?required}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/ready >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+  restore-web:
+    image: ${RECOVERY_WEB_IMAGE:?required}
+    depends_on:
+      restore-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      PORT: 3001
+      RELEASE_MANIFEST_PATH: /app/release-manifest.json
+      RELEASE_ARTIFACT_DIGEST: ${RECOVERY_WEB_DIGEST:?required}
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:${RECOVERY_API_PORT:?required}
+    volumes:
+      - ${RECOVERY_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
+    ports:
+      - "127.0.0.1:${RECOVERY_WEB_PORT:?required}:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+volumes:
+  recovery_source:
+  recovery_restore:

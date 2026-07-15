@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { resolveMigrationExpectation } from '../schema/migration-expectation.mjs';
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -41,13 +42,7 @@ if (!Number.isInteger(epoch) || epoch <= 0) throw new Error('SOURCE_DATE_EPOCH m
 const short = commit.slice(0, 12);
 const releaseVersion = `${rootPackage.version}-${short}`;
 const buildId = `${releaseVersion}-${epoch}`;
-const migrationsPath = path.join(root, 'prisma/migrations');
-const migrations = existsSync(migrationsPath)
-  ? readdirSync(migrationsPath, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
-  : [];
+const schemaExpectation = resolveMigrationExpectation(path.join(root, 'prisma/migrations'));
 
 const manifest = {
   application: 'inventory-fastfood-system',
@@ -59,7 +54,7 @@ const manifest = {
   environment,
   artifactDigest: null,
   apiVersion: apiPackage.version,
-  schemaCompatibilityVersion: migrations.length ? `prisma-${migrations.at(-1)}` : null,
+  schemaCompatibilityVersion: `prisma-${schemaExpectation.latest}`,
   dirtyBuild,
   sourceRepository: 'inventory-fastfood-system',
 };
