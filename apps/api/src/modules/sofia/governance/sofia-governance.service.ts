@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import { SofiaAIProviderFactory } from '../ai/sofia-ai-provider.factory';
 import { SofiaCommercialCatalogService } from '../catalog/sofia-commercial-catalog.service';
 import { SofiaPromptService } from '../prompt/sofia-prompt.service';
@@ -28,6 +29,7 @@ const GOVERNANCE_KEYS = {
 export class SofiaGovernanceService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
     private readonly configService: ConfigService,
     private readonly promptService: SofiaPromptService,
     private readonly catalogService: SofiaCommercialCatalogService,
@@ -642,15 +644,13 @@ export class SofiaGovernanceService {
   }
 
   private async audit(action: string, actorId: string, values: Prisma.InputJsonValue) {
-    await this.prisma.auditLog.create({
-      data: {
-        action,
-        module: 'SofiaGovernance',
-        entity: 'global',
-        entityId: 'global',
-        userId: actorId,
-        newValues: values,
-      },
+    await this.auditService.log({
+      action,
+      module: 'SofiaGovernance',
+      entity: 'global',
+      entityId: 'global',
+      userId: actorId,
+      newValues: values,
     });
   }
 

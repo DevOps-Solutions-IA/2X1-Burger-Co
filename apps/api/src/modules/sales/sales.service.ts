@@ -229,25 +229,28 @@ export class SalesService {
         },
       });
 
-      return { sale, order, conversion };
-    });
+      await this.auditService.log(
+        {
+          userId: actorId,
+          action: 'CONVERT_TO_ORDER',
+          module: 'sales',
+          entity: 'sale',
+          entityId: id,
+          oldValues: {
+            status: sale.status,
+            total: sale.total,
+            cashSessionId: sale.cashSessionId,
+          },
+          newValues: {
+            orderTicketId: order.id,
+            orderNumber: order.number,
+            reason,
+          },
+        },
+        tx,
+      );
 
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CONVERT_TO_ORDER',
-      module: 'sales',
-      entity: 'sale',
-      entityId: id,
-      oldValues: {
-        status: result.sale.status,
-        total: result.sale.total,
-        cashSessionId: result.sale.cashSessionId,
-      },
-      newValues: {
-        orderTicketId: result.order.id,
-        orderNumber: result.order.number,
-        reason,
-      },
+      return { sale, order, conversion };
     });
 
     return {
@@ -260,17 +263,18 @@ export class SalesService {
 
   async create(dto: CreateSaleDto, actorId: string) {
     const session = await this.getOpenCashSession();
-    const sale = await this.prisma.$transaction((tx) =>
-      this.createInTransaction(tx, dto, actorId, session.id),
-    );
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CREATE',
-      module: 'sales',
-      entity: 'sale',
-      entityId: sale.id,
-      newValues: dto,
+    const sale = await this.prisma.$transaction(async (tx) => {
+      const created = await this.createInTransaction(tx, dto, actorId, session.id);
+      await this.auditService.log({
+        userId: actorId,
+        action: 'CREATE',
+        module: 'sales',
+        entity: 'sale',
+        entityId: created.id,
+        before: { status: null, total: 0 },
+        after: { status: created.status, total: created.total, cashSessionId: created.cashSessionId },
+      }, tx);
+      return created;
     });
 
     return sale;
@@ -861,6 +865,24 @@ export class SalesService {
       ),
     );
 
+    await this.auditService.log(
+      {
+        userId: actorId,
+        action: 'INVENTORY_SALE_CONSUMPTION',
+        module: 'inventory',
+        entity: 'sale',
+        entityId: createdSale.id,
+        before: { stockImpact: 'pending_sale_consumption' },
+        after: {
+          stockImpact: 'applied',
+          itemCount: itemsData.length,
+          totalProductQuantity: itemsData.reduce((sum, item) => sum.add(item.quantity), new Prisma.Decimal(0)),
+        },
+        metadata: { transactional: true, source: options?.orderTicketId ? 'order_checkout' : 'pos_sale' },
+      },
+      tx,
+    );
+
     return createdSale;
   }
 
@@ -868,6 +890,14 @@ export class SalesService {
     const reason = dto.reason.trim();
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize the state transition before reading the linked order and final sale.
+      await tx.$queryRaw`
+        SELECT id
+        FROM sales
+        WHERE id = ${id}
+        FOR UPDATE
+      `;
+
       const sourceSale = await tx.sale.findUnique({
         where: { id },
         include: {
@@ -1034,25 +1064,28 @@ export class SalesService {
         });
       }
 
-      return { sourceSale, order: reopenedOrder };
-    });
+      await this.auditService.log(
+        {
+          userId: actorId,
+          action: 'REOPEN_CONVERTED_ORDER',
+          module: 'sales',
+          entity: 'sale',
+          entityId: id,
+          oldValues: {
+            saleStatus: sourceSale.status,
+            orderTicketId: sourceSale.conversion?.orderTicketId,
+          },
+          newValues: {
+            orderTicketId: reopenedOrder.id,
+            orderNumber: reopenedOrder.number,
+            restoredFromSale: sourceSale.number,
+            reason,
+          },
+        },
+        tx,
+      );
 
-    await this.auditService.log({
-      userId: actorId,
-      action: 'REOPEN_CONVERTED_ORDER',
-      module: 'sales',
-      entity: 'sale',
-      entityId: id,
-      oldValues: {
-        saleStatus: result.sourceSale.status,
-        orderTicketId: result.sourceSale.conversion?.orderTicketId,
-      },
-      newValues: {
-        orderTicketId: result.order.id,
-        orderNumber: result.order.number,
-        restoredFromSale: result.sourceSale.number,
-        reason,
-      },
+      return { sourceSale, order: reopenedOrder };
     });
 
     return {
@@ -1324,6 +1357,24 @@ export class SalesService {
         });
       }
     }
+
+    await this.auditService.log(
+      {
+        userId: actorId,
+        action: 'INVENTORY_RETURN_FOR_SALE_CONVERSION',
+        module: 'inventory',
+        entity: 'sale',
+        entityId: saleId,
+        before: { stockImpact: 'consumed' },
+        after: {
+          stockImpact: 'restored',
+          itemCount: items.length,
+          totalProductQuantity: items.reduce((sum, item) => sum.add(item.quantity), new Prisma.Decimal(0)),
+        },
+        metadata: { transactional: true, source: 'sale_conversion' },
+      },
+      tx,
+    );
   }
 
   private async generateOrderNumber(

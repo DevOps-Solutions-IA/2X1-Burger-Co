@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import { SOFIA_RETENTION_POLICY } from './sofia-retention-policy';
 
 @Injectable()
 export class SofiaRetentionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   status() {
     return {
@@ -54,14 +58,14 @@ export class SofiaRetentionService {
       throw new BadRequestException('Retention real bloqueada: requiere confirm=true y revisión admin. Use dry-run primero.');
     }
     const dryRun = await this.dryRun();
-    await this.prisma.auditLog.create({
-      data: {
-        userId: actorId,
-        action: 'SOFIA_RETENTION_RUN_BLOCKED_FOR_F6',
-        module: 'SofiaRetention',
-        entity: 'sofia_retention',
-        newValues: { dryRun, blockedInF6: true },
-      },
+    await this.auditService.log({
+      userId: actorId,
+      action: 'SOFIA_RETENTION_RUN_BLOCKED_FOR_F6',
+      module: 'SofiaRetention',
+      entity: 'sofia_retention',
+      result: 'BLOCKED',
+      reasonCode: 'SOFIA_RETENTION_PRODUCTION_BLOCKED',
+      newValues: { dryRun, blockedInF6: true },
     });
     throw new BadRequestException('Retention real permanece bloqueada en F6. No se borraron datos.');
   }

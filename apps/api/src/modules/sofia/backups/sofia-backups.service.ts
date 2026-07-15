@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import { SofiaPrivacyService } from '../privacy/sofia-privacy.service';
 
 const BACKUP_DIR = 'infra/environments/staging/selfhosted-data/backups/sofia-sanitized';
@@ -12,6 +13,7 @@ const BACKUP_DIR = 'infra/environments/staging/selfhosted-data/backups/sofia-san
 export class SofiaBackupsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
     private readonly privacyService: SofiaPrivacyService,
   ) {}
 
@@ -73,15 +75,13 @@ export class SofiaBackupsService {
         description: 'Último backup sanitizado dry-run de Sofía',
       },
     });
-    await this.prisma.auditLog.create({
-      data: {
-        userId: actorId,
-        action: 'SOFIA_SANITIZED_BACKUP_DRY_RUN',
-        module: 'SofiaBackups',
-        entity: 'sofia_backup',
-        entityId: fileName,
-        newValues: { fileName, dryRun: true, noSecrets: true } as Prisma.InputJsonValue,
-      },
+    await this.auditService.log({
+      userId: actorId,
+      action: 'SOFIA_SANITIZED_BACKUP_DRY_RUN',
+      module: 'SofiaBackups',
+      entity: 'sofia_backup',
+      entityId: fileName,
+      newValues: { fileName, dryRun: true, noSecrets: true } as Prisma.InputJsonValue,
     });
     const fallbackStorageUsed = !backupDir.endsWith(BACKUP_DIR);
     return {

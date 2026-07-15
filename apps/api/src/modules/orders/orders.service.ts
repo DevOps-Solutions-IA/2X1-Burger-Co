@@ -1484,6 +1484,18 @@ export class OrdersService {
             });
           }
 
+          await this.auditService.log(
+            {
+              userId: actor.sub,
+              action: 'CREATE',
+              module: 'orders',
+              entity: 'order_ticket',
+              entityId: created.id,
+              newValues: dto,
+            },
+            tx,
+          );
+
           return created;
         });
         break;
@@ -1498,15 +1510,6 @@ export class OrdersService {
     if (!order) {
       throw new BadRequestException('No fue posible generar un consecutivo único para la comanda.');
     }
-
-    await this.auditService.log({
-      userId: actor.sub,
-      action: 'CREATE',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: order.id,
-      newValues: dto,
-    });
 
     if (order.type === OrderTicketType.DELIVERY) {
       await this.createOperationalAlert({
@@ -1827,6 +1830,19 @@ export class OrdersService {
         },
       });
       if (this.areCommercialItemsEqual(currentOrder.items, items)) {
+        await this.auditService.log(
+          {
+            userId: actor.sub,
+            action: 'UPDATE_ITEMS',
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: id,
+            result: 'NO_OP',
+            reasonCode: 'ORDER_ITEMS_UNCHANGED',
+            newValues: dto,
+          },
+          tx,
+        );
         return {
           order: await tx.orderTicket.findUniqueOrThrow({
             where: { id },
@@ -1925,65 +1941,89 @@ export class OrdersService {
         })),
       });
 
-      return {
-        order: await tx.orderTicket.findUniqueOrThrow({
+      const updatedOrder = await tx.orderTicket.findUniqueOrThrow({
           where: { id },
           include: orderInclude,
-        }),
+        });
+
+      await this.auditService.log(
+        {
+          userId: actor.sub,
+          action: 'UPDATE_ITEMS',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: id,
+          oldValues: {
+            subtotal: current.subtotal,
+            revision: current.revision,
+          },
+          newValues: {
+            subtotal: updatedOrder.subtotal,
+            revision: updatedOrder.revision,
+            items: dto.items,
+          },
+        },
+        tx,
+      );
+
+      let receiptVersion: number | null = null;
+      if (updatedOrder.type === OrderTicketType.DELIVERY) {
+        const refreshedCount = await tx.auditLog.count({
+          where: {
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: id,
+            action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
+          },
+        });
+        const previousVersion = refreshedCount + 1;
+        receiptVersion = previousVersion + 1;
+        await this.auditService.log(
+          {
+            userId: actor.sub,
+            action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: id,
+            oldValues: { previousTotal: current.subtotal },
+            newValues: {
+              newTotal: updatedOrder.subtotal,
+              deliveryFee: updatedOrder.deliveryFee,
+              receiptVersion,
+              receiptRegenerated: true,
+              message: 'Pedido actualizado. Nueva cuenta generada con total vigente.',
+            },
+          },
+          tx,
+        );
+        await this.auditService.log(
+          {
+            userId: actor.sub,
+            action: 'DELIVERY_RECEIPT_REPLACED',
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: id,
+            oldValues: { receiptVersion: previousVersion, status: 'REPLACED' },
+            newValues: {
+              receiptVersion,
+              status: 'ACTIVE',
+              previousTotal: current.subtotal,
+              newTotal: updatedOrder.subtotal,
+            },
+          },
+          tx,
+        );
+      }
+
+      return {
+        order: updatedOrder,
         commercialChanged: true,
+        receiptVersion,
       };
     });
     const updated = updateResult.order;
 
-    await this.auditService.log({
-      userId: actor.sub,
-      action: 'UPDATE_ITEMS',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      newValues: dto,
-    });
-
     if (updated.type === OrderTicketType.DELIVERY && updateResult.commercialChanged) {
-      /* El audit REFRESHED se registra antes de generar el PDF: la versión
-         comercial se deriva contando estos eventos, así el PDF nuevo ya sale
-         numerado como la versión que estrena. */
-      const previousVersion = await this.getDeliveryCommercialVersion(updated.id);
-      const newVersion = previousVersion + 1;
-      await this.auditService.log({
-        userId: actor.sub,
-        action: 'DELIVERY_ORDER_UPDATED_RECEIPT_REFRESHED',
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: id,
-        oldValues: {
-          previousTotal: current.subtotal,
-        },
-        newValues: {
-          newTotal: updated.subtotal,
-          deliveryFee: updated.deliveryFee,
-          receiptVersion: newVersion,
-          receiptRegenerated: true,
-          message: 'Pedido actualizado. Nueva cuenta generada con total vigente.',
-        },
-      });
-      await this.auditService.log({
-        userId: actor.sub,
-        action: 'DELIVERY_RECEIPT_REPLACED',
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: id,
-        oldValues: {
-          receiptVersion: previousVersion,
-          status: 'REPLACED',
-        },
-        newValues: {
-          receiptVersion: newVersion,
-          status: 'ACTIVE',
-          previousTotal: current.subtotal,
-          newTotal: updated.subtotal,
-        },
-      });
       await this.generateDeliveryReceiptPdf(updated.id, { updated: true, actorId: actor.sub });
       await this.sendUpdatedDeliveryReceiptAfterCommercialChange({
         order: updated,
@@ -2827,22 +2867,25 @@ export class OrdersService {
         });
       }
 
+      await this.auditService.log(
+        {
+          userId: actorId,
+          action: 'CHECKOUT',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: id,
+          newValues: {
+            payments: dto.payments,
+            saleId: sale.id,
+          },
+        },
+        tx,
+      );
+
       return {
         order: updatedOrder,
         sale,
       };
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CHECKOUT',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      newValues: {
-        payments: dto.payments,
-        saleId: result.sale.id,
-      },
     });
 
     this.realtimeService.publishDeliveryWorkflowUpdated({
@@ -2949,6 +2992,30 @@ export class OrdersService {
     const currentSale = current.sale!;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Revalidate after acquiring the row lock so concurrent reopen requests cannot
+      // both apply cash and stock reversals from the same paid order.
+      await tx.$queryRaw`
+        SELECT id
+        FROM order_tickets
+        WHERE id = ${id}
+        FOR UPDATE
+      `;
+      const lockedOrder = await tx.orderTicket.findUnique({
+        where: { id },
+        select: {
+          status: true,
+          sale: {
+            select: { status: true },
+          },
+        },
+      });
+      if (!lockedOrder || lockedOrder.status !== OrderTicketStatus.PAID) {
+        throw new BadRequestException('Solo una comanda ya cobrada se puede reabrir.');
+      }
+      if (!lockedOrder.sale || lockedOrder.sale.status !== SaleStatus.PAID) {
+        throw new BadRequestException('La comanda no tiene una venta pagada activa para revertir.');
+      }
+
       const session = await tx.cashSession.findFirst({
         where: {
           id: current.cashSessionId,
@@ -3024,24 +3091,27 @@ export class OrdersService {
         });
       }
 
-      return reopenedOrder;
-    });
+      await this.auditService.log(
+        {
+          userId: actorId,
+          action: 'REOPEN',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: id,
+          oldValues: {
+            status: current.status,
+            saleId: currentSale.id,
+            saleNumber: currentSale.number,
+          },
+          newValues: {
+            status: reopenedOrder.status,
+            reason,
+          },
+        },
+        tx,
+      );
 
-    await this.auditService.log({
-      userId: actorId,
-      action: 'REOPEN',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      oldValues: {
-        status: current.status,
-        saleId: currentSale.id,
-        saleNumber: currentSale.number,
-      },
-      newValues: {
-        status: result.status,
-        reason,
-      },
+      return reopenedOrder;
     });
 
     this.realtimeService.publishOrderUpdated({
@@ -3242,7 +3312,7 @@ export class OrdersService {
         deliveryCustomerId = deliveryCustomer.id;
       }
 
-      return tx.orderTicket.update({
+      const updatedOrder = await tx.orderTicket.update({
         where: { id: order.id },
         data: {
           deliveryLatitude: new Prisma.Decimal(latitude),
@@ -3257,24 +3327,38 @@ export class OrdersService {
         },
         include: orderInclude,
       });
-    });
 
-    await this.auditService.log({
-      userId: actorId || undefined,
-      action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: updated.id,
-      newValues: {
-        phoneMasked: this.maskPhoneForAudit(order.customerPhone),
-        latitude,
-        longitude,
-        source: 'whatsapp_location',
-        pricingPreserved: true,
-        feeChanged: false,
-        totalChanged: false,
-        locationSavedForDelivery: true,
-      },
+      await this.auditService.log(
+        {
+          userId: actorId || undefined,
+          action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: updatedOrder.id,
+          oldValues: {
+            locationPresent: Boolean(order.deliveryLatitude && order.deliveryLongitude),
+            subtotal: order.items.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0))
+              .add(order.deliveryFee ?? 0),
+            deliveryFee: order.deliveryFee,
+          },
+          newValues: {
+            phoneMasked: this.maskPhoneForAudit(order.customerPhone),
+            latitude,
+            longitude,
+            locationPresent: true,
+            source: 'whatsapp_location',
+            pricingPreserved: true,
+            feeChanged: false,
+            totalChanged: false,
+            locationSavedForDelivery: true,
+            subtotal: updatedOrder.subtotal,
+            deliveryFee: updatedOrder.deliveryFee,
+          },
+        },
+        tx,
+      );
+
+      return updatedOrder;
     });
 
     await this.resolveOperationalAlerts({
@@ -3956,6 +4040,24 @@ export class OrdersService {
         });
       }
     }
+
+    await this.auditService.log(
+      {
+        userId: actorId,
+        action: 'INVENTORY_RETURN_FOR_ORDER_REOPEN',
+        module: 'inventory',
+        entity: 'sale',
+        entityId: saleId,
+        before: { stockImpact: 'consumed' },
+        after: {
+          stockImpact: 'restored',
+          itemCount: items.length,
+          totalProductQuantity: items.reduce((sum, item) => sum.add(item.quantity), new Prisma.Decimal(0)),
+        },
+        metadata: { transactional: true, source: 'order_reopen' },
+      },
+      tx,
+    );
   }
 
   private async generateOrderNumber(

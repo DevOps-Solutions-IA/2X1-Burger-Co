@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import {
   SOFIA_RUNTIME_SAFETY_SETTING_KEYS,
   SofiaAllowlistDecision,
@@ -29,6 +30,7 @@ type SafetyAuditInput = {
 export class SofiaRuntimeSafetyService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -132,15 +134,16 @@ export class SofiaRuntimeSafetyService {
       phoneHash: phone ? this.hash(phone).slice(0, 16) : null,
       valuesSanitized: true,
     };
-    return this.prisma.auditLog.create({
-      data: {
-        userId: input.actorId ?? null,
-        action: `SOFIA_RUNTIME_${action}_BLOCKED`,
-        module: 'SofiaRuntimeSafety',
-        entity: 'RuntimeSafetyGate',
-        entityId: input.idempotencyKey ? this.hash(input.idempotencyKey).slice(0, 20) : null,
-        newValues: values as Prisma.InputJsonValue,
-      },
+    return this.auditService.log({
+      userId: input.actorId ?? null,
+      action: `SOFIA_RUNTIME_${action}_BLOCKED`,
+      module: 'SofiaRuntimeSafety',
+      entity: 'RuntimeSafetyGate',
+      entityId: input.idempotencyKey ? this.hash(input.idempotencyKey).slice(0, 20) : null,
+      result: 'BLOCKED',
+      reasonCode: input.reason ?? 'SAFETY_GATE_BLOCKED',
+      idempotencyKey: input.idempotencyKey ? this.hash(input.idempotencyKey).slice(0, 20) : null,
+      newValues: values as Prisma.InputJsonValue,
     });
   }
 

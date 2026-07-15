@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import type { AuditService } from '../../audit/audit.service';
 import { SofiaRuntimeSafetyService } from './sofia-runtime-safety.service';
 import type { SofiaRuntimeSafetyState } from './sofia-runtime-safety.types';
 
@@ -12,7 +13,8 @@ describe('SofiaRuntimeSafetyService', () => {
     auditLog: { create: auditCreate },
   } as unknown as PrismaService;
   const config = { get: jest.fn() } as unknown as ConfigService;
-  const service = new SofiaRuntimeSafetyService(prisma, config);
+  const audit = { log: auditCreate } as unknown as AuditService;
+  const service = new SofiaRuntimeSafetyService(prisma, audit, config);
 
   beforeEach(() => {
     jest.clearAllMocks();

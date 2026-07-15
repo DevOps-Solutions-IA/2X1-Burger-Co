@@ -18,6 +18,8 @@ import { ReopenCashSessionDto } from './dto/reopen-cash-session.dto';
 import { getDayRange } from '../../common/utils/date-range.util';
 import { CashReconciliationService } from './cash-reconciliation.service';
 
+const CASH_LIFECYCLE_LOCK_ID = 2_025_001;
+
 @Injectable()
 export class CashRegisterService {
   constructor(
@@ -92,39 +94,46 @@ export class CashRegisterService {
   }
 
   async open(dto: OpenCashSessionDto, actorId: string) {
-    const current = await this.getCurrent();
+    const session = await this.prisma.$transaction(async (tx) => {
+      await this.acquireCashLifecycleLock(tx);
+      const current = await tx.cashSession.findFirst({
+        where: { status: CashSessionStatus.OPEN },
+        select: { id: true },
+      });
 
-    if (current) {
-      throw new BadRequestException('Ya existe una sesión de caja abierta.');
-    }
+      if (current) {
+        throw new ConflictException('Ya existe una sesión de caja abierta.');
+      }
 
-    const session = await this.prisma.cashSession.create({
-      data: {
-        openedById: actorId,
-        openingAmount: toDecimal(dto.openingAmount),
-        notes: dto.notes,
-        openingBreakdown: dto.openingBreakdown,
-        movements: {
-          create: {
-            type: CashMovementType.OPENING,
-            amount: toDecimal(dto.openingAmount),
-            description: dto.notes ?? 'Apertura de caja',
-            createdById: actorId,
+      const created = await tx.cashSession.create({
+        data: {
+          openedById: actorId,
+          openingAmount: toDecimal(dto.openingAmount),
+          notes: dto.notes,
+          openingBreakdown: dto.openingBreakdown,
+          movements: {
+            create: {
+              type: CashMovementType.OPENING,
+              amount: toDecimal(dto.openingAmount),
+              description: dto.notes ?? 'Apertura de caja',
+              createdById: actorId,
+            },
           },
         },
-      },
-      include: {
-        movements: true,
-      },
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'OPEN',
-      module: 'cash-register',
-      entity: 'cash_session',
-      entityId: session.id,
-      newValues: dto,
+        include: {
+          movements: true,
+        },
+      });
+      await this.auditService.log({
+        userId: actorId,
+        action: 'OPEN',
+        module: 'cash-register',
+        entity: 'cash_session',
+        entityId: created.id,
+        before: { status: 'CLOSED' },
+        after: { status: created.status, openingAmount: created.openingAmount },
+      }, tx);
+      return created;
     });
 
     return session;
@@ -159,55 +168,52 @@ export class CashRegisterService {
     const closingAmount = toDecimal(dto.actualAmount);
     const difference = closingAmount.sub(expectedAmount);
 
-    // BLOQUEO CONCURRENCIA: updateMany con filtro status=OPEN evita doble cierre
-    const updateResult = await this.prisma.cashSession.updateMany({
-      where: { id: session.id, status: CashSessionStatus.OPEN },
-      data: {
-        status: CashSessionStatus.CLOSED,
-        closedById: actorId,
-        closedAt: new Date(),
-        closingAmount,
-        expectedAmount,
-        difference,
-        notes: dto.notes ?? session.notes,
-        closingBreakdown: dto.closingBreakdown,
-      },
-    });
-
-    if (updateResult.count === 0) {
-      throw new ConflictException('La caja ya fue cerrada o no está abierta.');
-    }
-
-    // Crear movimiento de cierre por separado (updateMany no soporta nested create)
-    await this.prisma.cashMovement.create({
-      data: {
-        cashSessionId: session.id,
-        type: CashMovementType.CLOSING,
-        amount: closingAmount,
-        description: dto.notes ?? 'Cash closing',
-        createdById: actorId,
-      },
-    });
-
-    const closedSession = await this.prisma.cashSession.findUniqueOrThrow({
-      where: { id: session.id },
-      include: {
-        movements: true,
-      },
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CLOSE',
-      module: 'cash-register',
-      entity: 'cash_session',
-      entityId: session.id,
-      newValues: {
-        actualAmount: dto.actualAmount,
-        expectedAmount: expectedAmount.toString(),
-        difference: difference.toString(),
-        reconciliation,
-      },
+    const closedSession = await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.cashSession.updateMany({
+        where: { id: session.id, status: CashSessionStatus.OPEN },
+        data: {
+          status: CashSessionStatus.CLOSED,
+          closedById: actorId,
+          closedAt: new Date(),
+          closingAmount,
+          expectedAmount,
+          difference,
+          notes: dto.notes ?? session.notes,
+          closingBreakdown: dto.closingBreakdown,
+        },
+      });
+      if (updateResult.count === 0) {
+        throw new ConflictException('La caja ya fue cerrada o no está abierta.');
+      }
+      await tx.cashMovement.create({
+        data: {
+          cashSessionId: session.id,
+          type: CashMovementType.CLOSING,
+          amount: closingAmount,
+          description: dto.notes ?? 'Cash closing',
+          createdById: actorId,
+        },
+      });
+      const closed = await tx.cashSession.findUniqueOrThrow({
+        where: { id: session.id },
+        include: { movements: true },
+      });
+      await this.auditService.log({
+        userId: actorId,
+        action: 'CLOSE',
+        module: 'cash-register',
+        entity: 'cash_session',
+        entityId: session.id,
+        before: { status: session.status },
+        after: {
+          status: closed.status,
+          actualAmount: dto.actualAmount,
+          expectedAmount: expectedAmount.toString(),
+          difference: difference.toString(),
+        },
+        metadata: { reconciliation },
+      }, tx);
+      return closed;
     });
 
     const closureSnapshot = await this.reportsService.captureDailyClosure(closedSession.id, actorId, dto.notes);
@@ -258,29 +264,34 @@ export class CashRegisterService {
   }
 
   async reopen(dto: ReopenCashSessionDto, actorId: string) {
-    const current = await this.getCurrent();
-    if (current) {
-      throw new BadRequestException('Ya existe una sesión abierta. Debes cerrarla antes de reabrir otra.');
-    }
-
-    const targetSession = dto.sessionId
-      ? await this.prisma.cashSession.findUnique({
-          where: { id: dto.sessionId },
-          include: { movements: true },
-        })
-      : await this.prisma.cashSession.findFirst({
-          where: { status: CashSessionStatus.CLOSED },
-          include: { movements: true },
-          orderBy: { closedAt: 'desc' },
-        });
-
-    if (!targetSession || targetSession.status !== CashSessionStatus.CLOSED) {
-      throw new BadRequestException('No hay un cierre válido para reabrir.');
-    }
-
-    const openingAmount = targetSession.closingAmount ?? targetSession.expectedAmount ?? targetSession.openingAmount;
-
     const reopenedSession = await this.prisma.$transaction(async (tx) => {
+      await this.acquireCashLifecycleLock(tx);
+      const current = await tx.cashSession.findFirst({
+        where: { status: CashSessionStatus.OPEN },
+        select: { id: true },
+      });
+      if (current) {
+        throw new ConflictException('Ya existe una sesión abierta. Debes cerrarla antes de reabrir otra.');
+      }
+
+      const targetSession = dto.sessionId
+        ? await tx.cashSession.findUnique({
+            where: { id: dto.sessionId },
+            include: { movements: true },
+          })
+        : await tx.cashSession.findFirst({
+            where: { status: CashSessionStatus.CLOSED },
+            include: { movements: true },
+            orderBy: { closedAt: 'desc' },
+          });
+
+      if (!targetSession || targetSession.status !== CashSessionStatus.CLOSED) {
+        throw new BadRequestException('No hay un cierre válido para reabrir.');
+      }
+
+      const openingAmount =
+        targetSession.closingAmount ?? targetSession.expectedAmount ?? targetSession.openingAmount;
+
       await tx.cashSession.update({
         where: { id: targetSession.id },
         data: {
@@ -290,7 +301,7 @@ export class CashRegisterService {
         },
       });
 
-      return tx.cashSession.create({
+      const created = await tx.cashSession.create({
         data: {
           openedById: actorId,
           openingAmount,
@@ -312,21 +323,31 @@ export class CashRegisterService {
           reopenedFromSession: true,
         },
       });
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'REOPEN',
-      module: 'cash-register',
-      entity: 'cash_session',
-      entityId: reopenedSession.id,
-      newValues: {
-        reopenedFromSessionId: targetSession.id,
-        reason: dto.reason,
-      },
+      await this.auditService.log({
+        userId: actorId,
+        action: 'REOPEN',
+        module: 'cash-register',
+        entity: 'cash_session',
+        entityId: created.id,
+        before: { sourceSessionId: targetSession.id, status: targetSession.status },
+        after: { status: created.status, openingAmount: created.openingAmount },
+        reasonCode: 'CASH_SESSION_REOPENED',
+        reasonText: dto.reason,
+      }, tx);
+      return created;
     });
 
     return reopenedSession;
+  }
+
+  private async acquireCashLifecycleLock(tx: Prisma.TransactionClient) {
+    const lock = await tx.$queryRaw<Array<{ acquired: number }>>`
+      SELECT 1::int AS acquired
+      FROM pg_advisory_xact_lock(${CASH_LIFECYCLE_LOCK_ID})
+    `;
+    if (lock[0]?.acquired !== 1) {
+      throw new ConflictException('No fue posible adquirir el bloqueo de ciclo de caja.');
+    }
   }
 
   async createManualMovement(dto: CreateManualCashMovementDto, actorId: string) {
@@ -339,29 +360,33 @@ export class CashRegisterService {
       throw new BadRequestException('No hay una caja abierta para registrar movimientos manuales.');
     }
 
-    const movement = await this.prisma.cashMovement.create({
-      data: {
-        cashSessionId: session.id,
-        type: dto.type,
-        amount: toDecimal(dto.amount),
-        description: dto.description ?? dto.classification,
-        classification: dto.classification,
-        paymentMethodId: dto.paymentMethodId,
-        createdById: actorId,
-      },
-      include: {
-        paymentMethod: true,
-        createdBy: true,
-      },
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CREATE_MANUAL_MOVEMENT',
-      module: 'cash-register',
-      entity: 'cash_movement',
-      entityId: movement.id,
-      newValues: dto,
+    const movement = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.cashMovement.create({
+        data: {
+          cashSessionId: session.id,
+          type: dto.type,
+          amount: toDecimal(dto.amount),
+          description: dto.description ?? dto.classification,
+          classification: dto.classification,
+          paymentMethodId: dto.paymentMethodId,
+          createdById: actorId,
+        },
+        include: { paymentMethod: true, createdBy: true },
+      });
+      await this.auditService.log({
+        userId: actorId,
+        action: 'CREATE_MANUAL_MOVEMENT',
+        module: 'cash-register',
+        entity: 'cash_movement',
+        entityId: created.id,
+        after: {
+          cashSessionId: session.id,
+          type: created.type,
+          amount: created.amount,
+          classification: created.classification,
+        },
+      }, tx);
+      return created;
     });
 
     return movement;

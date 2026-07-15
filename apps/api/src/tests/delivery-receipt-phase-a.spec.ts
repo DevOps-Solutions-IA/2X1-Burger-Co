@@ -281,7 +281,7 @@ describe('Delivery receipt versioning (Phase A)', () => {
       });
       expect(sentAudits).toHaveLength(1);
       const payload = sentAudits[0]!.newValues as Record<string, unknown>;
-      expect(payload.phoneMasked).toBe('********0001');
+      expect(payload.phoneMasked).toBe('***0001');
       expect(JSON.stringify(payload)).not.toContain('573009990001');
       expect(token).toBeTruthy();
     } finally {

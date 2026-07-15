@@ -237,16 +237,17 @@ export class PurchasesService {
         });
       }
 
-      return createdPurchase;
-    });
+      await this.auditService.log({
+        userId: actorId,
+        action: 'CREATE',
+        module: 'purchases',
+        entity: 'purchase',
+        entityId: createdPurchase.id,
+        before: { total: 0, received: false },
+        after: { total: createdPurchase.total, received: true, itemCount: createdPurchase.items.length },
+      }, tx);
 
-    await this.auditService.log({
-      userId: actorId,
-      action: 'CREATE',
-      module: 'purchases',
-      entity: 'purchase',
-      entityId: purchase.id,
-      newValues: dto,
+      return createdPurchase;
     });
 
     return purchase;

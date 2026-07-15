@@ -206,7 +206,7 @@ export class InventoryService {
           data: { currentStock: nextStock },
         });
 
-        return tx.inventoryMovement.create({
+        const movement = await tx.inventoryMovement.create({
           data: {
             productId: dto.productId,
             type: (dto.movementType as InventoryMovementType | undefined) ?? InventoryMovementType.ADJUSTMENT,
@@ -217,6 +217,17 @@ export class InventoryService {
             performedById: actorId,
           },
         });
+        await this.auditService.log({
+          userId: actorId,
+          action: 'ADJUST',
+          module: 'inventory',
+          entity: 'inventory_movement',
+          entityId: movement.id,
+          before: { productId: product.id, stock: product.currentStock },
+          after: { productId: product.id, stock: nextStock, delta: dto.quantity },
+          reasonCode: 'INVENTORY_MANUAL_ADJUSTMENT',
+        }, tx);
+        return movement;
       }
 
       // BLOQUEO CONCURRENCIA: Bloquear insumo antes de leer/ajustar stock
@@ -236,7 +247,7 @@ export class InventoryService {
         data: { currentStock: nextStock },
       });
 
-      return tx.inventoryMovement.create({
+      const movement = await tx.inventoryMovement.create({
         data: {
           ingredientId: dto.ingredientId,
           type: (dto.movementType as InventoryMovementType | undefined) ?? InventoryMovementType.ADJUSTMENT,
@@ -247,15 +258,17 @@ export class InventoryService {
           performedById: actorId,
         },
       });
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'ADJUST',
-      module: 'inventory',
-      entity: 'inventory_movement',
-      entityId: movement.id,
-      newValues: dto,
+      await this.auditService.log({
+        userId: actorId,
+        action: 'ADJUST',
+        module: 'inventory',
+        entity: 'inventory_movement',
+        entityId: movement.id,
+        before: { ingredientId: ingredient.id, stock: ingredient.currentStock },
+        after: { ingredientId: ingredient.id, stock: nextStock, delta: dto.quantity },
+        reasonCode: 'INVENTORY_MANUAL_ADJUSTMENT',
+      }, tx);
+      return movement;
     });
 
     return movement;
@@ -372,7 +385,7 @@ export class InventoryService {
         }
       }
 
-      return tx.stockCountSession.findUniqueOrThrow({
+      const completed = await tx.stockCountSession.findUniqueOrThrow({
         where: { id: createdSession.id },
         include: {
           createdBy: true,
@@ -385,15 +398,16 @@ export class InventoryService {
           },
         },
       });
-    });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'STOCK_COUNT',
-      module: 'inventory',
-      entity: 'stock_count_session',
-      entityId: session.id,
-      newValues: dto,
+      await this.auditService.log({
+        userId: actorId,
+        action: 'STOCK_COUNT',
+        module: 'inventory',
+        entity: 'stock_count_session',
+        entityId: completed.id,
+        before: { status: null },
+        after: { status: completed.status, itemCount: completed.items.length, scope: completed.scope },
+      }, tx);
+      return completed;
     });
 
     return session;

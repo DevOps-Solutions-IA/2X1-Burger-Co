@@ -6,6 +6,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import QRCode from 'qrcode';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AuditService } from '../../../audit/audit.service';
 import { SofiaWhatsappService } from '../../sofia-whatsapp.service';
 import { SofiaWhatsappQrGatewayProvider } from './sofia-whatsapp-qr-gateway.provider';
 import {
@@ -73,6 +74,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
     private readonly configService: ConfigService,
     private readonly sofiaWhatsappService: SofiaWhatsappService,
     private readonly qrProvider: SofiaWhatsappQrGatewayProvider,
@@ -917,16 +919,15 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     actorId: string,
     details: Record<string, unknown>,
   ) {
-    await this.prisma.auditLog.create({
-      data: {
-        action,
-        module: 'SofiaWhatsappQrGateway',
-        entity: 'qr_gateway',
-        entityId:
-          this.configService.get<string>('WHATSAPP_QR_SESSION_NAME') || 'sofia-main',
-        userId: actorId === 'system' ? null : actorId,
-        newValues: details as Prisma.InputJsonValue,
-      },
+    await this.auditService.log({
+      action,
+      module: 'SofiaWhatsappQrGateway',
+      entity: 'qr_gateway',
+      entityId:
+        this.configService.get<string>('WHATSAPP_QR_SESSION_NAME') || 'sofia-main',
+      userId: actorId === 'system' ? null : actorId,
+      actorType: actorId === 'system' ? 'SYSTEM' : 'USER',
+      newValues: details as Prisma.InputJsonValue,
     });
   }
 }

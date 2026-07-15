@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import { SofiaPrivacyService } from '../privacy/sofia-privacy.service';
 
 export type SofiaHumanFeedbackInput = {
@@ -19,6 +20,7 @@ export type SofiaHumanFeedbackInput = {
 export class SofiaHumanFeedbackService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
     private readonly privacyService: SofiaPrivacyService,
   ) {}
 
@@ -36,15 +38,13 @@ export class SofiaHumanFeedbackService {
       noExternalTraining: true,
       noPromptAutoChange: true,
     });
-    return this.prisma.auditLog.create({
-      data: {
-        userId: actorId,
-        action: 'SOFIA_HUMAN_FEEDBACK_CREATED',
-        module: 'SofiaLearningFeedback',
-        entity: 'sofia_human_feedback',
-        entityId: input.conversationId ?? input.messageId ?? input.customerMemoryId ?? null,
-        newValues: payload as Prisma.InputJsonValue,
-      },
+    return this.auditService.log({
+      userId: actorId,
+      action: 'SOFIA_HUMAN_FEEDBACK_CREATED',
+      module: 'SofiaLearningFeedback',
+      entity: 'sofia_human_feedback',
+      entityId: input.conversationId ?? input.messageId ?? input.customerMemoryId ?? null,
+      newValues: payload as Prisma.InputJsonValue,
     });
   }
 
