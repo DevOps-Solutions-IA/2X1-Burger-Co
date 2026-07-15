@@ -19,13 +19,14 @@ mkdir -p "$TEMP_DIR/.release"
   SOURCE_DATE_EPOCH="$EPOCH" \
     node infra/release/generate-release-manifest.mjs
   SOURCE_DATE_EPOCH="$EPOCH" node infra/release/generate-sbom.mjs
-)
+) >"$TEMP_DIR/.release/metadata-build.log" 2>&1
 
 BUILD_ID="$(node -p "require('$TEMP_DIR/.release/release-manifest.json').buildId")"
 OUTPUT_DIR="$OUTPUT_ROOT/$BUILD_ID"
 mkdir -p "$OUTPUT_DIR"
 cp "$TEMP_DIR/.release/release-manifest.json" "$OUTPUT_DIR/release-manifest.json"
 cp "$TEMP_DIR/.release/sbom.cdx.json" "$OUTPUT_DIR/sbom.cdx.json"
+cp "$TEMP_DIR/.release/metadata-build.log" "$OUTPUT_DIR/metadata-build.log"
 
 COMMON_ARGS=(
   --build-arg "OCI_REVISION=$COMMIT"
