@@ -19,14 +19,23 @@ export class PrismaExceptionFilter implements ExceptionFilter {
     const request = host.switchToHttp().getRequest<{
       method?: string;
       url?: string;
+      headers?: Record<string, string | string[] | undefined>;
     }>();
+    const requestId = typeof request.headers?.['x-request-id'] === 'string' ? request.headers['x-request-id'] : null;
 
     if (exception instanceof HttpException) {
       if (exception.getStatus() >= 500) {
-        this.logger.error(
-          `HTTP ${exception.getStatus()} on ${request.method ?? 'UNKNOWN'} ${request.url ?? ''}`,
-          exception.stack,
-        );
+        this.logger.error(JSON.stringify({
+          level: 'ERROR',
+          module: 'HTTP',
+          action: 'HTTP_EXCEPTION',
+          result: 'ERROR',
+          requestId,
+          method: request.method ?? 'UNKNOWN',
+          path: request.url?.split('?')[0]?.replace(/[A-Za-z0-9_-]{17,}/g, ':id') ?? '',
+          statusCode: exception.getStatus(),
+          errorClass: exception.constructor.name,
+        }));
       }
       response.status(exception.getStatus()).json(exception.getResponse());
       return;
@@ -42,10 +51,17 @@ export class PrismaExceptionFilter implements ExceptionFilter {
       }
     }
 
-    this.logger.error(
-      `Unhandled exception on ${request.method ?? 'UNKNOWN'} ${request.url ?? ''}`,
-      exception instanceof Error ? exception.stack : JSON.stringify(exception),
-    );
+    this.logger.error(JSON.stringify({
+      level: 'ERROR',
+      module: 'HTTP',
+      action: 'UNHANDLED_EXCEPTION',
+      result: 'ERROR',
+      requestId,
+      method: request.method ?? 'UNKNOWN',
+      path: request.url?.split('?')[0]?.replace(/[A-Za-z0-9_-]{17,}/g, ':id') ?? '',
+      statusCode: 500,
+      errorClass: exception instanceof Error ? exception.constructor.name : 'UnknownError',
+    }));
 
     response.status(500).json(
       new InternalServerErrorException('Ocurrió un error inesperado en el servidor.').getResponse(),

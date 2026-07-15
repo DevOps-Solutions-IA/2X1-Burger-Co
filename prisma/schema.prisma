@@ -1465,22 +1465,49 @@ model SupplierNotification {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  action    String
-  module    String
-  entity    String
-  entityId  String?
-  oldValues Json?
-  newValues Json?
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id             String   @id @default(cuid())
+  userId         String?
+  eventVersion   Int      @default(1) @map("event_version")
+  timestamp      DateTime @default(now()) @map("event_timestamp")
+  actorId        String?  @map("actor_id")
+  actorType      String   @default("SYSTEM") @map("actor_type")
+  actorRole      String?  @map("actor_role")
+  action         String
+  module         String
+  entity         String
+  entityType     String?  @map("entity_type")
+  entityId       String?
+  result         String   @default("SUCCESS")
+  reasonCode     String?  @map("reason_code")
+  reasonText     String?  @map("reason_text")
+  requestId      String?  @map("request_id")
+  correlationId  String?  @map("correlation_id")
+  traceId        String?  @map("trace_id")
+  idempotencyKey String?  @map("idempotency_key")
+  oldValues      Json?
+  newValues      Json?
+  before         Json?
+  after          Json?
+  metadata       Json?
+  source         String   @default("legacy")
+  environment    String?  @map("environment_name")
+  releaseVersion String?  @map("release_version")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([module, createdAt])
   @@index([entity, entityId])
   @@index([userId, createdAt])
+  @@index([timestamp])
+  @@index([actorId, timestamp])
+  @@index([actorRole, timestamp])
+  @@index([module, action, timestamp])
+  @@index([entityType, entityId, timestamp])
+  @@index([requestId])
+  @@index([correlationId])
+  @@index([idempotencyKey])
   @@map("audit_logs")
 }
 

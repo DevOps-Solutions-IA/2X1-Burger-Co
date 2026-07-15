@@ -96,6 +96,8 @@ const envSchema = z
     DELIVERY_CIRCUIT_BREAKER_ERROR_THRESHOLD: z.coerce.number().int().positive().default(5),
     DELIVERY_CIRCUIT_BREAKER_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(10),
     DELIVERY_EXTERNAL_SMOKE_ENABLED: envBoolean.default(false),
+    EXPECTED_MIGRATION_COUNT: z.coerce.number().int().positive().optional(),
+    RECOVERY_STATUS_PATH: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.JWT_ACCESS_SECRET.startsWith('change-this-')) {
