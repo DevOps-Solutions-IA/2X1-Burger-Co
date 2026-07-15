@@ -7,4 +7,3 @@
 - Validacion: checksum, `pg_restore --list` y restore drill.
 - Escalamiento: Infrastructure y Database owner.
 - Evidencia: metadata sanitizada, tamaño, hash, tiempo y causa.
-

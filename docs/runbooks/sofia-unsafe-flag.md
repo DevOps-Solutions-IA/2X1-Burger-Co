@@ -8,4 +8,3 @@
 - Validacion: cinco controles false, PAID bloqueado, SENT=0 y auditoria.
 - Escalamiento: Security owner y Release owner.
 - Evidencia: valores booleanos sanitizados, nunca `.env`.
-

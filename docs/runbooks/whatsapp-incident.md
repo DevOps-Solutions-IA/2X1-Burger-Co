@@ -8,4 +8,3 @@
 - Validacion: flags efectivos false, SENT=0, PAID=0 y dedup PASS.
 - Escalamiento: Security owner y WhatsApp owner.
 - Evidencia: phoneMasked, requestId, reason y counts.
-

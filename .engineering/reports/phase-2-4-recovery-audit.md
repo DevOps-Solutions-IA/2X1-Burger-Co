@@ -25,4 +25,3 @@ Los scripts historicos permiten `pg_dump` y restore manual, pero no constituyen 
 - MEDIUM: evidencia y reportes sanitizados.
 - REGENERABLE: PDFs, builds y SBOM desde source/manifest.
 - EPHEMERAL: redes, contenedores, puertos, claves sinteticas y DB del drill.
-

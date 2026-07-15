@@ -8,4 +8,3 @@
 - Validacion: invariantes, checksums y reporte de diferencias.
 - Escalamiento: Inventory owner, Finance y Database owner.
 - Evidencia: IDs en repositorio privado, nunca datos personales.
-

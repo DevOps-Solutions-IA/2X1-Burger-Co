@@ -27,4 +27,3 @@ Fecha: 2026-07-14 (America/Bogota)
 - Proveedores externos, QR, real send, Auto Reply, Auto Safe y produccion permanecen OFF.
 - No se imprimieron `.env`, credenciales, telefonos, dumps ni material criptografico.
 - El working tree mezclado previo se preservo sin reset, clean, commit ni push.
-

@@ -61,4 +61,3 @@ Cada mutacion critica se considera valida solo cuando concuerdan respuesta API, 
 ## Criterio de decision
 
 No se marcara GO global si hay doble caja, doble ingreso, stock negativo no autorizado, recovery no reversible, version Delivery duplicada, RBAC bypass, PDF incorrecto o contaminacion de DB. Las capacidades no existentes se reportaran como bloqueadores, no se simularan.
-

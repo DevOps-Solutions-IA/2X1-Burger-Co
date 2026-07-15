@@ -7,4 +7,3 @@
 - Validacion: p95 <750ms durante 10 minutos y error rate estable.
 - Escalamiento: API, Database o Frontend owner segun spans.
 - Evidencia: ventana, release y trazas sanitizadas.
-

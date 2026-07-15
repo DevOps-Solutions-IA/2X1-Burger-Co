@@ -200,4 +200,3 @@ No se hizo reset, clean, commit ni push. Los cambios previos mezclados se conser
 ## 29. Decision
 
 **ENGINEERING PHASE 2.4: GO CONDICIONADO.** Recovery, reconciliacion, health, metrics, tracing base, SLO, failure injection y runbooks pasan en entorno aislado. Produccion sigue NOT READY por owner gates externos.
-

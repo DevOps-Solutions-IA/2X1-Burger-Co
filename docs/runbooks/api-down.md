@@ -8,4 +8,3 @@
 - Validacion: liveness, readiness, login y smoke read-only estables durante 5 minutos.
 - Escalamiento: Infrastructure owner y API owner.
 - Evidencia: tiempos, digest, causa, traceId y resultado sin secretos.
-

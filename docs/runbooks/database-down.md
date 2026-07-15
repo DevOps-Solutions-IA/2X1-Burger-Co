@@ -8,4 +8,3 @@
 - Validacion: readiness, migration count, login y reconciliacion read-only.
 - Escalamiento: Database owner e Infrastructure owner.
 - Evidencia: timestamps, RTO, checksums y resultados sanitizados.
-

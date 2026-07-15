@@ -7,4 +7,3 @@
 - Validacion: error rate <2% durante 10 minutos y smoke del modulo.
 - Escalamiento: owner del modulo y Security si hay autorizacion.
 - Evidencia: conteos, causas y acciones.
-

@@ -8,4 +8,3 @@
 - Validacion: sumas, estado de sesion, pagos y audit log.
 - Escalamiento: Finance owner, Caja owner y Security.
 - Evidencia: valores agregados y referencias sanitizadas.
-

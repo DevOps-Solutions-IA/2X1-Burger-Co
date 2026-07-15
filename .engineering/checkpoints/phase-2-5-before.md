@@ -45,4 +45,3 @@ Fecha: 2026-07-14 (America/Bogota)
 ## Criterio previo a mutaciones
 
 La ejecucion se abortara si el DB guard no confirma nombre con sufijo `_test`, run ID, puerto efimero y `EPHEMERAL_TEST_MODE=true`. Toda evidencia debe indicar `operationalDatabaseTouched=false`, `productionModified=false` y `realWhatsapp=OFF`.
-

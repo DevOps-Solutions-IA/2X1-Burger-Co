@@ -7,4 +7,3 @@
 - Validacion: secret scan, history review y prueba de credencial anterior revocada.
 - Escalamiento: Security owner y proveedor afectado.
 - Evidencia: tipo, hash parcial, ruta sanitizada, acciones y tiempos.
-

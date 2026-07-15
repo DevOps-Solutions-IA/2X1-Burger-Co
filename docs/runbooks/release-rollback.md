@@ -8,4 +8,3 @@
 - Recovery: restaurar candidato solo despues de causa raiz y nueva validacion.
 - Escalamiento: Release owner y modulo afectado.
 - Evidencia: digest origen/destino, duracion y smoke.
-

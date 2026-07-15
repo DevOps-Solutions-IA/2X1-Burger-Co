@@ -8,4 +8,3 @@
 - Arranque: API/web con el artifact identificado; ejecutar health, login y smokes read-only.
 - Rollback: conservar destino anterior; no sobrescribir hasta aprobacion.
 - Cierre: registrar RPO/RTO y destruir material temporal.
-

@@ -19,4 +19,3 @@ Los objetivos son propuestas (`TARGET`), no SLO productivos aprobados. El baseli
 ## Error budget
 
 El presupuesto se calcula solo cuando exista almacenamiento persistente de metricas. Antes de ese owner gate, cualquier violacion financiera, envio no autorizado, PAID por WhatsApp o restore inconsistente consume el 100% del budget y bloquea release.
-

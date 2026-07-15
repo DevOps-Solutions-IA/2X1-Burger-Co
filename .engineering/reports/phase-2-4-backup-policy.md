@@ -27,4 +27,3 @@ Estado: propuesta implementable localmente; adopcion productiva requiere aprobac
 8. Conservar solo metadata sanitizada y destruir material efimero.
 
 No se autoriza restore sobre una DB operativa desde este procedimiento.
-

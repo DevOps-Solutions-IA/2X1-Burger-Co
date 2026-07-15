@@ -17,4 +17,3 @@ La evaluacion local existe; no hay canal remoto configurado. Cada alerta queda `
 | Auto Safe inesperado | CRITICAL | efectivo true | inmediata | Security owner | Pendiente | false verificado | `sofia-unsafe-flag.md` |
 | Produccion inesperada | CRITICAL | efectivo true | inmediata | Security owner | Pendiente | false verificado | `sofia-unsafe-flag.md` |
 | PAID por WhatsApp | CRITICAL | count >0 | inmediata | Finance/Security | Pendiente | incidente cerrado | `whatsapp-incident.md` |
-
