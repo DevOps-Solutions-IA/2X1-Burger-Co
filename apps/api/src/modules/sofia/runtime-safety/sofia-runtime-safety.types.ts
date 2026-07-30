@@ -44,7 +44,7 @@ export type SofiaRuntimeSafetyDecision = {
 
 export type SofiaAllowlistDecision = {
   allowed: boolean;
-  reason: 'ALLOWLIST_DISABLED' | 'ALLOWLIST_ALLOWED' | 'ALLOWLIST_REQUIRED' | 'INVALID_PHONE';
+  reason: 'ALLOWLIST_NOT_CONFIGURED' | 'ALLOWLIST_ALLOWED' | 'ALLOWLIST_REQUIRED' | 'INVALID_PHONE';
   phoneMasked: string | null;
   phoneHash: string | null;
 };

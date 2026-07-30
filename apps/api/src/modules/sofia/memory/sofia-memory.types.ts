@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 
 export type SofiaMemorySnapshot = {
   id: string;
-  phoneNormalized: string;
+  phoneMasked: string;
   displayName: string | null;
   lastKnownAddress: string | null;
   preferredPaymentMethod: string | null;

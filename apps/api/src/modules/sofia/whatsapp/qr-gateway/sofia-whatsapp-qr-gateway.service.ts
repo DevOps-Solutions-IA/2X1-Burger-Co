@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import type {
+  BaileysEventMap,
+  WASocket,
+  WAMessageContent,
+} from '@whiskeysockets/baileys';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -8,6 +13,7 @@ import QRCode from 'qrcode';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AuditService } from '../../../audit/audit.service';
 import { SofiaWhatsappService } from '../../sofia-whatsapp.service';
+import { redactSensitiveText } from '../../privacy/sofia-pii-redaction';
 import { SofiaWhatsappQrGatewayProvider } from './sofia-whatsapp-qr-gateway.provider';
 import {
   SofiaWhatsappQrConnectionStatus,
@@ -19,6 +25,11 @@ import {
 /* ------------------------------------------------------------------ */
 
 const QR_SESSION_SETTING_KEY = 'SOFIA_WHATSAPP_QR_SESSION_STATE';
+const QR_RUNTIME_GATE_SETTING_KEYS = {
+  globalPaused: 'SOFIA_GLOBAL_PAUSED',
+  killSwitch: 'SOFIA_KILL_SWITCH',
+  qrRealAllowed: 'SOFIA_QR_REAL_ALLOWED',
+} as const;
 
 type QrSessionState = {
   status?: SofiaWhatsappQrConnectionStatus;
@@ -36,9 +47,8 @@ type QrSessionState = {
   updatedAt?: string;
 };
 
-/** Real Baileys socket internal state — `any` for socket matches existing whatsapp.service.ts pattern */
 type RealSocketState = {
-  socket: any;
+  socket: WASocket | null;
   connectionStatus: SofiaWhatsappQrConnectionStatus;
   qrString: string | null;
   qrImageDataUrl: string | null;
@@ -93,7 +103,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     /* If we have a real socket, return real state */
-    const [state, inboundToday, outboundToday, pendingOutbound, sessionStorage] = await Promise.all([
+    const [state, inboundToday, outboundToday, pendingOutbound, sessionStorage, runtimeGate] = await Promise.all([
       this.getSessionState(),
       this.prisma.whatsappInboundEvent.count({
         where: { provider: 'qr_gateway', receivedAt: { gte: todayStart } },
@@ -108,6 +118,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         },
       }),
       this.ensureSessionStorageReady(false),
+      this.getQrRuntimeGate(),
     ]);
 
     /* Merge real socket state with persisted state */
@@ -119,7 +130,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
      * F8B hardening: public QR/CONNECTED state must only come from the live
      * Baileys socket. Persisted state is audit metadata, not connection proof.
      */
-    const enabled = this.configService.get<boolean>('WHATSAPP_QR_ENABLED') === true;
+    const enabled = runtimeGate.allowed;
     const status: SofiaWhatsappQrConnectionStatus = !enabled
       ? 'DISABLED'
       : this.real.socket
@@ -131,8 +142,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     const connected = realConnected;
     const adapterReal = Boolean(this.real.socket);
     const ok = adapterReal && (qrAvailable || connected);
-    const reason = this.statusReason({ status, adapterReal, qrAvailable, connected });
-    const operatorMessage = this.operatorMessage({ status, adapterReal, qrAvailable, connected });
+    const reason = runtimeGate.allowed
+      ? this.statusReason({ status, adapterReal, qrAvailable, connected })
+      : runtimeGate.reason;
+    const operatorMessage = runtimeGate.allowed
+      ? this.operatorMessage({ status, adapterReal, qrAvailable, connected })
+      : runtimeGate.reason === 'QR_GATEWAY_DISABLED'
+        ? 'WhatsApp QR está deshabilitado por configuración.'
+        : 'WhatsApp QR está bloqueado por gobernanza operativa.';
 
     return {
       provider: 'qr_gateway',
@@ -187,8 +204,17 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   async connect(actorId: string) {
-    if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
-      return this.getStatus();
+    const runtimeGate = await this.getQrRuntimeGate();
+    if (!runtimeGate.allowed) {
+      await this.audit('SOFIA_QR_CONNECT_BLOCKED', actorId, {
+        reason: runtimeGate.reason,
+        valuesSanitized: true,
+      });
+      throw new BadRequestException({
+        status: 'BLOCKED',
+        reason: runtimeGate.reason,
+        message: 'WhatsApp QR permanece bloqueado por gobernanza operativa.',
+      });
     }
 
     const now = new Date();
@@ -505,12 +531,12 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
   }
 
-  private async createRealSocket(sessionName: string) {
-    const authDir = this.sessionPath();
+  private async createRealSocket(_sessionName: string) {
     const sessionStorage = await this.ensureSessionStorageReady(true);
     if (!sessionStorage.ok) {
       throw new Error(sessionStorage.error ?? 'QR session storage is not writable.');
     }
+    const authDir = await this.resolveSessionDirectory();
 
     this.real.connectionStatus = 'CONNECTING';
     this.real.lastError = null;
@@ -546,7 +572,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     });
   }
 
-  private async onRealConnectionUpdate(update: any) {
+  private async onRealConnectionUpdate(
+    update: BaileysEventMap['connection.update'],
+  ) {
     this.real.lastConnectionUpdateAt = new Date().toISOString();
 
     /* Real QR received from WhatsApp servers */
@@ -571,7 +599,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     /* Connected */
     if (update.connection === 'open') {
-      const rawJid = (this.real.socket as any)?.user?.id ?? null;
+      const rawJid = this.real.socket?.user?.id ?? null;
       const phoneNumber = typeof rawJid === 'string' ? rawJid.replace(/:\d+$/, '') : null;
       this.real.connectionStatus = 'CONNECTED';
       this.real.qrString = null;
@@ -579,7 +607,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       this.real.phoneNumber = phoneNumber;
       this.real.lastError = null;
       this.real.lastErrorCode = null;
-      this.logger.log(`WhatsApp QR Gateway CONNECTED${phoneNumber ? ` (${phoneNumber})` : ''}`);
+      this.logger.log(
+        `WhatsApp QR Gateway CONNECTED${phoneNumber ? ` (${this.maskPhone(phoneNumber)})` : ''}`,
+      );
     }
 
     /* Disconnected / Error */
@@ -603,7 +633,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
   }
 
-  private async onRealMessagesUpsert(payload: any) {
+  private async onRealMessagesUpsert(payload: BaileysEventMap['messages.upsert']) {
     if (!payload?.messages?.length) return;
 
     for (const msg of payload.messages) {
@@ -612,19 +642,30 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       if (key.fromMe) continue;
 
       const remoteJid: string = key?.remoteJid ?? '';
-      const phone = remoteJid.replace(/@s\.whatsapp\.net$|@g\.us$/, '').replace(/:\d+$/, '');
+      if (!remoteJid.endsWith('@s.whatsapp.net') || remoteJid === 'status@broadcast') continue;
+      const phone = remoteJid.replace(/@s\.whatsapp\.net$/, '').replace(/:\d+$/, '');
 
       if (!phone) continue;
 
       /* Extract text from WhatsApp message */
-      const msgContent = msg?.message ?? {};
+      const msgContent: WAMessageContent = msg.message ?? {};
       const conversation =
-        (msgContent as any).conversation ??
-        (msgContent as any).extendedTextMessage?.text ??
-        (msgContent as any).imageMessage?.caption ??
-        (msgContent as any).videoMessage?.caption ??
+        msgContent.conversation ??
+        msgContent.extendedTextMessage?.text ??
+        msgContent.imageMessage?.caption ??
+        msgContent.videoMessage?.caption ??
         '';
       const text = typeof conversation === 'string' ? conversation : '';
+      const messageType = msgContent.audioMessage
+        ? 'AUDIO'
+        : msgContent.imageMessage || msgContent.videoMessage
+          ? 'IMAGE'
+          : msgContent.buttonsResponseMessage || msgContent.listResponseMessage
+            ? 'INTERACTIVE'
+            : msgContent.locationMessage
+              ? 'SYSTEM'
+              : 'TEXT';
+      const providerTimestamp = Number(msg.messageTimestamp ?? 0);
 
       /* Build inbound payload matching existing format */
       const rawPayload = {
@@ -634,25 +675,34 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         providerMessageId: String(key?.id ?? ''),
         phone,
         text,
-        messageType: 'TEXT' as const,
+        messageType,
         fromMe: false,
-        timestamp: new Date().toISOString(),
+        timestamp:
+          Number.isFinite(providerTimestamp) && providerTimestamp > 0
+            ? new Date(providerTimestamp * 1_000).toISOString()
+            : new Date().toISOString(),
         rawSummaryJson: {
           source: 'REAL_BAILEYS_INBOUND',
           hasText: Boolean(text),
-          remoteJid,
+          hasMedia: Boolean(msgContent.audioMessage || msgContent.imageMessage || msgContent.videoMessage),
+          jidType: 'individual',
         },
       };
 
       try {
-        await this.sofiaWhatsappService.processInboundWebhook('qr_gateway', rawPayload, {
-          'x-sofia-whatsapp-mode': 'receive_only',
-          'x-sofia-whatsapp-provider': 'qr_gateway',
-        });
+        await this.sofiaWhatsappService.processInboundWebhook(
+          'qr_gateway',
+          rawPayload,
+          {
+            'x-sofia-whatsapp-mode': 'receive_only',
+            'x-sofia-whatsapp-provider': 'qr_gateway',
+          },
+          { trustedBaileysTransport: true },
+        );
         this.logger.log(`Real inbound processed from ${this.maskPhone(phone)}`);
       } catch (error) {
         this.logger.error(
-          `Failed to process real inbound from ${this.maskPhone(phone)}: ${error instanceof Error ? error.message : error}`,
+          `Failed to process real inbound from ${this.maskPhone(phone)}: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error)) ?? 'UNKNOWN_ERROR'}`,
         );
       }
     }
@@ -673,7 +723,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
 
     try {
-      await (socket as any)?.end?.(undefined);
+      await socket.end(undefined);
     } catch {
       // best effort
     }
@@ -692,17 +742,23 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
   private extractDisconnectCode(error: unknown): number | null {
     if (typeof error === 'object' && error !== null) {
-      const e = error as any;
-      if (typeof e.statusCode === 'number') return e.statusCode;
-      if (typeof e.output?.statusCode === 'number') return e.output.statusCode;
+      const candidate = error as Record<string, unknown>;
+      if (typeof candidate.statusCode === 'number') return candidate.statusCode;
+
+      const output = candidate.output;
+      if (typeof output === 'object' && output !== null) {
+        const outputRecord = output as Record<string, unknown>;
+        if (typeof outputRecord.statusCode === 'number') return outputRecord.statusCode;
+      }
     }
     return null;
   }
 
   private async clearAuthDir() {
     try {
-      const files = await fs.readdir(this.sessionPath());
-      await Promise.all(files.map((f) => fs.unlink(path.join(this.sessionPath(), f))));
+      const sessionRoot = await this.resolveSessionDirectory();
+      const files = await this.readDirectory(sessionRoot);
+      await Promise.all(files.map((fileName) => this.unlinkSessionEntry(sessionRoot, fileName)));
     } catch {
       // directory might not exist
     }
@@ -748,6 +804,37 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
   private defaultStatus(): SofiaWhatsappQrConnectionStatus {
     return 'DISCONNECTED';
+  }
+
+  private async getQrRuntimeGate() {
+    if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
+      return { allowed: false, reason: 'QR_GATEWAY_DISABLED' as const };
+    }
+
+    const settings = await this.prisma.setting.findMany({
+      where: { key: { in: Object.values(QR_RUNTIME_GATE_SETTING_KEYS) } },
+      select: { key: true, value: true },
+    });
+    const values = new Map(
+      settings.map((setting) => [
+        setting.key,
+        setting.value && typeof setting.value === 'object' && !Array.isArray(setting.value)
+          ? (setting.value as Record<string, unknown>)
+          : {},
+      ]),
+    );
+
+    if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.killSwitch)?.active === true) {
+      return { allowed: false, reason: 'KILL_SWITCH_ACTIVE' as const };
+    }
+    if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.globalPaused)?.paused === true) {
+      return { allowed: false, reason: 'GLOBAL_PAUSED' as const };
+    }
+    if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.qrRealAllowed)?.allowed !== true) {
+      return { allowed: false, reason: 'QR_GOVERNANCE_NOT_APPROVED' as const };
+    }
+
+    return { allowed: true, reason: 'QR_GOVERNANCE_APPROVED' as const };
   }
 
   private safePersistedStatus(status?: SofiaWhatsappQrConnectionStatus): SofiaWhatsappQrConnectionStatus {
@@ -798,7 +885,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
   private sanitizeErrorMessage(message: string | null) {
     if (!message) return null;
-    return message
+    return (redactSensitiveText(message) ?? '')
       .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_SECRET]')
       .replace(/AIza[A-Za-z0-9_-]+/g, '[REDACTED_SECRET]')
       .replace(/\/app\/storage/g, '[REDACTED_STORAGE_PATH]')
@@ -807,7 +894,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   private resolveMode(
-    state: QrSessionState,
+    _state: QrSessionState,
   ): 'disabled' | 'receive_only' | 'supervised' | 'auto_safe' {
     return 'receive_only';
   }
@@ -827,25 +914,15 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return `${withoutAppPrefix}/${this.configService.get<string>('WHATSAPP_QR_SESSION_NAME') || 'sofia-main'}`;
   }
 
-  private sessionPath() {
-    const configured =
-      this.configService.get<string>('WHATSAPP_QR_SESSION_PATH') || './storage/whatsapp-sessions';
-    return path.resolve(
-      process.cwd(),
-      configured,
-      this.configService.get<string>('WHATSAPP_QR_SESSION_NAME') || 'sofia-main',
-    );
-  }
-
   private async ensureSessionStorageReady(writeTest: boolean) {
     try {
-      const sessionPath = this.sessionPath();
-      await fs.mkdir(sessionPath, { recursive: true, mode: 0o700 });
+      const sessionPath = await this.resolveSessionDirectory();
       if (writeTest) {
-        const testFile = path.join(sessionPath, `.write-test-${process.pid}-${Date.now()}`);
-        await fs.writeFile(testFile, 'ok', { mode: 0o600 });
-        const content = await fs.readFile(testFile, 'utf8');
-        await fs.unlink(testFile);
+        const testFile = this.resolveChildPath(
+          sessionPath,
+          `.write-test-${process.pid}-${Date.now()}`,
+        );
+        const content = await this.writeReadAndRemoveTestFile(testFile);
         if (content !== 'ok') {
           return { ok: false, error: 'QR_SESSION_STORAGE_WRITE_TEST_FAILED' };
         }
@@ -855,6 +932,102 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       const message = error instanceof Error ? error.message : 'QR session storage is not writable.';
       return { ok: false, error: message };
     }
+  }
+
+  private sessionRootPath(): string {
+    const configured =
+      this.configService.get<string>('WHATSAPP_QR_SESSION_PATH') || './storage/whatsapp-sessions';
+    return path.isAbsolute(configured)
+      ? path.normalize(configured)
+      : path.resolve(process.cwd(), configured);
+  }
+
+  private safeSessionName(): string {
+    const sessionName =
+      this.configService.get<string>('WHATSAPP_QR_SESSION_NAME') || 'sofia-main';
+    if (
+      sessionName.length > 80 ||
+      sessionName === '.' ||
+      sessionName === '..' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionName)
+    ) {
+      throw new Error('QR_SESSION_NAME_INVALID');
+    }
+    return sessionName;
+  }
+
+  private resolveChildPath(root: string, childName: string): string {
+    if (!childName || childName === '.' || childName === '..' || path.basename(childName) !== childName) {
+      throw new Error('QR_SESSION_PATH_OUTSIDE_ROOT');
+    }
+    const normalizedRoot = path.resolve(root);
+    const candidate = path.resolve(normalizedRoot, childName);
+    const relative = path.relative(normalizedRoot, candidate);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('QR_SESSION_PATH_OUTSIDE_ROOT');
+    }
+    return candidate;
+  }
+
+  private async resolveSessionDirectory(): Promise<string> {
+    const configuredRoot = this.sessionRootPath();
+    await this.createDirectory(configuredRoot);
+    const canonicalRoot = await this.realPath(configuredRoot);
+    const sessionDirectory = this.resolveChildPath(canonicalRoot, this.safeSessionName());
+    await this.createDirectory(sessionDirectory);
+    const canonicalSessionDirectory = await this.realPath(sessionDirectory);
+    const relative = path.relative(canonicalRoot, canonicalSessionDirectory);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('QR_SESSION_PATH_OUTSIDE_ROOT');
+    }
+    return canonicalSessionDirectory;
+  }
+
+  private async unlinkSessionEntry(sessionRoot: string, fileName: string): Promise<void> {
+    const targetPath = this.resolveChildPath(sessionRoot, fileName);
+    // unlink removes a symlink itself and never follows it to an external target.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    await fs.unlink(targetPath);
+  }
+
+  private async writeReadAndRemoveTestFile(testFile: string): Promise<string> {
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+    try {
+      // The exclusive create prevents replacing or following an existing entry.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      handle = await fs.open(testFile, 'wx', 0o600);
+      await handle.writeFile('ok', 'utf8');
+      const content = Buffer.alloc(2);
+      const { bytesRead } = await handle.read(content, 0, content.length, 0);
+      return content.subarray(0, bytesRead).toString('utf8');
+    } finally {
+      await handle?.close();
+      try {
+        // testFile is generated internally and resolved inside the canonical session root.
+        // eslint-disable-next-line security/detect-non-literal-fs-filename
+        await fs.unlink(testFile);
+      } catch {
+        // The storage readiness result is determined by the primary operation.
+      }
+    }
+  }
+
+  private async createDirectory(directory: string): Promise<void> {
+    // Callers provide either the configured root or a child validated by resolveChildPath().
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  }
+
+  private async realPath(directory: string): Promise<string> {
+    // Canonicalization is required to reject directory symlink escapes.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    return fs.realpath(directory);
+  }
+
+  private async readDirectory(directory: string): Promise<string[]> {
+    // directory is the canonical session root returned by resolveSessionDirectory().
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    return fs.readdir(directory);
   }
 
   private blockers() {

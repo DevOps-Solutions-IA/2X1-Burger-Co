@@ -18,7 +18,7 @@ function fixture(count) {
   return { root, names, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-for (const count of [29, 30, 31]) {
+for (const count of [29, 30, 31, 32, 33]) {
   test(`derives ${count} migrations without a configured total`, () => {
     const value = fixture(count);
     try {
@@ -26,6 +26,8 @@ for (const count of [29, 30, 31]) {
       assert.equal(expectation.count, count);
       assert.equal(expectation.latest, value.names.at(-1));
       assert.match(expectation.fingerprint, /^[a-f0-9]{64}$/);
+      assert.equal(expectation.inventory.length, count);
+      assert.match(expectation.inventory[0].checksum, /^[a-f0-9]{64}$/);
     } finally {
       value.cleanup();
     }
@@ -79,8 +81,26 @@ test('accepts the exact successful migration set', () => {
   const value = fixture(3);
   try {
     const expectation = resolveMigrationExpectation(value.root);
-    const rows = value.names.map((migrationName) => ({ migrationName, finished: true, rolledBack: false }));
+    const rows = expectation.inventory.map(({ name: migrationName, checksum }) => ({ migrationName, checksum, finished: true, rolledBack: false }));
     assert.equal(evaluateAppliedMigrations(expectation, rows).compatible, true);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test('rejects an applied migration whose checksum differs from source', () => {
+  const value = fixture(2);
+  try {
+    const expectation = resolveMigrationExpectation(value.root);
+    const rows = expectation.inventory.map(({ name: migrationName, checksum }, index) => ({
+      migrationName,
+      checksum: index === 1 ? '0'.repeat(64) : checksum,
+      finished: true,
+      rolledBack: false,
+    }));
+    const result = evaluateAppliedMigrations(expectation, rows);
+    assert.equal(result.compatible, false);
+    assert.deepEqual(result.checksumMismatch, [value.names[1]]);
   } finally {
     value.cleanup();
   }

@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-80%
+88%
 
 ## Source State
 PASS
@@ -31,6 +31,7 @@ NOT READY
 | DAS-01 | MEDIA | Snapshot operacional existe bajo RBAC, pero no hay backend historico. | `/health/observability` | Graficas/SLO persistentes no disponibles. |
 | DAS-02 | MEDIA | No existe canal de alertas real ni owner asignado. | alert catalog | Panel no reemplaza incident response. |
 | DAS-03 | MEDIA | UI operacional Phase 2.4 no fue redisenada; endpoint es la base preparada. | restore smoke | Visualizacion final pendiente. |
+| DAS-04 | BAJA | Dashboard operativo pasa contratos runtime, mobile, overflow y WCAG A/AA. | Playwright 3X 2026-07-27 | UI local demostrada. |
 
 ## Bloqueadores
 
@@ -58,11 +59,12 @@ NOT READY
 - SLO/error budgets calculables.
 
 ## Ultima auditoria
-2026-07-14.
+2026-07-27.
 
 ## Historial
 
 - Phase 2.4: snapshot real de system/HTTP/DB/recovery/safety disponible; business metrics protegidas por RBAC.
+- Enterprise resilience: dashboard tipado y accesible validado 3X en artifact efimero.
 
 ## GO
 NO

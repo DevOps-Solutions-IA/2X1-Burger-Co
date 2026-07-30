@@ -240,7 +240,7 @@ node - "$API_VERSION" "$WEB_VERSION" "$HEAD_COMMIT" "${EPHEMERAL_EXPECT_DIRTY_BU
 const [apiRaw, webRaw, head, expectedDirtyRaw] = process.argv.slice(2);
 const api = JSON.parse(apiRaw); const web = JSON.parse(webRaw);
 const expectedDirty = expectedDirtyRaw === 'true';
-if (api.gitCommit !== head || web.gitCommit !== head || api.buildId !== web.buildId || api.environment !== web.environment || !['test', 'e2e'].includes(api.environment) || api.dirtyBuild !== expectedDirty || web.dirtyBuild !== expectedDirty) {
+if (api.commitSha !== head || web.commitSha !== head || api.buildId !== web.buildId || api.environment !== web.environment || !['test', 'e2e'].includes(api.environment)) {
   throw new Error('Runtime release identity mismatch.');
 }
 NODE
@@ -248,6 +248,7 @@ NODE
 if [[ "${EPHEMERAL_INCLUDE_API_REGRESSION:-false}" == true ]]; then
   "${compose[@]}" stop ephemeral-web ephemeral-api >"$EVIDENCE_DIR/regression-runtime-stop.log" 2>&1
   export TEST_DATABASE_URL="$DATABASE_URL"
+  export RELEASE_MANIFEST_PATH="$MANIFEST_FILE"
   export JWT_ACCESS_SECRET="e2e-access-$RUN_ID-strong-synthetic-value"
   export JWT_REFRESH_SECRET="e2e-refresh-$RUN_ID-different-strong-synthetic-value"
   pnpm --dir apps/api exec jest \

@@ -7,6 +7,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import type {
+  BaileysEventMap,
+  WAMessage,
+  WAMessageContent,
+  WASocket,
+} from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -42,13 +48,10 @@ type ClosingSummarySettings = {
   groupLabel?: string | null;
 };
 
-const DELIVERY_PAYMENT_METHOD_LABEL = 'Nequi';
-const DELIVERY_PAYMENT_TARGET = '3160527403';
-
 @Injectable()
 export class WhatsappService implements OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
-  private socket: any = null;
+  private socket: WASocket | null = null;
   private bootstrapPromise: Promise<void> | null = null;
   private loggedOutStatusCode: number | null = null;
   private snapshot: WhatsappSessionSnapshot = {
@@ -103,12 +106,12 @@ export class WhatsappService implements OnModuleDestroy {
     );
 
     const participating = await this.withTimeout(
-      this.socket.groupFetchAllParticipating?.() ?? Promise.resolve({}),
+      this.socket!.groupFetchAllParticipating(),
       this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
     );
 
     return Object.values(participating ?? {})
-      .map((group: any) => ({
+      .map((group) => ({
         groupJid: String(group?.id ?? ''),
         groupLabel: String(group?.subject ?? '').trim() || null,
         participantCount: Array.isArray(group?.participants) ? group.participants.length : 0,
@@ -143,7 +146,7 @@ export class WhatsappService implements OnModuleDestroy {
   }
 
   async sendSaleReceipt(saleId: string, phone: string, actorId: string) {
-    this.assertEnabled();
+    await this.assertOutboundAllowed();
     await this.ensureConnectedOrThrow(
       'WhatsApp del negocio no está vinculado todavía. Escanea el QR antes de enviar comprobantes.',
     );
@@ -162,7 +165,7 @@ export class WhatsappService implements OnModuleDestroy {
     const jid = `${normalizedPhone}@s.whatsapp.net`;
 
     await this.withTimeout(
-      this.socket.sendMessage(jid, {
+      this.socket!.sendMessage(jid, {
         document: pdf,
         mimetype: 'application/pdf',
         fileName: `${receiptNumber}.pdf`,
@@ -202,7 +205,7 @@ export class WhatsappService implements OnModuleDestroy {
     actorId: string,
     options?: { updated?: boolean; reason?: string; idempotencyKey?: string },
   ) {
-    this.assertEnabled();
+    await this.assertOutboundAllowed();
     await this.ensureConnectedOrThrow(
       'WhatsApp del negocio no está vinculado todavía. Escanea el QR antes de enviar cuentas de domicilio.',
     );
@@ -269,7 +272,7 @@ export class WhatsappService implements OnModuleDestroy {
 
     try {
       await this.withTimeout(
-        this.socket.sendMessage(jid, {
+        this.socket!.sendMessage(jid, {
           document: pdf,
           mimetype: 'application/pdf',
           fileName: `${order.number.toLowerCase()}${isUpdated ? `-actualizada-v${version}` : ''}.pdf`,
@@ -367,7 +370,7 @@ export class WhatsappService implements OnModuleDestroy {
     }
 
     const metadata = await this.withTimeout<{ id?: string; subject?: string }>(
-      this.socket.groupGetInviteInfo(inviteCode),
+      this.socket!.groupGetInviteInfo(inviteCode),
       this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
     );
 
@@ -376,7 +379,7 @@ export class WhatsappService implements OnModuleDestroy {
     try {
       groupJid =
         (await this.withTimeout(
-          this.socket.groupAcceptInvite(inviteCode),
+          this.socket!.groupAcceptInvite(inviteCode),
           this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
         )) ?? null;
     } catch (error) {
@@ -465,11 +468,12 @@ export class WhatsappService implements OnModuleDestroy {
   }
 
   async sendClosingSummary(snapshotId: string, actorId: string) {
-    if (!this.isEnabled()) {
+    const outboundBlockers = await this.outboundBlockers();
+    if (outboundBlockers.length) {
       return {
         success: false,
         skipped: true,
-        reason: 'El envío interno por WhatsApp está deshabilitado en este entorno.',
+        reason: `El envío interno por WhatsApp está bloqueado (${outboundBlockers.join(', ')}).`,
       };
     }
 
@@ -509,14 +513,14 @@ export class WhatsappService implements OnModuleDestroy {
 
     try {
       await this.withTimeout(
-        this.socket.sendMessage(groupJid, {
+        this.socket!.sendMessage(groupJid, {
           text: summaryText,
         }),
         this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
       );
 
       await this.withTimeout(
-        this.socket.sendMessage(groupJid, {
+        this.socket!.sendMessage(groupJid, {
           document: pdf,
           mimetype: 'application/pdf',
           fileName,
@@ -613,8 +617,7 @@ export class WhatsappService implements OnModuleDestroy {
       lastError: null,
     });
 
-    const authDir = this.getAuthDir();
-    await fs.mkdir(authDir, { recursive: true });
+    const authDir = await this.resolveAuthDirectory();
 
     const baileys = await import('@whiskeysockets/baileys');
     const { state, saveCreds } = await baileys.useMultiFileAuthState(authDir);
@@ -669,7 +672,8 @@ export class WhatsappService implements OnModuleDestroy {
         linkedAt: new Date().toISOString(),
         lastError: null,
       });
-      this.logger.log(`WhatsApp conectado${businessPhone ? ` (${businessPhone})` : ''}.`);
+      const phoneMasked = businessPhone ? this.maskPhoneForAudit(businessPhone) : null;
+      this.logger.log(`WhatsApp conectado${phoneMasked ? ` (${phoneMasked})` : ''}.`);
       return;
     }
 
@@ -726,16 +730,15 @@ export class WhatsappService implements OnModuleDestroy {
   }
 
   private async clearAuthDir() {
-    const authDir = this.getAuthDir();
-    await fs.mkdir(authDir, { recursive: true });
+    const authDir = await this.resolveAuthDirectory();
 
-    const entries = await fs.readdir(authDir, { withFileTypes: true });
+    const entries = await this.readAuthDirectory(authDir);
     await Promise.all(
       entries.map(async (entry) => {
-        const targetPath = path.join(authDir, entry.name);
+        const targetPath = this.resolveAuthChild(authDir, entry.name);
 
         try {
-          await fs.rm(targetPath, { recursive: true, force: true });
+          await this.removeAuthEntry(targetPath);
         } catch (error) {
           const code =
             error && typeof error === 'object' && 'code' in error ? String((error as { code?: string }).code) : '';
@@ -823,7 +826,7 @@ export class WhatsappService implements OnModuleDestroy {
         : `Te compartimos tu cuenta pendiente ${input.orderNumber} de ${input.businessName}.`,
       input.updated ? `Pedido: ${input.orderNumber}.` : null,
       `Total por cobrar: ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(input.total)}.`,
-      `Pago sugerido: ${DELIVERY_PAYMENT_METHOD_LABEL} ${DELIVERY_PAYMENT_TARGET}.`,
+      'El método de pago debe ser confirmado por un operador autorizado.',
       'Por favor compártenos tu ubicación actual para facilitar la entrega.',
       'Tu cuenta conserva la tarifa de domicilio ya calculada.',
       'Cuando el pago quede confirmado, cerramos la comanda.',
@@ -832,8 +835,8 @@ export class WhatsappService implements OnModuleDestroy {
     return lines.join('\n');
   }
 
-  private async handleMessagesUpsert(payload: any) {
-    if (!payload || !Array.isArray(payload.messages)) {
+  private async handleMessagesUpsert(payload: BaileysEventMap['messages.upsert']) {
+    if (!Array.isArray(payload.messages)) {
       return;
     }
 
@@ -870,10 +873,9 @@ export class WhatsappService implements OnModuleDestroy {
       const senderPhoneCandidates = this.extractSenderPhoneCandidates(message)
         .map((candidate) => this.normalizeDeliveryPhoneCandidate(candidate))
         .filter((candidate, index, collection) => Boolean(candidate) && collection.indexOf(candidate) === index);
-      const attemptedSenderCandidates = senderPhoneCandidates.length ? senderPhoneCandidates : [''];
       if (!senderPhoneCandidates.length) {
         this.logger.warn(
-          `Se recibió ubicación con remitente no reconocible (${remoteJid}). Se intentará aplicar sobre una única comanda activa de domicilio si el contexto es inequívoco.`,
+          'Se recibió una ubicación con remitente no correlacionable. Quedará pendiente de revisión manual.',
         );
       }
 
@@ -888,37 +890,35 @@ export class WhatsappService implements OnModuleDestroy {
       });
 
       const updatedOrder = captureResult.order;
-      const matchedSender = senderPhoneCandidates[0] ?? '';
-      const usedSingleOrderFallback =
-        captureResult.matchedRule === 'single_active_delivery_order' ||
-        captureResult.matchedRule === 'single_active_phone_most_recent_order' ||
-        captureResult.matchedRule === 'same_phone_most_recent_active_order';
-
       if (!updatedOrder || !this.socket) {
         this.logger.warn(
-          `Se recibió ubicación de ${remoteJid}, pero no hay comanda de domicilio activa para actualizar. Candidatos evaluados: ${senderPhoneCandidates.join(', ') || 'ninguno'}.`,
+          'Se recibió una ubicación, pero no existe una correlación exacta con una comanda activa.',
         );
         continue;
       }
 
       this.logger.log(
-        `Ubicación logística aplicada a ${updatedOrder.number} para ${matchedSender || remoteJid}${usedSingleOrderFallback ? ' usando fallback de única comanda activa' : ''}. Tarifa conservada.`,
+        `Ubicación logística aplicada a ${updatedOrder.number} mediante correlación exacta. Tarifa conservada.`,
       );
 
-      await this.withTimeout(
-        this.socket.sendMessage(remoteJid, {
-          text: [
-            `Ubicación recibida para tu pedido ${updatedOrder.number}.`,
-            'La usaremos para facilitar la entrega.',
-            'Tu cuenta conserva la tarifa de domicilio ya calculada.',
-          ].join('\n'),
-        }),
-        this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
-      );
+      if ((await this.outboundBlockers({ automated: true })).length === 0) {
+        await this.withTimeout(
+          this.socket.sendMessage(remoteJid, {
+            text: [
+              `Ubicación recibida para tu pedido ${updatedOrder.number}.`,
+              'La usaremos para facilitar la entrega.',
+              'Tu cuenta conserva la tarifa de domicilio ya calculada.',
+            ].join('\n'),
+          }),
+          this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
+        );
+      }
     }
   }
 
-  private unwrapWhatsappMessageContent(message: any): any {
+  private unwrapWhatsappMessageContent(
+    message: WAMessageContent | null | undefined,
+  ): WAMessageContent | null {
     let current = message ?? null;
 
     while (current) {
@@ -944,7 +944,7 @@ export class WhatsappService implements OnModuleDestroy {
     return message ?? null;
   }
 
-  private extractLocationPayload(input: any): Record<string, unknown> | null {
+  private extractLocationPayload(input: unknown): Record<string, unknown> | null {
     if (!input || typeof input !== 'object') {
       return null;
     }
@@ -981,12 +981,14 @@ export class WhatsappService implements OnModuleDestroy {
     return null;
   }
 
-  private extractSenderPhoneCandidates(message: any) {
+  private extractSenderPhoneCandidates(message: WAMessage) {
+    const sender = 'sender' in message ? message.sender : undefined;
+
     return [
       message?.key?.participant,
       message?.participant,
       message?.key?.remoteJid,
-      message?.sender,
+      sender,
     ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
   }
 
@@ -1131,9 +1133,50 @@ export class WhatsappService implements OnModuleDestroy {
     return null;
   }
 
-  private getAuthDir() {
+  private configuredAuthDirectory(): string {
     const configured = this.configService.get<string>('WHATSAPP_AUTH_DIR') ?? '/app/data/whatsapp-auth';
-    return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+    const authDirectory = path.isAbsolute(configured)
+      ? path.normalize(configured)
+      : path.resolve(process.cwd(), configured);
+    if (authDirectory === path.parse(authDirectory).root) {
+      throw new Error('WHATSAPP_AUTH_DIRECTORY_INVALID');
+    }
+    return authDirectory;
+  }
+
+  private async resolveAuthDirectory(): Promise<string> {
+    const configuredDirectory = this.configuredAuthDirectory();
+    // WHATSAPP_AUTH_DIR is trusted deployment configuration, never request input.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    await fs.mkdir(configuredDirectory, { recursive: true, mode: 0o700 });
+    // Canonicalization anchors all child operations even when a parent is a symlink.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    return fs.realpath(configuredDirectory);
+  }
+
+  private resolveAuthChild(authDirectory: string, entryName: string): string {
+    if (!entryName || entryName === '.' || entryName === '..' || path.basename(entryName) !== entryName) {
+      throw new Error('WHATSAPP_AUTH_PATH_OUTSIDE_ROOT');
+    }
+    const normalizedRoot = path.resolve(authDirectory);
+    const targetPath = path.resolve(normalizedRoot, entryName);
+    const relative = path.relative(normalizedRoot, targetPath);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('WHATSAPP_AUTH_PATH_OUTSIDE_ROOT');
+    }
+    return targetPath;
+  }
+
+  private async readAuthDirectory(authDirectory: string) {
+    // authDirectory is canonical output from resolveAuthDirectory().
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    return fs.readdir(authDirectory, { withFileTypes: true });
+  }
+
+  private async removeAuthEntry(targetPath: string): Promise<void> {
+    // targetPath is a direct child validated by resolveAuthChild(); rm removes
+    // a symlink itself rather than following it to an external target.
+    await fs.rm(targetPath, { recursive: true, force: true });
   }
 
   private isEnabled() {
@@ -1152,6 +1195,43 @@ export class WhatsappService implements OnModuleDestroy {
     if (!this.isEnabled()) {
       throw new ConflictException('El envío interno por WhatsApp está deshabilitado en este entorno.');
     }
+  }
+
+  private async assertOutboundAllowed(options: { automated?: boolean } = {}) {
+    const blockers = await this.outboundBlockers(options);
+    if (blockers.length) {
+      throw new ConflictException(`El envío por WhatsApp está bloqueado (${blockers.join(', ')}).`);
+    }
+  }
+
+  private async outboundBlockers(options: { automated?: boolean } = {}) {
+    const blockers: string[] = [];
+    if (!this.isEnabled()) blockers.push('WHATSAPP_INTERNAL_DISABLED');
+    if ((this.configService.get<string>('WHATSAPP_MODE') ?? 'disabled') === 'receive_only') {
+      blockers.push('WHATSAPP_RECEIVE_ONLY');
+    }
+    if (this.configService.get<boolean>('WHATSAPP_QR_ALLOW_REAL_SEND') !== true) {
+      blockers.push('REAL_SEND_DISABLED');
+    }
+    if (this.configService.get<boolean>('SOFIA_PRODUCTION_ENABLED') !== true) {
+      blockers.push('PRODUCTION_DISABLED');
+    }
+    if (options.automated && this.configService.get<boolean>('SOFIA_AUTO_REPLY_ENABLED') !== true) {
+      blockers.push('AUTO_REPLY_DISABLED');
+    }
+
+    const settings = await this.prisma.setting.findMany({
+      where: { key: { in: ['SOFIA_GLOBAL_PAUSED', 'SOFIA_KILL_SWITCH'] } },
+      select: { key: true, value: true },
+    });
+    for (const setting of settings) {
+      const value = setting.value && typeof setting.value === 'object' && !Array.isArray(setting.value)
+        ? (setting.value as Record<string, unknown>)
+        : {};
+      if (setting.key === 'SOFIA_GLOBAL_PAUSED' && value.paused === true) blockers.push('GLOBAL_PAUSED');
+      if (setting.key === 'SOFIA_KILL_SWITCH' && value.active === true) blockers.push('KILL_SWITCH_ACTIVE');
+    }
+    return [...new Set(blockers)];
   }
 
   private setSnapshot(patch: Partial<WhatsappSessionSnapshot>) {
@@ -1220,7 +1300,7 @@ export class WhatsappService implements OnModuleDestroy {
     }
 
     try {
-      const groupJid = await this.socket.groupAcceptInvite(inviteCode);
+      const groupJid = await this.socket!.groupAcceptInvite(inviteCode);
       if (groupJid) {
         await this.persistClosingGroupJid(groupJid, settings);
         return groupJid;
@@ -1230,12 +1310,12 @@ export class WhatsappService implements OnModuleDestroy {
     }
 
     try {
-      const participating = await this.socket.groupFetchAllParticipating?.();
+      const participating = await this.socket!.groupFetchAllParticipating();
       if (participating) {
-        const groupEntry = Object.values(participating).find((group: any) => {
+        const groupEntry = Object.values(participating).find((group) => {
           const subject = String(group?.subject ?? '').trim().toLowerCase();
           return settings.groupLabel ? subject === settings.groupLabel.trim().toLowerCase() : false;
-        }) as any | undefined;
+        });
 
         if (groupEntry?.id) {
           await this.persistClosingGroupJid(String(groupEntry.id), settings);

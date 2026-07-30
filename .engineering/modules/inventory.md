@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-88%
+91%
 
 ## Source State
 PASS
@@ -19,7 +19,7 @@ PASS
 PASS EFIMERO
 
 ## Operational State
-PASS LOCAL / AUDITORIA CONDICIONADA
+PASS LOCAL
 
 ## Production State
 NOT READY
@@ -35,7 +35,7 @@ NOT READY
 
 ## Bloqueadores
 
-- Recovery/artifact release limpio.
+- Required CI y staging remoto.
 - Tipado de Inventory/Purchases.
 - Performance/concurrency con volumen representativo.
 
@@ -62,12 +62,13 @@ NOT READY
 - Performance budget PASS.
 
 ## Última auditoría
-2026-07-14.
+2026-07-15.
 
 ## Historial
 
 - Phase 2.5: compra, ajustes concurrentes, guard negativo y conteo 3X PASS.
 - Phase 2.5.1: auditoria transaccional parcial integrada; E2E audit NO-GO.
+- Phase 2.5.1-R2: purchase/adjustment/count/audit 3X, recovery y artifact limpio PASS.
 
 ## GO
 NO

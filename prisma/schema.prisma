@@ -236,6 +236,62 @@ enum SofiaMemoryConsentState {
   OPTED_OUT
 }
 
+enum CustomerStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum CustomerIdentityType {
+  PHONE
+}
+
+enum CustomerConsentPurpose {
+  MARKETING
+  SERVICE
+}
+
+enum CustomerConsentChannel {
+  WHATSAPP
+  SMS
+  PHONE
+}
+
+enum CustomerConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum CustomerInteractionChannel {
+  WHATSAPP
+  PHONE
+  IN_PERSON
+  SYSTEM
+}
+
+enum CustomerInteractionDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum CustomerSegmentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum CustomerCampaignStatus {
+  DRAFT
+  BLOCKED
+  CANCELLED
+}
+
+enum CustomerCampaignDeliveryStatus {
+  PENDING
+  BLOCKED
+  CANCELLED
+}
+
 model User {
   id                                 String                       @id @default(cuid())
   email                              String                       @unique
@@ -279,8 +335,8 @@ model User {
   resolvedOperationalAlerts          OperationalAlert[]           @relation("OperationalAlertResolvedBy")
   reportedDeliveryIssues             DeliveryIssue[]              @relation("DeliveryIssueReportedBy")
   resolvedDeliveryIssues             DeliveryIssue[]              @relation("DeliveryIssueResolvedBy")
-  assignedWhatsappConversations       WhatsappConversation[]       @relation("WhatsappConversationAssignedTo")
-  approvedWhatsappOutboundMessages    WhatsappOutboundMessage[]    @relation("WhatsappOutboundApprovedBy")
+  assignedWhatsappConversations      WhatsappConversation[]       @relation("WhatsappConversationAssignedTo")
+  approvedWhatsappOutboundMessages   WhatsappOutboundMessage[]    @relation("WhatsappOutboundApprovedBy")
 
   @@map("users")
 }
@@ -861,6 +917,7 @@ model OrderTicket {
 
 model DeliveryCustomer {
   id                       String                  @id @default(cuid())
+  customerId               String?                 @unique @map("customer_id")
   fullName                 String?
   phone                    String                  @unique
   phoneNormalized          String?                 @map("phone_normalized")
@@ -877,6 +934,7 @@ model DeliveryCustomer {
   updatedAt                DateTime                @updatedAt
   orderTickets             OrderTicket[]
   locationInboxEntries     DeliveryLocationInbox[]
+  customer                 Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([fullName])
   @@index([phoneNormalized])
@@ -884,62 +942,65 @@ model DeliveryCustomer {
 }
 
 model WhatsappConversation {
-  id                       String                     @id @default(cuid())
-  phone                    String
-  customerName             String?                    @map("customer_name")
-  status                   WhatsappConversationStatus @default(ACTIVE)
-  source                   SofiaOrderSource           @default(WHATSAPP)
-  provider                 String                     @default("mock")
-  providerConversationId   String?                    @map("provider_conversation_id")
-  mode                     String                     @default("disabled")
-  sofiaEnabled             Boolean                    @default(true) @map("sofia_enabled")
-  humanStatus              String                     @default("SOFIA_ACTIVE") @map("human_status")
-  assignedToUserId         String?                    @map("assigned_to_user_id")
-  lastMessageAt            DateTime?                  @map("last_message_at")
-  lastInboundAt            DateTime?                  @map("last_inbound_at")
-  lastOutboundAt           DateTime?                  @map("last_outbound_at")
-  lastHumanTakeoverAt      DateTime?                  @map("last_human_takeover_at")
-  lastSofiaReplyAt         DateTime?                  @map("last_sofia_reply_at")
-  unreadCount              Int                        @default(0) @map("unread_count")
-  lastMessagePreview       String?                    @map("last_message_preview")
-  riskFlags                Json?                      @map("risk_flags")
-  createdAt                DateTime                   @default(now()) @map("created_at")
-  updatedAt                DateTime                   @updatedAt @map("updated_at")
-  assignedTo               User?                      @relation("WhatsappConversationAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  messages                 WhatsappMessage[]
-  outboundMessages         WhatsappOutboundMessage[]
-  orderDrafts              SofiaOrderDraft[]
-  deliveryOrders           WhatsappDeliveryOrder[]
+  id                     String                     @id @default(cuid())
+  customerId             String?                    @map("customer_id")
+  phone                  String
+  customerName           String?                    @map("customer_name")
+  status                 WhatsappConversationStatus @default(ACTIVE)
+  source                 SofiaOrderSource           @default(WHATSAPP)
+  provider               String                     @default("mock")
+  providerConversationId String?                    @map("provider_conversation_id")
+  mode                   String                     @default("disabled")
+  sofiaEnabled           Boolean                    @default(true) @map("sofia_enabled")
+  humanStatus            String                     @default("SOFIA_ACTIVE") @map("human_status")
+  assignedToUserId       String?                    @map("assigned_to_user_id")
+  lastMessageAt          DateTime?                  @map("last_message_at")
+  lastInboundAt          DateTime?                  @map("last_inbound_at")
+  lastOutboundAt         DateTime?                  @map("last_outbound_at")
+  lastHumanTakeoverAt    DateTime?                  @map("last_human_takeover_at")
+  lastSofiaReplyAt       DateTime?                  @map("last_sofia_reply_at")
+  unreadCount            Int                        @default(0) @map("unread_count")
+  lastMessagePreview     String?                    @map("last_message_preview")
+  riskFlags              Json?                      @map("risk_flags")
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  assignedTo             User?                      @relation("WhatsappConversationAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages               WhatsappMessage[]
+  outboundMessages       WhatsappOutboundMessage[]
+  orderDrafts            SofiaOrderDraft[]
+  deliveryOrders         WhatsappDeliveryOrder[]
+  customer               Customer?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([phone])
   @@index([provider, providerConversationId])
   @@index([mode, updatedAt])
   @@index([status, updatedAt])
   @@index([assignedToUserId])
+  @@index([customerId])
   @@map("whatsapp_conversations")
 }
 
 model WhatsappMessage {
-  id                 String                    @id @default(cuid())
-  conversationId     String                    @map("conversation_id")
-  direction          WhatsappMessageDirection
-  type               WhatsappMessageType       @default(TEXT)
-  provider           String                    @default("mock")
-  providerMessageId  String?                   @map("provider_message_id")
-  providerTimestamp  DateTime?                 @map("provider_timestamp")
-  body               String?
-  mediaUrl           String?                   @map("media_url")
-  mediaMimeType      String?                   @map("media_mime_type")
-  transcript         String?
-  rawPayload         Json?                     @map("raw_payload")
-  status             String                    @default("RECEIVED")
-  idempotencyKey     String?                   @unique @map("idempotency_key")
-  errorMessage       String?                   @map("error_message")
-  aiIntent           String?                   @map("ai_intent")
-  confidence         Decimal?                  @db.Decimal(5, 4)
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  conversation       WhatsappConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  outboundMessages   WhatsappOutboundMessage[]
+  id                String                    @id @default(cuid())
+  conversationId    String                    @map("conversation_id")
+  direction         WhatsappMessageDirection
+  type              WhatsappMessageType       @default(TEXT)
+  provider          String                    @default("mock")
+  providerMessageId String?                   @map("provider_message_id")
+  providerTimestamp DateTime?                 @map("provider_timestamp")
+  body              String?
+  mediaUrl          String?                   @map("media_url")
+  mediaMimeType     String?                   @map("media_mime_type")
+  transcript        String?
+  rawPayload        Json?                     @map("raw_payload")
+  status            String                    @default("RECEIVED")
+  idempotencyKey    String?                   @unique @map("idempotency_key")
+  errorMessage      String?                   @map("error_message")
+  aiIntent          String?                   @map("ai_intent")
+  confidence        Decimal?                  @db.Decimal(5, 4)
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  conversation      WhatsappConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  outboundMessages  WhatsappOutboundMessage[]
 
   @@index([conversationId, createdAt])
   @@index([direction, createdAt])
@@ -977,52 +1038,52 @@ model SofiaOrderDraft {
 }
 
 model WhatsappDeliveryOrder {
-  id                            String                      @id @default(cuid())
-  conversationId                String?                     @map("conversation_id")
-  orderDraftId                  String?                     @unique @map("order_draft_id")
-  orderTicketId                 String?                     @unique @map("order_ticket_id")
-  status                        WhatsappDeliveryOrderStatus @default(CONFIRMED)
-  paymentStatus                 WhatsappPaymentStatus       @default(UNSELECTED) @map("payment_status")
-  paymentMethod                 String?                     @map("payment_method")
-  publicPaymentToken            String?                     @unique @map("public_payment_token")
-  publicPaymentTokenExpiresAt   DateTime?                   @map("public_payment_token_expires_at")
-  paymentLinkCreatedAt          DateTime?                   @map("payment_link_created_at")
-  paymentLinkLastOpenedAt       DateTime?                   @map("payment_link_last_opened_at")
-  paymentLinkOpenCount          Int                         @default(0) @map("payment_link_open_count")
-  paymentMethodSelectedAt       DateTime?                   @map("payment_method_selected_at")
-  manuallyVerifiedAt            DateTime?                   @map("manually_verified_at")
-  manuallyVerifiedById          String?                     @map("manually_verified_by_id")
-  orderReference                String?                     @unique @map("order_reference")
-  onlinePaymentProvider         String?                     @map("online_payment_provider")
-  providerPaymentId             String?                     @map("provider_payment_id")
-  providerReference             String?                     @map("provider_reference")
-  providerCheckoutUrl           String?                     @map("provider_checkout_url")
-  providerStatus                String?                     @map("provider_status")
-  onlinePaymentCreatedAt        DateTime?                   @map("online_payment_created_at")
-  onlinePaymentExpiresAt        DateTime?                   @map("online_payment_expires_at")
-  onlinePaymentPaidAt           DateTime?                   @map("online_payment_paid_at")
-  webhookLastEventAt            DateTime?                   @map("webhook_last_event_at")
-  webhookEventCount             Int                         @default(0) @map("webhook_event_count")
-  paymentFailureReason          String?                     @map("payment_failure_reason")
-  paymentReviewReason           String?                     @map("payment_review_reason")
-  customerNameSnapshot          String?                     @map("customer_name_snapshot")
-  customerPhoneSnapshot         String?                     @map("customer_phone_snapshot")
-  deliveryAddressSnapshot       String?                     @map("delivery_address_snapshot")
-  deliveryNeighborhoodSnapshot  String?                     @map("delivery_neighborhood_snapshot")
-  itemsSnapshot                 Json                        @map("items_snapshot")
-  subtotal                      Decimal                     @default(0) @db.Decimal(12, 2)
-  deliveryFee                   Decimal                     @default(0) @map("delivery_fee") @db.Decimal(12, 2)
-  total                         Decimal                     @default(0) @db.Decimal(12, 2)
-  source                        SofiaOrderSource            @default(WHATSAPP_SOFIA)
-  createdByAgentNameSnapshot    String                      @default("Sofía") @map("created_by_agent_name_snapshot")
-  createdAt                     DateTime                    @default(now()) @map("created_at")
-  updatedAt                     DateTime                    @updatedAt @map("updated_at")
-  conversation                  WhatsappConversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  orderDraft                    SofiaOrderDraft?            @relation(fields: [orderDraftId], references: [id], onDelete: SetNull)
-  orderTicket                   OrderTicket?                @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
-  manuallyVerifiedBy            User?                       @relation("SofiaPaymentVerifiedBy", fields: [manuallyVerifiedById], references: [id], onDelete: SetNull)
-  paymentEvents                 SofiaPaymentEvent[]
-  webhookEvents                 PaymentWebhookEvent[]
+  id                           String                      @id @default(cuid())
+  conversationId               String?                     @map("conversation_id")
+  orderDraftId                 String?                     @unique @map("order_draft_id")
+  orderTicketId                String?                     @unique @map("order_ticket_id")
+  status                       WhatsappDeliveryOrderStatus @default(CONFIRMED)
+  paymentStatus                WhatsappPaymentStatus       @default(UNSELECTED) @map("payment_status")
+  paymentMethod                String?                     @map("payment_method")
+  publicPaymentToken           String?                     @unique @map("public_payment_token")
+  publicPaymentTokenExpiresAt  DateTime?                   @map("public_payment_token_expires_at")
+  paymentLinkCreatedAt         DateTime?                   @map("payment_link_created_at")
+  paymentLinkLastOpenedAt      DateTime?                   @map("payment_link_last_opened_at")
+  paymentLinkOpenCount         Int                         @default(0) @map("payment_link_open_count")
+  paymentMethodSelectedAt      DateTime?                   @map("payment_method_selected_at")
+  manuallyVerifiedAt           DateTime?                   @map("manually_verified_at")
+  manuallyVerifiedById         String?                     @map("manually_verified_by_id")
+  orderReference               String?                     @unique @map("order_reference")
+  onlinePaymentProvider        String?                     @map("online_payment_provider")
+  providerPaymentId            String?                     @map("provider_payment_id")
+  providerReference            String?                     @map("provider_reference")
+  providerCheckoutUrl          String?                     @map("provider_checkout_url")
+  providerStatus               String?                     @map("provider_status")
+  onlinePaymentCreatedAt       DateTime?                   @map("online_payment_created_at")
+  onlinePaymentExpiresAt       DateTime?                   @map("online_payment_expires_at")
+  onlinePaymentPaidAt          DateTime?                   @map("online_payment_paid_at")
+  webhookLastEventAt           DateTime?                   @map("webhook_last_event_at")
+  webhookEventCount            Int                         @default(0) @map("webhook_event_count")
+  paymentFailureReason         String?                     @map("payment_failure_reason")
+  paymentReviewReason          String?                     @map("payment_review_reason")
+  customerNameSnapshot         String?                     @map("customer_name_snapshot")
+  customerPhoneSnapshot        String?                     @map("customer_phone_snapshot")
+  deliveryAddressSnapshot      String?                     @map("delivery_address_snapshot")
+  deliveryNeighborhoodSnapshot String?                     @map("delivery_neighborhood_snapshot")
+  itemsSnapshot                Json                        @map("items_snapshot")
+  subtotal                     Decimal                     @default(0) @db.Decimal(12, 2)
+  deliveryFee                  Decimal                     @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total                        Decimal                     @default(0) @db.Decimal(12, 2)
+  source                       SofiaOrderSource            @default(WHATSAPP_SOFIA)
+  createdByAgentNameSnapshot   String                      @default("Sofía") @map("created_by_agent_name_snapshot")
+  createdAt                    DateTime                    @default(now()) @map("created_at")
+  updatedAt                    DateTime                    @updatedAt @map("updated_at")
+  conversation                 WhatsappConversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  orderDraft                   SofiaOrderDraft?            @relation(fields: [orderDraftId], references: [id], onDelete: SetNull)
+  orderTicket                  OrderTicket?                @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
+  manuallyVerifiedBy           User?                       @relation("SofiaPaymentVerifiedBy", fields: [manuallyVerifiedById], references: [id], onDelete: SetNull)
+  paymentEvents                SofiaPaymentEvent[]
+  webhookEvents                PaymentWebhookEvent[]
 
   @@index([conversationId])
   @@index([status, updatedAt])
@@ -1036,19 +1097,19 @@ model WhatsappDeliveryOrder {
 }
 
 model SofiaPromptVersion {
-  id                  String             @id @default(cuid())
-  version             String             @unique
+  id                  String                       @id @default(cuid())
+  version             String                       @unique
   name                String
-  status              SofiaPromptStatus  @default(DRAFT)
-  promptText          String             @map("prompt_text")
-  systemRulesJson     Json?              @map("system_rules_json")
-  commercialRulesJson Json?              @map("commercial_rules_json")
-  safetyRulesJson     Json?              @map("safety_rules_json")
-  createdBy           String?            @map("created_by")
-  approvedBy          String?            @map("approved_by")
-  activatedAt         DateTime?          @map("activated_at")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
+  status              SofiaPromptStatus            @default(DRAFT)
+  promptText          String                       @map("prompt_text")
+  systemRulesJson     Json?                        @map("system_rules_json")
+  commercialRulesJson Json?                        @map("commercial_rules_json")
+  safetyRulesJson     Json?                        @map("safety_rules_json")
+  createdBy           String?                      @map("created_by")
+  approvedBy          String?                      @map("approved_by")
+  activatedAt         DateTime?                    @map("activated_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
   autoSafeEvents      SofiaAutoSafeDecisionEvent[]
 
   @@index([status, updatedAt])
@@ -1056,24 +1117,24 @@ model SofiaPromptVersion {
 }
 
 model SofiaCommercialCatalogItem {
-  id                  String                   @id @default(cuid())
-  slug                String                   @unique
-  name                String
-  type                SofiaCatalogItemType
-  status              SofiaCatalogItemStatus   @default(ACTIVE)
-  linkedProductId     String?                  @map("linked_product_id")
-  linkedProductName   String?                  @map("linked_product_name")
-  priceSource         SofiaCatalogPriceSource  @default(NONE) @map("price_source")
-  manualPrice         Decimal?                 @map("manual_price") @db.Decimal(12, 2)
-  imageUrl            String?                  @map("image_url")
-  shortDescription    String?                  @map("short_description")
-  compositionJson     Json?                    @map("composition_json")
-  aliasesJson         Json?                    @map("aliases_json")
-  upsellRulesJson     Json?                    @map("upsell_rules_json")
+  id                   String                  @id @default(cuid())
+  slug                 String                  @unique
+  name                 String
+  type                 SofiaCatalogItemType
+  status               SofiaCatalogItemStatus  @default(ACTIVE)
+  linkedProductId      String?                 @map("linked_product_id")
+  linkedProductName    String?                 @map("linked_product_name")
+  priceSource          SofiaCatalogPriceSource @default(NONE) @map("price_source")
+  manualPrice          Decimal?                @map("manual_price") @db.Decimal(12, 2)
+  imageUrl             String?                 @map("image_url")
+  shortDescription     String?                 @map("short_description")
+  compositionJson      Json?                   @map("composition_json")
+  aliasesJson          Json?                   @map("aliases_json")
+  upsellRulesJson      Json?                   @map("upsell_rules_json")
   prohibitedClaimsJson Json?                   @map("prohibited_claims_json")
-  sortOrder           Int                      @default(100) @map("sort_order")
-  createdAt           DateTime                 @default(now()) @map("created_at")
-  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  sortOrder            Int                     @default(100) @map("sort_order")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
 
   @@index([type, status, sortOrder])
   @@index([linkedProductId])
@@ -1081,40 +1142,212 @@ model SofiaCommercialCatalogItem {
 }
 
 model SofiaCustomerMemory {
-  id                     String                    @id @default(cuid())
-  phoneNormalized        String                    @unique @map("phone_normalized")
-  displayName            String?                   @map("display_name")
-  lastKnownAddress       String?                   @map("last_known_address")
-  preferredPaymentMethod String?                   @map("preferred_payment_method")
-  lastOrderSummaryJson   Json?                     @map("last_order_summary_json")
-  preferencesJson        Json?                     @map("preferences_json")
-  riskFlagsJson          Json?                     @map("risk_flags_json")
-  memorySummary          String?                   @map("memory_summary")
-  lastInteractionAt      DateTime?                 @map("last_interaction_at")
-  consentState           SofiaMemoryConsentState   @default(UNKNOWN) @map("consent_state")
-  createdAt              DateTime                  @default(now()) @map("created_at")
-  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  id                     String                       @id @default(cuid())
+  customerId             String?                      @unique @map("customer_id")
+  phoneNormalized        String                       @unique @map("phone_normalized")
+  displayName            String?                      @map("display_name")
+  lastKnownAddress       String?                      @map("last_known_address")
+  preferredPaymentMethod String?                      @map("preferred_payment_method")
+  lastOrderSummaryJson   Json?                        @map("last_order_summary_json")
+  preferencesJson        Json?                        @map("preferences_json")
+  riskFlagsJson          Json?                        @map("risk_flags_json")
+  memorySummary          String?                      @map("memory_summary")
+  lastInteractionAt      DateTime?                    @map("last_interaction_at")
+  consentState           SofiaMemoryConsentState      @default(UNKNOWN) @map("consent_state")
+  createdAt              DateTime                     @default(now()) @map("created_at")
+  updatedAt              DateTime                     @updatedAt @map("updated_at")
   conversationMemories   SofiaConversationMemory[]
   commercialRuleEvents   SofiaCommercialRuleEvent[]
   autoSafeEvents         SofiaAutoSafeDecisionEvent[]
+  customer               Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([lastInteractionAt])
   @@map("sofia_customer_memories")
 }
 
+model Customer {
+  id                    String                      @id @default(cuid())
+  displayName           String?                     @map("display_name")
+  displayNameNormalized String?                     @map("display_name_normalized")
+  status                CustomerStatus              @default(ACTIVE)
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+  identities            CustomerIdentity[]
+  consents              CustomerConsent[]
+  interactions          CustomerInteraction[]
+  tagAssignments        CustomerTagAssignment[]
+  segmentMemberships    CustomerSegmentMembership[]
+  campaignDeliveries    CustomerCampaignDelivery[]
+  sofiaCustomerMemory   SofiaCustomerMemory?
+  whatsappConversations WhatsappConversation[]
+  deliveryCustomer      DeliveryCustomer?
+
+  @@index([displayNameNormalized])
+  @@index([status, updatedAt])
+  @@map("crm_customers")
+}
+
+model CustomerIdentity {
+  id          String                     @id @default(cuid())
+  customerId  String                     @map("customer_id")
+  type        CustomerIdentityType
+  valueHash   String                     @map("value_hash")
+  valueMasked String                     @map("value_masked")
+  isPrimary   Boolean                    @default(false) @map("is_primary")
+  verifiedAt  DateTime?                  @map("verified_at")
+  createdAt   DateTime                   @default(now()) @map("created_at")
+  updatedAt   DateTime                   @updatedAt @map("updated_at")
+  customer    Customer                   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  deliveries  CustomerCampaignDelivery[]
+
+  @@unique([type, valueHash])
+  @@index([customerId, type])
+  @@map("crm_customer_identities")
+}
+
+model CustomerConsent {
+  id           String                 @id @default(cuid())
+  customerId   String                 @map("customer_id")
+  purpose      CustomerConsentPurpose
+  channel      CustomerConsentChannel
+  status       CustomerConsentStatus
+  source       String
+  evidenceHash String                 @map("evidence_hash")
+  version      Int
+  grantedAt    DateTime?              @map("granted_at")
+  revokedAt    DateTime?              @map("revoked_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  customer     Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, purpose, channel, version])
+  @@index([customerId, purpose, channel, createdAt])
+  @@index([status, createdAt])
+  @@map("crm_customer_consents")
+}
+
+model CustomerInteraction {
+  id         String                       @id @default(cuid())
+  customerId String                       @map("customer_id")
+  kind       String
+  channel    CustomerInteractionChannel
+  direction  CustomerInteractionDirection
+  summary    String
+  metadata   Json?
+  actorId    String?                      @map("actor_id")
+  occurredAt DateTime                     @default(now()) @map("occurred_at")
+  createdAt  DateTime                     @default(now()) @map("created_at")
+  customer   Customer                     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, occurredAt])
+  @@index([kind, occurredAt])
+  @@map("crm_customer_interactions")
+}
+
+model CustomerTag {
+  id             String                  @id @default(cuid())
+  name           String
+  nameNormalized String                  @unique @map("name_normalized")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  assignments    CustomerTagAssignment[]
+
+  @@map("crm_customer_tags")
+}
+
+model CustomerTagAssignment {
+  customerId   String      @map("customer_id")
+  tagId        String      @map("tag_id")
+  assignedById String?     @map("assigned_by_id")
+  assignedAt   DateTime    @default(now()) @map("assigned_at")
+  customer     Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag          CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+  @@index([tagId, assignedAt])
+  @@map("crm_customer_tag_assignments")
+}
+
+model CustomerSegment {
+  id             String                      @id @default(cuid())
+  name           String
+  nameNormalized String                      @unique @map("name_normalized")
+  description    String?
+  status         CustomerSegmentStatus       @default(DRAFT)
+  definitionJson Json?                       @map("definition_json")
+  createdById    String                      @map("created_by_id")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
+  memberships    CustomerSegmentMembership[]
+  campaigns      CustomerCampaign[]
+
+  @@index([status, updatedAt])
+  @@map("crm_customer_segments")
+}
+
+model CustomerSegmentMembership {
+  segmentId  String          @map("segment_id")
+  customerId String          @map("customer_id")
+  addedAt    DateTime        @default(now()) @map("added_at")
+  segment    CustomerSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  customer   Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@id([segmentId, customerId])
+  @@index([customerId, addedAt])
+  @@map("crm_customer_segment_memberships")
+}
+
+model CustomerCampaign {
+  id              String                     @id @default(cuid())
+  segmentId       String?                    @map("segment_id")
+  name            String
+  channel         CustomerConsentChannel     @default(WHATSAPP)
+  messageTemplate String                     @map("message_template")
+  status          CustomerCampaignStatus     @default(DRAFT)
+  blockedReason   String?                    @map("blocked_reason")
+  createdById     String                     @map("created_by_id")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  segment         CustomerSegment?           @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  deliveries      CustomerCampaignDelivery[]
+
+  @@index([status, updatedAt])
+  @@index([segmentId])
+  @@map("crm_customer_campaigns")
+}
+
+model CustomerCampaignDelivery {
+  id              String                         @id @default(cuid())
+  campaignId      String                         @map("campaign_id")
+  customerId      String                         @map("customer_id")
+  identityId      String?                        @map("identity_id")
+  recipientMasked String                         @map("recipient_masked")
+  status          CustomerCampaignDeliveryStatus @default(PENDING)
+  blockedReason   String?                        @map("blocked_reason")
+  attemptedAt     DateTime?                      @map("attempted_at")
+  createdAt       DateTime                       @default(now()) @map("created_at")
+  updatedAt       DateTime                       @updatedAt @map("updated_at")
+  campaign        CustomerCampaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer        Customer                       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  identity        CustomerIdentity?              @relation(fields: [identityId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, customerId])
+  @@index([customerId, status])
+  @@index([identityId])
+  @@map("crm_customer_campaign_deliveries")
+}
+
 model SofiaConversationMemory {
-  id                     String                @id @default(cuid())
-  conversationId         String                @unique @map("conversation_id")
-  customerMemoryId       String?               @map("customer_memory_id")
-  currentIntent          String?               @map("current_intent")
-  currentOrderIntentJson Json?                 @map("current_order_intent_json")
-  missingFieldsJson      Json?                 @map("missing_fields_json")
-  lastProductDiscussed   String?               @map("last_product_discussed")
-  memorySummary          String?               @map("memory_summary")
-  expiresAt              DateTime?             @map("expires_at")
-  createdAt              DateTime              @default(now()) @map("created_at")
-  updatedAt              DateTime              @updatedAt @map("updated_at")
-  customerMemory         SofiaCustomerMemory?  @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+  id                     String               @id @default(cuid())
+  conversationId         String               @unique @map("conversation_id")
+  customerMemoryId       String?              @map("customer_memory_id")
+  currentIntent          String?              @map("current_intent")
+  currentOrderIntentJson Json?                @map("current_order_intent_json")
+  missingFieldsJson      Json?                @map("missing_fields_json")
+  lastProductDiscussed   String?              @map("last_product_discussed")
+  memorySummary          String?              @map("memory_summary")
+  expiresAt              DateTime?            @map("expires_at")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+  customerMemory         SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
 
   @@index([customerMemoryId])
   @@index([expiresAt])
@@ -1122,15 +1355,15 @@ model SofiaConversationMemory {
 }
 
 model SofiaCommercialRuleEvent {
-  id               String                @id @default(cuid())
-  conversationId   String?               @map("conversation_id")
-  customerMemoryId String?               @map("customer_memory_id")
-  ruleCode         String                @map("rule_code")
+  id               String               @id @default(cuid())
+  conversationId   String?              @map("conversation_id")
+  customerMemoryId String?              @map("customer_memory_id")
+  ruleCode         String               @map("rule_code")
   severity         String
-  actionTaken      String                @map("action_taken")
-  detailsJson      Json?                 @map("details_json")
-  createdAt        DateTime              @default(now()) @map("created_at")
-  customerMemory   SofiaCustomerMemory?  @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+  actionTaken      String               @map("action_taken")
+  detailsJson      Json?                @map("details_json")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  customerMemory   SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([customerMemoryId, createdAt])
@@ -1139,26 +1372,26 @@ model SofiaCommercialRuleEvent {
 }
 
 model SofiaAutoSafeDecisionEvent {
-  id                      String               @id @default(cuid())
-  conversationId          String?              @map("conversation_id")
-  customerMemoryId        String?              @map("customer_memory_id")
-  promptVersionId         String?              @map("prompt_version_id")
-  status                  String
-  riskLevel               String               @map("risk_level")
-  approved                Boolean              @default(false)
-  shouldSend              Boolean              @default(false) @map("should_send")
-  reasonCodesJson         Json                 @map("reason_codes_json")
-  blockingReasonsJson     Json?                @map("blocking_reasons_json")
-  warningsJson            Json?                @map("warnings_json")
-  inputSummaryJson        Json?                @map("input_summary_json")
-  outputSummaryJson       Json?                @map("output_summary_json")
-  safetyGuardSummaryJson  Json?                @map("safety_guard_summary_json")
-  finalReplyPreview       String?              @map("final_reply_preview")
-  channelMode             String?              @map("channel_mode")
-  isSandbox               Boolean              @default(true) @map("is_sandbox")
-  createdAt               DateTime             @default(now()) @map("created_at")
-  customerMemory          SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
-  promptVersion           SofiaPromptVersion?  @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  id                     String               @id @default(cuid())
+  conversationId         String?              @map("conversation_id")
+  customerMemoryId       String?              @map("customer_memory_id")
+  promptVersionId        String?              @map("prompt_version_id")
+  status                 String
+  riskLevel              String               @map("risk_level")
+  approved               Boolean              @default(false)
+  shouldSend             Boolean              @default(false) @map("should_send")
+  reasonCodesJson        Json                 @map("reason_codes_json")
+  blockingReasonsJson    Json?                @map("blocking_reasons_json")
+  warningsJson           Json?                @map("warnings_json")
+  inputSummaryJson       Json?                @map("input_summary_json")
+  outputSummaryJson      Json?                @map("output_summary_json")
+  safetyGuardSummaryJson Json?                @map("safety_guard_summary_json")
+  finalReplyPreview      String?              @map("final_reply_preview")
+  channelMode            String?              @map("channel_mode")
+  isSandbox              Boolean              @default(true) @map("is_sandbox")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  customerMemory         SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
+  promptVersion          SofiaPromptVersion?  @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([customerMemoryId, createdAt])
@@ -1178,13 +1411,13 @@ model SofiaPaymentSettings {
   manualPaymentRequiresOperator           Boolean  @default(true) @map("manual_payment_requires_operator")
   paymentInstructionsText                 String?  @map("payment_instructions_text")
   onlinePaymentsEnabled                   Boolean  @default(false) @map("online_payments_enabled")
-  onlinePaymentProvider                   String   @default("MOCK") @map("online_payment_provider")
-  mockOnlinePaymentsEnabled               Boolean  @default(true) @map("mock_online_payments_enabled")
+  onlinePaymentProvider                   String   @default("NONE") @map("online_payment_provider")
+  mockOnlinePaymentsEnabled               Boolean  @default(false) @map("mock_online_payments_enabled")
   boldEnabled                             Boolean  @default(false) @map("bold_enabled")
   paymentLinkTtlMinutes                   Int      @default(1440) @map("payment_link_ttl_minutes")
   onlinePaymentExpiresMinutes             Int      @default(20) @map("online_payment_expires_minutes")
   prepareOnlineOrdersBeforePaid           Boolean  @default(false) @map("prepare_online_orders_before_paid")
-  autoMarkPaidFromWebhook                 Boolean  @default(true) @map("auto_mark_paid_from_webhook")
+  autoMarkPaidFromWebhook                 Boolean  @default(false) @map("auto_mark_paid_from_webhook")
   createdAt                               DateTime @default(now()) @map("created_at")
   updatedAt                               DateTime @updatedAt @map("updated_at")
 
@@ -1259,27 +1492,27 @@ model WhatsappInboundEvent {
 }
 
 model WhatsappOutboundMessage {
-  id                String                @id @default(cuid())
-  conversationId    String                @map("conversation_id")
-  inboundMessageId  String?               @map("inbound_message_id")
+  id                String               @id @default(cuid())
+  conversationId    String               @map("conversation_id")
+  inboundMessageId  String?              @map("inbound_message_id")
   provider          String
-  providerMessageId String?               @map("provider_message_id")
-  localMessageId    String                @unique @map("local_message_id")
+  providerMessageId String?              @map("provider_message_id")
+  localMessageId    String               @unique @map("local_message_id")
   body              String
-  mediaUrl          String?               @map("media_url")
-  status            String                @default("QUEUED")
-  attempts          Int                   @default(0)
-  nextRetryAt       DateTime?             @map("next_retry_at")
-  lastError         String?               @map("last_error")
-  idempotencyKey    String                @unique @map("idempotency_key")
-  createdAt         DateTime              @default(now()) @map("created_at")
-  sentAt            DateTime?             @map("sent_at")
-  approvedById      String?               @map("approved_by_id")
-  approvedAt        DateTime?             @map("approved_at")
-  rawPayload         Json?                 @map("raw_payload")
-  conversation      WhatsappConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  inboundMessage    WhatsappMessage?      @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
-  approvedBy        User?                 @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  mediaUrl          String?              @map("media_url")
+  status            String               @default("QUEUED")
+  attempts          Int                  @default(0)
+  nextRetryAt       DateTime?            @map("next_retry_at")
+  lastError         String?              @map("last_error")
+  idempotencyKey    String               @unique @map("idempotency_key")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  sentAt            DateTime?            @map("sent_at")
+  approvedById      String?              @map("approved_by_id")
+  approvedAt        DateTime?            @map("approved_at")
+  rawPayload        Json?                @map("raw_payload")
+  conversation      WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  inboundMessage    WhatsappMessage?     @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
+  approvedBy        User?                @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([inboundMessageId])

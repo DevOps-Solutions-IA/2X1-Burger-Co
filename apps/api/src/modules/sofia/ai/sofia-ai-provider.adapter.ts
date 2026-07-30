@@ -27,12 +27,22 @@ export type SofiaAISnapshotProduct = {
   categoryName?: string | null;
 };
 
+export type SofiaAIAvailableOffer = {
+  slug: string;
+  name: string;
+  linkedProductId: string;
+  price: number;
+  description: string;
+  imageUrl: string;
+  salesHint: string;
+};
+
 export type SofiaAIAnalysisInput = {
   conversationId: string;
   customerMessage: string;
   normalizedMessage: string;
   currentDraftSnapshot: unknown;
-  availableOffersSnapshot: Array<{ slug: string; name: string; description: string; imageUrl: string; salesHint: string }>;
+  availableOffersSnapshot: SofiaAIAvailableOffer[];
   availableProductsSnapshot: SofiaAISnapshotProduct[];
   paymentOptionsSnapshot: unknown;
   businessRulesSnapshot: {

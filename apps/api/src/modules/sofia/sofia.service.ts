@@ -1,9 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  CashSessionStatus,
-  DeliveryWorkflowStatus,
-  OrderTicketType,
   Prisma,
   SofiaOrderDraftStatus,
   SofiaOrderSource,
@@ -21,7 +18,7 @@ import {
   SofiaOrderItemDto,
   UpdateSofiaOrderDraftDto,
 } from './dto/sofia.dto';
-import { hashPreview, redactPhone, redactSensitiveText } from './privacy/sofia-pii-redaction';
+import { hashPreview, redactPhone, redactSensitiveText, sanitizeJson } from './privacy/sofia-pii-redaction';
 
 type SofiaItemSnapshot = {
   productId: string;
@@ -33,12 +30,11 @@ type SofiaItemSnapshot = {
   notes?: string | null;
 };
 
-const ORDER_PREFIXES = ['MOSTRADOR-', 'MESA-', 'DOMICILIO-', 'LLEVAR-'];
-
 type InboxConversationRecord = {
   id: string;
   phone: string;
   customerName: string | null;
+  source: SofiaOrderSource;
   status: WhatsappConversationStatus;
   provider: string;
   mode: string;
@@ -167,7 +163,7 @@ export class SofiaService {
       }
 
       const quantity = Number(item.quantity);
-      const unitPrice = Number(item.unitPrice ?? product.salePrice);
+      const unitPrice = Number(product.salePrice);
       snapshots.push({
         productId: product.id,
         code: product.code,
@@ -211,7 +207,10 @@ export class SofiaService {
     };
   }
 
-  async getOrCreateConversation(dto: Pick<CreateMockConversationDto, 'phone' | 'customerName'>) {
+  async getOrCreateConversation(
+    dto: Pick<CreateMockConversationDto, 'phone' | 'customerName'>,
+    source: SofiaOrderSource = SofiaOrderSource.MOCK_ADMIN,
+  ) {
     const phone = this.normalizePhone(dto.phone);
     if (!phone) {
       throw new BadRequestException('El teléfono es obligatorio para la conversación Sofía.');
@@ -220,6 +219,7 @@ export class SofiaService {
     const existing = await this.prisma.whatsappConversation.findFirst({
       where: {
         phone,
+        source,
         status: {
           not: WhatsappConversationStatus.ARCHIVED,
         },
@@ -242,7 +242,7 @@ export class SofiaService {
       data: {
         phone,
         customerName: dto.customerName?.trim() || null,
-        source: SofiaOrderSource.WHATSAPP,
+        source,
         lastMessageAt: new Date(),
       },
       include: this.includeConversation(),
@@ -258,7 +258,6 @@ export class SofiaService {
 
   async getConversationsInbox() {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const realOperationEnabled = false;
     const realSendingEnabled = this.configBoolean('WHATSAPP_QR_ALLOW_REAL_SEND') && false;
     const receiveOnly = (process.env.WHATSAPP_MODE ?? this.configService.get<string>('WHATSAPP_MODE')) === 'receive_only';
@@ -270,6 +269,7 @@ export class SofiaService {
         id: true,
         phone: true,
         customerName: true,
+        source: true,
         status: true,
         provider: true,
         mode: true,
@@ -324,7 +324,7 @@ export class SofiaService {
     });
 
     const mapped = conversations.map((conversation) =>
-      this.toInboxConversation(conversation, { realOperationEnabled, todayStart, realSendingEnabled, deepSeekEnabled, aiMode }),
+      this.toInboxConversation(conversation, { realOperationEnabled, realSendingEnabled, deepSeekEnabled, aiMode }),
     );
 
     const real = mapped.filter((conversation) => conversation.scope === 'real');
@@ -414,7 +414,6 @@ export class SofiaService {
     conversation: InboxConversationRecord,
     options: {
       realOperationEnabled: boolean;
-      todayStart: Date;
       realSendingEnabled: boolean;
       deepSeekEnabled: boolean;
       aiMode: string;
@@ -430,19 +429,19 @@ export class SofiaService {
     ].join(' ');
     const lower = textHaystack.toLowerCase();
     const isSandbox =
+      conversation.source === SofiaOrderSource.MOCK_ADMIN ||
       conversation.provider === 'mock' ||
-      conversation.mode === 'mock' ||
-      lower.includes('sandbox') ||
-      lower.includes('cliente pago e2e') ||
-      lower.includes('mock-');
-    const isHistorical = !isSandbox && !options.realOperationEnabled && conversation.updatedAt < options.todayStart;
+      conversation.mode === 'mock';
+    const isHistorical = conversation.status === WhatsappConversationStatus.ARCHIVED;
+    const isInternalValidation =
+      conversation.source === SofiaOrderSource.SOFIA || !options.realOperationEnabled;
     const scope = isSandbox
       ? 'sandbox'
       : isHistorical
         ? 'historical'
-        : options.realOperationEnabled
-          ? 'real'
-          : 'internal_validation';
+        : isInternalValidation
+          ? 'internal_validation'
+          : 'real';
     const technicalReasonCodes = this.extractReasonCodes(conversation, lower);
     const operationalReasons = technicalReasonCodes.map((code) => ({
       code,
@@ -655,7 +654,7 @@ export class SofiaService {
         direction: WhatsappMessageDirection.INBOUND,
         type: WhatsappMessageType.TEXT,
         body: dto.body?.trim() || null,
-        rawPayload: dto.rawPayload ? (dto.rawPayload as Prisma.InputJsonValue) : Prisma.JsonNull,
+        rawPayload: dto.rawPayload ? (sanitizeJson(dto.rawPayload) as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
 
@@ -670,7 +669,7 @@ export class SofiaService {
       module: 'sofia',
       entity: 'whatsapp_conversation',
       entityId: conversation.id,
-      newValues: { phone: conversation.phone },
+      newValues: { phoneMasked: this.maskPhone(conversation.phone) },
     });
 
     return this.findConversation(conversation.id);
@@ -684,7 +683,7 @@ export class SofiaService {
         direction: WhatsappMessageDirection.OUTBOUND,
         type: WhatsappMessageType.TEXT,
         body: body.trim(),
-        rawPayload: rawPayload ? (rawPayload as Prisma.InputJsonValue) : Prisma.JsonNull,
+        rawPayload: rawPayload ? (sanitizeJson(rawPayload) as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
 
@@ -754,12 +753,10 @@ export class SofiaService {
   }
 
   async createDraft(dto: CreateSofiaOrderDraftDto, actorId: string) {
-    if (dto.conversationId) {
-      await this.findConversation(dto.conversationId);
-    }
+    const conversation = dto.conversationId ? await this.findConversation(dto.conversationId) : null;
 
     const items = await this.buildItemsSnapshot(dto.items ?? []);
-    const money = this.draftMoney(items, dto.deliveryFee);
+    const money = this.draftMoney(items);
     const missingFields = this.missingFields({
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
@@ -782,7 +779,10 @@ export class SofiaService {
         total: money.total,
         missingFields: missingFields.length ? missingFields : Prisma.JsonNull,
         aiSummary: dto.aiSummary?.trim() || null,
-        source: SofiaOrderSource.SOFIA,
+        source:
+          conversation?.source === SofiaOrderSource.MOCK_ADMIN
+            ? SofiaOrderSource.MOCK_ADMIN
+            : SofiaOrderSource.SOFIA,
       },
       include: {
         conversation: true,
@@ -843,7 +843,7 @@ export class SofiaService {
     const customerPhone =
       dto.customerPhone === undefined ? current.customerPhone : dto.customerPhone ? this.normalizePhone(dto.customerPhone) : null;
     const deliveryAddress = dto.deliveryAddress === undefined ? current.deliveryAddress : dto.deliveryAddress?.trim() || null;
-    const money = this.draftMoney(items, dto.deliveryFee === undefined ? this.toNumber(current.deliveryFee) : dto.deliveryFee);
+    const money = this.draftMoney(items);
     const status = this.resolveDraftStatus({
       customerName,
       customerPhone,
@@ -991,7 +991,7 @@ export class SofiaService {
     return order;
   }
 
-  async createDeliveryOrderFromDraft(draftId: string, actorId: string, createOperationalTicket = true) {
+  async createDeliveryOrderFromDraft(draftId: string, actorId: string) {
     const draft = await this.findDraft(draftId);
     if (draft.status !== SofiaOrderDraftStatus.CONFIRMED) {
       throw new BadRequestException('Primero confirma el borrador Sofía.');
@@ -1005,74 +1005,12 @@ export class SofiaService {
       throw new BadRequestException('El borrador no tiene productos.');
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      let orderTicketId: string | null = null;
-
-      if (createOperationalTicket) {
-        const session = await tx.cashSession.findFirst({
-          where: { status: CashSessionStatus.OPEN },
-          orderBy: { openedAt: 'desc' },
-        });
-        if (!session) {
-          throw new BadRequestException('Debes tener una caja abierta antes de enviar el pedido Sofía a operación.');
-        }
-
-        const deliveryCustomer = draft.customerPhone
-          ? await tx.deliveryCustomer.upsert({
-              where: { phone: draft.customerPhone },
-              update: {
-                fullName: draft.customerName,
-                defaultAddress: draft.deliveryAddress,
-                defaultReference: draft.deliveryNotes,
-              },
-              create: {
-                phone: draft.customerPhone,
-                fullName: draft.customerName,
-                defaultAddress: draft.deliveryAddress,
-                defaultReference: draft.deliveryNotes,
-              },
-            })
-          : null;
-
-        const orderTicket = await tx.orderTicket.create({
-          data: {
-            number: await this.generateOrderNumber(tx, OrderTicketType.DELIVERY),
-            type: OrderTicketType.DELIVERY,
-            customerName: draft.customerName,
-            customerPhone: draft.customerPhone,
-            deliveryReference: draft.deliveryAddress,
-            deliveryAddressNormalized: draft.deliveryAddress,
-            deliveryZoneLabel: draft.deliveryNeighborhood,
-            deliveryFee: draft.deliveryFee,
-            subtotal: draft.total,
-            deliveryCustomerId: deliveryCustomer?.id ?? null,
-            deliveryWorkflowStatus: DeliveryWorkflowStatus.PENDING_ASSIGNMENT,
-            deliveryStatusUpdatedAt: new Date(),
-            notes: [
-              'Origen: Sofía/WhatsApp',
-              draft.deliveryNotes ? `Notas: ${draft.deliveryNotes}` : null,
-            ].filter(Boolean).join('\n'),
-            cashSessionId: session.id,
-            createdById: actorId,
-            items: {
-              create: items.map((item) => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                totalPrice: item.totalPrice,
-                notes: item.notes || undefined,
-              })),
-            },
-          },
-        });
-        orderTicketId = orderTicket.id;
-      }
-
-      return tx.whatsappDeliveryOrder.create({
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.whatsappDeliveryOrder.create({
         data: {
           conversationId: draft.conversationId,
           orderDraftId: draft.id,
-          orderTicketId,
+          orderTicketId: null,
           status: WhatsappDeliveryOrderStatus.CONFIRMED,
           paymentStatus: WhatsappPaymentStatus.UNSELECTED,
           customerNameSnapshot: draft.customerName,
@@ -1083,11 +1021,11 @@ export class SofiaService {
           subtotal: draft.subtotal,
           deliveryFee: draft.deliveryFee,
           total: draft.total,
-          source: SofiaOrderSource.WHATSAPP_SOFIA,
+          source: draft.source,
           createdByAgentNameSnapshot: 'Sofía',
         },
-      });
-    });
+      }),
+    );
 
     await this.auditService.log({
       userId: actorId,
@@ -1124,24 +1062,9 @@ export class SofiaService {
     return this.findDeliveryOrder(updated.id);
   }
 
-  private async generateOrderNumber(tx: Prisma.TransactionClient, type: OrderTicketType) {
-    const prefix = type === OrderTicketType.DELIVERY ? 'DOMICILIO' : 'MOSTRADOR';
-
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(20260331)`;
-    const existingNumbers = await tx.orderTicket.findMany({
-      where: {
-        OR: ORDER_PREFIXES.map((knownPrefix) => ({
-          number: { startsWith: knownPrefix },
-        })),
-      },
-      select: { number: true },
-    });
-
-    const lastSequence = existingNumbers.reduce((highest, order) => {
-      const currentSequence = Number.parseInt(order.number.split('-').pop() ?? '0', 10) || 0;
-      return Math.max(highest, currentSequence);
-    }, 0);
-
-    return `${prefix}-${String(lastSequence + 1).padStart(3, '0')}`;
+  private maskPhone(value: string) {
+    const digits = value.replace(/\D/g, '');
+    return `${'*'.repeat(Math.max(3, digits.length - 4))}${digits.slice(-4)}`;
   }
+
 }

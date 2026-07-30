@@ -47,16 +47,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Production dependency vulnerability gate
+        run: pnpm audit --prod --audit-level=low
       - name: Local secret scan
         run: ./infra/release/secret-scan.sh
       - name: Generate Prisma client
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
       - name: Deploy migrations to ephemeral database
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
-      - name: Lint with tracked warning budget
+      - name: API lint with visible debt and web zero-warning gate
         run: |
           pnpm --filter @inventory-fastfood/api lint
-          pnpm exec eslint apps/web/src apps/web/next.config.ts apps/web/tailwind.config.ts --max-warnings=88
+          pnpm --filter @inventory-fastfood/web lint
+          pnpm test:e2e:lint
+      - name: Typecheck ephemeral UI contracts
+        run: pnpm test:e2e:typecheck
       - run: pnpm --filter @inventory-fastfood/api typecheck
       - run: pnpm --filter @inventory-fastfood/api build
       - run: pnpm --filter @inventory-fastfood/web typecheck

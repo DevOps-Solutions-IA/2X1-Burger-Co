@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 const BUSINESS_TIMEZONE = 'America/Bogota';
+const BACKUP_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}\.dump$/;
 
 @Injectable()
 export class SettingsService {
@@ -107,16 +108,21 @@ export class SettingsService {
     const backupDir = this.resolveBackupDir();
 
     try {
-      const files = await fs.readdir(backupDir);
+      // BACKUP_DIR is normalized below; entries are subsequently filename- and containment-checked.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      const files = await fs.readdir(backupDir, { withFileTypes: true });
       const dumps = await Promise.all(
         files
-          .filter((file) => file.endsWith('.dump'))
-          .map(async (file) => {
-            const absolutePath = path.join(backupDir, file);
-            const stats = await fs.stat(absolutePath);
+          .filter((entry) => entry.isFile() && BACKUP_FILE_NAME.test(entry.name))
+          .map(async (entry) => {
+            const absolutePath = this.resolveBackupEntry(backupDir, entry.name);
+            // The directory entry is a regular file and resolveBackupEntry enforces containment.
+            // eslint-disable-next-line security/detect-non-literal-fs-filename
+            const stats = await fs.lstat(absolutePath);
+            if (!stats.isFile() || stats.isSymbolicLink()) return null;
 
             return {
-              fileName: file,
+              fileName: entry.name,
               absolutePath,
               sizeBytes: stats.size,
               createdAt: stats.mtime.toISOString(),
@@ -124,7 +130,9 @@ export class SettingsService {
           }),
       );
 
-      const latest = dumps.sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+      const latest = dumps
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
       return latest ?? null;
     } catch {
       return null;
@@ -133,7 +141,25 @@ export class SettingsService {
 
   private resolveBackupDir() {
     const configured = process.env.BACKUP_DIR?.trim() || './backups';
-    return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+    if (configured.length > 4096 || configured.includes('\0')) {
+      throw new Error('Backup directory path is invalid');
+    }
+    const resolved = path.resolve(configured);
+    if (resolved === path.parse(resolved).root) {
+      throw new Error('Filesystem root cannot be used as backup directory');
+    }
+    return resolved;
+  }
+
+  private resolveBackupEntry(backupDir: string, fileName: string): string {
+    if (!BACKUP_FILE_NAME.test(fileName) || path.basename(fileName) !== fileName) {
+      throw new Error('Backup filename is invalid');
+    }
+    const resolved = path.resolve(backupDir, fileName);
+    if (path.dirname(resolved) !== backupDir) {
+      throw new Error('Backup file escaped configured directory');
+    }
+    return resolved;
   }
 
   private estimateNextRun(cronExpression: string) {

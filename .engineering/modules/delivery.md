@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-95%
+96%
 
 ## Source State
 PASS
@@ -62,12 +62,13 @@ NOT READY
 - Provider/fallback observable sin repricing por ubicación.
 
 ## Última auditoría
-2026-07-14.
+2026-07-15.
 
 ## Historial
 
 - Phase 2.5: versionado, PDF, stale revision, fee persistido y location-only 3X PASS.
 - Phase 2.5.1: centralización audit aplicada; gate universal NO-GO, lógica Delivery no alterada.
+- Phase 2.5.1-R2: Delivery 11/11 en cada run efímero, recovery 3X y artifact limpio PASS.
 
 ## GO
 NO

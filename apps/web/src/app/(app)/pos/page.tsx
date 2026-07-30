@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
@@ -58,6 +58,30 @@ import type {
   WhatsappSessionStatus,
 } from '@/features/pos/pos.types';
 
+type CustomerSearchResult = {
+  id: string;
+  fullName: string;
+  phone: string;
+  defaultAddress: string | null;
+};
+
+type CurrentCashSession = {
+  id: string;
+};
+
+type OperationalReport = {
+  sales?: {
+    bestSellers?: Array<{
+      productName: string;
+      quantity: number | string;
+    }>;
+  };
+  operations?: {
+    activeOrdersCount?: number;
+    occupiedTablesCount?: number;
+  };
+};
+
 export default function PosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -85,7 +109,7 @@ export default function PosPage() {
     queryFn: () => {
       const q = customerPhone.length >= 7 ? customerPhone : customerName.length >= 2 ? customerName : '';
       if (!q) return [];
-      return apiFetch<any[]>(`/orders/customers/search?q=${encodeURIComponent(q)}`);
+      return apiFetch<CustomerSearchResult[]>(`/orders/customers/search?q=${encodeURIComponent(q)}`);
     },
     enabled: customerLookupEnabled && (customerPhone.length >= 7 || customerName.length >= 2),
     staleTime: 5000,
@@ -93,16 +117,18 @@ export default function PosPage() {
 
   // Auto-llenar nombre/dirección cuando hay match único por teléfono
   useEffect(() => {
-    const results = (customerSearch.data ?? []) as any[];
+    const results = customerSearch.data ?? [];
     if (results.length === 1 && customerPhone.length >= 10) {
       const c = results[0];
-      if (!customerName && c.fullName) setCustomerName(c.fullName);
-      if (!deliveryReference && c.defaultAddress) setDeliveryReference(c.defaultAddress);
+      if (c) {
+        if (!customerName && c.fullName) setCustomerName(c.fullName);
+        if (!deliveryReference && c.defaultAddress) setDeliveryReference(c.defaultAddress);
+      }
     }
-  }, [customerSearch.data]);
+  }, [customerName, customerPhone, customerSearch.data, deliveryReference]);
 
   // Compatibilidad con el código anterior que usa customerLookup
-  const customerLookup: any = { data: (customerSearch.data ?? [])[0] ?? null, isFetched: customerSearch.isFetched };
+  const customerLookup = { data: (customerSearch.data ?? [])[0] ?? null, isFetched: customerSearch.isFetched };
   const [orderNotes, setOrderNotes] = useState('');
   const [lastReceipt, setLastReceipt] = useState<ThermalReceiptData | null>(null);
   const [isWhatsappModalOpen, setIsWhatsappModalOpen] = useState(false);
@@ -110,6 +136,7 @@ export default function PosPage() {
   const [manualSaleTotal, setManualSaleTotal] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryPricingEstimate, setDeliveryPricingEstimate] = useState<DeliveryPricingEstimate | null>(null);
+  const deliveryPricingEstimateRef = useRef<DeliveryPricingEstimate | null>(null);
   const [deliveryZoneLabel, setDeliveryZoneLabel] = useState('');
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('');
   const [deliveryDistanceKm, setDeliveryDistanceKm] = useState<number | null>(null);
@@ -129,7 +156,7 @@ export default function PosPage() {
   });
   const currentCash = useQuery({
     queryKey: ['cash-current'],
-    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+    queryFn: () => apiFetch<CurrentCashSession | null>('/cash-register/current'),
   });
   const tables = useQuery({
     queryKey: ['tables'],
@@ -148,7 +175,7 @@ export default function PosPage() {
   });
   const operational = useQuery({
     queryKey: ['reports-operational'],
-    queryFn: () => apiFetch<any>('/reports/operational'),
+    queryFn: () => apiFetch<OperationalReport>('/reports/operational'),
   });
   const settings = useQuery({
     queryKey: ['settings'],
@@ -264,7 +291,7 @@ export default function PosPage() {
   const bestSellerScores = useMemo(() => {
     const scores = new Map<string, number>();
 
-    (operational.data?.sales?.bestSellers ?? []).forEach((item: any, index: number) => {
+    (operational.data?.sales?.bestSellers ?? []).forEach((item, index) => {
       const score = Number(item.quantity ?? 0) * 1000 - index;
       if (item.productName) {
         scores.set(item.productName, score);
@@ -675,7 +702,11 @@ export default function PosPage() {
       : null,
   ].filter(Boolean) as string[];
 
-  const hydrateWorkspaceFromOrder = (order: ActiveOrder) => {
+  const clearWorkspaceContext = useCallback(() => {
+    router.replace(safePathname, { scroll: false });
+  }, [router, safePathname]);
+
+  const hydrateWorkspaceFromOrder = useCallback((order: ActiveOrder) => {
     const orderItemsSubtotal = order.items.reduce(
       (acc, item) => acc + Number(item.unitPrice) * Number(item.quantity),
       0,
@@ -755,7 +786,7 @@ export default function PosPage() {
     );
     setPayments([createPaymentRow(order.type === 'DELIVERY' ? nequiPaymentMethodId || cashPaymentMethodId : cashPaymentMethodId, buildPriceInput(order.subtotal))]);
     setManualSaleTotal(hasPersistedManualTotal ? buildPriceInput(order.subtotal) : '');
-  };
+  }, [cashPaymentMethodId, nequiPaymentMethodId, products.data]);
 
   useEffect(() => {
     if (!tableIdFromUrl || !tables.data || !activeOrders.data) {
@@ -788,7 +819,7 @@ export default function PosPage() {
       setCart([]);
       setPayments([createPaymentRow(preferredPaymentMethodId, buildPriceInput(0))]);
     }
-  }, [tableIdFromUrl, tables.data, activeOrders.data, preferredPaymentMethodId]);
+  }, [tableIdFromUrl, tables.data, activeOrders.data, preferredPaymentMethodId, hydrateWorkspaceFromOrder]);
 
   useEffect(() => {
     if (!orderIdFromUrl || !orderFromUrl.data) {
@@ -797,7 +828,7 @@ export default function PosPage() {
 
     hydrateWorkspaceFromOrder(orderFromUrl.data);
     clearWorkspaceContext();
-  }, [orderIdFromUrl, orderFromUrl.data]);
+  }, [clearWorkspaceContext, hydrateWorkspaceFromOrder, orderIdFromUrl, orderFromUrl.data]);
 
   const addToCart = (product: Product) => {
     setCart((current) => {
@@ -923,10 +954,6 @@ export default function PosPage() {
     setManualSaleTotal('');
   };
 
-  const clearWorkspaceContext = () => {
-    router.replace(safePathname, { scroll: false });
-  };
-
   const invalidateOperationalQueries = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['products'] }),
@@ -1040,7 +1067,7 @@ export default function PosPage() {
       }),
   });
 
-  const estimateDeliveryPricing = useMutation({
+  const { mutate: estimateDeliveryPricingMutate } = useMutation({
     mutationFn: (payload: {
       requestKey: string;
       orderSubtotal: number;
@@ -1107,7 +1134,7 @@ export default function PosPage() {
     },
   });
 
-  const buildDeliveryEstimatePayload = () => {
+  const buildDeliveryEstimatePayload = useCallback(() => {
     const addressText = deliveryReference.trim();
     const neighborhood = deliveryNeighborhood.trim();
     const requestKey = JSON.stringify({
@@ -1129,9 +1156,13 @@ export default function PosPage() {
       reference: addressText,
       location: selectedDeliveryLocation,
     };
-  };
+  }, [deliveryNeighborhood, deliveryReference, productSaleSubtotal, selectedDeliveryLocation]);
 
-  const requestDeliveryEstimate = (force = false) => {
+  useEffect(() => {
+    deliveryPricingEstimateRef.current = deliveryPricingEstimate;
+  }, [deliveryPricingEstimate]);
+
+  const requestDeliveryEstimate = useCallback((force = false) => {
     if (orderType !== 'DELIVERY' || !deliveryReference.trim()) {
       return;
     }
@@ -1139,13 +1170,13 @@ export default function PosPage() {
     const payload = buildDeliveryEstimatePayload();
     latestDeliveryEstimateKey.current = payload.requestKey;
     if (!force && lastSubmittedDeliveryEstimateKey.current === payload.requestKey) {
-      setDeliveryCalculationStatus(deliveryPricingEstimate ? 'READY' : 'PENDING');
+      setDeliveryCalculationStatus(deliveryPricingEstimateRef.current ? 'READY' : 'PENDING');
       return;
     }
 
     lastSubmittedDeliveryEstimateKey.current = payload.requestKey;
-    estimateDeliveryPricing.mutate(payload);
-  };
+    estimateDeliveryPricingMutate(payload);
+  }, [buildDeliveryEstimatePayload, deliveryReference, estimateDeliveryPricingMutate, orderType]);
 
   useEffect(() => {
     if (orderType !== 'DELIVERY') {
@@ -1175,7 +1206,7 @@ export default function PosPage() {
     setDeliveryCalculationStatus('CALCULATING');
     const timeout = window.setTimeout(() => requestDeliveryEstimate(false), 950);
     return () => window.clearTimeout(timeout);
-  }, [orderType, deliveryReference, deliveryNeighborhood, productSaleSubtotal, selectedDeliveryLocation]);
+  }, [deliveryReference, orderType, requestDeliveryEstimate]);
 
   const saveOrder = useMutation({
     mutationFn: async () => {

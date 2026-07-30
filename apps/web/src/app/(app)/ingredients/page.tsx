@@ -316,7 +316,7 @@ export default function IngredientsPage() {
             }}
           >
             <div className="md:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Datos base</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">Datos base</p>
             </div>
             <Field label="Código">
               <Input value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} />
@@ -338,7 +338,7 @@ export default function IngredientsPage() {
               <Input type="number" value={form.costPrice} onChange={(event) => setForm((current) => ({ ...current, costPrice: event.target.value }))} />
             </Field>
             <div className="md:col-span-2 pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Inventario</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">Inventario</p>
             </div>
             <Field label="Stock actual">
               <Input type="number" value={form.currentStock} onChange={(event) => setForm((current) => ({ ...current, currentStock: event.target.value }))} />

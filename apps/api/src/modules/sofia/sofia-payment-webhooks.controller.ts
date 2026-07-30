@@ -1,4 +1,6 @@
-import { Body, Controller, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -8,6 +10,8 @@ import { MockSofiaPaymentWebhookDto } from './dto/sofia.dto';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 
 @Controller('integrations/payments/webhook')
+@UseGuards(ThrottlerGuard)
+@Throttle({ default: { limit: 120, ttl: 60_000 } })
 export class SofiaPaymentWebhooksController {
   constructor(private readonly paymentLinkService: SofiaPaymentLinkService) {}
 
@@ -16,8 +20,9 @@ export class SofiaPaymentWebhooksController {
     @Param('provider') provider: string,
     @Body() body: Record<string, unknown>,
     @Headers() headers: Record<string, string | string[] | undefined>,
+    @Req() request: RawBodyRequest<Request>,
   ) {
-    return this.paymentLinkService.processPaymentWebhook(provider, body, headers);
+    return this.paymentLinkService.processPaymentWebhook(provider, body, headers, request.rawBody);
   }
 }
 

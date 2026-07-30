@@ -31,7 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface" data-testid="protected-route-loading">
         <div className="rounded-[1.75rem] border border-stone-200 bg-white px-6 py-5 text-center shadow-soft">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-brand-600">Acceso</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-brand-900">Acceso</p>
           <p className="mt-2 text-[15px] font-semibold text-ink">Cargando sesión...</p>
         </div>
       </div>
@@ -43,7 +43,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <AppShell>
         <div className="flex min-h-[70vh] items-center justify-center p-6">
           <div className="w-full max-w-xl rounded-[2rem] border border-stone-200 bg-white p-8 text-center shadow-soft">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-brand-600">Acceso restringido</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-brand-900">Acceso restringido</p>
             <h1 className="mt-3 text-[1.9rem] font-bold text-ink">No tienes permisos para este módulo</h1>
             <p className="mt-3 text-[13px] leading-6 text-stone-600">
               Tu sesión está activa, pero el rol asignado no permite entrar a esta sección.

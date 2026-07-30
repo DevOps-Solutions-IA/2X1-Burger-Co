@@ -38,6 +38,37 @@ const blankExpenseForm = {
   description: '',
 };
 
+type Expense = {
+  id: string;
+  concept: string;
+  classification: string | null;
+  description: string | null;
+  amount: number | string;
+  spentAt: string;
+  paymentMethod: {
+    id: string;
+    name: string;
+  } | null;
+  createdBy: {
+    fullName: string;
+  } | null;
+};
+
+type PaymentMethod = {
+  id: string;
+  name: string;
+};
+
+type DailySummary = {
+  expenses?: {
+    count?: number;
+    total?: number | string;
+  };
+  cash?: {
+    expectedAmount?: number | string;
+  };
+};
+
 function getExpenseErrors(form: {
   concept: string;
   classification: string;
@@ -57,20 +88,20 @@ export default function ExpensesPage() {
   const [search, setSearch] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [form, setForm] = useState(blankExpenseForm);
-  const [selectedExpense, setSelectedExpense] = useState<any>(null);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [showModal, setShowModal] = useState(false);
 
   const expenses = useQuery({
     queryKey: ['expenses'],
-    queryFn: () => apiFetch<any[]>('/expenses'),
+    queryFn: () => apiFetch<Expense[]>('/expenses'),
   });
   const paymentMethods = useQuery({
     queryKey: ['payment-methods'],
-    queryFn: () => apiFetch<any[]>('/payment-methods'),
+    queryFn: () => apiFetch<PaymentMethod[]>('/payment-methods'),
   });
   const dailySummary = useQuery({
     queryKey: ['daily-summary'],
-    queryFn: () => apiFetch<any>('/reports/daily'),
+    queryFn: () => apiFetch<DailySummary>('/reports/daily'),
   });
 
   const filteredExpenses = useMemo(

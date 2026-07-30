@@ -1,0 +1,179 @@
+ M .agents/tasks/prd-sofia-ultra-premium.json
+ D .claude/scheduled_tasks.lock
+ M .engineering/GLOBAL_STATUS.md
+ M .engineering/ROADMAP.md
+ M .engineering/modules/api.md
+ M .engineering/modules/caja.md
+ M .engineering/modules/dashboard.md
+ M .engineering/modules/database.md
+ M .engineering/modules/delivery.md
+ M .engineering/modules/deployment.md
+ M .engineering/modules/frontend.md
+ M .engineering/modules/inventory.md
+ M .engineering/modules/performance.md
+ M .engineering/modules/pos.md
+ M .engineering/modules/security.md
+ M .engineering/modules/sofia.md
+ M .engineering/modules/testing.md
+ M .engineering/modules/uiux.md
+ M .engineering/modules/whatsapp.md
+ M .env.example
+ M .github/workflows/cd.yml
+ M .github/workflows/ci.yml
+ M apps/api/package.json
+ M apps/api/src/config/env.ts
+ M apps/api/src/delivery/delivery-pricing/delivery-pricing.engine.ts
+ M apps/api/src/main.ts
+ M apps/api/src/modules/health/health.module.ts
+ M apps/api/src/modules/health/health.service.spec.ts
+ M apps/api/src/modules/health/health.service.ts
+ M apps/api/src/modules/health/observability.service.ts
+ M apps/api/src/modules/orders/delivery-receipt.renderer.ts
+ M apps/api/src/modules/orders/orders.service.ts
+ M apps/api/src/modules/reports/reports.service.ts
+ M apps/api/src/modules/settings/settings.service.ts
+ M apps/api/src/modules/sofia/ai/deepseek-ai.provider.ts
+ M apps/api/src/modules/sofia/ai/sofia-ai-provider.adapter.ts
+ M apps/api/src/modules/sofia/ai/sofia-ai-provider.factory.ts
+ M apps/api/src/modules/sofia/backups/sofia-backups.service.ts
+ M apps/api/src/modules/sofia/catalog/sofia-commercial-catalog.service.ts
+ M apps/api/src/modules/sofia/catalog/sofia-commercial-catalog.types.ts
+ M apps/api/src/modules/sofia/dto/sofia.dto.ts
+ M apps/api/src/modules/sofia/governance/sofia-governance.service.ts
+ M apps/api/src/modules/sofia/memory/sofia-customer-memory.service.ts
+ M apps/api/src/modules/sofia/memory/sofia-memory.types.ts
+ M apps/api/src/modules/sofia/payments/bold-payment.provider.ts
+ M apps/api/src/modules/sofia/payments/mock-payment.provider.ts
+ M apps/api/src/modules/sofia/payments/null-payment.provider.ts
+ M apps/api/src/modules/sofia/payments/payment-provider.adapter.ts
+ M apps/api/src/modules/sofia/prompt/sofia-master-prompt.seed.ts
+ M apps/api/src/modules/sofia/prompt/sofia-prompt.service.ts
+ M apps/api/src/modules/sofia/runtime-safety/sofia-runtime-safety.service.spec.ts
+ M apps/api/src/modules/sofia/runtime-safety/sofia-runtime-safety.service.ts
+ M apps/api/src/modules/sofia/runtime-safety/sofia-runtime-safety.types.ts
+ M apps/api/src/modules/sofia/sofia-agent.service.ts
+ M apps/api/src/modules/sofia/sofia-payment-link.service.ts
+ M apps/api/src/modules/sofia/sofia-payment-webhooks.controller.ts
+ M apps/api/src/modules/sofia/sofia-public-payments.controller.ts
+ M apps/api/src/modules/sofia/sofia-whatsapp.controller.ts
+ M apps/api/src/modules/sofia/sofia-whatsapp.service.ts
+ M apps/api/src/modules/sofia/sofia.controller.ts
+ M apps/api/src/modules/sofia/sofia.module.ts
+ M apps/api/src/modules/sofia/sofia.service.ts
+ M apps/api/src/modules/sofia/whatsapp/hermes-whatsapp.provider.ts
+ M apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts
+ M apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.provider.ts
+ M apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.ts
+ M apps/api/src/modules/whatsapp/whatsapp.service.ts
+ M apps/api/src/release/release-manifest.spec.ts
+ M apps/api/src/release/release-manifest.ts
+ M apps/api/src/release/release-metadata.service.ts
+ M apps/api/src/tests/app.critical.spec.ts
+ M apps/web/next.config.ts
+ M apps/web/package.json
+ M apps/web/src/app/(app)/cash/page.tsx
+ M apps/web/src/app/(app)/dashboard/page.tsx
+ M apps/web/src/app/(app)/deliveries/page.tsx
+ M apps/web/src/app/(app)/expenses/page.tsx
+ M apps/web/src/app/(app)/ingredients/page.tsx
+ M apps/web/src/app/(app)/inventory/page.tsx
+ M apps/web/src/app/(app)/layout.tsx
+ M apps/web/src/app/(app)/pos/page.tsx
+ M apps/web/src/app/(app)/products/page.tsx
+ M apps/web/src/app/(app)/purchases/page.tsx
+ M apps/web/src/app/(app)/recipes/page.tsx
+ M apps/web/src/app/(app)/reports/page.tsx
+ M apps/web/src/app/(app)/sofia/conversations/page.tsx
+ M apps/web/src/app/(app)/sofia/page.tsx
+ M apps/web/src/app/(app)/sofia/sandbox/page.tsx
+ M apps/web/src/app/(app)/sofia/whatsapp-qr/page.tsx
+ M apps/web/src/app/(app)/users/page.tsx
+ M apps/web/src/app/(waiter)/waiter-layout.client.tsx
+ M apps/web/src/app/(waiter)/waiter/page.client.tsx
+ M apps/web/src/app/pagos/[token]/page.tsx
+ M apps/web/src/components/app-shell.tsx
+ M apps/web/src/components/sofia/SofiaLiveSignalCard.tsx
+ M apps/web/src/components/sofia/SofiaOperatorConsole.tsx
+ M apps/web/src/components/sofia/SofiaReadinessGauge.tsx
+ M apps/web/src/components/sofia/SofiaReadinessGrid.tsx
+ M apps/web/src/components/sofia/SofiaScopeComparison.tsx
+ M apps/web/src/components/sofia/SofiaSectionHeader.tsx
+ M apps/web/src/components/sofia/SofiaTimeline.tsx
+ M apps/web/src/components/ui/field.tsx
+ M apps/web/src/components/ui/section-title.tsx
+ M apps/web/src/features/pos/PosProductBrowser.tsx
+ M apps/web/src/features/pos/PosWhatsappReceiptModal.tsx
+ M apps/web/src/lib/api.ts
+ M docker-compose.yml
+ M docs/sofia-current-state.md
+ M eslint.config.mjs
+ M infra/docker/Dockerfile.api
+ M infra/docker/Dockerfile.web
+ M infra/nginx/default.conf
+ M infra/nginx/generated/default.conf
+ M infra/nginx/templates/http.conf.template
+ M infra/nginx/templates/https.conf.template
+ M infra/release/docker-compose.staging-images.yml
+ M infra/release/runtime-safety-smoke.mjs
+ M infra/release/staging-deploy.sh
+ M infra/scripts/backup.sh
+ M infra/scripts/common.sh
+ M infra/scripts/deploy.sh
+ M infra/scripts/render-nginx-conf.sh
+ M infra/scripts/restore.sh
+ M infra/scripts/smoke.sh
+ M infra/testing/run-ephemeral-e2e.sh
+ M package.json
+ M pnpm-lock.yaml
+ M prisma/schema.prisma
+ M tests/e2e/ephemeral/core-operational-ui.spec.ts
+ M tests/e2e/ephemeral/mobile.spec.ts
+ M tests/e2e/ephemeral/operator-console.spec.ts
+ M tests/e2e/sofia-agent-multimedia-sandbox-phase-7-9.spec.ts
+ M tests/e2e/sofia-whatsapp-qr-gateway-4.spec.ts
+?? .agents/skills/ui-ux-pro-max/scripts/__pycache__/
+?? .engineering/checkpoints/enterprise-program-before.md
+?? .engineering/checkpoints/enterprise-resilience-implementation-complete.md
+?? .engineering/checkpoints/phase-2-5-1-r2-complete.md
+?? .engineering/checkpoints/production-readiness-validation-2026-07-28.md
+?? .engineering/checkpoints/sofia-enterprise-implementation-complete.md
+?? .engineering/evidence/phase-2-2/
+?? .engineering/evidence/phase-2-3/
+?? .engineering/evidence/phase-2-4/
+?? .engineering/evidence/phase-2-5-1-r1/
+?? .engineering/evidence/phase-2-5-1-r2/
+?? .engineering/evidence/phase-2-5-1/
+?? .engineering/evidence/phase-2-5/
+?? .engineering/evidence/production-readiness-2026-07-28/
+?? .engineering/production-closure/
+?? .engineering/reports/enterprise-program-execution.md
+?? .engineering/reports/enterprise-resilience-implementation-report.md
+?? .engineering/reports/phase-2-5-1-r2-recovery-release-report.md
+?? .engineering/reports/production-readiness-validation-2026-07-28.md
+?? .engineering/reports/sofia-enterprise-production-readiness-report.md
+?? apps/api/src/modules/sofia/ai/deepseek-ai.provider.spec.ts
+?? apps/api/src/modules/sofia/catalog/sofia-commercial-catalog.service.spec.ts
+?? apps/api/src/modules/sofia/crm/
+?? apps/api/src/modules/sofia/payments/bold-payment.provider.spec.ts
+?? apps/api/src/modules/sofia/privacy/sofia-admin-response-sanitizer.interceptor.spec.ts
+?? apps/api/src/modules/sofia/privacy/sofia-admin-response-sanitizer.interceptor.ts
+?? apps/api/src/modules/sofia/sofia-payment-link.service.spec.ts
+?? apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.spec.ts
+?? apps/api/src/modules/sofia/whatsapp/whatsapp-provider-idempotency.spec.ts
+?? apps/api/src/modules/whatsapp/whatsapp-outbound-safety.spec.ts
+?? apps/web/src/app/(app)/sofia/customers/
+?? apps/web/src/features/sofia/
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-phase-a-commit/
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-real-receipt-validation/
+?? infra/environments/staging/selfhosted-data/deployment-prep/delivery-test-handle-fix/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-claude-direct-ultra-premium/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-extreme-live-dashboard/
+?? infra/environments/staging/selfhosted-data/deployment-prep/sofia-fable5-command-center/
+?? infra/environments/staging/selfhosted-data/deployment-prep/system-total-audit-final/
+?? infra/release/release-safety.test.mjs
+?? infra/release/verify-runtime-identity.mjs
+?? infra/testing/.engineering/
+?? prisma/migrations/20260727130000_sofia_crm_bounded_context/
+?? prisma/migrations/20260727133000_sofia_payment_webhook_fail_closed/
+?? tests/e2e/ephemeral/accessibility.ts
+?? tests/e2e/tsconfig.json

@@ -258,8 +258,17 @@ docker kill --signal=TERM "$API_CONTAINER" >"$EVIDENCE_DIR/failure-sigterm.log"
 wait_url "http://127.0.0.1:$API_PORT/health/ready"
 
 MISMATCH_CONTAINER="${PROJECT}-migration-mismatch"
-MISMATCH_EXPECTED_MIGRATION_COUNT="$((EXPECTED_MIGRATION_COUNT + 1))"
-"${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" -e EXPECTED_MIGRATION_COUNT="$MISMATCH_EXPECTED_MIGRATION_COUNT" -p "127.0.0.1:$INCOMPATIBLE_API_PORT:3000" restore-api >/dev/null
+MISMATCH_MANIFEST="$RUN_ROOT/release-manifest-mismatch.json"
+node - "$MANIFEST_FILE" "$MISMATCH_MANIFEST" <<'NODE'
+const fs = require('node:fs');
+const [source, output] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
+manifest.schemaMigrationCount += 1;
+fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+NODE
+"${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" \
+  -v "$MISMATCH_MANIFEST:/app/release-manifest.json:ro" \
+  -p "127.0.0.1:$INCOMPATIBLE_API_PORT:3000" restore-api >/dev/null
 wait_url "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/live"
 MISMATCH_CODE="$(curl -sS -o "$EVIDENCE_DIR/migration-mismatch-ready.json" -w '%{http_code}' "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/ready")"
 [[ "$MISMATCH_CODE" == 503 ]]

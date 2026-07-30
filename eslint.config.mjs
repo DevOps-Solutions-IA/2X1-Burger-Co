@@ -1,6 +1,9 @@
 import js from '@eslint/js';
+import { FlatCompat } from '@eslint/eslintrc';
 import tseslint from 'typescript-eslint';
 import securityPlugin from 'eslint-plugin-security';
+
+const compat = new FlatCompat({ baseDirectory: import.meta.dirname });
 
 export default tseslint.config(
   {
@@ -13,6 +16,7 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
+  ...compat.extends('next/core-web-vitals'),
   ...tseslint.configs.recommended,
   {
     files: ['apps/api/src/**/*.ts', 'apps/web/src/**/*.{ts,tsx}', 'tests/**/*.ts', 'prisma/**/*.ts'],
@@ -42,5 +46,10 @@ export default tseslint.config(
       'security/detect-non-literal-require': 'warn',
     },
   },
+  {
+    files: ['apps/api/src/**/*.ts', 'tests/**/*.ts'],
+    rules: {
+      '@next/next/no-html-link-for-pages': 'off',
+    },
+  },
 );
-

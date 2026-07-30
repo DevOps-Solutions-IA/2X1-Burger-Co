@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { LoaderCircle, QrCode, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -104,10 +105,13 @@ export function PosWhatsappReceiptModal({
                   </div>
                 </div>
                 <div className="mt-4 flex justify-center rounded-[1.25rem] border border-stone-200 bg-white p-4">
-                  <img
+                  <Image
                     src={whatsappSession.qrDataUrl}
                     alt="QR de conexión de WhatsApp"
+                    width={256}
+                    height={256}
                     className="h-64 w-64 max-w-full rounded-[1rem] object-contain"
+                    unoptimized
                   />
                 </div>
               </div>

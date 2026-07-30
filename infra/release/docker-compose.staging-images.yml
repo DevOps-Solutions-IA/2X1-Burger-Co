@@ -2,6 +2,10 @@ services:
   api:
     image: ${API_IMAGE:?API_IMAGE must be pinned by digest}
     build: null
+    environment:
+      RELEASE_ARTIFACT_DIGEST: ${API_DIGEST:?API_DIGEST is required}
   web:
     image: ${WEB_IMAGE:?WEB_IMAGE must be pinned by digest}
     build: null
+    environment:
+      RELEASE_ARTIFACT_DIGEST: ${WEB_DIGEST:?WEB_DIGEST is required}

@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 import {
   Prisma,
   ProductKind,
+  SofiaOrderSource,
   SofiaOrderDraftStatus,
   WhatsappConversationStatus,
   WhatsappMessageDirection,
@@ -12,10 +14,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAutoSafeEngineService } from './auto-safe/sofia-auto-safe-engine.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
+import { SOFIA_MAXI_FAMILY_REQUIRED_COPY } from './catalog/sofia-commercial-catalog.seed';
+import {
+  SofiaCommercialCatalogItemSnapshot,
+} from './catalog/sofia-commercial-catalog.types';
 import { ProcessSofiaAgentMessageDto, RecoverSofiaAbandonedDraftDto } from './dto/sofia.dto';
 import { SofiaConversationMemoryService } from './memory/sofia-conversation-memory.service';
 import { SofiaCustomerMemoryService } from './memory/sofia-customer-memory.service';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
+import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { getActiveSofiaFeaturedOffers, SofiaFeaturedOffer } from './sofia-featured-offers';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaService } from './sofia.service';
@@ -61,6 +68,14 @@ type ActiveProduct = {
   trackStock: boolean;
   currentStock: Prisma.Decimal;
   category: { name: string; slug: string } | null;
+  recipes: Array<{
+    yieldQuantity: Prisma.Decimal;
+    items: Array<{
+      quantity: Prisma.Decimal;
+      wastePercent: Prisma.Decimal;
+      ingredient: { currentStock: Prisma.Decimal; isActive: boolean };
+    }>;
+  }>;
 };
 
 type SofiaUpsell = {
@@ -83,7 +98,6 @@ type SofiaMediaSuggestion = {
 const DELIVERY_FEE_SANDBOX = 0;
 const OPEN_HOUR = 17;
 const CLOSE_HOUR = 24;
-const MAXI_FAMILY_COPY = '6 burgers + 1 porción personal de papitas + 1 Pepsi 1.5 L';
 type HeaderMap = Record<string, string | string[] | undefined>;
 
 @Injectable()
@@ -99,6 +113,7 @@ export class SofiaAgentService {
     private readonly catalogService: SofiaCommercialCatalogService,
     private readonly customerMemoryService: SofiaCustomerMemoryService,
     private readonly conversationMemoryService: SofiaConversationMemoryService,
+    private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
 
   private normalizeText(value: string) {
@@ -109,6 +124,13 @@ export class SofiaAgentService {
       .replace(/[^\p{L}\p{N}\s#-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private sandboxPhone(actorId: string) {
+    const digits = [...createHash('sha256').update(actorId).digest('hex').slice(0, 9)]
+      .map((value) => String(Number.parseInt(value, 16) % 10))
+      .join('');
+    return `0${digits}`;
   }
 
   private isMenuOrPhotoRequest(normalized: string) {
@@ -217,6 +239,20 @@ export class SofiaAgentService {
         trackStock: true,
         currentStock: true,
         category: { select: { name: true, slug: true } },
+        recipes: {
+          where: { isActive: true },
+          take: 1,
+          select: {
+            yieldQuantity: true,
+            items: {
+              select: {
+                quantity: true,
+                wastePercent: true,
+                ingredient: { select: { currentStock: true, isActive: true } },
+              },
+            },
+          },
+        },
       },
       orderBy: [{ kind: 'asc' }, { name: 'asc' }],
     });
@@ -230,6 +266,18 @@ export class SofiaAgentService {
   private isAvailable(product: ActiveProduct, quantity = 1) {
     if (product.kind === ProductKind.DIRECT_STOCK && product.trackStock) {
       return Number(product.currentStock) >= quantity;
+    }
+    if (product.kind === ProductKind.PREPARED && product.trackStock) {
+      const recipe = product.recipes[0];
+      if (!recipe?.items.length || Number(recipe.yieldQuantity) <= 0) return false;
+      return recipe.items.every((item) => {
+        if (!item.ingredient.isActive) return false;
+        const required = new Prisma.Decimal(quantity)
+          .mul(item.quantity)
+          .div(recipe.yieldQuantity)
+          .mul(new Prisma.Decimal(1).add(item.wastePercent.div(100)));
+        return item.ingredient.currentStock.greaterThanOrEqualTo(required);
+      });
     }
     return true;
   }
@@ -397,6 +445,8 @@ export class SofiaAgentService {
     audioNeedsConfirmation?: boolean;
     menuRequest: boolean;
     featuredOffer: SofiaFeaturedOffer | null;
+    matchedCatalogItem: SofiaCommercialCatalogItemSnapshot | null;
+    availableOfferNames: string[];
     maxiCopyConfusion: boolean;
     aiSuggestedReply?: string | null;
     repeatLastOrderResponse?: string | null;
@@ -413,15 +463,20 @@ export class SofiaAgentService {
       return 'Ahora estamos fuera de horario. Atendemos de 5:00 p.m. a 12:00 a.m. Puedo dejar tu pedido listo para revisión si el negocio lo permite.';
     }
     if (input.confirmed) {
-      return input.paymentLinkUrl
-        ? `Perfecto. Tu pedido quedó listo en Domicilios. Te dejo el link para finalizar el pago: ${input.paymentLinkUrl}`
-        : 'Perfecto. Tu pedido quedó listo y ya lo puede ver el equipo en Domicilios.';
+      return 'Perfecto. Dejé un borrador supervisado para revisión del equipo. Aún no se creó un pedido ni un pago.';
     }
     if (input.maxiCopyConfusion) {
-      return 'Te confirmo para que no haya confusión: el Maxi Family incluye una porción personal de papitas. Si deseas más papitas, te puedo agregar porciones adicionales.';
+      return `Te confirmo para que no haya confusión: el Maxi Family incluye ${SOFIA_MAXI_FAMILY_REQUIRED_COPY}. Esta referencia conserva la política comercial, pero todavía no está disponible para comprar porque no tiene un producto activo con precio persistido.`;
+    }
+    if (input.matchedCatalogItem?.availability === 'CONFIGURATION_ONLY') {
+      const configuredCopy =
+        input.matchedCatalogItem.composition?.requiredCopy ??
+        input.matchedCatalogItem.shortDescription ??
+        'la referencia comercial configurada';
+      return `${input.matchedCatalogItem.name}: ${configuredCopy}. Esta referencia conserva la política comercial, pero todavía no está disponible para comprar porque no tiene un producto activo con precio persistido.`;
     }
     if (input.featuredOffer?.slug === 'maxi-family') {
-      return `Perfecto. El Maxi Family trae ${MAXI_FAMILY_COPY}. Es ideal para compartir. Si quieres que todos acompañen con papitas, te puedo agregar porciones adicionales.`;
+      return `Perfecto. El Maxi Family trae ${SOFIA_MAXI_FAMILY_REQUIRED_COPY}. Es ideal para compartir. Si quieres que todos acompañen con papitas, te puedo agregar porciones adicionales.`;
     }
     if (input.featuredOffer?.slug === '2x1-hamburguesas') {
       if (input.missingFields.includes('deliveryAddress') && input.items.length) {
@@ -437,7 +492,9 @@ export class SofiaAgentService {
     }
     if (input.aiSuggestedReply && !input.missingFields.includes('items')) return input.aiSuggestedReply;
     if (input.menuRequest) {
-      return `Tenemos estas opciones principales: Maxi Family, 2x1 Hamburguesas, Doble Todo y Hamburguesa Sencilla. El Maxi Family trae ${MAXI_FAMILY_COPY}. Si quieres, también te puedo mostrar imágenes.`;
+      return input.availableOfferNames.length
+        ? `Estas son las ofertas disponibles con producto y precio vigentes: ${input.availableOfferNames.join(', ')}. ¿Cuál te gustaría pedir?`
+        : 'No tengo ofertas comprables validadas en este momento. Puedo consultar los productos activos o pedir al equipo que confirme disponibilidad.';
     }
     if (input.intent === 'GREETING') return '¡Claro! Te ayudo con tu pedido. Puedes decirme qué quieres y para dónde va el domicilio.';
     if (input.intent === 'ASK_MENU') {
@@ -450,19 +507,40 @@ export class SofiaAgentService {
     if (input.missingFields.includes('customerName')) return 'Ya tengo el pedido. Dime por favor tu nombre para dejarlo marcado.';
     if (input.missingFields.includes('customerPhone')) return 'Ya tengo el pedido. Dime por favor tu WhatsApp para dejarlo asociado.';
     if (input.upsell) return input.upsell.message;
-    if (input.items.length) return 'Va quedando listo. Si quieres, lo confirmo y te genero el link de pago.';
+    if (input.items.length) {
+      return 'Va quedando listo. Si confirmas, lo dejo como borrador supervisado para revisión del equipo.';
+    }
     return 'Déjame confirmarlo con el equipo para no darte información incorrecta.';
   }
 
   async processSandboxMessage(
     dto: ProcessSofiaAgentMessageDto,
     actorId: string,
-    options: { recordInbound?: boolean; recordOutbound?: boolean; source?: 'SANDBOX' | 'WHATSAPP'; headers?: HeaderMap } = {},
+    options: { recordInbound?: boolean; recordOutbound?: boolean; headers?: HeaderMap } = {},
+  ) {
+    return this.processMessage(dto, actorId, { ...options, source: 'SANDBOX' });
+  }
+
+  async processInboundMessage(
+    dto: ProcessSofiaAgentMessageDto,
+    actorId: string,
+    options: { recordInbound?: boolean; recordOutbound?: boolean; headers?: HeaderMap } = {},
+  ) {
+    return this.processMessage(dto, actorId, { ...options, source: 'WHATSAPP' });
+  }
+
+  private async processMessage(
+    dto: ProcessSofiaAgentMessageDto,
+    actorId: string,
+    options: { recordInbound?: boolean; recordOutbound?: boolean; source: 'SANDBOX' | 'WHATSAPP'; headers?: HeaderMap },
   ) {
     const recordInbound = options.recordInbound ?? true;
     const recordOutbound = options.recordOutbound ?? true;
     const message = dto.message.trim();
     if (!message) throw new BadRequestException('El mensaje es obligatorio.');
+    if (options.source === 'WHATSAPP' && !dto.conversationId) {
+      throw new BadRequestException('El inbound WhatsApp requiere una conversación persistida por el transporte.');
+    }
 
     const normalized = this.normalizeText(message);
     const transcriptConfidence = dto.messageType === 'AUDIO_TRANSCRIPT' ? dto.transcriptConfidence ?? 0.7 : 1;
@@ -474,15 +552,21 @@ export class SofiaAgentService {
     const conversation = dto.conversationId
       ? await this.sofiaService.findConversation(dto.conversationId)
       : await this.sofiaService.getOrCreateConversation({
-          phone: dto.phone ?? '573000000000',
+          phone: dto.phone ?? this.sandboxPhone(actorId),
           customerName: dto.customerName,
-        });
+        }, SofiaOrderSource.MOCK_ADMIN);
     const initialPhone = dto.phone ?? conversation.phone;
     const [activePrompt, commercialCatalog, customerMemoryRecord] = await Promise.all([
       this.promptService.getActivePrompt(),
       this.catalogService.listActiveItems(),
       this.customerMemoryService.resolveOrCreateMemory(initialPhone, dto.customerName ?? conversation.customerName),
     ]);
+    if (conversation.customerId && customerMemoryRecord.customerId !== conversation.customerId) {
+      await this.prisma.sofiaCustomerMemory.update({
+        where: { id: customerMemoryRecord.id },
+        data: { customerId: conversation.customerId },
+      });
+    }
     const customerMemory = this.customerMemoryService.toSnapshot(customerMemoryRecord);
     const repeatLastOrder = this.isRepeatLastOrderRequest(normalized)
       ? await this.customerMemoryService.repeatLastOrderSuggestion(initialPhone)
@@ -509,7 +593,9 @@ export class SofiaAgentService {
     }
 
     const products = await this.activeProducts();
-    const matchedProducts = this.matchProducts(normalized, products);
+    const matchedCatalogItem = await this.catalogService.findByText(message);
+    const matchedProducts =
+      matchedCatalogItem?.availability === 'CONFIGURATION_ONLY' ? [] : this.matchProducts(normalized, products);
     const quantity = this.quantityFromText(normalized);
     const extractedItems = matchedProducts.map((product) => this.toAgentItem(product, quantity));
 
@@ -523,10 +609,13 @@ export class SofiaAgentService {
     });
 
     const explicitFeaturedOffer = this.findFeaturedOffer(normalized);
-    const matchedCatalogItem = await this.catalogService.findByText(message);
+    const availableOfferSnapshots = this.catalogService.toAvailableOfferSnapshots(commercialCatalog);
+    const availableOfferSlugs = new Set(availableOfferSnapshots.map((offer) => offer.slug));
     const isCatalogRequest = this.isMenuOrPhotoRequest(normalized);
     const activeFeaturedOffer = isCatalogRequest && !explicitFeaturedOffer ? null : this.activeFeaturedOfferFromDraft(activeDraft);
-    const matchedFeaturedOffer = explicitFeaturedOffer ?? activeFeaturedOffer;
+    const configuredFeaturedOffer = explicitFeaturedOffer ?? activeFeaturedOffer;
+    const matchedFeaturedOffer =
+      configuredFeaturedOffer && availableOfferSlugs.has(configuredFeaturedOffer.slug) ? configuredFeaturedOffer : null;
     const menuRequest = isCatalogRequest && !explicitFeaturedOffer;
     const maxiCopyConfusion = this.hasMaxiCopyConfusion(normalized);
     const existingItems = this.parseExistingItems(activeDraft);
@@ -536,7 +625,10 @@ export class SofiaAgentService {
     const customerPhone = dto.phone ?? activeDraft?.customerPhone ?? conversation.phone;
     const missingFields = this.missingFields({ customerName, customerPhone, deliveryAddress, items: nextItems });
     const totals = this.calculateTotals(nextItems);
-    const upsell = this.buildUpsell(nextItems, products, matchedFeaturedOffer);
+    const upsell =
+      matchedCatalogItem?.availability === 'CONFIGURATION_ONLY'
+        ? null
+        : this.buildUpsell(nextItems, products, matchedFeaturedOffer);
     const mediaSuggestion = this.buildMedia(matchedFeaturedOffer);
     const memoryBefore = await this.customerMemoryService.updateFromInteraction({
       phone: customerPhone,
@@ -560,16 +652,8 @@ export class SofiaAgentService {
               hasCustomerPhone: Boolean(activeDraft.customerPhone),
             }
           : null,
-        availableOffersSnapshot: commercialCatalog
-          .filter((item) => item.type === 'OFFER')
-          .map((offer) => ({
-            slug: offer.slug,
-            name: offer.name,
-            description: offer.composition?.requiredCopy ?? offer.shortDescription ?? '',
-            imageUrl: offer.imageUrl ?? '',
-            salesHint: offer.upsellRules.join(' · '),
-        })),
-        availableProductsSnapshot: products.map((product) => ({
+        availableOffersSnapshot: availableOfferSnapshots,
+        availableProductsSnapshot: products.filter((product) => this.isAvailable(product)).map((product) => ({
           id: product.id,
           code: product.code,
           name: product.name,
@@ -578,7 +662,7 @@ export class SofiaAgentService {
           categoryName: product.category?.name ?? null,
         })),
         paymentOptionsSnapshot: {
-          paymentLink: 'available_when_operational_order_exists',
+          paymentLink: 'unavailable_from_sofia',
           manualPayment: 'operator_validated',
           aiCannotMarkPaid: true,
         },
@@ -609,8 +693,7 @@ export class SofiaAgentService {
         customerPhone: customerPhone ?? undefined,
         deliveryAddress: deliveryAddress ?? undefined,
         deliveryNeighborhood: activeDraft?.deliveryNeighborhood ?? undefined,
-        deliveryNotes: 'Pedido armado por Sofía sandbox. Sin WhatsApp real.',
-        deliveryFee: totals.deliveryFee,
+        deliveryNotes: 'Borrador supervisado por Sofía. Sin pedido operativo, pago ni envío automático.',
         aiSummary: `Intent: ${effectiveIntent}. ${matchedFeaturedOffer ? `FeaturedOffer:${matchedFeaturedOffer.slug}. ` : ''}AI:${safeAi.provider}/${safeAi.mode}.`,
         items: nextItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
       };
@@ -622,34 +705,54 @@ export class SofiaAgentService {
     let deliveryOrder: unknown = null;
     let paymentLinkUrl: string | null = null;
     let confirmed = false;
+    let productiveActionBlocked: string | null = null;
     const canConfirm = Boolean(classified.intent === 'CONFIRM_ORDER' && draft && !missingFields.length && !outsideHours);
     if (canConfirm && draft) {
-      const confirmedDraft = await this.sofiaService.confirmDraft(draft.id, actorId);
-      const createdDeliveryOrder = await this.sofiaService.createDeliveryOrderFromDraft(confirmedDraft.id, actorId, true);
-      deliveryOrder = createdDeliveryOrder;
-      const orderTicketId = createdDeliveryOrder.orderTicketId;
-      if (orderTicketId) {
-        const link = await this.paymentLinkService.generateOperationalLink(orderTicketId, actorId);
-        paymentLinkUrl = link.publicPaymentUrl;
+      const productiveGate =
+        options.source === 'WHATSAPP'
+          ? await this.runtimeSafetyService.evaluate('PRODUCTIVE_ACTION')
+          : null;
+      if (productiveGate && !productiveGate.allowed) {
+        productiveActionBlocked = productiveGate.reason;
+        await this.runtimeSafetyService.recordBlocked('PRODUCTIVE_ACTION', {
+          actorId,
+          phone: customerPhone,
+          reason: productiveGate.reason,
+          blockers: productiveGate.blockers,
+          idempotencyKey: `sofia-draft-confirm:${draft.id}`,
+        });
+      } else {
+        const confirmedDraft = await this.sofiaService.confirmDraft(draft.id, actorId);
+        const createdDeliveryOrder = await this.sofiaService.createDeliveryOrderFromDraft(
+          confirmedDraft.id,
+          actorId,
+        );
+        deliveryOrder = createdDeliveryOrder;
+        const orderTicketId = createdDeliveryOrder.orderTicketId;
+        if (orderTicketId) {
+          const link = await this.paymentLinkService.generateOperationalLink(orderTicketId, actorId);
+          paymentLinkUrl = link.publicPaymentUrl;
+        }
+        await this.customerMemoryService.saveLastOrder({
+          phone: customerPhone,
+          displayName: customerName,
+          address: deliveryAddress,
+          preferredPaymentMethod: this.paymentMethodFromText(normalized),
+          orderSummary: {
+            source: options.source === 'WHATSAPP' ? 'SOFIA_WHATSAPP' : 'SOFIA_SANDBOX',
+            confirmedAt: new Date().toISOString(),
+            operationalOrderCreated: false,
+            items: nextItems.map((item) => ({
+              productId: item.productId,
+              name: item.name,
+              quantity: item.quantity,
+            })),
+            total: totals.total,
+            currency: 'COP',
+          },
+        });
+        confirmed = true;
       }
-      await this.customerMemoryService.saveLastOrder({
-        phone: customerPhone,
-        displayName: customerName,
-        address: deliveryAddress,
-        preferredPaymentMethod: this.paymentMethodFromText(normalized),
-        orderSummary: {
-          source: 'SOFIA_SANDBOX',
-          confirmedAt: new Date().toISOString(),
-          items: nextItems.map((item) => ({
-            productId: item.productId,
-            name: item.name,
-            quantity: item.quantity,
-          })),
-          total: totals.total,
-          currency: 'COP',
-        },
-      });
-      confirmed = true;
     }
 
     if (handoff || aiWantsHandoff) {
@@ -665,12 +768,14 @@ export class SofiaAgentService {
       items: nextItems,
       upsell,
       outsideHours,
-      handoff: handoff || aiWantsHandoff,
+      handoff: handoff || aiWantsHandoff || Boolean(productiveActionBlocked),
       confirmed,
       paymentLinkUrl,
       audioNeedsConfirmation,
       menuRequest,
       featuredOffer: matchedFeaturedOffer,
+      matchedCatalogItem,
+      availableOfferNames: availableOfferSnapshots.map((offer) => offer.name),
       maxiCopyConfusion,
       aiSuggestedReply,
       repeatLastOrderResponse: repeatLastOrder?.responseText ?? null,
@@ -703,7 +808,7 @@ export class SofiaAgentService {
       conversationId: conversation.id,
       customerMemoryId: memoryBefore?.id ?? customerMemory.id,
       promptVersionId: activePrompt.id,
-      phoneNormalized: memoryBefore?.phoneNormalized ?? customerMemory.phoneNormalized,
+      phoneNormalized: customerMemoryRecord.phoneNormalized,
       messageText: message,
       candidateReply: responseText,
       intent: effectiveIntent,
@@ -715,20 +820,7 @@ export class SofiaAgentService {
         price: item.unitPrice,
         known: true,
       })),
-      catalogItems: [
-        ...(matchedCatalogItem ? [matchedCatalogItem] : []),
-        ...(matchedFeaturedOffer && !matchedCatalogItem
-          ? [
-              {
-                slug: matchedFeaturedOffer.slug,
-                name: matchedFeaturedOffer.name,
-                price: null,
-                priceSource: 'NONE',
-                prohibitedClaims: matchedFeaturedOffer.slug === 'maxi-family' ? this.catalogService.forbiddenMaxiClaims() : [],
-              },
-            ]
-          : []),
-      ],
+      catalogItems: matchedCatalogItem?.availability === 'AVAILABLE' ? [matchedCatalogItem] : [],
       memorySnapshot: memoryBefore ?? customerMemory,
       conversationState: handoff || aiWantsHandoff ? 'HUMAN_REQUIRED' : 'SOFIA_ACTIVE',
       promptVersion: activePrompt.version,
@@ -774,7 +866,7 @@ export class SofiaAgentService {
       missingFields,
       suggestedUpsell: upsell,
       mediaSuggestion,
-      featuredOffers: getActiveSofiaFeaturedOffers(),
+      featuredOffers: getActiveSofiaFeaturedOffers().filter((offer) => availableOfferSlugs.has(offer.slug)),
       commercialCatalog,
       matchedCatalogItem,
       matchedFeaturedOffer,
@@ -785,7 +877,16 @@ export class SofiaAgentService {
         repeatLastOrder,
       },
       autoSafeDecision,
-      nextAction: handoff || aiWantsHandoff ? 'HANDOFF' : confirmed ? 'ORDER_CREATED' : missingFields.length ? 'ASK_MISSING_FIELDS' : 'READY_TO_CONFIRM',
+      nextAction:
+        productiveActionBlocked || handoff || aiWantsHandoff
+          ? 'HANDOFF'
+          : confirmed
+            ? options.source === 'WHATSAPP'
+              ? 'SUPERVISED_DRAFT_CONFIRMED'
+              : 'SANDBOX_DRAFT_CONFIRMED'
+            : missingFields.length
+              ? 'ASK_MISSING_FIELDS'
+              : 'READY_TO_CONFIRM',
       responseText,
       shouldCreateDraft: Boolean(nextItems.length),
       shouldConfirmOrder: canConfirm,
@@ -805,6 +906,8 @@ export class SofiaAgentService {
         aiCannotOperateHermes: true,
         aiCannotMarkPaid: true,
         noRealPayments: true,
+        sandboxOperationalIsolation: options.source !== 'WHATSAPP',
+        productiveActionBlocked,
       },
       aiProvider: {
         provider: safeAi.provider,

@@ -66,7 +66,7 @@ export function SofiaStatusCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] opacity-70">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em]">
             {title}
           </p>
           <p className="mt-2 break-words text-base font-black leading-tight sm:text-lg">{value}</p>

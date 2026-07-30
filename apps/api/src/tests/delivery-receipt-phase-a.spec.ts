@@ -255,12 +255,12 @@ describe('Delivery receipt versioning (Phase A)', () => {
     const { order } = await createDeliveryOrder(token);
 
     const service = whatsappService as unknown as {
-      assertEnabled: () => void;
+      assertOutboundAllowed: () => Promise<void>;
       ensureConnectedOrThrow: (message: string) => Promise<void>;
       socket: { sendMessage: jest.Mock } | null;
       sendDeliveryOrderSummary: WhatsappService['sendDeliveryOrderSummary'];
     };
-    const assertEnabledSpy = jest.spyOn(service, 'assertEnabled').mockImplementation(() => undefined);
+    const outboundAllowedSpy = jest.spyOn(service, 'assertOutboundAllowed').mockResolvedValue(undefined);
     const connectedSpy = jest.spyOn(service, 'ensureConnectedOrThrow').mockResolvedValue(undefined);
     const sendMessage = jest.fn().mockResolvedValue(undefined);
     const previousSocket = service.socket;
@@ -286,7 +286,7 @@ describe('Delivery receipt versioning (Phase A)', () => {
       expect(token).toBeTruthy();
     } finally {
       service.socket = previousSocket;
-      assertEnabledSpy.mockRestore();
+      outboundAllowedSpy.mockRestore();
       connectedSpy.mockRestore();
     }
   });

@@ -12,7 +12,12 @@ import {
   SOFIA_MAXI_FAMILY_FORBIDDEN_CLAIMS,
   SOFIA_MAXI_FAMILY_REQUIRED_COPY,
 } from './sofia-commercial-catalog.seed';
-import { SofiaCommercialCatalogItemSnapshot, SofiaCatalogComposition } from './sofia-commercial-catalog.types';
+import {
+  SofiaCommercialCatalogAvailabilityReason,
+  SofiaCommercialCatalogItemSnapshot,
+  SofiaAvailableCommercialOfferSnapshot,
+  SofiaCatalogComposition,
+} from './sofia-commercial-catalog.types';
 
 @Injectable()
 export class SofiaCommercialCatalogService {
@@ -22,6 +27,13 @@ export class SofiaCommercialCatalogService {
     const results = [];
     for (const item of SOFIA_COMMERCIAL_CATALOG_SEED) {
       const linkedProduct = item.linkedProductName ? await this.findLinkedProduct(item.linkedProductName) : null;
+      const linkedProductUpdate = item.linkedProductName
+        ? {
+            linkedProductId: linkedProduct?.id ?? null,
+            linkedProductName: item.linkedProductName,
+            priceSource: linkedProduct ? SofiaCatalogPriceSource.PRODUCT : item.priceSource,
+          }
+        : {};
       results.push(
         await this.prisma.sofiaCommercialCatalogItem.upsert({
           where: { slug: item.slug },
@@ -35,9 +47,7 @@ export class SofiaCommercialCatalogService {
             name: item.name,
             type: item.type,
             status: item.status,
-            linkedProductId: linkedProduct?.id ?? null,
-            linkedProductName: item.linkedProductName ?? null,
-            priceSource: linkedProduct ? SofiaCatalogPriceSource.PRODUCT : item.priceSource,
+            ...linkedProductUpdate,
             imageUrl: item.imageUrl ?? null,
             shortDescription: item.shortDescription,
             compositionJson: item.compositionJson,
@@ -70,6 +80,33 @@ export class SofiaCommercialCatalogService {
     return Promise.all(items.map((item) => this.toSnapshot(item)));
   }
 
+  toAvailableOfferSnapshots(
+    items: SofiaCommercialCatalogItemSnapshot[],
+  ): SofiaAvailableCommercialOfferSnapshot[] {
+    return items.flatMap((item) => {
+      if (
+        item.type !== SofiaCatalogItemType.OFFER ||
+        item.availability !== 'AVAILABLE' ||
+        !item.purchasable ||
+        item.linkedProductId === null ||
+        item.price === null
+      ) {
+        return [];
+      }
+      return [
+        {
+          slug: item.slug,
+          name: item.name,
+          linkedProductId: item.linkedProductId,
+          price: item.price,
+          description: item.composition?.requiredCopy ?? item.shortDescription ?? '',
+          imageUrl: item.imageUrl ?? '',
+          salesHint: item.upsellRules.join(' · '),
+        },
+      ];
+    });
+  }
+
   async findBySlug(slug: string) {
     await this.ensureSeedCatalog();
     const item = await this.prisma.sofiaCommercialCatalogItem.findUnique({ where: { slug } });
@@ -89,6 +126,10 @@ export class SofiaCommercialCatalogService {
 
   async explainOffer(slug: string) {
     const item = await this.findBySlug(slug);
+    if (item.availability === 'CONFIGURATION_ONLY') {
+      const composition = item.composition?.requiredCopy ?? item.shortDescription ?? 'sin detalle comercial configurado';
+      return `${item.name}: ${composition}. Esta referencia conserva la política comercial, pero todavía no está disponible para comprar porque no tiene un producto activo con precio persistido.`;
+    }
     if (item.slug === 'maxi-family') {
       return `El Maxi Family trae ${SOFIA_MAXI_FAMILY_REQUIRED_COPY}.`;
     }
@@ -141,10 +182,7 @@ export class SofiaCommercialCatalogService {
     return this.prisma.product.findFirst({
       where: {
         isActive: true,
-        OR: [
-          { name: { equals: linkedProductName, mode: 'insensitive' } },
-          { name: { contains: linkedProductName, mode: 'insensitive' } },
-        ],
+        name: { equals: linkedProductName, mode: 'insensitive' },
       },
       select: { id: true },
     });
@@ -170,15 +208,20 @@ export class SofiaCommercialCatalogService {
     const product = item.linkedProductId
       ? await this.prisma.product.findUnique({
           where: { id: item.linkedProductId },
-          select: { salePrice: true, isActive: true },
+          select: { id: true, name: true, salePrice: true, isActive: true },
         })
       : null;
-    const price =
-      item.priceSource === SofiaCatalogPriceSource.PRODUCT && product?.isActive
-        ? Number(product.salePrice)
-        : item.priceSource === SofiaCatalogPriceSource.MANUAL && item.manualPrice
-          ? Number(item.manualPrice)
-          : null;
+    const persistedPrice = product ? Number(product.salePrice) : null;
+    const availabilityReason: SofiaCommercialCatalogAvailabilityReason = !item.linkedProductId
+      ? 'PRODUCT_LINK_MISSING'
+      : !product
+        ? 'LINKED_PRODUCT_NOT_FOUND'
+        : !product.isActive
+          ? 'LINKED_PRODUCT_INACTIVE'
+          : persistedPrice === null || !Number.isFinite(persistedPrice) || persistedPrice <= 0
+            ? 'PERSISTED_PRICE_NOT_POSITIVE'
+            : 'ACTIVE_PRODUCT_WITH_PERSISTED_PRICE';
+    const available = availabilityReason === 'ACTIVE_PRODUCT_WITH_PERSISTED_PRICE';
 
     return {
       id: item.id,
@@ -186,9 +229,12 @@ export class SofiaCommercialCatalogService {
       name: item.name,
       type: item.type,
       linkedProductId: item.linkedProductId,
-      linkedProductName: item.linkedProductName,
-      price,
-      priceSource: item.priceSource,
+      linkedProductName: product?.name ?? item.linkedProductName,
+      availability: available ? 'AVAILABLE' : 'CONFIGURATION_ONLY',
+      availabilityReason,
+      purchasable: available,
+      price: available ? persistedPrice : null,
+      priceSource: available ? 'PRODUCT' : 'NONE',
       imageUrl: item.imageUrl,
       shortDescription: item.shortDescription,
       composition: this.compositionFromJson(item.compositionJson),

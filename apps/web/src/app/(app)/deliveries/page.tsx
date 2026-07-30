@@ -852,13 +852,18 @@ export default function DeliveriesPage() {
             <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3 shrink-0">
               <div>
                 <h2 className="text-[13px] font-extrabold uppercase tracking-[0.1em] text-stone-500">Cola operativa</h2>
-                <p className="mt-0.5 text-[10px] font-medium text-stone-400">{deliveries.data?.length ?? 0} domicilios activos</p>
+                <p className="mt-0.5 text-[10px] font-medium text-stone-600">{deliveries.data?.length ?? 0} domicilios activos</p>
               </div>
             </div>
 
             {/* Segmented control */}
             <div className="mx-4 space-y-2 shrink-0" data-testid="deliveries-status-filter">
-              <div className="flex gap-1 overflow-x-auto rounded-lg bg-stone-100/80 p-0.5">
+              <div
+                className="flex gap-1 overflow-x-auto rounded-lg bg-stone-100/80 p-0.5"
+                role="region"
+                aria-label="Filtros de domicilios"
+                tabIndex={0}
+              >
                 {([
                   ['all', 'Todos', summary.total],
                   ['pending', 'Pendientes', summary.pending],
@@ -873,7 +878,7 @@ export default function DeliveriesPage() {
                     className={`min-w-[5.1rem] rounded-md py-2 text-[10px] font-bold uppercase tracking-[0.05em] transition ${
                       queueFilter === tab
                         ? 'bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,0.06)]'
-                        : 'text-stone-500 hover:text-stone-700'
+                        : 'text-stone-700 hover:text-stone-900'
                     }`}
                     data-testid={`deliveries-filter-${tab}`}
                   >
@@ -882,7 +887,13 @@ export default function DeliveriesPage() {
                   </button>
                 ))}
               </div>
-              <div className="flex gap-1 overflow-x-auto rounded-lg border border-violet-100 bg-violet-50/60 p-1" data-testid="deliveries-sofia-ops-filters">
+              <div
+                className="flex gap-1 overflow-x-auto rounded-lg border border-violet-100 bg-violet-50/60 p-1"
+                data-testid="deliveries-sofia-ops-filters"
+                role="region"
+                aria-label="Filtros de alertas de Sofía"
+                tabIndex={0}
+              >
                 {([
                   ['sofia', 'Sofía', summary.sofia],
                   ['manual', 'Manual', summary.manual],

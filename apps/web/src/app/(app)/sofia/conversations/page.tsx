@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Ban,
@@ -21,7 +21,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SectionTitle } from '@/components/ui/section-title';
-import { apiFetch } from '@/lib/api';
+import { apiFetchSchema } from '@/lib/api';
+import {
+  sofiaConversationActionResponseSchema,
+  sofiaFeedbackResponseSchema,
+  sofiaOutboundCancelResponseSchema,
+  type SofiaConversationsInbox as ConversationsInbox,
+  type SofiaInboxConversation as InboxConversation,
+  type SofiaInboxScope as InboxScope,
+} from '@/features/sofia/contracts';
+import { sofiaQueryKeys, useSofiaConversationsInbox } from '@/features/sofia/queries';
 import {
   SofiaConversationCard,
   SofiaEmptyState,
@@ -35,125 +44,6 @@ import {
   SofiaStatusPill,
   SofiaTechnicalDetailsAccordion,
 } from '@/components/sofia';
-
-type InboxScope = 'real' | 'internal_validation' | 'sandbox' | 'historical';
-
-type InboxConversation = {
-  id: string;
-  scope: InboxScope;
-  customerLabel: string;
-  phoneMasked: string | null;
-  phoneHash: string | null;
-  provider: string;
-  mode: string;
-  status: string;
-  humanStatus: string;
-  sofiaEnabled: boolean;
-  lastMessagePreview: string | null;
-  lastMessageAt: string | null;
-  lastInboundAt: string | null;
-  unreadCount: number;
-  operationalState: string;
-  recommendedAction: string;
-  signals: {
-    humanRequired: boolean;
-    paymentSensitive: boolean;
-    unknownProduct: boolean;
-    aiSuggestion: boolean;
-    blocked: boolean;
-    allowlistPending: boolean;
-    pendingReview: boolean;
-  };
-  operationalReasons: Array<{ code: string; label: string }>;
-  technicalReasonCodes: string[];
-  messages: Array<{
-    id: string;
-    direction: 'INBOUND' | 'OUTBOUND' | 'SYSTEM';
-    provider: string;
-    status: string;
-    bodyPreview: string | null;
-    aiIntent: string | null;
-    confidence: number | null;
-    createdAt: string;
-  }>;
-  outboundMessages: Array<{
-    id: string;
-    bodyPreview: string | null;
-    hasMedia: boolean;
-    status: string;
-    attempts: number;
-    lastError: string | null;
-    createdAt: string;
-    sentAt: string | null;
-    sent: boolean;
-    realSendingEnabled: boolean;
-  }>;
-  outboxTotal: number;
-  outboundSentCount: number;
-  relatedOperationCounts: {
-    orderDrafts: number;
-    deliveryOrders: number;
-  };
-  ai: {
-    provider: string;
-    mode: string;
-    dryRun: boolean;
-  };
-  safety: {
-    safetyGuard: boolean;
-    sentFalseExpected: boolean;
-    realSendingEnabled: boolean;
-    whatsappCanMarkPaid: boolean;
-  };
-  updatedAt: string;
-  createdAt: string;
-};
-
-type ConversationsInbox = {
-  generatedAt: string;
-  scope: {
-    realOperationEnabled: boolean;
-    realOperationReason: string;
-    receiveOnly: boolean;
-    sandboxHiddenByDefault: boolean;
-    historicalHiddenByDefault: boolean;
-  };
-  real: { total: number; conversations: InboxConversation[] };
-  internalValidation: { total: number; conversations: InboxConversation[] };
-  sandbox: { total: number; hiddenByDefault: boolean; conversations: InboxConversation[] };
-  historical: { total: number; hiddenByDefault: boolean; conversations: InboxConversation[] };
-  filters: {
-    allOperational: number;
-    humanRequired: number;
-    paymentSensitive: number;
-    unknownProduct: number;
-    blocked: number;
-    aiSuggestions: number;
-  };
-  summary: {
-    totalConversations: number;
-    realConversations: number;
-    internalValidationConversations: number;
-    sandboxConversations: number;
-    historicalConversations: number;
-    pendingReview: number;
-    outboundSent: number;
-  };
-  security: {
-    realSendingEnabled: boolean;
-    autoReplyEnabled: boolean;
-    productionEnabled: boolean;
-    whatsappCanMarkPaid: boolean;
-    deepSeekEnabled: boolean;
-    aiMode: string;
-    dataPolicy: {
-      noSecrets: boolean;
-      noQrRaw: boolean;
-      noFullPhone: boolean;
-      providerPayloadExcluded: boolean;
-    };
-  };
-};
 
 type ConversationFilter =
   | 'real'
@@ -276,15 +166,32 @@ function selectedEmptyCopy(filter: ConversationFilter, realOperationEnabled: boo
   };
 }
 
+function availableConversationActions(conversation: InboxConversation) {
+  const mutableScope = conversation.scope === 'real' || conversation.scope === 'internal_validation';
+  if (!mutableScope) {
+    return { pause: false, resume: false, takeOver: false, release: false };
+  }
+
+  return {
+    pause: conversation.humanStatus === 'SOFIA_ACTIVE' && conversation.sofiaEnabled,
+    resume: conversation.humanStatus === 'SOFIA_PAUSED' && !conversation.sofiaEnabled,
+    takeOver:
+      conversation.humanStatus !== 'HUMAN_TAKEN' &&
+      (conversation.humanStatus === 'HUMAN_REQUIRED' || conversation.humanStatus === 'SOFIA_ACTIVE'),
+    release: conversation.humanStatus === 'HUMAN_TAKEN' && !conversation.sofiaEnabled,
+  };
+}
+
+function canCancelOutbound(status: string) {
+  return ['SUGGESTED', 'APPROVAL_PENDING', 'QUEUED', 'RETRYING'].includes(status);
+}
+
 export default function SofiaWhatsappConversationsPage() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState('');
   const [filter, setFilter] = useState<ConversationFilter>('real');
 
-  const inbox = useQuery({
-    queryKey: ['sofia-conversations-inbox'],
-    queryFn: () => apiFetch<ConversationsInbox>('/admin/sofia/conversations/inbox'),
-  });
+  const inbox = useSofiaConversationsInbox();
 
   const data = inbox.data;
   const filteredConversations = useMemo(() => filterConversations(data, filter), [data, filter]);
@@ -296,7 +203,7 @@ export default function SofiaWhatsappConversationsPage() {
   );
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['sofia-conversations-inbox'] });
+    await queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.conversationsInbox });
   };
 
   const conversationAction = useMutation({
@@ -306,7 +213,13 @@ export default function SofiaWhatsappConversationsPage() {
     }: {
       id: string;
       action: 'pause' | 'resume' | 'take-over' | 'release';
-    }) => apiFetch(`/admin/sofia/conversations/${id}/${action}`, { method: 'POST' }),
+    }) =>
+      apiFetchSchema(
+        `/admin/sofia/conversations/${id}/${action}`,
+        sofiaConversationActionResponseSchema,
+        { method: 'POST' },
+      ),
+    scope: { id: 'sofia-conversations-write' },
     onSuccess: async () => {
       toast.success('Conversación actualizada');
       await invalidate();
@@ -317,7 +230,12 @@ export default function SofiaWhatsappConversationsPage() {
 
   const outboundCancel = useMutation({
     mutationFn: ({ id }: { id: string }) =>
-      apiFetch(`/admin/sofia/outbound/${id}/cancel`, { method: 'POST' }),
+      apiFetchSchema(
+        `/admin/sofia/outbound/${id}/cancel`,
+        sofiaOutboundCancelResponseSchema,
+        { method: 'POST' },
+      ),
+    scope: { id: 'sofia-conversations-write' },
     onSuccess: async () => {
       toast.success('Mensaje saliente cancelado');
       await invalidate();
@@ -328,21 +246,28 @@ export default function SofiaWhatsappConversationsPage() {
 
   const feedbackAction = useMutation({
     mutationFn: ({ feedbackType }: { feedbackType: string }) =>
-      apiFetch('/admin/sofia/learning/feedback', {
-        method: 'POST',
-        body: JSON.stringify({
-          conversationId: selectedConversation?.id,
-          feedbackType,
-          rating: feedbackType === 'GOOD_REPLY' ? 5 : 2,
-          notes:
-            'Feedback humano registrado desde /sofia/conversations. No se envía a proveedor externo.',
-          tags: ['conversations', 'real-data'],
-        }),
-      }),
+      apiFetchSchema(
+        '/admin/sofia/learning/feedback',
+        sofiaFeedbackResponseSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: selectedConversation?.id,
+            feedbackType,
+            rating: feedbackType === 'GOOD_REPLY' ? 5 : 2,
+            notes:
+              'Feedback humano registrado desde /sofia/conversations. No se envía a proveedor externo.',
+            tags: ['conversations', 'real-data'],
+          }),
+        },
+      ),
+    scope: { id: 'sofia-conversations-write' },
     onSuccess: () => toast.success('Feedback humano registrado sin entrenamiento externo'),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'No se pudo registrar feedback.'),
   });
+
+  const writePending = conversationAction.isPending || outboundCancel.isPending || feedbackAction.isPending;
 
   if (inbox.isLoading) {
     return (
@@ -379,6 +304,10 @@ export default function SofiaWhatsappConversationsPage() {
       : data.security.deepSeekEnabled
         ? 'IA habilitada sin dry-run'
         : 'IA rules/fallback';
+  const allowedActions = selectedConversation
+    ? availableConversationActions(selectedConversation)
+    : { pause: false, resume: false, takeOver: false, release: false };
+  const hasConversationAction = Object.values(allowedActions).some(Boolean);
 
   return (
     <SofiaPageShell data-testid="sofia-whatsapp-conversations-page">
@@ -521,48 +450,63 @@ export default function SofiaWhatsappConversationsPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      conversationAction.mutate({ id: selectedConversation.id, action: 'pause' })
-                    }
-                  >
-                    <PauseCircle className="mr-2 h-4 w-4" /> Pausar
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      conversationAction.mutate({ id: selectedConversation.id, action: 'resume' })
-                    }
-                  >
-                    <PlayCircle className="mr-2 h-4 w-4" /> Reactivar
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      conversationAction.mutate({
-                        id: selectedConversation.id,
-                        action: 'take-over',
-                      })
-                    }
-                  >
-                    <UserRoundCheck className="mr-2 h-4 w-4" /> Tomar humano
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      conversationAction.mutate({
-                        id: selectedConversation.id,
-                        action: 'release',
-                      })
-                    }
-                  >
-                    <Bot className="mr-2 h-4 w-4" /> Liberar
-                  </Button>
+                  {allowedActions.pause && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={writePending}
+                      onClick={() =>
+                        conversationAction.mutate({ id: selectedConversation.id, action: 'pause' })
+                      }
+                    >
+                      <PauseCircle className="mr-2 h-4 w-4" /> Pausar análisis
+                    </Button>
+                  )}
+                  {allowedActions.resume && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={writePending}
+                      onClick={() =>
+                        conversationAction.mutate({ id: selectedConversation.id, action: 'resume' })
+                      }
+                    >
+                      <PlayCircle className="mr-2 h-4 w-4" /> Reanudar análisis
+                    </Button>
+                  )}
+                  {allowedActions.takeOver && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={writePending}
+                      onClick={() =>
+                        conversationAction.mutate({
+                          id: selectedConversation.id,
+                          action: 'take-over',
+                        })
+                      }
+                    >
+                      <UserRoundCheck className="mr-2 h-4 w-4" /> Tomar revisión humana
+                    </Button>
+                  )}
+                  {allowedActions.release && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={writePending}
+                      onClick={() =>
+                        conversationAction.mutate({
+                          id: selectedConversation.id,
+                          action: 'release',
+                        })
+                      }
+                    >
+                      <Bot className="mr-2 h-4 w-4" /> Devolver a análisis
+                    </Button>
+                  )}
+                  {!hasConversationAction && (
+                    <SofiaStatusPill status="NEUTRAL" label="Sin transición disponible" />
+                  )}
                 </div>
               </div>
 
@@ -690,20 +634,17 @@ export default function SofiaWhatsappConversationsPage() {
                           <span>SafetyGuard: envío real bloqueado; sent=false obligatorio.</span>
                         </div>
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            disabled
-                            title="Envío real bloqueado en receive-only"
-                          >
-                            <Ban className="mr-2 h-4 w-4" /> Envío real bloqueado
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => outboundCancel.mutate({ id: outbound.id })}
-                          >
-                            <XCircle className="mr-2 h-4 w-4" /> Cancelar sugerencia
-                          </Button>
+                          <SofiaStatusPill status="BLOCKED" label="Sin acción de envío" />
+                          {canCancelOutbound(outbound.status) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={writePending}
+                              onClick={() => outboundCancel.mutate({ id: outbound.id })}
+                            >
+                              <XCircle className="mr-2 h-4 w-4" /> Cancelar sugerencia
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -784,6 +725,7 @@ export default function SofiaWhatsappConversationsPage() {
                     <Button
                       size="sm"
                       variant="secondary"
+                      disabled={writePending}
                       onClick={() => feedbackAction.mutate({ feedbackType: 'GOOD_REPLY' })}
                       data-testid="sofia-feedback-good"
                     >
@@ -792,6 +734,7 @@ export default function SofiaWhatsappConversationsPage() {
                     <Button
                       size="sm"
                       variant="secondary"
+                      disabled={writePending}
                       onClick={() => feedbackAction.mutate({ feedbackType: 'BAD_REPLY' })}
                       data-testid="sofia-feedback-bad"
                     >
@@ -800,6 +743,7 @@ export default function SofiaWhatsappConversationsPage() {
                     <Button
                       size="sm"
                       variant="secondary"
+                      disabled={writePending}
                       onClick={() =>
                         feedbackAction.mutate({ feedbackType: 'SHOULD_HAVE_HANDED_OFF' })
                       }

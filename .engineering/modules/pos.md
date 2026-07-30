@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-90%
+92%
 
 ## Source State
 PASS
@@ -19,7 +19,7 @@ PASS
 PASS EFIMERO
 
 ## Operational State
-PASS LOCAL / AUDITORIA CONDICIONADA
+PASS LOCAL
 
 ## Production State
 NOT READY
@@ -31,11 +31,11 @@ NOT READY
 | POS-01 | MEDIA | Venta, recibo, reimpresión sin side effects, recovery y reapertura exactly-once pasan 3X. | `phase-2-5/repeatability-3x.json` | Flujo local demostrado. |
 | POS-02 | MEDIA | El contenido del PDF es determinístico, pero el binario cambia por metadata temporal. | `phase25-final3/core-reconciliation.json` | No usar hash binario como identidad de contenido. |
 | POS-03 | BAJA | Auditoría v2 contiene request/correlation/role/idempotency en flujos E2E. | Phase 2.5.1-R1 | Trazabilidad local demostrada. |
-| POS-04 | MEDIA | Sale/recovery/reopen audit transaccional pasa; artifact limpio sigue pendiente. | Phase 2.5.1-R1 | Release bloqueado. |
+| POS-04 | BAJA | Sale/recovery/reopen audit transaccional y artifact limpio pasan. | Phase 2.5.1-R2 | Gate interno cerrado. |
 
 ## Bloqueadores
 
-- Cerrar recovery y artifact release limpio.
+- Required CI y staging remoto.
 - Ejecutar checkout/recovery desde UI en required E2E remoto.
 - Resolver contratos `any` y warnings POS.
 
@@ -62,12 +62,13 @@ NOT READY
 - Artifact limpio validado en staging remoto.
 
 ## Última auditoría
-2026-07-14.
+2026-07-15.
 
 ## Historial
 
 - Phase 2.5: recovery y dos rutas de reapertura concurrente 3X PASS; locks de fila eliminan doble reversa.
 - Phase 2.5.1: contrato v2 parcial; audit E2E global NO-GO.
+- Phase 2.5.1-R2: 3X E2E/regresión y canary read-only PASS.
 
 ## GO
 NO

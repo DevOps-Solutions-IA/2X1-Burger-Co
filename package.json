@@ -7,10 +7,12 @@
     "@prisma/client": "^6.19.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@eslint/eslintrc": "3.3.6",
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.54.2",
     "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.1",
+    "eslint-config-next": "^15.5.22",
     "eslint-plugin-security": "^4.0.0",
     "prisma": "^6.19.2",
     "typescript-eslint": "^8.57.2"
@@ -23,6 +25,8 @@
     "e2e": "playwright test",
     "test:e2e:ephemeral": "bash infra/testing/run-ephemeral-e2e.sh",
     "test:e2e:core": "EPHEMERAL_INCLUDE_CORE_OPERATIONAL=true bash infra/testing/run-ephemeral-e2e.sh",
+    "test:e2e:lint": "eslint tests/e2e/ephemeral --max-warnings=0",
+    "test:e2e:typecheck": "tsc -p tests/e2e/tsconfig.json --noEmit",
     "test:e2e:ephemeral:guard": "node --test infra/testing/db-guard.test.mjs",
     "test:e2e:ephemeral:rbac-source": "node infra/testing/rbac-source-audit.mjs",
     "test:recovery:ephemeral": "bash infra/recovery/run-ephemeral-recovery-drill.sh",
@@ -31,5 +35,18 @@
     "db:generate": "pnpm --filter @inventory-fastfood/api prisma:generate",
     "db:migrate": "pnpm --filter @inventory-fastfood/api prisma:migrate",
     "db:seed": "pnpm --filter @inventory-fastfood/api prisma:seed"
+  },
+  "pnpm": {
+    "overrides": {
+      "@babel/core": "7.29.6",
+      "body-parser": "2.3.0",
+      "defu": "6.1.7",
+      "effect": "3.22.0",
+      "postcss": "8.5.23",
+      "protobufjs": "7.6.5",
+      "qs": "6.15.3",
+      "sharp": "0.35.3",
+      "ws": "8.21.1"
+    }
   }
 }

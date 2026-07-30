@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Bell,
@@ -18,8 +18,16 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiFetch } from '@/lib/api';
+import { apiFetchSchema } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { sofiaAlertAckResponseSchema, sofiaGovernancePauseResponseSchema } from '@/features/sofia/contracts';
+import {
+  sofiaQueryKeys,
+  useSofiaAlerts,
+  useSofiaDashboardSummary,
+  useSofiaGovernanceEvents,
+  useSofiaReadiness,
+} from '@/features/sofia/queries';
 import {
   SofiaCommandCard,
   SofiaPageHero,
@@ -41,136 +49,6 @@ import {
   humanizeSofiaMode,
 } from '@/components/sofia';
 import type { SofiaOperatorTone, ReadinessItem, TimelineEvent } from '@/components/sofia';
-
-type CountGroup = {
-  totalDecisions: number;
-  approvedCount: number;
-  humanRequiredCount: number;
-  blockedCount: number;
-  draftCount: number;
-  paymentSensitiveCount: number;
-  unknownProductCount: number;
-  lastDecisionAt: string | null;
-};
-
-type DashboardSummary = {
-  generatedAt: string;
-  dataPolicy: {
-    noSecrets: boolean;
-    noPii: boolean;
-    noQrRaw: boolean;
-    realOperationEnabled: boolean;
-    realOperationReason: string;
-    sandboxSeparated: boolean;
-    mainDashboardScope: string;
-  };
-  general: {
-    sofiaMode: string;
-    globalPaused: boolean;
-    killSwitchActive: boolean;
-    automationBlocked: boolean;
-    productionEnabled: boolean;
-    productionBlocked: boolean;
-    receiveOnly: boolean;
-    realSendingEnabled: boolean;
-    autoReplyEnabled: boolean;
-    autoSafeEnabled: boolean;
-  };
-  whatsappQr: {
-    provider: string;
-    mode: string;
-    status: string;
-    connected: boolean;
-    adapterReal: boolean;
-    qrAvailable: boolean;
-    realSendingEnabled: false;
-    inboundToday: number;
-    lastInboundAt: string | null;
-    validationInboundToday: number;
-    source: 'real_operation' | 'internal_validation';
-  };
-  ai: {
-    aiProvider: string;
-    aiMode: string;
-    deepSeekEnabled: boolean;
-    dryRunEnabled: boolean;
-    externalProviderEnabled: boolean;
-    fallbackProvider: string;
-    lastAiCheckAt: string | null;
-    source: string;
-  };
-  safetyGuard: {
-    real: CountGroup;
-    sandbox: CountGroup;
-    historical: CountGroup;
-  };
-  conversations: {
-    totalConversations: number;
-    realConversations: number;
-    sandboxConversations: number;
-    internalValidationConversations: number;
-    humanRequired: number;
-    paymentSensitive: number;
-    unknownProduct: number;
-    pendingReview: number;
-  };
-  internalValidation: {
-    inboundToday: number;
-    simulatedInboundToday: number;
-    qrGatewayValidationInboundToday: number;
-    autoSafeDecisionsToday: number;
-    paidClaimsBlockedToday: number;
-  };
-  security: {
-    secretRotationStatus: string;
-    securityCleanupStatus: string;
-    allowlistFinalStatus: string;
-    productionReadinessStatus: string;
-    blockedChecks: string[];
-    passedChecks: string[];
-    pendingChecks: string[];
-  };
-  routes: {
-    sandboxUrl: string;
-    conversationsUrl: string;
-    whatsappQrUrl?: string;
-    deliveriesUrl: string;
-    posUrl: string;
-  };
-};
-
-type ReadinessResponse = {
-  status: 'PASS' | 'WARNING' | 'BLOCKED';
-  blockers: string[];
-  warnings: string[];
-  nextRequiredAction: string;
-  checklist: Array<{
-    key: string;
-    label: string;
-    status: 'PASS' | 'WARNING' | 'BLOCKED';
-    reason: string;
-    evidence?: string;
-  }>;
-};
-
-type GovernanceEvent = {
-  type: string;
-  status: string;
-  detail: string;
-  createdAt: string;
-};
-
-type SofiaAlert = {
-  id: string;
-  type: string;
-  severity: 'INFO' | 'WARNING' | 'CRITICAL';
-  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
-  title: string;
-  message: string;
-  createdAt: string;
-};
-
-type GovernancePauseResponse = { paused: boolean; status: string; message: string };
 
 const READINESS_GROUP: Record<string, ReadinessItem['group']> = {
   prompt_active: 'core',
@@ -211,41 +89,23 @@ export default function SofiaMainDashboardPage() {
   const [showFullChecklist, setShowFullChecklist] = useState(false);
   const queryClient = useQueryClient();
 
-  const summary = useQuery({
-    queryKey: ['sofia-main-dashboard-real-summary'],
-    queryFn: () => apiFetch<DashboardSummary>('/admin/sofia/dashboard/summary'),
-    refetchInterval: 30_000,
-  });
-
-  const readiness = useQuery({
-    queryKey: ['sofia-main-readiness'],
-    queryFn: () => apiFetch<ReadinessResponse>('/admin/sofia/readiness'),
-    refetchInterval: 30_000,
-  });
-
-  const events = useQuery({
-    queryKey: ['sofia-main-governance-events'],
-    queryFn: () => apiFetch<GovernanceEvent[]>('/admin/sofia/governance/events'),
-    refetchInterval: 30_000,
-  });
-
-  const alerts = useQuery({
-    queryKey: ['sofia-main-alerts'],
-    queryFn: () => apiFetch<SofiaAlert[]>('/admin/sofia/alerts'),
-    refetchInterval: 30_000,
-  });
+  const summary = useSofiaDashboardSummary();
+  const readiness = useSofiaReadiness();
+  const events = useSofiaGovernanceEvents();
+  const alerts = useSofiaAlerts();
 
   const invalidateOperationalQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ['sofia-main-dashboard-real-summary'] });
-    queryClient.invalidateQueries({ queryKey: ['sofia-main-governance-events'] });
+    queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.dashboardSummary });
+    queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.governanceEvents });
   };
 
   const pauseSofia = useMutation({
     mutationFn: () =>
-      apiFetch<GovernancePauseResponse>('/admin/sofia/governance/pause', {
+      apiFetchSchema('/admin/sofia/governance/pause', sofiaGovernancePauseResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ reason: 'Pausa manual desde Centro de Mando' }),
       }),
+    scope: { id: 'sofia-governance-write' },
     onSuccess: (result) => {
       toast.success(result.message);
       invalidateOperationalQueries();
@@ -254,7 +114,9 @@ export default function SofiaMainDashboardPage() {
   });
 
   const resumeSofia = useMutation({
-    mutationFn: () => apiFetch<GovernancePauseResponse>('/admin/sofia/governance/resume', { method: 'POST' }),
+    mutationFn: () =>
+      apiFetchSchema('/admin/sofia/governance/resume', sofiaGovernancePauseResponseSchema, { method: 'POST' }),
+    scope: { id: 'sofia-governance-write' },
     onSuccess: (result) => {
       toast.success(result.message);
       invalidateOperationalQueries();
@@ -263,10 +125,12 @@ export default function SofiaMainDashboardPage() {
   });
 
   const ackAlert = useMutation({
-    mutationFn: (id: string) => apiFetch(`/admin/sofia/alerts/${id}/ack`, { method: 'POST' }),
+    mutationFn: (id: string) =>
+      apiFetchSchema(`/admin/sofia/alerts/${id}/ack`, sofiaAlertAckResponseSchema, { method: 'POST' }),
+    scope: { id: 'sofia-governance-write' },
     onSuccess: () => {
       toast.success('Alerta reconocida');
-      queryClient.invalidateQueries({ queryKey: ['sofia-main-alerts'] });
+      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.alerts });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reconocer la alerta'),
   });
@@ -353,7 +217,12 @@ export default function SofiaMainDashboardPage() {
 
   const whatsappTone: SofiaOperatorTone = data.whatsappQr.connected ? 'safe' : data.whatsappQr.qrAvailable ? 'pending' : 'off';
   const aiTone: SofiaOperatorTone = data.ai.dryRunEnabled ? 'dryRun' : data.ai.deepSeekEnabled ? 'pending' : 'off';
-  const safetyTone: SofiaOperatorTone = data.safetyGuard.real.blockedCount > 0 ? 'blocked' : 'safe';
+  const safetyHasEvidence = data.safetyGuard.real.totalDecisions > 0;
+  const safetyTone: SofiaOperatorTone = !safetyHasEvidence
+    ? 'off'
+    : data.safetyGuard.real.blockedCount > 0
+      ? 'blocked'
+      : 'safe';
   const productionTone: SofiaOperatorTone = data.general.productionBlocked ? 'blocked' : 'pending';
 
   return (
@@ -405,7 +274,7 @@ export default function SofiaMainDashboardPage() {
         <div className="flex items-center gap-3">
           <SofiaLiveStatusDot tone={data.general.automationBlocked ? 'blocked' : 'safe'} />
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">Control operativo</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-600">Control operativo</p>
             <p className="text-base font-extrabold text-stone-900">
               Sofía {humanizeSofiaMode(data.general.sofiaMode)}
             </p>
@@ -424,7 +293,7 @@ export default function SofiaMainDashboardPage() {
               data-testid="sofia-main-resume"
             >
               <Play className="mr-2 h-4 w-4" />
-              Reanudar Sofía
+              Reanudar análisis supervisado
             </Button>
           ) : (
             <Button
@@ -514,10 +383,14 @@ export default function SofiaMainDashboardPage() {
           icon={ShieldCheck}
           title="SafetyGuard"
           tone={safetyTone}
-          statusLabel={`${data.safetyGuard.real.blockedCount} bloqueos reales`}
+          statusLabel={
+            safetyHasEvidence
+              ? `${data.safetyGuard.real.blockedCount} bloqueos reales`
+              : 'Sin decisiones: estado no comprobado'
+          }
           chips={[`${data.safetyGuard.real.totalDecisions} decisiones`, `${data.safetyGuard.real.paymentSensitiveCount} pago sensible`]}
           lastReading={`Última decisión: ${formatDate(data.safetyGuard.real.lastDecisionAt)}`}
-          suggestedAction="Monitorear"
+          suggestedAction={safetyHasEvidence ? 'Monitorear' : 'Esperar evidencia runtime'}
           data-testid="sofia-signal-safetyguard"
         />
         <SofiaLiveSignalCard
@@ -537,7 +410,7 @@ export default function SofiaMainDashboardPage() {
         rows={[
           { label: 'Conversaciones', real: data.conversations.realConversations, internal: data.conversations.sandboxConversations + data.conversations.internalValidationConversations },
           { label: 'Inbound hoy', real: data.whatsappQr.inboundToday, internal: data.internalValidation.qrGatewayValidationInboundToday },
-          { label: 'Safety decisions', real: data.safetyGuard.real.totalDecisions, internal: data.safetyGuard.sandbox.totalDecisions },
+          { label: 'Decisiones de seguridad', real: data.safetyGuard.real.totalDecisions, internal: data.safetyGuard.sandbox.totalDecisions },
         ]}
       />
 
@@ -564,7 +437,7 @@ export default function SofiaMainDashboardPage() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-navigation">
         <SofiaCommandCard href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'} label="WhatsApp QR" description="Estado Baileys receive-only" icon={Radio} />
-        <SofiaCommandCard href={data.routes.conversationsUrl} label="Conversations" description="Inbox supervisado" icon={MessageCircle} />
+        <SofiaCommandCard href={data.routes.conversationsUrl} label="Conversaciones" description="Inbox supervisado" icon={MessageCircle} />
         <SofiaCommandCard href={data.routes.sandboxUrl} label="Sandbox" description="Laboratorio separado" icon={Sparkles} />
         <SofiaCommandCard href={data.routes.posUrl} label="POS" description="Operación real separada" icon={Database} />
       </section>

@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { WhatsappPaymentStatus } from '@prisma/client';
 import {
   CreatePaymentInput,
   CreatePaymentResult,
@@ -28,7 +27,4 @@ export class NullPaymentProvider implements PaymentProviderAdapter {
     return false;
   }
 
-  mapProviderStatus(): WhatsappPaymentStatus {
-    return WhatsappPaymentStatus.PENDING_ONLINE_PAYMENT;
-  }
 }

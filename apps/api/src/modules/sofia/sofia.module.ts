@@ -8,6 +8,8 @@ import { SofiaAlertsService } from './alerts/sofia-alerts.service';
 import { SofiaAutoSafeModule } from './auto-safe/sofia-auto-safe.module';
 import { SofiaBackupsService } from './backups/sofia-backups.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
+import { SofiaCrmController } from './crm/sofia-crm.controller';
+import { SofiaCrmService } from './crm/sofia-crm.service';
 import { SofiaGovernanceService } from './governance/sofia-governance.service';
 import { SofiaReadinessService } from './governance/sofia-readiness.service';
 import { SofiaHardeningService } from './hardening/sofia-hardening.service';
@@ -22,6 +24,7 @@ import { NullPaymentProvider } from './payments/null-payment.provider';
 import { PaymentProviderFactory } from './payments/payment-provider.factory';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
+import { SofiaAdminResponseSanitizerInterceptor } from './privacy/sofia-admin-response-sanitizer.interceptor';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { SofiaAgentService } from './sofia-agent.service';
@@ -50,6 +53,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaWhatsappWebhookController,
     SofiaHermesWhatsappWebhookController,
     SofiaWhatsappQrGatewayController,
+    SofiaCrmController,
   ],
   providers: [
     SofiaService,
@@ -78,6 +82,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaReadinessService,
     SofiaGovernanceService,
     SofiaPrivacyService,
+    SofiaAdminResponseSanitizerInterceptor,
     SofiaMetricsService,
     SofiaHumanFeedbackService,
     SofiaLearningService,
@@ -86,6 +91,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaBackupsService,
     SofiaHardeningService,
     SofiaRuntimeSafetyService,
+    SofiaCrmService,
   ],
   exports: [
     SofiaService,
@@ -109,6 +115,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaBackupsService,
     SofiaHardeningService,
     SofiaRuntimeSafetyService,
+    SofiaCrmService,
   ],
 })
 export class SofiaModule {}

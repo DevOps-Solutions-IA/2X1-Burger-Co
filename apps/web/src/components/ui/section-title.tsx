@@ -16,7 +16,7 @@ export function SectionTitle({
     <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div className="max-w-3xl">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-700">{eyebrow}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-900">{eyebrow}</p>
           {status}
         </div>
         <h1 className="mt-2 text-[1.66rem] font-bold tracking-tight text-ink lg:text-[1.86rem]">{title}</h1>

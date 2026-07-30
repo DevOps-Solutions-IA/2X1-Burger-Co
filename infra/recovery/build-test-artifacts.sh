@@ -6,9 +6,10 @@ cd "$ROOT_DIR"
 
 HEAD_COMMIT="$(git rev-parse HEAD)"
 HEAD_SHORT="${HEAD_COMMIT:0:12}"
+HEAD_EPOCH="$(git show -s --format=%ct "$HEAD_COMMIT")"
 SOURCE_HASH="$({
-  find apps/api/src prisma infra/testing infra/schema -type f -print0
-  printf '%s\0' package.json pnpm-lock.yaml
+  find apps/api/src apps/web/src prisma infra/testing infra/schema infra/release infra/recovery infra/docker infra/scripts -type f -print0
+  printf '%s\0' package.json pnpm-lock.yaml apps/api/package.json apps/web/package.json apps/web/next.config.ts
 } | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 BUILD_ID="0.1.0-${HEAD_SHORT}-phase24-${SOURCE_HASH}"
 API_TAG="inventory-fastfood-api:${BUILD_ID}"
@@ -29,32 +30,39 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 git archive "$HEAD_COMMIT" | tar -x -C "$TEMP_DIR"
 rm -rf "$TEMP_DIR/apps/api/src"
 cp -a apps/api/src "$TEMP_DIR/apps/api/src"
-rm -rf "$TEMP_DIR/prisma" "$TEMP_DIR/infra/testing"
+rm -rf "$TEMP_DIR/apps/web/src"
+cp -a apps/web/src "$TEMP_DIR/apps/web/src"
+cp apps/api/package.json "$TEMP_DIR/apps/api/package.json"
+cp apps/web/package.json apps/web/next.config.ts "$TEMP_DIR/apps/web/"
+rm -rf "$TEMP_DIR/prisma" "$TEMP_DIR/infra/testing" "$TEMP_DIR/infra/schema" "$TEMP_DIR/infra/release" \
+  "$TEMP_DIR/infra/recovery" "$TEMP_DIR/infra/docker" "$TEMP_DIR/infra/scripts"
 cp -a prisma "$TEMP_DIR/prisma"
 mkdir -p "$TEMP_DIR/infra"
-cp -a infra/testing "$TEMP_DIR/infra/testing"
+for directory in testing schema release recovery docker scripts; do
+  cp -a "infra/$directory" "$TEMP_DIR/infra/$directory"
+done
 cp package.json pnpm-lock.yaml "$TEMP_DIR/"
 mkdir -p "$TEMP_DIR/.release"
 
 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-SCHEMA_COMPATIBILITY_VERSION="prisma-$(node infra/schema/migration-expectation.mjs --field latest)"
-cat >"$TEMP_DIR/.release/release-manifest.json" <<EOF
-{
-  "application": "inventory-fastfood-system",
-  "releaseVersion": "0.1.0-${HEAD_SHORT}-phase24",
-  "gitCommit": "${HEAD_COMMIT}",
-  "gitCommitShort": "${HEAD_SHORT}",
-  "buildTimestamp": "${BUILD_TIMESTAMP}",
-  "buildId": "${BUILD_ID}",
-  "environment": "test",
-  "artifactDigest": null,
-  "apiVersion": "0.0.1",
-  "schemaCompatibilityVersion": "${SCHEMA_COMPATIBILITY_VERSION}",
-  "dirtyBuild": true,
-  "sourceRepository": "inventory-fastfood-system",
-  "sourceSnapshotHash": "${SOURCE_HASH}"
-}
-EOF
+(
+  cd "$TEMP_DIR"
+  RELEASE_GIT_COMMIT="$HEAD_COMMIT" RELEASE_DIRTY_BUILD=true RELEASE_ENVIRONMENT=test SOURCE_DATE_EPOCH="$HEAD_EPOCH" \
+    node infra/release/generate-release-manifest.mjs >/dev/null
+)
+node - "$TEMP_DIR/.release/release-manifest.json" "$BUILD_ID" "$SOURCE_HASH" "$BUILD_TIMESTAMP" <<'NODE'
+const fs = require('node:fs');
+const [file, buildId, sourceSnapshotHash, buildTimestamp] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+manifest.releaseVersion = `${manifest.releaseVersion}-phase24`;
+manifest.buildId = buildId;
+manifest.frontendBuildId = buildId;
+manifest.backendBuildId = buildId;
+manifest.buildTimestamp = buildTimestamp;
+manifest.generatedAt = buildTimestamp;
+manifest.sourceSnapshotHash = sourceSnapshotHash;
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+NODE
 
 common_args=(
   --build-arg "OCI_REVISION=$HEAD_COMMIT"

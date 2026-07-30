@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
 import { apiFetch } from '@/lib/api';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -20,6 +21,7 @@ import {
   PiggyBank,
   Tags,
   Users,
+  ContactRound,
   Settings,
   Armchair,
   Bot,
@@ -39,6 +41,7 @@ const navSections = [
       { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
       { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
       { href: '/sofia', label: 'Sofía', icon: Bot, permission: 'orders.read' },
+      { href: '/sofia/customers', label: 'Clientes Sofía', icon: ContactRound, permission: 'orders.read' },
       { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
       { href: '/reports', label: 'Reportes e histórico', icon: ReceiptText, permission: 'reports.read' },
     ],
@@ -69,6 +72,16 @@ const navSections = [
     ],
   },
 ];
+
+const saleCountersSchema = z.object({
+  sales: z.object({
+    bestSellers: z.array(z.object({
+      productName: z.string(),
+      quantity: z.union([z.number(), z.string()]),
+    }).passthrough()),
+    itemsSold: z.union([z.number(), z.string()]),
+  }).passthrough(),
+}).passthrough();
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -178,7 +191,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div className="space-y-0.5">
                     {section.items.map((item) => {
                       const Icon = item.icon;
-                      const active = pathname === item.href;
+                      const active =
+                        pathname === item.href ||
+                        (item.href !== '/sofia' && pathname?.startsWith(`${item.href}/`) === true);
                       return (
                         <Link
                           key={item.href}
@@ -240,7 +255,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
                     <p className="hidden sm:block text-[11px] font-medium text-stone-400 truncate">Jornada actual</p>
                   </div>
-                  <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar">
+                  <div
+                    className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
+                    role="region"
+                    aria-label="Resumen de ventas de la jornada"
+                    tabIndex={0}
+                  >
                     <SaleCounters />
                   </div>
                 </div>
@@ -265,12 +285,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function SaleCounters() {
   const { data } = useQuery({
     queryKey: ['sale-counters'],
-    queryFn: () => apiFetch<any>('/reports/operational'),
+    queryFn: async () => saleCountersSchema.parse(await apiFetch<unknown>('/reports/operational')),
     refetchInterval: 3000,
   });
 
-  const sellers: any[] = (data as any)?.sales?.bestSellers ?? [];
-  const itemsSold = Number((data as any)?.sales?.itemsSold ?? 0);
+  const sellers = data?.sales.bestSellers ?? [];
+  const itemsSold = Number(data?.sales.itemsSold ?? 0);
 
   const targetProducts = [
     { key: '2x1', label: '2X1', match: '2x1' },
@@ -280,7 +300,7 @@ function SaleCounters() {
   ];
 
   const counters = targetProducts.map((tp) => {
-    const found = sellers.find((s: any) =>
+    const found = sellers.find((s) =>
       (s.productName ?? '').toLowerCase().includes(tp.match),
     );
     return { label: tp.label, qty: found ? Number(found.quantity ?? 0) : 0 };

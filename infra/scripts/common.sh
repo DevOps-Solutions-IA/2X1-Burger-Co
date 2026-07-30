@@ -66,6 +66,46 @@ parse_database_url_field() {
   " "$database_url" "$field"
 }
 
+database_url_for_database() {
+  local database_url="$1"
+  local database_name="$2"
+
+  [[ "$database_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]+$ ]] || fail "Invalid database name."
+  node -e "
+    const parsed = new URL(process.argv[1]);
+    parsed.pathname = '/' + process.argv[2];
+    process.stdout.write(parsed.toString());
+  " "$database_url" "$database_name"
+}
+
+validate_image_reference() {
+  local image_reference="$1"
+  [[ "$image_reference" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$ ]] \
+    || fail "Image reference must be a lowercase registry path pinned by sha256 digest."
+}
+
+write_portable_sha256() {
+  local file_path="$1"
+  local checksum_path="${2:-${file_path}.sha256}"
+  local file_directory file_name checksum_name
+  file_directory="$(cd "$(dirname "$file_path")" && pwd)"
+  file_name="$(basename "$file_path")"
+  checksum_name="$(basename "$checksum_path")"
+  (cd "$file_directory" && sha256sum "$file_name" >"$checksum_name")
+}
+
+verify_sha256_file() {
+  local file_path="$1"
+  local checksum_path="${2:-${file_path}.sha256}"
+  local expected_checksum actual_checksum record_count
+  record_count="$(awk 'NF { count += 1 } END { print count + 0 }' "$checksum_path")"
+  [[ "$record_count" == "1" ]] || fail "Checksum file must contain exactly one record."
+  expected_checksum="$(awk 'NF { print $1 }' "$checksum_path")"
+  [[ "$expected_checksum" =~ ^[a-f0-9]{64}$ ]] || fail "Checksum format is invalid."
+  actual_checksum="$(sha256sum "$file_path" | awk '{ print $1 }')"
+  [[ "$actual_checksum" == "$expected_checksum" ]] || fail "Checksum verification failed."
+}
+
 ensure_compose_service() {
   local service_name="$1"
   docker compose ps "$service_name" >/dev/null 2>&1 || fail "Docker Compose service '$service_name' is not available."

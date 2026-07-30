@@ -7,13 +7,13 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-66%
+88%
 
 ## Source State
-CONDICIONADO
+PASS
 
 ## Test State
-PASS PARCIAL
+PASS
 
 ## Runtime State
 PASS EFIMERO
@@ -28,16 +28,16 @@ NOT READY
 
 | ID | Severidad | Hallazgo | Evidencia | Riesgo |
 | --- | --- | --- | --- | --- |
-| UIX-01 | MEDIA | Caja, POS, Delivery e Inventory fueron inspeccionados visualmente con datos sintéticos reales. | screenshots Phase 2.5 | Estado principal demostrado. |
-| UIX-02 | MEDIA | Tarjetas de métricas estrechas truncan o parten copy; top bar desborda contenido secundario. | screenshots finales | Legibilidad responsive incompleta. |
-| UIX-03 | ALTA | 88 warnings y contratos `any` siguen activos. | web build | Estados UI pueden degradarse sin type safety. |
-| UIX-04 | MEDIA | No hay visual regression/a11y budget requerido. | Testing/Frontend | Calidad no bloquea merge. |
+| UIX-01 | BAJA | Rutas operativas y Sofia pasan axe WCAG A/AA con datos sinteticos de backend real efimero. | Playwright 3X 2026-07-27 | Calidad local demostrada. |
+| UIX-02 | BAJA | Dashboard y mobile no desbordan; contraste y scroll regions son accesibles por teclado. | Enterprise resilience report | Defectos reproducidos y corregidos. |
+| UIX-03 | BAJA | Contratos frontend tipados y lint estricto sin warnings. | web lint/typecheck/build | Riesgo de shape reducido. |
+| UIX-04 | MEDIA | Visual/a11y no es required y no existe staging remoto. | Deployment/Testing | Regresion de merge no bloqueada. |
 
 ## Bloqueadores
 
-- Phase 2.6 typed frontend/UI quality.
-- Visual regression y a11y.
-- E2E UI mutante completo.
+- Visual/a11y required en CI remoto.
+- Artifact limpio y staging remoto.
+- Aprobacion visual del owner e impresion fisica donde aplique.
 
 ## Dependencias
 
@@ -50,9 +50,9 @@ NOT READY
 
 ## Plan de remediación
 
-1. Corregir truncamientos y responsive con contratos tipados.
-2. Ejecutar WCAG y visual regression.
-3. Convertir UI critical en required check.
+1. Consolidar artifact limpio.
+2. Convertir WCAG/visual critical en required check.
+3. Completar owner approval y dispositivos fisicos.
 
 ## Criterio de GO
 
@@ -61,11 +61,12 @@ NOT READY
 - Cero estados contradictorios y artifact remoto trazable.
 
 ## Última auditoría
-2026-07-14.
+2026-07-27.
 
 ## Historial
 
 - Phase 2.5: 6/6 Playwright y cuatro capturas operativas 3X; deudas visuales documentadas.
+- Enterprise resilience: tres loops de axe corrigieron contraste y keyboard scroll; tres runs finales desktop/mobile PASS.
 
 ## GO
 NO

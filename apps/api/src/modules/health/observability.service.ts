@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { readFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -16,6 +17,8 @@ type RecoveryStatus = {
 };
 
 const MAX_LATENCY_SAMPLES = 2048;
+const RECOVERY_STATUS_FILE_NAME = 'recovery-status.json';
+const MAX_RECOVERY_STATUS_BYTES = 64 * 1024;
 
 @Injectable()
 export class ObservabilityService {
@@ -182,7 +185,7 @@ export class ObservabilityService {
     const statusPath = process.env.RECOVERY_STATUS_PATH;
     if (!statusPath) return { configured: false, status: 'NOT_CONFIGURED' };
     try {
-      const raw = JSON.parse(readFileSync(statusPath, 'utf8')) as RecoveryStatus;
+      const raw = JSON.parse(this.readRecoveryStatusFile(statusPath)) as RecoveryStatus;
       return {
         configured: true,
         status: raw.status ?? 'UNKNOWN',
@@ -192,6 +195,32 @@ export class ObservabilityService {
       };
     } catch {
       return { configured: true, status: 'UNREADABLE' };
+    }
+  }
+
+  private readRecoveryStatusFile(candidate: string): string {
+    const trimmed = candidate.trim();
+    if (!trimmed || trimmed.length > 4096 || trimmed.includes('\0')) {
+      throw new Error('Recovery status path is invalid');
+    }
+    const statusPath = path.resolve(trimmed);
+    if (path.basename(statusPath) !== RECOVERY_STATUS_FILE_NAME) {
+      throw new Error(`Recovery status file must be named ${RECOVERY_STATUS_FILE_NAME}`);
+    }
+
+    // The normalized filename boundary and O_NOFOLLOW prevent traversal through a symlink.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    const descriptor = openSync(statusPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const stats = fstatSync(descriptor);
+      if (!stats.isFile() || stats.size > MAX_RECOVERY_STATUS_BYTES) {
+        throw new Error('Recovery status must be a bounded regular file');
+      }
+      // The descriptor refers to the file already validated above.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      return readFileSync(descriptor, 'utf8');
+    } finally {
+      closeSync(descriptor);
     }
   }
 

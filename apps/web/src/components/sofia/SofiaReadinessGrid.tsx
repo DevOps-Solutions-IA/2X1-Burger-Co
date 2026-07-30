@@ -60,7 +60,7 @@ export function SofiaReadinessGrid({
     >
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-700">
             Readiness checklist
           </p>
           <h2 className="mt-1 text-lg font-extrabold text-stone-900">{overallLabel}</h2>
@@ -71,14 +71,14 @@ export function SofiaReadinessGrid({
       <div className="mt-6 space-y-5">
         {grouped.map(({ group, label, items: groupItems }) => (
           <div key={group}>
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-stone-400">
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-stone-600">
               {label}
             </p>
             <div className="grid gap-2 md:grid-cols-2">
               {groupItems.map((item) => (
                 <div
                   key={item.key}
-                  className="rounded-xl border border-stone-100 bg-stone-50/70 px-4 py-3 transition-colors hover:bg-sofia-50/30"
+                  className="rounded-xl border border-stone-100 bg-stone-50/70 px-4 py-3"
                   data-testid={`sofia-readiness-${item.key}`}
                 >
                   <div className="flex items-center gap-2">

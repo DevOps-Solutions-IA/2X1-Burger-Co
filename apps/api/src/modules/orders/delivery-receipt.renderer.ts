@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
 
@@ -44,6 +44,8 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const BLACK = '#000000';
 const PLACEHOLDER_BUSINESS_ADDRESSES = new Set(['bogota, colombia', 'bogotá, colombia']);
 const PLACEHOLDER_BUSINESS_PHONE_DIGITS = new Set(['573000000000', '3000000000']);
+const BRAND_LOGO_FILE_NAME = 'brand-logo.png';
+const MAX_BRAND_LOGO_BYTES = 2 * 1024 * 1024;
 
 /* Helvetica usa WinAnsi: cualquier carácter fuera del set (emoji, símbolos
    exóticos) rompería o ensuciaría la impresión. Se eliminan de forma segura. */
@@ -101,13 +103,44 @@ export function loadBrandLogo(): Buffer | null {
     path.join(__dirname, '../../../src/assets/brand-logo.png'),
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      cachedLogo = readFileSync(candidate);
+    const logo = readBrandLogoCandidate(candidate);
+    if (logo) {
+      cachedLogo = logo;
       return cachedLogo;
     }
   }
   cachedLogo = null;
   return cachedLogo;
+}
+
+function readBrandLogoCandidate(candidate: string): Buffer | null {
+  const resolved = path.resolve(candidate);
+  if (path.basename(resolved) !== BRAND_LOGO_FILE_NAME) return null;
+
+  let descriptor: number;
+  try {
+    // Candidates are internal, filename-restricted assets; O_NOFOLLOW rejects substituted symlinks.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    descriptor = openSync(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  }
+
+  try {
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile() || stats.size > MAX_BRAND_LOGO_BYTES) return null;
+    // The descriptor is the bounded regular asset validated immediately above.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    return readFileSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  if (!(error instanceof Error) || !('code' in error)) return false;
+  return error.code === 'ENOENT' || error.code === 'ENOTDIR';
 }
 
 export async function renderDeliveryReceiptPdf(data: DeliveryReceiptRenderData): Promise<Buffer> {

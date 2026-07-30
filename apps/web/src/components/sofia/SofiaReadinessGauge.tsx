@@ -75,12 +75,12 @@ export function SofiaReadinessGauge({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={cn('text-2xl font-extrabold leading-none', textTone[severity])}>{passed}/{total}</span>
-          <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">checks</span>
+          <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-stone-600">checks</span>
         </div>
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">Readiness</p>
+        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-600">Readiness</p>
         <h2 className="mt-1 text-lg font-black text-stone-950">{title}</h2>
         {subtitle && <p className="mt-1 text-sm font-semibold text-stone-500">{subtitle}</p>}
 

@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-93%
+96%
 
 ## Source State
 PASS
@@ -30,12 +30,12 @@ NOT READY
 | --- | --- | --- | --- | --- |
 | DB-01 | ALTA | No existe storage offsite/WAL/KMS aprobado. | Phase 2.4 | Recovery productivo no garantizado. |
 | DB-02 | MEDIA | 30 migraciones y mutaciones/reconciliación pasan en tres DB nuevas. | Phase 2.5.1-R1 | Plataforma local robusta, no remota. |
-| DB-03 | MEDIA | Fresh y upgrade 29→30 PASS; recovery app smoke falla por expectativa hardcoded 29. | Phase 2.5.1-R1 | Release harness bloqueado, schema validado. |
+| DB-03 | BAJA | Fresh, upgrade 29→30, legacy y recovery app 3X PASS con expectativa dinámica. | Phase 2.5.1-R2 | Compatibilidad local demostrada. |
 
 ## Bloqueadores
 
 - Offsite, WAL, KMS y scheduler.
-- Corregir recovery smoke y repetir rollback.
+- Ejecutar restore remoto con volumen representativo.
 - Drill remoto con volumen representativo.
 
 ## Dependencias
@@ -58,12 +58,13 @@ NOT READY
 - RPO/RTO aprobados.
 
 ## Última auditoría
-2026-07-14.
+2026-07-15.
 
 ## Historial
 
 - Phase 2.5: 3 DB nuevas, 29 migraciones, reconciliación y teardown 3X PASS; DB operativa intacta.
 - Phase 2.5.1: 30 migraciones fresh PASS; gate incremental y reconciliación audit v2 NO-GO.
+- Phase 2.5.1-R2: expectativa dinámica, upgrade 29→30, recovery/reconciliación 3X y readiness 30/30 PASS.
 
 ## GO
 NO

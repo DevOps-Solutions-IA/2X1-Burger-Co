@@ -16,9 +16,15 @@ read_field() {
 BUILD_ID="$(read_field .manifest.buildId)"
 API_DIGEST="$(read_field .api.digest)"
 WEB_DIGEST="$(read_field .web.digest)"
-EXPECTED_MIGRATION_COUNT="$(read_field '.manifest.schemaMigrationCount ?? 0')"
 [[ "$API_DIGEST" =~ ^sha256:[a-f0-9]{64}$ && "$WEB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
-[[ "$EXPECTED_MIGRATION_COUNT" =~ ^[0-9]+$ ]]
+node -e '
+  const record = require(process.argv[1]);
+  const manifest = record.manifest;
+  if (manifest.dirtyBuild !== false) throw new Error("Canary requires a clean manifest");
+  if (!Array.isArray(manifest.migrationInventory) || manifest.migrationInventory.length !== manifest.schemaMigrationCount) {
+    throw new Error("Manifest migration inventory is incomplete");
+  }
+' "$ARTIFACT_RECORD"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
@@ -47,7 +53,6 @@ CANARY_API_IMAGE=$API_DIGEST
 CANARY_WEB_IMAGE=$WEB_DIGEST
 CANARY_API_DIGEST=$API_DIGEST
 CANARY_WEB_DIGEST=$WEB_DIGEST
-CANARY_EXPECTED_MIGRATION_COUNT=$EXPECTED_MIGRATION_COUNT
 RELEASE_BUILD_ID=$BUILD_ID
 EOF
 chmod 600 "$ENV_FILE"

@@ -1,10 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 
-const email = process.env.EPHEMERAL_ADMIN_EMAIL;
-const password = process.env.EPHEMERAL_ADMIN_PASSWORD;
-const evidenceDir = process.env.EPHEMERAL_EVIDENCE_DIR;
-if (!email || !password || !evidenceDir) throw new Error('Ephemeral UI evidence configuration is required.');
+function requiredEnv(name: string) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required for ephemeral UI tests.`);
+  return value;
+}
+
+const email = requiredEnv('EPHEMERAL_ADMIN_EMAIL');
+const password = requiredEnv('EPHEMERAL_ADMIN_PASSWORD');
+const evidenceDir = requiredEnv('EPHEMERAL_EVIDENCE_DIR');
 
 async function login(page: Page) {
   await page.goto('/login');

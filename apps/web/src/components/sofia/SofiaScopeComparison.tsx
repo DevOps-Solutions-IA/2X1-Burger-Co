@@ -44,7 +44,7 @@ export function SofiaScopeComparison({
   return (
     <div className={cn('rounded-2xl border border-stone-200 bg-white p-5 shadow-sm', className)} data-testid={testId}>
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-400">Operación real vs. validación interna</p>
+        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-stone-600">Operación real vs. validación interna</p>
         <div className="flex items-center gap-3 text-[10px] font-bold text-stone-500">
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sofia-600" />{realLabel}</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-stone-400" />{internalLabel}</span>

@@ -451,7 +451,7 @@ export default function ProductsPage() {
             }}
           >
             <div className="md:col-span-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Datos base</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">Datos base</p>
             </div>
             <Field label="Código" error={submitAttempted ? formErrors.code : null}>
               <Input value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} />
@@ -493,7 +493,7 @@ export default function ProductsPage() {
               </Select>
             </Field>
             <div className="md:col-span-2 pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Precio e inventario</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">Precio e inventario</p>
             </div>
             <Field label="Precio de venta (COP)" error={submitAttempted ? formErrors.salePrice : null}>
               <Input

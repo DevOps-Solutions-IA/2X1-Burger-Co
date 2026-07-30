@@ -6,7 +6,29 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrdersService } from '../modules/orders/orders.service';
 import { DeliveryPricingService } from '../delivery/delivery-pricing/delivery-pricing.service';
 import { WhatsappService } from '../modules/whatsapp/whatsapp.service';
+import { SofiaWhatsappService } from '../modules/sofia/sofia-whatsapp.service';
 import { Prisma, SaleChannel, SaleStatus } from '@prisma/client';
+
+type CatalogAuditValues = {
+  _audit: {
+    source: string;
+    reason: string;
+  };
+};
+
+type PurchaseListItem = {
+  supplier: {
+    id: string;
+  };
+};
+
+type OperationalLogItem = {
+  type: string;
+};
+
+type StockCountPreviewItem = {
+  id: string;
+};
 
 describe('Critical business flows', () => {
   let app: INestApplication;
@@ -14,6 +36,7 @@ describe('Critical business flows', () => {
   let ordersService: OrdersService;
   let deliveryPricingService: DeliveryPricingService;
   let whatsappService: WhatsappService;
+  let sofiaWhatsappService: SofiaWhatsappService;
   let loginAttempt = 0;
 
   beforeAll(async () => {
@@ -36,6 +59,7 @@ describe('Critical business flows', () => {
     ordersService = app.get(OrdersService);
     deliveryPricingService = app.get(DeliveryPricingService);
     whatsappService = app.get(WhatsappService);
+    sofiaWhatsappService = app.get(SofiaWhatsappService);
   });
 
   afterAll(async () => {
@@ -211,8 +235,8 @@ describe('Critical business flows', () => {
     });
 
     expect(auditEntry.module).toBe('catalog_sync');
-    expect((auditEntry.newValues as Record<string, any>)._audit.source).toBe('catalog_sync');
-    expect((auditEntry.newValues as Record<string, any>)._audit.reason).toBe('Prueba de trazabilidad de catalogo');
+    expect((auditEntry.newValues as CatalogAuditValues)._audit.source).toBe('catalog_sync');
+    expect((auditEntry.newValues as CatalogAuditValues)._audit.reason).toBe('Prueba de trazabilidad de catalogo');
   });
 
   it('admin can update the sale price of an existing product', async () => {
@@ -2094,7 +2118,9 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
-    expect(purchases.body.some((purchase: any) => purchase.supplier.id === supplier.id)).toBe(true);
+    expect(
+      (purchases.body as PurchaseListItem[]).some((purchase) => purchase.supplier.id === supplier.id),
+    ).toBe(true);
   });
 
   it('delivery sale is counted once with its stored delivery fee', async () => {
@@ -2926,7 +2952,7 @@ describe('Critical business flows', () => {
     expect(injectedSale).toBeNull();
   });
 
-  it('applies shared live location through single-active-order fallback when whatsapp sender arrives without usable phone', async () => {
+  it('rejects single-active-order fallback when WhatsApp sender has no usable phone', async () => {
     const { accessToken } = await login();
     const burger = await prisma.product.findUniqueOrThrow({
       where: { code: 'HAMB-2X1' },
@@ -2959,17 +2985,20 @@ describe('Critical business flows', () => {
 
     const updatedOrder = await ordersService.applyDeliveryLocationFromWhatsapp('', 3.2556, -76.5417);
 
-    expect(updatedOrder).not.toBeNull();
-    expect(updatedOrder?.id).toBe(createResponse.body.id);
-    expect(updatedOrder?.deliveryLocationReceivedAt).toBeTruthy();
-    expect(updatedOrder?.deliveryLocationSource).toBe('whatsapp_live_location');
-    expect(Number(updatedOrder?.deliveryLatitude)).toBeCloseTo(3.2556);
-    expect(Number(updatedOrder?.deliveryLongitude)).toBeCloseTo(-76.5417);
-    expect(Number(updatedOrder?.deliveryFee)).toBe(Number(originalOrder.deliveryFee));
-    expect(Number(updatedOrder?.subtotal)).toBe(Number(originalOrder.subtotal));
-    expect(updatedOrder?.deliveryPricingBreakdown).toEqual(originalOrder.deliveryPricingBreakdown);
+    expect(updatedOrder).toBeNull();
     expect(estimateSpy).not.toHaveBeenCalled();
     estimateSpy.mockRestore();
+
+    const unchangedOrder = await prisma.orderTicket.findUniqueOrThrow({
+      where: { id: createResponse.body.id },
+    });
+    expect(unchangedOrder.deliveryLocationReceivedAt).toEqual(originalOrder.deliveryLocationReceivedAt);
+    expect(unchangedOrder.deliveryLocationSource).toBe(originalOrder.deliveryLocationSource);
+    expect(unchangedOrder.deliveryLatitude).toEqual(originalOrder.deliveryLatitude);
+    expect(unchangedOrder.deliveryLongitude).toEqual(originalOrder.deliveryLongitude);
+    expect(Number(unchangedOrder.deliveryFee)).toBe(Number(originalOrder.deliveryFee));
+    expect(Number(unchangedOrder.subtotal)).toBe(Number(originalOrder.subtotal));
+    expect(unchangedOrder.deliveryPricingBreakdown).toEqual(originalOrder.deliveryPricingBreakdown);
 
     const auditEntry = await prisma.auditLog.findFirst({
       where: {
@@ -2980,16 +3009,16 @@ describe('Critical business flows', () => {
       orderBy: { createdAt: 'desc' },
     });
 
-    expect(auditEntry).toBeTruthy();
-    expect(auditEntry?.newValues).toMatchObject({
-      pricingPreserved: true,
-      feeChanged: false,
-      totalChanged: false,
-      locationSavedForDelivery: true,
+    expect(auditEntry).toBeNull();
+
+    const pending = await prisma.deliveryLocationInbox.findFirst({
+      where: { matchStatus: 'REQUIRES_REVIEW' },
+      orderBy: { receivedAt: 'desc' },
     });
+    expect(pending).toBeTruthy();
   });
 
-  it('applies shared live location to the most recent active delivery order when all active delivery orders belong to the same phone', async () => {
+  it('does not guess between active delivery orders when sender identity is absent', async () => {
     const { accessToken } = await login();
     const burger = await prisma.product.findUniqueOrThrow({
       where: { code: 'HAMB-2X1' },
@@ -3027,11 +3056,13 @@ describe('Critical business flows', () => {
 
     const updatedOrder = await ordersService.applyDeliveryLocationFromWhatsapp('', 3.2556, -76.5417);
 
-    expect(updatedOrder).not.toBeNull();
-    expect(updatedOrder?.id).toBe(newerOrder.body.id);
-    expect(updatedOrder?.id).not.toBe(olderOrder.body.id);
-    expect(updatedOrder?.deliveryLocationReceivedAt).toBeTruthy();
-    expect(updatedOrder?.deliveryLocationSource).toBe('whatsapp_live_location');
+    expect(updatedOrder).toBeNull();
+    const [olderUnchanged, newerUnchanged] = await Promise.all([
+      prisma.orderTicket.findUniqueOrThrow({ where: { id: olderOrder.body.id } }),
+      prisma.orderTicket.findUniqueOrThrow({ where: { id: newerOrder.body.id } }),
+    ]);
+    expect(olderUnchanged.deliveryLocationReceivedAt).toBeNull();
+    expect(newerUnchanged.deliveryLocationReceivedAt).toBeNull();
   });
 
   it('stores delivery location inbox entries and persistent alerts when live location is correlated', async () => {
@@ -3147,6 +3178,45 @@ describe('Critical business flows', () => {
     });
 
     expect(pendingAlert).toBeTruthy();
+  });
+
+  it('never applies an uncorrelated WhatsApp location to a single active delivery', async () => {
+    const { accessToken } = await login();
+    const burger = await prisma.product.findUniqueOrThrow({
+      where: { code: 'HAMB-2X1' },
+    });
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Sin correlación',
+        customerPhone: '3215550303',
+        deliveryReference: 'Jamundí centro',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    const capture = await ordersService.captureDeliveryLocationFromWhatsapp({
+      rawSenderJid: 'synthetic-unresolved@lid',
+      remoteJid: 'synthetic-unresolved@lid',
+      senderPhoneCandidates: [],
+      latitude: 3.2686,
+      longitude: -76.5516,
+    });
+
+    expect(capture.order).toBeNull();
+    expect(capture.inbox.matchStatus).toBe('REQUIRES_REVIEW');
+    const unchanged = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.body.id } });
+    expect(unchanged.deliveryLatitude).toBeNull();
+    expect(unchanged.deliveryLongitude).toBeNull();
   });
 
   it('preserves live delivery location after updating the order later', async () => {
@@ -3680,7 +3750,9 @@ describe('Critical business flows', () => {
 
     expect(operationalLog.status).toBe(200);
     expect(
-      operationalLog.body.items.some((item: any) => item.type === 'CAJA_REAPERTURA' || item.type === 'CAJA_APERTURA'),
+      (operationalLog.body.items as OperationalLogItem[]).some(
+        (item) => item.type === 'CAJA_REAPERTURA' || item.type === 'CAJA_APERTURA',
+      ),
     ).toBe(true);
   });
 
@@ -3695,7 +3767,7 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`);
 
     expect(preview.status).toBe(200);
-    expect(preview.body.items.some((item: any) => item.id === ingredient.id)).toBe(true);
+    expect((preview.body.items as StockCountPreviewItem[]).some((item) => item.id === ingredient.id)).toBe(true);
 
     const createCount = await request(app.getHttpServer())
       .post('/inventory/stock-counts')
@@ -3907,7 +3979,7 @@ describe('Critical business flows', () => {
     expect(operational.body.cash.expectedAmount).toBe(0);
   });
 
-  it('creates an internal Sofia/WhatsApp delivery order from mock/admin without payments, stock or cash side effects', async () => {
+  it('keeps Sofia drafts as supervised projections without operational, payment, stock or cash side effects', async () => {
     const protectedResponse = await request(app.getHttpServer()).get('/admin/sofia/conversations');
     expect(protectedResponse.status).toBe(401);
 
@@ -3925,6 +3997,7 @@ describe('Critical business flows', () => {
 
     const cashMovementsBefore = await prisma.cashMovement.count();
     const salesBefore = await prisma.sale.count();
+    const orderTicketsBefore = await prisma.orderTicket.count();
 
     const inbound = await request(app.getHttpServer())
       .post('/admin/sofia/conversations/mock-inbound')
@@ -3937,7 +4010,7 @@ describe('Critical business flows', () => {
       })
       .expect(201);
 
-    expect(inbound.body.phone).toBe('+573165550101');
+    expect(inbound.body.phone).toMatch(/^\*+0101$/);
     expect(inbound.body.messages).toHaveLength(1);
     expect(inbound.body.messages[0].direction).toBe('INBOUND');
 
@@ -3970,17 +4043,16 @@ describe('Critical business flows', () => {
         deliveryAddress: 'Cra 10 # 20-30',
         deliveryNeighborhood: 'Jamundí',
         deliveryNotes: 'Casa blanca',
-        deliveryFee: 3000,
         aiSummary: 'Pedido mock creado desde admin para validar núcleo interno.',
         items: [{ productId: soda.id, quantity: 2 }],
       })
       .expect(201);
 
     expect(draft.body.status).toBe('READY_TO_CONFIRM');
-    expect(draft.body.source).toBe('SOFIA');
+    expect(draft.body.source).toBe('MOCK_ADMIN');
     expect(Number(draft.body.subtotal)).toBe(9000);
-    expect(Number(draft.body.deliveryFee)).toBe(3000);
-    expect(Number(draft.body.total)).toBe(12000);
+    expect(Number(draft.body.deliveryFee)).toBe(0);
+    expect(Number(draft.body.total)).toBe(9000);
 
     const updatedDraft = await request(app.getHttpServer())
       .patch(`/admin/sofia/order-drafts/${draft.body.id}`)
@@ -4000,164 +4072,31 @@ describe('Critical business flows', () => {
     const deliveryOrder = await request(app.getHttpServer())
       .post(`/admin/sofia/delivery-orders/from-draft/${draft.body.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ createOperationalTicket: true })
+      .send({})
       .expect(201);
 
     expect(deliveryOrder.body.status).toBe('CONFIRMED');
     expect(deliveryOrder.body.paymentStatus).toBe('UNSELECTED');
     expect(deliveryOrder.body.paymentMethod).toBeNull();
-    expect(deliveryOrder.body.source).toBe('WHATSAPP_SOFIA');
+    expect(deliveryOrder.body.source).toBe('MOCK_ADMIN');
     expect(deliveryOrder.body.customerNameSnapshot).toBe('Cliente Sofía');
-    expect(deliveryOrder.body.customerPhoneSnapshot).toBe('+573165550101');
     expect(deliveryOrder.body.deliveryAddressSnapshot).toBe('Cra 10 # 20-30');
-    expect(deliveryOrder.body.orderTicketId).toBeTruthy();
-    expect(deliveryOrder.body.orderTicket.type).toBe('DELIVERY');
-    expect(deliveryOrder.body.orderTicket.deliveryFee).toBe('3000');
-    expect(deliveryOrder.body.orderTicket.items).toHaveLength(1);
+    expect(deliveryOrder.body.orderTicketId).toBeNull();
+    expect(deliveryOrder.body.orderTicket).toBeNull();
+    expect(Number(deliveryOrder.body.deliveryFee)).toBe(0);
+    expect(Number(deliveryOrder.body.total)).toBe(9000);
 
     const deliveryActive = await request(app.getHttpServer())
       .get('/orders/delivery-active')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    const deliveryQueueOrder = deliveryActive.body.find((order: { id: string }) => order.id === deliveryOrder.body.orderTicketId);
-    expect(deliveryQueueOrder).toBeTruthy();
-    expect(deliveryQueueOrder.whatsappDeliveryOrder.source).toBe('WHATSAPP_SOFIA');
-    expect(deliveryQueueOrder.whatsappDeliveryOrder.createdByAgentNameSnapshot).toBe('Sofía');
-    expect(deliveryQueueOrder.whatsappDeliveryOrder.paymentStatus).toBe('UNSELECTED');
+    expect(deliveryActive.body).toHaveLength(0);
 
     const posActive = await request(app.getHttpServer())
       .get('/orders?activeOnly=true')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    const posOrder = posActive.body.find((order: { id: string }) => order.id === deliveryOrder.body.orderTicketId);
-    expect(posOrder).toBeTruthy();
-    expect(posOrder.whatsappDeliveryOrder.source).toBe('WHATSAPP_SOFIA');
-
-    await request(app.getHttpServer())
-      .post(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-link`)
-      .expect(401);
-
-    const paymentLink = await request(app.getHttpServer())
-      .post(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-link`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(201);
-
-    expect(paymentLink.body.publicPaymentUrl).toContain('/pagos/');
-    expect(paymentLink.body.orderReference).toMatch(/^ORD-\d{5}$/);
-    expect(paymentLink.body.expiresAt).toBeTruthy();
-
-    const token = String(paymentLink.body.publicPaymentUrl).split('/pagos/')[1];
-    expect(token).toBeTruthy();
-    expect(token).not.toBe(deliveryOrder.body.id);
-    expect(token).not.toBe(deliveryOrder.body.orderTicketId);
-
-    await request(app.getHttpServer())
-      .patch('/admin/sofia/payment-settings')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({
-        cashEnabled: true,
-        nequiManualEnabled: true,
-        nequiManualPhone: '3001234567',
-        nequiManualHolderName: '2X1 Burger Co',
-        paymentInstructionsText: 'Envía el comprobante por WhatsApp.',
-      })
-      .expect(200);
-
-    const getPaymentLink = await request(app.getHttpServer())
-      .get(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-link`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-    expect(getPaymentLink.body.publicPaymentUrl).toBe(paymentLink.body.publicPaymentUrl);
-
-    const publicPayment = await request(app.getHttpServer())
-      .get(`/public/sofia/payments/${token}`)
-      .expect(200);
-
-    expect(publicPayment.body.expired).toBe(false);
-    expect(publicPayment.body.orderReference).toBe(paymentLink.body.orderReference);
-    expect(publicPayment.body.customerName).toBe('Cliente Sofía');
-    expect(publicPayment.body.customerPhone).toBe('+573165550101');
-    expect(publicPayment.body.deliveryAddress).toBe('Cra 10 # 20-30');
-    expect(publicPayment.body.items).toHaveLength(1);
-    expect(publicPayment.body.total).toBe(12000);
-    expect(publicPayment.body.paymentStatus).toBe('UNSELECTED');
-    expect(publicPayment.body.source).toBe('SOFIA');
-    expect(publicPayment.body.availablePaymentMethods.map((method: { method: string }) => method.method)).toEqual([
-      'ONLINE',
-      'NEQUI_MANUAL',
-      'CASH',
-    ]);
-    const nequiMethod = publicPayment.body.availablePaymentMethods.find((method: { method: string }) => method.method === 'NEQUI_MANUAL');
-    expect(nequiMethod.enabled).toBe(true);
-    expect(nequiMethod.phone).toBe('3001234567');
-    expect(publicPayment.body.id).toBeUndefined();
-    expect(publicPayment.body.orderTicketId).toBeUndefined();
-    expect(publicPayment.body.rawPayload).toBeUndefined();
-
-    await request(app.getHttpServer())
-      .get('/public/sofia/payments/not-a-real-token')
-      .expect(404);
-
-    await request(app.getHttpServer())
-      .post(`/public/sofia/payments/${token}/select-method`)
-      .send({ method: 'BITCOIN' })
-      .expect(400);
-
-    const selectedMethod = await request(app.getHttpServer())
-      .post(`/public/sofia/payments/${token}/select-method`)
-      .send({ method: 'NEQUI_MANUAL' })
-      .expect(201);
-
-    expect(selectedMethod.body.paymentMethod).toBe('NEQUI_MANUAL');
-    expect(selectedMethod.body.paymentStatus).toBe('PENDING_MANUAL_VERIFICATION');
-    expect(selectedMethod.body.paymentStatus).not.toBe('PAID');
-
-    const reflected = await request(app.getHttpServer())
-      .get('/orders/delivery-active')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-    const reflectedOrder = reflected.body.find((order: { id: string }) => order.id === deliveryOrder.body.orderTicketId);
-    expect(reflectedOrder.whatsappDeliveryOrder.paymentMethod).toBe('NEQUI_MANUAL');
-    expect(reflectedOrder.whatsappDeliveryOrder.paymentStatus).toBe('PENDING_MANUAL_VERIFICATION');
-    expect(reflectedOrder.whatsappDeliveryOrder.orderReference).toBe(paymentLink.body.orderReference);
-    expect(reflectedOrder.whatsappDeliveryOrder.paymentEvents.some((event: { eventType: string }) => event.eventType === 'NEQUI_TRANSFER_DECLARED_BY_CUSTOMER')).toBe(true);
-
-    await request(app.getHttpServer())
-      .patch(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-status`)
-      .send({ status: 'PAID', paymentMethod: 'NEQUI_MANUAL' })
-      .expect(401);
-
-    const markedPaid = await request(app.getHttpServer())
-      .patch(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-status`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ status: 'PAID', paymentMethod: 'NEQUI_MANUAL', message: 'Pago validado en test crítico.' })
-      .expect(200);
-    expect(markedPaid.body.paymentStatus).toBe('PAID');
-    expect(markedPaid.body.paymentMethod).toBe('NEQUI_MANUAL');
-    expect(markedPaid.body.manuallyVerifiedAt).toBeTruthy();
-
-    const paymentEvents = await request(app.getHttpServer())
-      .get(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-events`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-    expect(paymentEvents.body.some((event: { eventType: string; newStatus: string }) => event.eventType === 'OPERATOR_MARKED_PAID' && event.newStatus === 'PAID')).toBe(true);
-
-    const linkRecord = await prisma.whatsappDeliveryOrder.findUniqueOrThrow({
-      where: { id: deliveryOrder.body.id },
-    });
-    expect(linkRecord.paymentLinkOpenCount).toBeGreaterThanOrEqual(1);
-
-    await prisma.whatsappDeliveryOrder.update({
-      where: { id: deliveryOrder.body.id },
-      data: { publicPaymentTokenExpiresAt: new Date(Date.now() - 1000) },
-    });
-
-    const expiredPayment = await request(app.getHttpServer())
-      .get(`/public/sofia/payments/${token}`)
-      .expect(200);
-    expect(expiredPayment.body.expired).toBe(true);
-    expect(expiredPayment.body.message).toContain('venció');
-    expect(expiredPayment.body.customerPhone).toBeUndefined();
+    expect(posActive.body).toHaveLength(0);
 
     const detail = await request(app.getHttpServer())
       .get(`/admin/sofia/delivery-orders/${deliveryOrder.body.id}`)
@@ -4165,8 +4104,9 @@ describe('Critical business flows', () => {
       .expect(200);
 
     expect(detail.body.id).toBe(deliveryOrder.body.id);
-    expect(detail.body.paymentStatus).toBe('PAID');
-    expect(detail.body.paymentMethod).toBe('NEQUI_MANUAL');
+    expect(detail.body.paymentStatus).toBe('UNSELECTED');
+    expect(detail.body.paymentMethod).toBeNull();
+    expect(detail.body.orderTicketId).toBeNull();
 
     const list = await request(app.getHttpServer())
       .get('/admin/sofia/delivery-orders')
@@ -4199,9 +4139,10 @@ describe('Critical business flows', () => {
     expect(Number(sodaAfter.currentStock)).toBe(stockBefore);
     expect(await prisma.cashMovement.count()).toBe(cashMovementsBefore);
     expect(await prisma.sale.count()).toBe(salesBefore);
+    expect(await prisma.orderTicket.count()).toBe(orderTicketsBefore);
   });
 
-  it('processes Sofia online mock payments through provider adapter and idempotent webhooks', async () => {
+  it('keeps approved provider webhooks in manual reconciliation without marking Sofia orders paid', async () => {
     const { accessToken } = await login();
     const soda = await prisma.product.findUniqueOrThrow({
       where: { code: 'CC-ORG-400' },
@@ -4213,20 +4154,6 @@ describe('Critical business flows', () => {
       .send({ openingAmount: 50000 });
     const cashMovementsBefore = await prisma.cashMovement.count();
     const salesBefore = await prisma.sale.count();
-
-    await request(app.getHttpServer())
-      .patch('/admin/sofia/payment-settings')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({
-        cashEnabled: true,
-        nequiManualEnabled: true,
-        nequiManualPhone: '3001234567',
-        onlinePaymentsEnabled: true,
-        onlinePaymentProvider: 'MOCK',
-        mockOnlinePaymentsEnabled: true,
-        onlinePaymentExpiresMinutes: 20,
-      })
-      .expect(200);
 
     const inbound = await request(app.getHttpServer())
       .post('/admin/sofia/conversations/mock-inbound')
@@ -4247,7 +4174,6 @@ describe('Critical business flows', () => {
         customerPhone: '+57 316 555 0202',
         deliveryAddress: 'Cra 40 # 10-20',
         deliveryNeighborhood: 'Jamundí',
-        deliveryFee: 3000,
         items: [{ productId: soda.id, quantity: 1 }],
       })
       .expect(201);
@@ -4260,31 +4186,20 @@ describe('Critical business flows', () => {
     const deliveryOrder = await request(app.getHttpServer())
       .post(`/admin/sofia/delivery-orders/from-draft/${draft.body.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ createOperationalTicket: true })
+      .send({})
       .expect(201);
 
-    const paymentLink = await request(app.getHttpServer())
-      .post(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-link`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(201);
-    const token = String(paymentLink.body.publicPaymentUrl).split('/pagos/')[1];
-
-    const publicPayment = await request(app.getHttpServer())
-      .get(`/public/sofia/payments/${token}`)
-      .expect(200);
-    const onlineMethod = publicPayment.body.availablePaymentMethods.find((method: { method: string }) => method.method === 'ONLINE');
-    expect(onlineMethod.enabled).toBe(true);
-
-    const onlineSelected = await request(app.getHttpServer())
-      .post(`/public/sofia/payments/${token}/select-method`)
-      .send({ method: 'ONLINE' })
-      .expect(201);
-    expect(onlineSelected.body.paymentStatus).toBe('PENDING_ONLINE_PAYMENT');
-    expect(onlineSelected.body.paymentMethod).toBe('ONLINE');
-    expect(onlineSelected.body.checkoutUrl).toContain('/pagos/mock/');
-
-    const onlineRecord = await prisma.whatsappDeliveryOrder.findUniqueOrThrow({
+    expect(deliveryOrder.body.orderTicketId).toBeNull();
+    const onlineRecord = await prisma.whatsappDeliveryOrder.update({
       where: { id: deliveryOrder.body.id },
+      data: {
+        onlinePaymentProvider: 'MOCK',
+        providerPaymentId: 'mock-payment-critical-1',
+        providerReference: 'mock-provider-critical-1',
+        orderReference: 'ORD-TEST-CRITICAL-1',
+        paymentMethod: 'ONLINE',
+        paymentStatus: 'PENDING_ONLINE_PAYMENT',
+      },
     });
     expect(onlineRecord.providerPaymentId).toBeTruthy();
     expect(onlineRecord.providerReference).toBeTruthy();
@@ -4303,7 +4218,8 @@ describe('Critical business flows', () => {
         currency: 'COP',
       })
       .expect(201);
-    expect(paidWebhook.body.paymentStatus).toBe('PAID');
+    expect(paidWebhook.body.processedStatus).toBe('PROVIDER_APPROVAL_REQUIRES_RECONCILIATION');
+    expect(paidWebhook.body.paymentStatus).toBe('MANUAL_REVIEW');
 
     const duplicateWebhook = await request(app.getHttpServer())
       .post('/integrations/payments/webhook/mock')
@@ -4350,21 +4266,36 @@ describe('Critical business flows', () => {
       .expect(201);
     expect(invalidSignature.body.processedStatus).toBe('SIGNATURE_INVALID');
 
-    const events = await request(app.getHttpServer())
-      .get(`/orders/${deliveryOrder.body.orderTicketId}/sofia-payment-events`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-    expect(events.body.some((event: { eventType: string }) => event.eventType === 'WEBHOOK_MARKED_PAID')).toBe(true);
-    expect(events.body.some((event: { eventType: string }) => event.eventType === 'WEBHOOK_AMOUNT_MISMATCH')).toBe(true);
+    const validAfterForgedEvent = await request(app.getHttpServer())
+      .post('/integrations/payments/webhook/mock')
+      .set('x-mock-payment-signature', 'mock-dev-signature')
+      .send({
+        eventId: 'mock-invalid-critical-1',
+        providerPaymentId: onlineRecord.providerPaymentId,
+        providerReference: onlineRecord.providerReference,
+        orderReference: onlineRecord.orderReference,
+        status: 'PAID',
+        amount: Number(onlineRecord.total),
+        currency: 'COP',
+      })
+      .expect(201);
+    expect(validAfterForgedEvent.body.processedStatus).toBe('PROVIDER_APPROVAL_REQUIRES_RECONCILIATION');
+    expect(validAfterForgedEvent.body.paymentStatus).toBe('MANUAL_REVIEW');
 
-    const reflected = await request(app.getHttpServer())
-      .get('/orders/delivery-active')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-    const reflectedOrder = reflected.body.find((order: { id: string }) => order.id === deliveryOrder.body.orderTicketId);
-    expect(reflectedOrder.whatsappDeliveryOrder.paymentMethod).toBe('ONLINE');
-    expect(reflectedOrder.whatsappDeliveryOrder.paymentStatus).toBe('MANUAL_REVIEW');
-    expect(reflectedOrder.whatsappDeliveryOrder.webhookEventCount).toBeGreaterThanOrEqual(2);
+    const events = await prisma.sofiaPaymentEvent.findMany({
+      where: { whatsappDeliveryOrderId: deliveryOrder.body.id },
+    });
+    expect(events.some((event) => event.eventType === 'WEBHOOK_APPROVAL_REQUIRES_RECONCILIATION')).toBe(true);
+    expect(events.some((event) => event.eventType === 'WEBHOOK_AMOUNT_MISMATCH')).toBe(true);
+
+    const reflectedOrder = await prisma.whatsappDeliveryOrder.findUniqueOrThrow({
+      where: { id: deliveryOrder.body.id },
+    });
+    expect(reflectedOrder.orderTicketId).toBeNull();
+    expect(reflectedOrder.paymentMethod).toBe('ONLINE');
+    expect(reflectedOrder.paymentStatus).toBe('MANUAL_REVIEW');
+    expect(reflectedOrder.webhookEventCount).toBeGreaterThanOrEqual(2);
+    expect(reflectedOrder.onlinePaymentPaidAt).toBeNull();
 
     await request(app.getHttpServer())
       .post('/dev/sofia/payments/mock-webhook')
@@ -4385,7 +4316,7 @@ describe('Critical business flows', () => {
       .get('/admin/sofia/prompt/active')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(prompt.body.version).toBe('SOFIA_MASTER_PROMPT_V1');
+    expect(prompt.body.version).toBe('SOFIA_MASTER_PROMPT_V2');
     expect(prompt.body.status).toBe('ACTIVE');
     expect(prompt.body.promptText).toContain('No inventes productos');
 
@@ -4406,6 +4337,9 @@ describe('Critical business flows', () => {
     const maxi = catalog.body.find((item: { slug: string }) => item.slug === 'maxi-family');
     expect(maxi.composition.requiredCopy).toBe('6 burgers + 1 porción personal de papitas + 1 Pepsi 1.5 L');
     expect(maxi.prohibitedClaims).toContain('papitas para todos');
+    expect(maxi.availability).toBe('CONFIGURATION_ONLY');
+    expect(maxi.purchasable).toBe(false);
+    expect(maxi.price).toBeNull();
 
     const maxiQuestion = await request(app.getHttpServer())
       .post('/admin/sofia/sandbox/commercial-message')
@@ -4418,11 +4352,12 @@ describe('Critical business flows', () => {
         sandboxNow: '2026-07-01T23:00:00.000Z',
       })
       .expect(201);
-    expect(maxiQuestion.body.promptVersion).toBe('SOFIA_MASTER_PROMPT_V1');
+    expect(maxiQuestion.body.promptVersion).toBe('SOFIA_MASTER_PROMPT_V2');
     expect(maxiQuestion.body.commercialCatalog.filter((item: { type: string }) => item.type === 'OFFER')).toHaveLength(4);
     expect(maxiQuestion.body.responseText).toContain('6 burgers');
     expect(maxiQuestion.body.responseText).toContain('porción personal de papitas');
     expect(maxiQuestion.body.responseText).toContain('Pepsi 1.5 L');
+    expect(maxiQuestion.body.responseText).toContain('todavía no está disponible para comprar');
     expect(maxiQuestion.body.responseText).not.toMatch(/papas familiares|papas grandes|papas para todos|papitas para todos|porción familiar/i);
 
     const dobleTodo = await request(app.getHttpServer())
@@ -4672,19 +4607,19 @@ describe('Critical business flows', () => {
     expect(enterprise.body.security.canActivateDeepSeekReal).toBe(false);
     expect(enterprise.body.security.canActivateAutoSafeProduction).toBe(false);
     expect(enterprise.body.security.blockers).toEqual(expect.arrayContaining(['SECRET_ROTATION_PENDING', 'REAL_SEND_DISABLED', 'DEEPSEEK_REAL_DISABLED', 'AUTO_SAFE_PRODUCTION_DISABLED']));
-    expect(enterprise.body.sofia.activePromptVersion).toBe('SOFIA_MASTER_PROMPT_V1');
+    expect(enterprise.body.sofia.activePromptVersion).toBe('SOFIA_MASTER_PROMPT_V2');
     expect(enterprise.body.catalog.offersCount).toBeGreaterThanOrEqual(4);
     expect(enterprise.body.catalog.maxiFamilyStatus).toBe('PASS');
     expect(enterprise.body.memory.customersWithMemory).toBeGreaterThanOrEqual(0);
     expect(enterprise.body.autoSafe.sandboxOnly).toBe(true);
-    expect(enterprise.body.whatsapp.qrGatewayReady).toBe(true);
+    expect(enterprise.body.whatsapp.qrGatewayReady).toBe(false);
     expect(enterprise.body.whatsapp.qrReceiveOnlyReady).toBe(true);
     expect(enterprise.body.whatsapp.realSendingEnabled).toBe(false);
     expect(enterprise.body.ai.deepSeekReady).toBe(false);
     expect(enterprise.body.payments.whatsappCanMarkPaid).toBe(false);
-    expect(enterprise.body.operations.posStatus).toBe('PASS');
-    expect(enterprise.body.operations.deliveriesStatus).toBe('PASS');
-    expect(enterprise.body.operations.checkoutStatus).toBe('PASS');
+    expect(enterprise.body.operations.posStatus).toBe('BLOCKED');
+    expect(enterprise.body.operations.deliveriesStatus).toBe('BLOCKED');
+    expect(enterprise.body.operations.checkoutStatus).toBe('BLOCKED');
     expect(JSON.stringify(enterprise.body)).not.toContain('sk-');
     expect(JSON.stringify(enterprise.body)).not.toContain('HERMES_API_TOKEN');
     expect(JSON.stringify(enterprise.body)).not.toContain('DEEPSEEK_API_KEY');
@@ -4787,11 +4722,9 @@ describe('Critical business flows', () => {
     const connected = await request(app.getHttpServer())
       .post('/admin/sofia/whatsapp/qr/connect')
       .set('Authorization', `Bearer ${accessToken}`)
-      .expect(201);
-    expect(connected.body.status).toBe('DISABLED');
+      .expect(400);
+    expect(connected.body.status).toBe('BLOCKED');
     expect(connected.body.reason).toBe('QR_GATEWAY_DISABLED');
-    expect(connected.body.qrAvailable).toBe(false);
-    expect(connected.body.realSendingEnabled).toBe(false);
 
     const code = await request(app.getHttpServer())
       .get('/admin/sofia/whatsapp/qr/code')
@@ -4881,7 +4814,7 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(enterprise.body.whatsapp.provider).toBe('qr_gateway');
-    expect(enterprise.body.whatsapp.qrGatewayReady).toBe(true);
+    expect(enterprise.body.whatsapp.qrGatewayReady).toBe(false);
     expect(enterprise.body.whatsapp.realSendingEnabled).toBe(false);
     expect(enterprise.body.productionReadiness.status).toBe('BLOCKED');
     expect(enterprise.body.payments.whatsappCanMarkPaid).toBe(false);
@@ -4909,11 +4842,9 @@ describe('Critical business flows', () => {
       process.env.SOFIA_QR_PILOT_ALLOWED_PHONES = '';
       process.env.SOFIA_QR_PILOT_REAL_SEND = 'false';
 
-      const blocked = await request(app.getHttpServer())
-        .post('/integrations/whatsapp/qr_gateway/webhook')
-        .set('x-sofia-whatsapp-mode', 'receive_only')
-        .set('x-sofia-whatsapp-provider', 'qr_gateway')
-        .send({
+      const blocked = await sofiaWhatsappService.processInboundWebhook(
+        'qr_gateway',
+        {
           provider: 'qr_gateway',
           externalMessageId: `qr-f5-blocked-${Date.now()}`,
           providerEventId: `qr-f5-blocked-event-${Date.now()}`,
@@ -4921,14 +4852,16 @@ describe('Critical business flows', () => {
           text: 'Hola',
           messageType: 'TEXT',
           timestamp: new Date().toISOString(),
-        })
-        .expect(201);
-      expect(blocked.body.processingStatus).toBe('ALLOWLIST_REQUIRED');
-      expect(blocked.body.outbound).toBeNull();
-      expect(blocked.body.noWhatsappReal).toBe(true);
+        },
+        { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+        { trustedBaileysTransport: true },
+      );
+      expect(blocked.processingStatus).toBe('ALLOWLIST_REQUIRED');
+      expect(blocked.outbound).toBeNull();
+      expect(blocked.noWhatsappReal).toBe(true);
 
       const blockedConversation = await prisma.whatsappConversation.findUniqueOrThrow({
-        where: { id: blocked.body.conversationId },
+        where: { id: blocked.conversationId },
       });
       expect(blockedConversation.provider).toBe('qr_gateway');
       expect(blockedConversation.humanStatus).toBe('PILOT_NOT_ALLOWED');
@@ -4936,11 +4869,9 @@ describe('Critical business flows', () => {
 
       process.env.SOFIA_QR_PILOT_ALLOWED_PHONES = phone;
       const allowedMessageId = `qr-f5-allowed-${Date.now()}`;
-      const allowed = await request(app.getHttpServer())
-        .post('/integrations/whatsapp/qr_gateway/webhook')
-        .set('x-sofia-whatsapp-mode', 'receive_only')
-        .set('x-sofia-whatsapp-provider', 'qr_gateway')
-        .send({
+      const allowed = await sofiaWhatsappService.processInboundWebhook(
+        'qr_gateway',
+        {
           provider: 'qr_gateway',
           externalMessageId: allowedMessageId,
           providerEventId: `${allowedMessageId}-event`,
@@ -4948,19 +4879,19 @@ describe('Critical business flows', () => {
           text: 'Qué trae el Maxi Family',
           messageType: 'TEXT',
           timestamp: new Date().toISOString(),
-        })
-        .expect(201);
-      expect(allowed.body.provider).toBe('qr_gateway');
-      expect(allowed.body.mode).toBe('receive_only');
-      expect(allowed.body.outbound.status).toBe('SUGGESTED');
-      expect(allowed.body.outbound.body).toContain('porción personal de papitas');
-      expect(allowed.body.outbound.status).not.toBe('SENT');
+        },
+        { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+        { trustedBaileysTransport: true },
+      );
+      expect(allowed.provider).toBe('qr_gateway');
+      expect(allowed.mode).toBe('receive_only');
+      expect(allowed.outbound?.status).toBe('SUGGESTED');
+      expect(allowed.outbound?.body).toContain('porción personal de papitas');
+      expect(allowed.outbound?.status).not.toBe('SENT');
 
-      const duplicate = await request(app.getHttpServer())
-        .post('/integrations/whatsapp/qr_gateway/webhook')
-        .set('x-sofia-whatsapp-mode', 'receive_only')
-        .set('x-sofia-whatsapp-provider', 'qr_gateway')
-        .send({
+      const duplicate = await sofiaWhatsappService.processInboundWebhook(
+        'qr_gateway',
+        {
           provider: 'qr_gateway',
           externalMessageId: allowedMessageId,
           providerEventId: `${allowedMessageId}-event`,
@@ -4968,9 +4899,11 @@ describe('Critical business flows', () => {
           text: 'Qué trae el Maxi Family',
           messageType: 'TEXT',
           timestamp: new Date().toISOString(),
-        })
-        .expect(201);
-      expect(duplicate.body.processingStatus).toBe('DUPLICATE_IGNORED');
+        },
+        { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+        { trustedBaileysTransport: true },
+      );
+      expect(duplicate.processingStatus).toBe('DUPLICATE_IGNORED');
 
       const nequi = await request(app.getHttpServer())
         .post('/admin/sofia/whatsapp/qr/test-inbound')
@@ -5128,7 +5061,7 @@ describe('Critical business flows', () => {
     expect(JSON.stringify(privacy.body)).not.toContain('573001112222');
     expect(JSON.stringify(privacy.body)).not.toContain('Carrera 10');
     expect(JSON.stringify(privacy.body)).not.toContain('eyJsecretotest');
-    expect(JSON.stringify(privacy.body)).toContain('[raw-redactado]');
+    expect(privacy.body).not.toHaveProperty('rawPayload');
 
     const retention = await request(app.getHttpServer())
       .post('/admin/sofia/retention/dry-run')
@@ -5190,7 +5123,7 @@ describe('Critical business flows', () => {
     expect(await prisma.orderTicket.count()).toBe(ordersBefore);
   });
 
-  it('processes Sofia conversational sandbox messages without inventing data and creates operational delivery orders', async () => {
+  it('processes Sofia conversational sandbox messages without inventing data or creating operational orders', async () => {
     const { accessToken } = await login();
     const soda = await prisma.product.findUniqueOrThrow({ where: { code: 'CC-ORG-400' } });
     const stockBefore = Number(soda.currentStock);
@@ -5222,7 +5155,7 @@ describe('Critical business flows', () => {
     expect(typoOrder.body.suggestedUpsell).toBeTruthy();
     expect(typoOrder.body.mediaSuggestion.altText).toBeTruthy();
     expect(typoOrder.body.mediaSuggestion.imageUrl).toBe('/uploads/sofia-offers/2x1-hamburguesas.webp');
-    expect(typoOrder.body.featuredOffers).toHaveLength(4);
+    expect(typoOrder.body.featuredOffers.map((offer: { slug: string }) => offer.slug)).toEqual(['2x1-hamburguesas']);
 
     const menuCatalog = await request(app.getHttpServer())
       .post('/admin/sofia/agent/process')
@@ -5235,16 +5168,11 @@ describe('Critical business flows', () => {
         sandboxNow: '2026-07-01T23:00:00.000Z',
       })
       .expect(201);
-    expect(menuCatalog.body.responseText).toContain('Maxi Family');
     expect(menuCatalog.body.responseText).toContain('2x1 Hamburguesas');
-    expect(menuCatalog.body.responseText).toContain('Doble Todo');
-    expect(menuCatalog.body.responseText).toContain('Hamburguesa Sencilla');
-    expect(menuCatalog.body.responseText).toContain('porción personal de papitas');
+    expect(menuCatalog.body.responseText).not.toContain('Doble Todo');
+    expect(menuCatalog.body.responseText).not.toContain('Hamburguesa Sencilla');
     expect(menuCatalog.body.featuredOffers.map((offer: { imageUrl: string }) => offer.imageUrl)).toEqual([
-      '/uploads/sofia-offers/maxi-family.webp',
       '/uploads/sofia-offers/2x1-hamburguesas.webp',
-      '/uploads/sofia-offers/doble-todo.webp',
-      '/uploads/sofia-offers/hamburguesa-sencilla.webp',
     ]);
 
     const maxiFamily = await request(app.getHttpServer())
@@ -5261,7 +5189,10 @@ describe('Critical business flows', () => {
     expect(maxiFamily.body.responseText).toContain('6 burgers');
     expect(maxiFamily.body.responseText).toContain('porción personal de papitas');
     expect(maxiFamily.body.responseText).toContain('Pepsi 1.5 L');
-    expect(maxiFamily.body.suggestedUpsell.message).toContain('porciones adicionales');
+    expect(maxiFamily.body.responseText).toContain('todavía no está disponible para comprar');
+    expect(maxiFamily.body.currentItems).toHaveLength(0);
+    expect(maxiFamily.body.suggestedUpsell).toBeNull();
+    expect(maxiFamily.body.mediaSuggestion).toBeNull();
     expect(maxiFamily.body.responseText).not.toMatch(/papas familiares|papas grandes|papas para todos|porción familiar de papas/i);
 
     const maxiCopyCorrection = await request(app.getHttpServer())
@@ -5275,7 +5206,7 @@ describe('Critical business flows', () => {
       })
       .expect(201);
     expect(maxiCopyCorrection.body.responseText).toContain('porción personal de papitas');
-    expect(maxiCopyCorrection.body.responseText).toContain('porciones adicionales');
+    expect(maxiCopyCorrection.body.responseText).toContain('todavía no está disponible para comprar');
     expect(maxiCopyCorrection.body.responseText).not.toMatch(/papas familiares|papas grandes|papas para todos|porción familiar de papas/i);
 
     const maxiPhoto = await request(app.getHttpServer())
@@ -5289,7 +5220,8 @@ describe('Critical business flows', () => {
         sandboxNow: '2026-07-01T23:00:00.000Z',
       })
       .expect(201);
-    expect(maxiPhoto.body.mediaSuggestion.imageUrl).toBe('/uploads/sofia-offers/maxi-family.webp');
+    expect(maxiPhoto.body.mediaSuggestion).toBeNull();
+    expect(maxiPhoto.body.responseText).toContain('todavía no está disponible para comprar');
 
     const sodaOnly = await request(app.getHttpServer())
       .post('/admin/sofia/agent/process')
@@ -5401,17 +5333,15 @@ describe('Critical business flows', () => {
       .expect(201);
 
     expect(confirmed.body.detectedIntent).toBe('CONFIRM_ORDER');
-    expect(confirmed.body.deliveryOrder.orderTicketId).toBeTruthy();
-    expect(confirmed.body.paymentLinkUrl).toContain('/pagos/');
+    expect(confirmed.body.deliveryOrder.orderTicketId).toBeNull();
+    expect(confirmed.body.paymentLinkUrl).toBeNull();
+    expect(confirmed.body.safeguards.sandboxOperationalIsolation).toBe(true);
 
     const activeDeliveries = await request(app.getHttpServer())
       .get('/orders/delivery-active')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    const sofiaOrder = activeDeliveries.body.find((order: { id: string }) => order.id === confirmed.body.deliveryOrder.orderTicketId);
-    expect(sofiaOrder).toBeTruthy();
-    expect(sofiaOrder.whatsappDeliveryOrder.source).toBe('WHATSAPP_SOFIA');
-    expect(sofiaOrder.whatsappDeliveryOrder.paymentStatus).toBe('UNSELECTED');
+    expect(activeDeliveries.body.some((order: { whatsappDeliveryOrder?: unknown }) => Boolean(order.whatsappDeliveryOrder))).toBe(false);
 
     const sodaAfter = await prisma.product.findUniqueOrThrow({ where: { code: 'CC-ORG-400' } });
     expect(Number(sodaAfter.currentStock)).toBe(stockBefore);
@@ -5474,7 +5404,7 @@ describe('Critical business flows', () => {
       expect(maxi.body.sofiaResult.responseText).not.toContain('papas familiares');
       expect(maxi.body.sofiaResult.responseText).not.toContain('papas grandes');
       expect(maxi.body.outbound.status).toBe('SENT');
-      expect(maxi.body.outbound.mediaUrl).toBe('/uploads/sofia-offers/maxi-family.webp');
+      expect(maxi.body.outbound.mediaUrl).toBeNull();
 
       const messagesBeforeDuplicate = await prisma.whatsappMessage.count();
       const outboundsBeforeDuplicate = await prisma.whatsappOutboundMessage.count();
@@ -5608,19 +5538,15 @@ describe('Critical business flows', () => {
           sandboxNow: '2026-07-01T23:00:00.000Z',
         })
         .expect(201);
-      expect(confirmed.body.sofiaResult.deliveryOrder.orderTicketId).toBeTruthy();
-      expect(confirmed.body.sofiaResult.paymentLinkUrl).toContain('/pagos/');
+      expect(confirmed.body.sofiaResult.deliveryOrder).toBeNull();
+      expect(confirmed.body.sofiaResult.paymentLinkUrl).toBeNull();
+      expect(confirmed.body.sofiaResult.safeguards.productiveActionBlocked).toBeTruthy();
 
       const activeDeliveries = await request(app.getHttpServer())
         .get('/orders/delivery-active')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
-      const sofiaDelivery = activeDeliveries.body.find(
-        (order: { id: string }) => order.id === confirmed.body.sofiaResult.deliveryOrder.orderTicketId,
-      );
-      expect(sofiaDelivery).toBeTruthy();
-      expect(sofiaDelivery.whatsappDeliveryOrder.source).toBe('WHATSAPP_SOFIA');
-      expect(sofiaDelivery.whatsappDeliveryOrder.paymentStatus).toBe('UNSELECTED');
+      expect(activeDeliveries.body.some((order: { whatsappDeliveryOrder?: unknown }) => Boolean(order.whatsappDeliveryOrder))).toBe(false);
 
       const sodaAfter = await prisma.product.findUniqueOrThrow({ where: { code: 'CC-ORG-400' } });
       expect(Number(sodaAfter.currentStock)).toBe(stockBefore);

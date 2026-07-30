@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 0 | Engineering Framework | COMPLETA | GO |
 | 1 | Global Audit | COMPLETA | GO documental |
-| 2 | Core Remediation | EN PROGRESO | 2.5.1-R1 NO-GO por recovery/artifact/rollback incompletos |
+| 2 | Core Remediation | EN PROGRESO | 2.6 GO CONDICIONADO local; release remoto y performance pendientes |
 | 3 | Business Rules | PENDIENTE | BLOQUEADA |
 | 4 | Performance | PENDIENTE | BLOQUEADA |
 | 5 | Security | PENDIENTE | BLOQUEADA |
@@ -14,6 +14,26 @@
 | 7 | Regression | PENDIENTE | BLOQUEADA |
 | 8 | Production Readiness | PENDIENTE | BLOQUEADA |
 | 9 | Production | PENDIENTE | BLOQUEADA |
+
+## Production Closure - Source/Artifact/Runtime Convergence
+
+Estado: **NO-GO INTERNO (2026-07-29)**.
+
+Completado en source aislado:
+
+- contratos 157/157;
+- migraciones fresh 32/32 y upgrade 30→32;
+- manifest versionado, `/version`, liveness y readiness exacta/fail-closed;
+- safety, typecheck, lint, build y scans.
+
+Bloqueadores:
+
+- working tree con cambios previos mixed/owner que no pueden incluirse en un commit minimo automaticamente;
+- ausencia total de remote y CI verificable;
+- artifact/canary actual siguen en 30 migraciones;
+- aislamiento invalidado por una conexion diagnostica read-only heredada al runtime de 29 migraciones.
+
+No promover ni crear artifact de release hasta resolver estos bloqueadores con un changeset limpio y repetir el gate completo.
 
 ## Phase 2 - Orden ejecutable
 
@@ -129,7 +149,51 @@ Pendiente externo:
 
 Objetivo: eliminar warnings/any por criticidad, activar lint blocking y validar visual/a11y/mobile.
 
-Estado: **BLOQUEADO** hasta cerrar Phase 2.5.1.
+Estado: **GO CONDICIONADO LOCAL (2026-07-27)**.
+
+Completado:
+
+- frontend y API sin warnings en lint estricto activo;
+- contratos runtime tipados en superficies criticas;
+- dependency audit productivo sin vulnerabilidades conocidas;
+- WCAG A/AA automatizado, keyboard scroll regions y contraste corregidos;
+- Dashboard, Caja, POS, Delivery, Inventory, Users y Sofia validados en desktop;
+- Dashboard/login validados en mobile sin overflow;
+- tres E2E efimeros consecutivos con contratos, RBAC, core mutante, audit, UI y teardown PASS;
+- imagenes OCI de prueba no-root con mismo buildId y huella de source.
+
+Pendiente:
+
+- consolidar changesets y crear artifact `dirtyBuild=false` con autorizacion;
+- required CI, staging remoto y visual gate remoto;
+- incorporar 64 specs E2E historicos al proyecto typed/lint;
+- performance/load/soak y backend persistente de observabilidad.
+
+### Bloque 2.7 - Runtime Promotion, Performance & Owner Gates
+
+Objetivo: convertir el candidato local en release limpio, ejecutar capacidad/soak, promover por digest a staging remoto y cerrar custodia/approvals sin tocar produccion antes del gate formal.
+
+Estado: **SIGUIENTE BLOQUE**.
+
+### Bloque Sofia-P1 - Privacy, Legacy Isolation & Clean Candidate
+
+Objetivo: migrar PII legacy, introducir actor de sistema, retirar o restringir WhatsApp legacy y certificar un artifact limpio sin habilitar envio real.
+
+Estado: **BLOQUEADOR INTERNO DE PRODUCCION (2026-07-27)**.
+
+Completado:
+
+- prompt V2, catalogo persistido y DeepSeek text-only dry-run;
+- CRM read-only con identidad HMAC y campaigns blocked;
+- QR governance, payment gate, exact location correlation y dedup deterministico;
+- UI desktop/mobile, contratos y pruebas focalizadas.
+
+Pendiente:
+
+- PII legacy/retention y actor de sistema;
+- minimo privilegio de sesion/QR legacy;
+- critical completa y artifact limpio trazable;
+- owner gates fisicos/remotos.
 
 ### Bloque 2.5.1 - Persistent Audit Contract Remediation
 
@@ -174,6 +238,23 @@ Bloqueadores internos tras tres iteraciones:
 - no existe artifact limpio ni rollback por digest del candidato.
 
 Siguiente acción permitida: fase corta de consolidación del test/release harness y separación de changesets. Phase 2.6 permanece bloqueada.
+
+### Bloque 2.5.1-R2 - Recovery & Clean Release Closure
+
+Estado: **GO CONDICIONADO (2026-07-15)**.
+
+Completado local/canary:
+
+- expectativa de schema dinámica con fingerprint y compatibilidad futura;
+- recovery cifrado, restore, reconciliación y readiness 3X;
+- upgrade 29→30 y legacy v1;
+- changesets/commits limpios por dominio;
+- regresión core/API 3X con 156/156 tests por run;
+- artifact limpio `dirtyBuild=false`, OCI no-root y SBOM;
+- identidad source/commit/artifact/runtime en canary;
+- rollback y restauración por digest sin rebuild.
+
+Pendiente owner gate: remote, registry, required CI, staging remoto, approvals, KMS/secret store y attestation. Phase 2.6 puede iniciar sin activar producción.
 
 ## Fases posteriores
 

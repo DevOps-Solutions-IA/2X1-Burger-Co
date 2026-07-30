@@ -361,7 +361,7 @@ export default function UsersPage() {
   });
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
+    <div className="space-y-6 p-6 lg:p-8" data-testid="users-page">
       <SectionTitle
         eyebrow="Administracion"
         title="Equipo"
@@ -405,15 +405,15 @@ export default function UsersPage() {
                 >
                   <div className="flex items-center gap-2">
                     <p className="text-[14px] font-extrabold text-ink truncate">{user.fullName}</p>
-                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
+                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-800' : 'text-stone-600'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
                   </div>
                   <p className="mt-0.5 text-[12px] text-stone-500 truncate">{user.email}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     {user.roles.map((role) => (
                       <span key={role.id} className="text-[10px] font-bold text-stone-500">{formatRoleLabel(role.name)}</span>
                     ))}
-                    {user.roles.length > 1 && user.roles.map((r,i) => i > 0 ? <span key={r.id} className="text-[10px] text-stone-400">&middot; {formatRoleLabel(r.name)}</span> : null)}
-                    <span className="text-[10px] text-stone-400">&middot; {formatDateTime(user.lastLoginAt)}</span>
+                    {user.roles.length > 1 && user.roles.map((r,i) => i > 0 ? <span key={r.id} className="text-[10px] text-stone-600">&middot; {formatRoleLabel(r.name)}</span> : null)}
+                    <span className="text-[10px] text-stone-600">&middot; {formatDateTime(user.lastLoginAt)}</span>
                   </div>
                 </button>
 
@@ -422,7 +422,8 @@ export default function UsersPage() {
                     onClick={() => toggleStatus.mutate({ id: user.id, isActive: !user.isActive })}>
                     {user.isActive ? 'Desactivar' : 'Activar'}
                   </Button>
-                  <button type="button" className="text-stone-400 hover:text-red-600 transition"
+                  <button type="button" className="text-stone-500 hover:text-red-700 transition"
+                    aria-label={`Eliminar usuario ${user.fullName}`}
                     disabled={deleteUser.isPending}
                     onClick={() => setConfirmDelete({ id: user.id, name: user.fullName })}>
                     <Trash2 className="h-3.5 w-3.5" />
@@ -488,7 +489,7 @@ export default function UsersPage() {
               {systemForm.password ? (
                 <div className="mt-2 space-y-1">
                   {passwordRequirements.map((req) => (
-                    <p key={req.label} className={`text-[12px] leading-5 ${req.test(systemForm.password) ? 'text-emerald-600' : 'text-stone-500'}`}>
+                    <p key={req.label} className={`text-[12px] leading-5 ${req.test(systemForm.password) ? 'text-emerald-800' : 'text-stone-600'}`}>
                       {req.test(systemForm.password) ? '✓' : '○'} {req.label}
                     </p>
                   ))}
@@ -592,14 +593,14 @@ export default function UsersPage() {
                 >
                   <div className="flex items-center gap-2">
                     <p className="text-[14px] font-extrabold text-ink truncate">{user.fullName}</p>
-                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
+                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-800' : 'text-stone-600'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11px]">
                     <span className="text-stone-500">Acceso: <strong className="text-ink">{user.fullName}</strong></span>
-                    <span className="text-stone-400">&middot;</span>
+                    <span className="text-stone-600">&middot;</span>
                     <span className="text-stone-500">Codigo: <strong className="text-ink">{user.hasAccessCode ? 'OK' : 'Pendiente'}</strong></span>
-                    <span className="text-stone-400">&middot;</span>
-                    <span className="text-stone-400">{formatDateTime(user.lastLoginAt)}</span>
+                    <span className="text-stone-600">&middot;</span>
+                    <span className="text-stone-600">{formatDateTime(user.lastLoginAt)}</span>
                   </div>
                 </button>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -607,7 +608,8 @@ export default function UsersPage() {
                     onClick={() => toggleStatus.mutate({ id: user.id, isActive: !user.isActive })}>
                     {user.isActive ? 'Desactivar' : 'Activar'}
                   </Button>
-                  <button type="button" className="text-stone-400 hover:text-red-600 transition"
+                  <button type="button" className="text-stone-500 hover:text-red-700 transition"
+                    aria-label={`Eliminar mesero ${user.fullName}`}
                     disabled={deleteUser.isPending}
                     onClick={() => setConfirmDelete({ id: user.id, name: user.fullName })}>
                     <Trash2 className="h-3.5 w-3.5" />
@@ -740,14 +742,14 @@ export default function UsersPage() {
                 >
                   <div className="flex items-center gap-2">
                     <p className="text-[14px] font-extrabold text-ink truncate">{user.fullName}</p>
-                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
+                    <span className={`text-[10px] font-bold shrink-0 ${user.isActive ? 'text-emerald-800' : 'text-stone-600'}`}>{user.isActive ? 'Activo' : 'Inactivo'}</span>
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11px]">
                     <span className="text-stone-500">Acceso: <strong className="text-ink">{user.fullName}</strong></span>
-                    <span className="text-stone-400">&middot;</span>
+                    <span className="text-stone-600">&middot;</span>
                     <span className="text-stone-500">Codigo: <strong className="text-ink">{user.hasAccessCode ? 'OK' : 'Pendiente'}</strong></span>
-                    <span className="text-stone-400">&middot;</span>
-                    <span className="text-stone-400">{formatDateTime(user.lastLoginAt)}</span>
+                    <span className="text-stone-600">&middot;</span>
+                    <span className="text-stone-600">{formatDateTime(user.lastLoginAt)}</span>
                   </div>
                 </button>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -755,7 +757,8 @@ export default function UsersPage() {
                     onClick={() => toggleStatus.mutate({ id: user.id, isActive: !user.isActive })}>
                     {user.isActive ? 'Desactivar' : 'Activar'}
                   </Button>
-                  <button type="button" className="text-stone-400 hover:text-red-600 transition"
+                  <button type="button" className="text-stone-500 hover:text-red-700 transition"
+                    aria-label={`Eliminar domiciliario ${user.fullName}`}
                     disabled={deleteUser.isPending}
                     onClick={() => setConfirmDelete({ id: user.id, name: user.fullName })}>
                     <Trash2 className="h-3.5 w-3.5" />

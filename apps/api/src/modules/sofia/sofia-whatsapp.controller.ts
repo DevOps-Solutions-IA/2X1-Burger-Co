@@ -1,7 +1,10 @@
-import { Body, Controller, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { SofiaWhatsappService } from './sofia-whatsapp.service';
 
 @Controller('integrations/whatsapp')
+@UseGuards(ThrottlerGuard)
+@Throttle({ default: { limit: 120, ttl: 60_000 } })
 export class SofiaWhatsappWebhookController {
   constructor(private readonly sofiaWhatsappService: SofiaWhatsappService) {}
 
@@ -16,6 +19,8 @@ export class SofiaWhatsappWebhookController {
 }
 
 @Controller('integrations/hermes/whatsapp')
+@UseGuards(ThrottlerGuard)
+@Throttle({ default: { limit: 120, ttl: 60_000 } })
 export class SofiaHermesWhatsappWebhookController {
   constructor(private readonly sofiaWhatsappService: SofiaWhatsappService) {}
 

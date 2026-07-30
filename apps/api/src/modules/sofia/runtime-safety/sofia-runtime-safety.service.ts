@@ -103,7 +103,7 @@ export class SofiaRuntimeSafetyService {
       phoneMasked: this.maskPhone(normalized),
       phoneHash: this.hash(normalized).slice(0, 16),
     };
-    if (!enabled) return { allowed: true, reason: 'ALLOWLIST_DISABLED', ...safeIdentity };
+    if (!enabled) return { allowed: false, reason: 'ALLOWLIST_NOT_CONFIGURED', ...safeIdentity };
 
     const rawAllowed =
       options.allowedPhones ??

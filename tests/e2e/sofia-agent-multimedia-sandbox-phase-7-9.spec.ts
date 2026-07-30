@@ -14,25 +14,6 @@ test.beforeAll(() => {
 test.describe.configure({ retries: 0 });
 test.setTimeout(210_000);
 
-async function ensureCashOpen(page: import('@playwright/test').Page, accessToken: string) {
-  const currentResponse = await page.request.get('/api/cash-register/current', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  expect(currentResponse.ok()).toBeTruthy();
-  const currentCash = await currentResponse.json().catch(() => null);
-
-  if (!currentCash) {
-    const openResponse = await page.request.post('/api/cash-register/open', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        openingAmount: 50000,
-        notes: 'Apertura controlada para E2E agente Sofía sandbox',
-      },
-    });
-    expect([200, 201, 409]).toContain(openResponse.status());
-  }
-}
-
 async function processMessage(page: import('@playwright/test').Page, text: string) {
   await page.getByTestId('sofia-sandbox-message').fill(text);
   await Promise.all([
@@ -47,25 +28,22 @@ async function processMessage(page: import('@playwright/test').Page, text: strin
   await expect(page.getByTestId('sofia-agent-response')).toBeVisible({ timeout: 20000 });
 }
 
-test('Sofia sandbox processes typos, multimedia, upsell, recovery, handoff and creates operational order', async ({
-  page,
-  workerAccessToken,
-}) => {
-  await ensureCashOpen(page, workerAccessToken);
-
+test('Sofia sandbox processes typos, multimedia, upsell and recovery without operational effects', async ({ page }) => {
   await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
   await expect(page, 'sofia sandbox redirected to login').not.toHaveURL(/\/login/);
   await expect(page.getByTestId('sofia-sandbox-agent')).toBeVisible({ timeout: 15000 });
   await page.getByTestId('sofia-sandbox-phone').fill(`573001${Date.now().toString().slice(-6)}`);
   await expect(page.getByTestId('sofia-featured-offers')).toBeVisible();
-  await expect(page.getByTestId('sofia-featured-offer-maxi-family')).toContainText('Maxi Family');
-  await expect(page.getByTestId('sofia-featured-offer-2x1-hamburguesas')).toContainText('2x1 Hamburguesas');
-  await expect(page.getByTestId('sofia-featured-offer-doble-todo')).toContainText('Doble Todo');
-  await expect(page.getByTestId('sofia-featured-offer-hamburguesa-sencilla')).toContainText('Hamburguesa Sencilla');
+  await expect(page.getByTestId('sofia-featured-offers')).toContainText('Catálogo aún no consultado');
+  await expect(page.getByTestId('sofia-featured-offer-maxi-family')).toHaveCount(0);
   await page.screenshot({ path: path.join(screenshotsDir, '01-sofia-sandbox-catalogo-visual.png'), fullPage: true });
   await page.getByTestId('sofia-featured-offers').screenshot({ path: path.join(screenshotsDir, '02-sofia-featured-offers.png') });
 
   await processMessage(page, 'qué combos tienen');
+  await expect(page.getByTestId('sofia-featured-offer-maxi-family')).toContainText('Maxi Family');
+  await expect(page.getByTestId('sofia-featured-offer-2x1-hamburguesas')).toContainText('2x1 Hamburguesas');
+  await expect(page.getByTestId('sofia-featured-offer-doble-todo')).toContainText('Doble Todo');
+  await expect(page.getByTestId('sofia-featured-offer-hamburguesa-sencilla')).toContainText('Hamburguesa Sencilla');
   await expect(page.getByTestId('sofia-agent-response')).toContainText('Maxi Family');
   await expect(page.getByTestId('sofia-agent-response')).toContainText('porción personal de papitas');
   await expect(page.getByTestId('sofia-featured-offer-image-maxi-family')).toContainText('/uploads/sofia-offers/maxi-family.webp');
@@ -113,17 +91,12 @@ test('Sofia sandbox processes typos, multimedia, upsell, recovery, handoff and c
 
   await processMessage(page, 'si confirmo');
   await expect(page.getByTestId('sofia-agent-confirmed-order')).toBeVisible({ timeout: 20000 });
-  await expect(page.getByTestId('sofia-agent-payment-link')).toContainText('/pagos/');
-  await page.screenshot({ path: path.join(screenshotsDir, '08-order-confirmation.png'), fullPage: true });
-  await page.screenshot({ path: path.join(screenshotsDir, '09-payment-link-generated.png'), fullPage: true });
+  await expect(page.getByTestId('sofia-agent-confirmed-order')).toContainText('No creó OrderTicket');
+  await expect(page.getByTestId('sofia-agent-payment-link')).toHaveCount(0);
+  await expect(page.locator('a[href="/deliveries"]')).toHaveCount(0);
+  await expect(page.locator('a[href="/pos"]')).toHaveCount(0);
+  await page.screenshot({ path: path.join(screenshotsDir, '08-sandbox-draft-confirmation.png'), fullPage: true });
 
-  await page.goto('/deliveries', { waitUntil: 'domcontentloaded' });
-  await expect(page, 'deliveries redirected to login').not.toHaveURL(/\/login/);
-  await expect(page.getByTestId('deliveries-sofia-queue-item').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.getByTestId('deliveries-sofia-order-chip').first()).toContainText('Sofía');
-  await page.screenshot({ path: path.join(screenshotsDir, '09-order-created-deliveries-chip-sofia.png'), fullPage: true });
-
-  await page.goto('/sofia/sandbox', { waitUntil: 'domcontentloaded' });
   await processMessage(page, 'kiero una hamburgesa 2x1 con domisilio');
   await page.getByTestId('sofia-agent-recover-abandoned').click();
   await expect(page.getByTestId('sofia-agent-recovery-result')).toContainText('pendiente', { timeout: 15000 });

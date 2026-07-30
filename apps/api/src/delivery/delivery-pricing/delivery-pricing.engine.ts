@@ -401,9 +401,3 @@ function zoneTypeLabel(zoneType: DeliveryZoneType) {
 function roundUp(value: number, roundTo: number) {
   return Math.ceil(value / roundTo) * roundTo;
 }
-
-function addWarning(warnings: Set<string>, warning: string) {
-  const next = new Set(warnings);
-  next.add(warning);
-  return next;
-}

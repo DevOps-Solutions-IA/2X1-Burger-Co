@@ -1,8 +1,11 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
+
+const internalApiUrl = process.env.INTERNAL_API_URL ?? 'http://api:3000';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  outputFileTracingRoot: __dirname,
+  outputFileTracingRoot: path.join(__dirname, '../..'),
   generateBuildId: async () => process.env.RELEASE_BUILD_ID ?? 'development-untracked',
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
   async rewrites() {
@@ -12,7 +15,7 @@ const nextConfig: NextConfig = {
       // to the API container on :4300.
       {
         source: '/api/:path*',
-        destination: 'http://api:3000/:path*',
+        destination: `${internalApiUrl}/:path*`,
       },
     ];
   },

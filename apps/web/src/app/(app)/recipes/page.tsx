@@ -17,6 +17,28 @@ import { apiFetch } from '@/lib/api';
 
 type RecipeRow = { ingredientId: string; quantity: string };
 
+type Product = {
+  id: string;
+  name: string;
+  kind: 'PREPARED' | 'DIRECT_STOCK';
+};
+
+type Ingredient = {
+  id: string;
+  name: string;
+  unit: { name: string };
+};
+
+type Recipe = {
+  id: string;
+  items: Array<{
+    id: string;
+    ingredientId: string;
+    quantity: number | string;
+    ingredient: Ingredient;
+  }>;
+};
+
 export default function RecipesPage() {
   const queryClient = useQueryClient();
   const [productId, setProductId] = useState('');
@@ -51,22 +73,22 @@ export default function RecipesPage() {
 
   const products = useQuery({
     queryKey: ['products'],
-    queryFn: () => apiFetch<any[]>('/products'),
+    queryFn: () => apiFetch<Product[]>('/products'),
   });
   const ingredients = useQuery({
     queryKey: ['ingredients'],
-    queryFn: () => apiFetch<any[]>('/ingredients'),
+    queryFn: () => apiFetch<Ingredient[]>('/ingredients'),
   });
   const recipe = useQuery({
     queryKey: ['recipe', productId],
-    queryFn: () => apiFetch<any | null>(`/recipes/${productId}`),
+    queryFn: () => apiFetch<Recipe | null>(`/recipes/${productId}`),
     enabled: Boolean(productId),
   });
 
   useEffect(() => {
     if (recipe.data?.items?.length) {
       setRows(
-        recipe.data.items.map((item: any) => ({
+        recipe.data.items.map((item) => ({
           ingredientId: item.ingredientId,
           quantity: String(Number(item.quantity)),
         })),
@@ -79,7 +101,7 @@ export default function RecipesPage() {
 
   const saveRecipe = useMutation({
     mutationFn: () =>
-      apiFetch(`/recipes/${productId}`, {
+      apiFetch<Recipe>(`/recipes/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({
           items: rows.map((row) => ({
@@ -214,7 +236,7 @@ export default function RecipesPage() {
             {recipe.isLoading || (productId && recipe.isFetching) ? Array.from({ length: 3 }).map((_, index) => (
               <Skeleton key={index} className="h-20 rounded-2xl" />
             )) : null}
-            {!recipe.isLoading && !recipe.isFetching && recipe.data?.items?.map((item: any) => (
+            {!recipe.isLoading && !recipe.isFetching && recipe.data?.items?.map((item) => (
                 <div key={item.id} className="flex items-center justify-between rounded-2xl bg-stone-50 px-4 py-3">
                   <div>
                     <p className="font-semibold">{item.ingredient.name}</p>

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -18,8 +19,16 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiFetch } from '@/lib/api';
+import { apiFetchSchema } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import {
+  sofiaQrInboundTestResultSchema,
+  sofiaQrSendBlockedResultSchema,
+  sofiaQrStatusSchema,
+  type SofiaQrInboundTestResult,
+  type SofiaQrSendBlockedResult,
+} from '@/features/sofia/contracts';
+import { sofiaQueryKeys, useSofiaQrStatus } from '@/features/sofia/queries';
 import {
   SofiaPageHero,
   SofiaPageShell,
@@ -35,44 +44,6 @@ import {
 } from '@/components/sofia';
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-type QrStatus = {
-  provider: 'qr_gateway';
-  mode: 'disabled' | 'receive_only' | 'supervised' | 'auto_safe';
-  status: string;
-  ok: boolean;
-  connected: boolean;
-  adapterReal: boolean;
-  phoneNumber: string | null;
-  deviceName: string | null;
-  qrAvailable: boolean;
-  qrImageDataUrl: string | null;
-  qrString: string | null;
-  qrIssuedAt: string | null;
-  qrExpiresAt: string | null;
-  lastQrAt: string | null;
-  sessionName: string;
-  sessionPathSanitized: string;
-  inboundToday: number;
-  outboundToday: number;
-  pendingOutbound: number;
-  realSendingEnabled: false;
-  autoReplyEnabled: false;
-  deepSeekEnabled: false;
-  productionBlocked: boolean;
-  blockers: string[];
-  warnings: string[];
-  reason: string | null;
-  operatorMessage: string;
-  lastErrorCode: string | null;
-  lastErrorMessage: string | null;
-  lastConnectionUpdateAt: string | null;
-  updatedAt: string;
-};
-
-/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -80,21 +51,19 @@ export default function SofiaWhatsappQrPage() {
   const queryClient = useQueryClient();
   const [phone, setPhone] = useState('573001112233');
   const [text, setText] = useState('quiero un maxi family');
-  const [lastInbound, setLastInbound] = useState<Record<string, unknown> | null>(null);
-  const [lastSend, setLastSend] = useState<Record<string, unknown> | null>(null);
+  const [lastInbound, setLastInbound] = useState<SofiaQrInboundTestResult | null>(null);
+  const [lastSend, setLastSend] = useState<SofiaQrSendBlockedResult | null>(null);
   const [qrRevealed, setQrRevealed] = useState(false);
 
-  const status = useQuery({
-    queryKey: ['sofia-whatsapp-qr-status'],
-    queryFn: () => apiFetch<QrStatus>('/admin/sofia/whatsapp/qr/status'),
-    refetchInterval: 15_000,
-  });
+  const status = useSofiaQrStatus();
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ['sofia-whatsapp-qr-status'] });
+    queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.qrStatus });
 
   const connect = useMutation({
-    mutationFn: () => apiFetch<QrStatus>('/admin/sofia/whatsapp/qr/connect', { method: 'POST' }),
+    mutationFn: () =>
+      apiFetchSchema('/admin/sofia/whatsapp/qr/connect', sofiaQrStatusSchema, { method: 'POST' }),
+    scope: { id: 'sofia-qr-session' },
     onSuccess: async (result) => {
       if (result.status === 'CONNECTED' && result.adapterReal && result.connected) {
         toast.success('WhatsApp Business conectado');
@@ -113,7 +82,8 @@ export default function SofiaWhatsappQrPage() {
 
   const disconnect = useMutation({
     mutationFn: () =>
-      apiFetch<QrStatus>('/admin/sofia/whatsapp/qr/disconnect', { method: 'POST' }),
+      apiFetchSchema('/admin/sofia/whatsapp/qr/disconnect', sofiaQrStatusSchema, { method: 'POST' }),
+    scope: { id: 'sofia-qr-session' },
     onSuccess: async () => {
       toast.success('Sesión QR desconectada');
       setQrRevealed(false);
@@ -124,7 +94,9 @@ export default function SofiaWhatsappQrPage() {
   });
 
   const logout = useMutation({
-    mutationFn: () => apiFetch<QrStatus>('/admin/sofia/whatsapp/qr/logout', { method: 'POST' }),
+    mutationFn: () =>
+      apiFetchSchema('/admin/sofia/whatsapp/qr/logout', sofiaQrStatusSchema, { method: 'POST' }),
+    scope: { id: 'sofia-qr-session' },
     onSuccess: async () => {
       toast.success('Sesión QR cerrada');
       setQrRevealed(false);
@@ -136,15 +108,21 @@ export default function SofiaWhatsappQrPage() {
 
   const testInbound = useMutation({
     mutationFn: () =>
-      apiFetch<Record<string, unknown>>('/admin/sofia/whatsapp/qr/test-inbound', {
-        method: 'POST',
-        body: JSON.stringify({
-          phone,
-          text,
-          externalMessageId: `qr-e2e-${Date.now()}`,
-          messageType: 'TEXT',
-        }),
-      }),
+      apiFetchSchema(
+        '/admin/sofia/whatsapp/qr/test-inbound',
+        sofiaQrInboundTestResultSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            phone,
+            text,
+            externalMessageId: `qr-e2e-${Date.now()}`,
+            messageType: 'TEXT',
+          }),
+        },
+      ),
+    scope: { id: 'sofia-qr-validation' },
+    onMutate: () => setLastInbound(null),
     onSuccess: async (result) => {
       setLastInbound(result);
       toast.success('Inbound QR receive-only registrado');
@@ -156,13 +134,19 @@ export default function SofiaWhatsappQrPage() {
 
   const testSend = useMutation({
     mutationFn: () =>
-      apiFetch<Record<string, unknown>>('/admin/sofia/whatsapp/qr/test-send', {
-        method: 'POST',
-        body: JSON.stringify({
-          to: phone,
-          body: 'Mensaje de prueba bloqueado F4',
-        }),
-      }),
+      apiFetchSchema(
+        '/admin/sofia/whatsapp/qr/test-send',
+        sofiaQrSendBlockedResultSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            to: phone,
+            body: 'Mensaje de prueba bloqueado F4',
+          }),
+        },
+      ),
+    scope: { id: 'sofia-qr-validation' },
+    onMutate: () => setLastSend(null),
     onSuccess: (result) => {
       setLastSend(result);
       toast.success('Envío real bloqueado correctamente');
@@ -171,24 +155,50 @@ export default function SofiaWhatsappQrPage() {
       toast.error(error instanceof Error ? error.message : 'No se pudo probar bloqueo de envío'),
   });
 
-  const data = connect.data ?? disconnect.data ?? logout.data ?? status.data;
+  const data = status.data ?? logout.data ?? disconnect.data ?? connect.data;
+  const statusUnavailable = status.isError && !data;
+  const statusLoading = status.isLoading && !data;
+  const sessionMutationPending = connect.isPending || disconnect.isPending || logout.isPending;
+  const validationPending = testInbound.isPending || testSend.isPending;
+  const canRequestQr = Boolean(
+    data && !data.connected && !['DISABLED', 'CONNECTING', 'WAITING_QR', 'RECONNECTING'].includes(data.status),
+  );
+  const canDisconnect = Boolean(
+    data && ['CONNECTED', 'QR_READY', 'CONNECTING', 'WAITING_QR', 'RECONNECTING'].includes(data.status),
+  );
+  const canLogout = Boolean(data && !['DISABLED', 'DISCONNECTED', 'LOGGED_OUT'].includes(data.status));
   const hasRealQr = Boolean(
     data?.adapterReal &&
       data.qrAvailable &&
       data.status === 'QR_READY' &&
       data.qrImageDataUrl,
   );
-  const statusOperatorMessage =
-    data?.operatorMessage ??
-    'Adapter real no disponible. No se generó QR de WhatsApp.';
-  const qrPanelTitle = hasRealQr ? 'QR real de WhatsApp' : 'Sin QR activo';
+  const statusLabel = statusLoading
+    ? 'Consultando estado'
+    : statusUnavailable
+      ? 'Estado no disponible'
+      : data
+        ? humanizeEventStatus(data.status)
+        : 'Estado desconocido';
+  const statusOperatorMessage = data?.operatorMessage ??
+    (statusUnavailable
+      ? 'No fue posible consultar el runtime QR.'
+      : statusLoading
+        ? 'Esperando respuesta del runtime QR.'
+        : 'El runtime no devolvió un estado verificable.');
+  const qrPanelTitle = hasRealQr ? 'QR real de WhatsApp' : statusLabel;
+  const runtimeChannelLabel = data
+    ? data.mode === 'receive_only'
+      ? 'Receive-only'
+      : 'Canal deshabilitado'
+    : 'Modo no verificado';
 
   return (
     <SofiaPageShell data-testid="sofia-whatsapp-qr-page">
       {/* ---- Back link ---- */}
       <Link
         href="/sofia"
-        className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.14em] text-sofia-500 transition-colors hover:text-sofia-700"
+        className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.14em] text-sofia-700 transition-colors hover:text-sofia-900"
       >
         <ArrowLeft className="h-4 w-4" />
         Centro de Gobierno Sofía
@@ -202,10 +212,13 @@ export default function SofiaWhatsappQrPage() {
         statusChips={
           <>
             <SofiaStatusPill
-              status={data?.adapterReal ? 'CONNECTED' : 'WARNING'}
-              label={data?.adapterReal ? 'Adapter Baileys' : 'Adapter pendiente'}
+              status={data ? (data.adapterReal ? 'PASS' : 'WARNING') : 'NEUTRAL'}
+              label={data ? (data.adapterReal ? 'Adapter Baileys' : 'Adapter no verificado') : statusLabel}
             />
-            <SofiaStatusPill status="RECEIVE_ONLY" label="Receive-only" />
+            <SofiaStatusPill
+              status={data?.mode === 'receive_only' ? 'RECEIVE_ONLY' : 'NEUTRAL'}
+              label={runtimeChannelLabel}
+            />
             <SofiaStatusPill status="BLOCKED" label="Envío real OFF" />
           </>
         }
@@ -221,40 +234,56 @@ export default function SofiaWhatsappQrPage() {
         data-testid="sofia-qr-receive-only-warning"
       />
 
+      {statusUnavailable && (
+        <SofiaRiskBanner
+          tone="blocked"
+          icon={AlertTriangle}
+          title="Estado QR no disponible"
+          description="No se infiere conexión ni desconexión cuando falla la consulta. Reintenta antes de operar la sesión."
+          data-testid="sofia-qr-status-error"
+        />
+      )}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="sofia-qr-operator-summary">
         <SofiaStatusCard
           title="Estado"
-          value={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
+          value={statusLabel}
           description={
-            data?.connected
+            statusLoading
+              ? 'Esperando datos del runtime.'
+              : statusUnavailable
+                ? 'Sin evidencia para afirmar CONNECTED o DISCONNECTED.'
+                : data?.connected
               ? 'WhatsApp Business conectado.'
               : hasRealQr
                 ? 'QR real listo para escanear.'
-                : 'No hay QR escaneable activo.'
+                : data
+                  ? 'El runtime no reporta un QR escaneable activo.'
+                  : 'Estado desconocido.'
           }
           icon={QrCode}
           tone={data?.connected ? 'safe' : hasRealQr ? 'pending' : 'off'}
         />
         <SofiaStatusCard
           title="Adapter"
-          value={data?.adapterReal ? 'Baileys real' : 'No disponible'}
+          value={data ? (data.adapterReal ? 'Baileys real' : 'No disponible') : 'No verificado'}
           description="QR_READY solo es válido si viene de Baileys y qrAvailable=true."
           icon={Plug}
-          tone={data?.adapterReal ? 'safe' : 'pending'}
+          tone={data ? (data.adapterReal ? 'safe' : 'pending') : 'off'}
         />
         <SofiaStatusCard
           title="Envío real"
-          value="Bloqueado"
-          description="Ningún flujo QR llama send real con el gate apagado."
+          value="Bloqueado por política"
+          description="El contrato runtime solo se acepta con realSendingEnabled=false."
           icon={Send}
           tone="blocked"
         />
         <SofiaStatusCard
           title="Modo consola"
-          value="Supervisado"
-          description="DeepSeek dry-run y SafetyGuard se revisan en Conversations/Sandbox."
+          value={data ? 'Supervisado' : 'No verificado'}
+          description="DeepSeek permanece en dry-run y SafetyGuard se revisa fuera del QR."
           icon={ShieldCheck}
-          tone="dryRun"
+          tone={data ? 'dryRun' : 'off'}
         />
       </section>
 
@@ -267,11 +296,11 @@ export default function SofiaWhatsappQrPage() {
         >
           <SofiaSectionHeader
             eyebrow="Estado QR"
-            title={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
+            title={statusLabel}
             icon={<ShieldCheck className="h-4 w-4" />}
             actions={
               <SofiaLiveStatusDot
-                tone={data?.connected ? 'safe' : hasRealQr ? 'pending' : 'off'}
+                tone={data?.connected ? 'safe' : hasRealQr ? 'pending' : statusUnavailable ? 'blocked' : 'off'}
                 pulse={Boolean(data?.connected || hasRealQr)}
               />
             }
@@ -281,52 +310,54 @@ export default function SofiaWhatsappQrPage() {
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Provider</span>
               <span className="text-xs font-extrabold text-stone-800">
-                {data?.provider ?? 'qr_gateway'}
+                {data?.provider ?? 'No verificado'}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Status</span>
               <SofiaStatusPill
                 status={
-                  data?.status === 'CONNECTED'
+                  !data
+                    ? 'NEUTRAL'
+                    : data.status === 'CONNECTED'
                     ? 'CONNECTED'
-                    : data?.status === 'QR_READY'
+                    : data.status === 'QR_READY'
                       ? 'QR_READY'
                       : 'DISCONNECTED'
                 }
-                label={humanizeEventStatus(data?.status ?? 'DISCONNECTED')}
+                label={statusLabel}
               />
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Adapter real</span>
               <SofiaStatusPill
-                status={data?.adapterReal ? 'PASS' : 'WARNING'}
-                label={data?.adapterReal ? 'Baileys activo' : 'No disponible'}
+                status={data ? (data.adapterReal ? 'PASS' : 'WARNING') : 'NEUTRAL'}
+                label={data ? (data.adapterReal ? 'Baileys activo' : 'No disponible') : 'No verificado'}
               />
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
-              <span className="text-xs font-bold text-stone-500">Connected</span>
+              <span className="text-xs font-bold text-stone-500">Conexión</span>
               <SofiaStatusPill
-                status={data?.connected ? 'CONNECTED' : 'DISCONNECTED'}
-                label={data?.connected ? 'Sí' : 'No'}
+                status={data ? (data.connected ? 'CONNECTED' : 'DISCONNECTED') : 'NEUTRAL'}
+                label={data ? (data.connected ? 'Sí' : 'No') : 'No verificado'}
               />
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Sesión</span>
               <span className="text-xs font-extrabold text-stone-800">
-                {data?.sessionName ?? 'sofia-main'}
+                {data?.sessionName ?? 'No disponible'}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Inbound hoy</span>
               <span className="text-xs font-extrabold text-stone-800">
-                {data?.inboundToday ?? 0}
+                {data ? data.inboundToday : 'No disponible'}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
               <span className="text-xs font-bold text-stone-500">Pending outbound</span>
               <span className="text-xs font-extrabold text-stone-800">
-                {data?.pendingOutbound ?? 0}
+                {data ? data.pendingOutbound : 'No disponible'}
               </span>
             </div>
             <div className="flex items-center justify-between rounded-lg py-1.5">
@@ -341,7 +372,7 @@ export default function SofiaWhatsappQrPage() {
               <div className="space-y-2 text-xs font-semibold text-stone-600">
                 <p>Mensaje operador: {statusOperatorMessage}</p>
                 <p>Reason: {data?.reason ?? 'sin reason activo'}</p>
-                <p>Session: {data?.sessionName ?? 'sofia-main'}</p>
+                <p>Session: {data?.sessionName ?? 'no disponible'}</p>
                 <p>Last update: {data?.lastConnectionUpdateAt ?? data?.updatedAt ?? 'sin update'}</p>
                 <p>QR raw: oculto por seguridad</p>
               </div>
@@ -349,21 +380,33 @@ export default function SofiaWhatsappQrPage() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
+            {statusUnavailable && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => status.refetch()}
+                disabled={status.isFetching}
+                data-testid="sofia-qr-status-retry"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reintentar estado
+              </Button>
+            )}
             <Button
               size="sm"
               className="bg-stone-900 text-white hover:bg-stone-800"
               onClick={() => connect.mutate()}
-              disabled={connect.isPending}
+              disabled={sessionMutationPending || !canRequestQr}
               data-testid="sofia-qr-connect"
             >
               <Plug className="mr-2 h-4 w-4" />
-              Solicitar QR real
+              Solicitar QR receive-only
             </Button>
             <Button
               variant="secondary"
               size="sm"
               onClick={() => disconnect.mutate()}
-              disabled={disconnect.isPending}
+              disabled={sessionMutationPending || !canDisconnect}
               data-testid="sofia-qr-disconnect"
             >
               <Power className="mr-2 h-4 w-4" />
@@ -374,7 +417,7 @@ export default function SofiaWhatsappQrPage() {
               size="sm"
               className="bg-red-50 text-red-700 ring-red-200 hover:bg-red-100"
               onClick={() => logout.mutate()}
-              disabled={logout.isPending}
+              disabled={sessionMutationPending || !canLogout}
               data-testid="sofia-qr-logout"
             >
               <LogOut className="mr-2 h-4 w-4" />
@@ -393,7 +436,7 @@ export default function SofiaWhatsappQrPage() {
             <div className="pointer-events-none absolute -inset-10 opacity-10 blur-3xl" style={{ background: 'radial-gradient(circle, #8B5CF6 0%, transparent 70%)' }} />
           )}
           <div className="relative">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-700">
               {qrPanelTitle}
             </p>
 
@@ -401,11 +444,14 @@ export default function SofiaWhatsappQrPage() {
             <div>
               <div className="relative mt-5 inline-block rounded-3xl bg-gradient-to-br from-white to-sofia-50/30 p-4 shadow-lg ring-1 ring-sofia-100/50">
                 {qrRevealed ? (
-                  <img
+                  <Image
                     src={data?.qrImageDataUrl ?? ''}
                     alt="QR real de WhatsApp — escanea con WhatsApp Business"
+                    width={208}
+                    height={208}
                     className="h-52 w-52 rounded-2xl"
                     data-testid="sofia-qr-image"
+                    unoptimized
                   />
                 ) : (
                   <div
@@ -463,9 +509,15 @@ export default function SofiaWhatsappQrPage() {
                   Sin QR activo
                 </p>
                 <p className="mt-1 text-xs font-medium text-stone-500">
-                  {data?.adapterReal
-                    ? 'Esperando QR real emitido por WhatsApp.'
-                    : 'Adapter real no disponible. No hay QR escaneable.'}
+                  {statusLoading
+                    ? 'Consultando el runtime; no se asume estado.'
+                    : statusUnavailable
+                      ? 'Estado no disponible; no se asume desconexión.'
+                      : data?.adapterReal
+                        ? 'Esperando QR real emitido por WhatsApp.'
+                        : data
+                          ? 'Adapter real no disponible. No hay QR escaneable.'
+                          : 'Estado desconocido.'}
                 </p>
               </div>
             </div>
@@ -494,7 +546,7 @@ export default function SofiaWhatsappQrPage() {
             { step: '1', title: 'Generar QR', desc: 'Prepara el código QR desde el panel.' },
             { step: '2', title: 'Escanear con WhatsApp', desc: 'Usa WhatsApp Business para vincular el dispositivo.' },
             { step: '3', title: 'Validar CONNECTED', desc: 'Confirma que el estado cambie a CONNECTED.' },
-            { step: '4', title: 'Enviar desde allowlist', desc: 'Un número autorizado envía un mensaje de prueba.' },
+            { step: '4', title: 'Originar inbound allowlist', desc: 'El operador inicia un inbound desde un número autorizado; Sofía no responde.' },
             { step: '5', title: 'Confirmar inbound', desc: 'Verifica que el mensaje aparezca en Conversations.' },
             { step: '6', title: 'Mantener sin envío real', desc: 'El envío permanece bloqueado por diseño.' },
           ].map((item) => (
@@ -525,23 +577,29 @@ export default function SofiaWhatsappQrPage() {
           />
 
           <div className="mt-5 space-y-3">
-            <input
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
-              data-testid="sofia-qr-test-phone"
-            />
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              className="min-h-28 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
-              data-testid="sofia-qr-test-text"
-            />
+            <label className="block space-y-2 text-xs font-bold text-stone-700">
+              Número sintético de prueba
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
+                data-testid="sofia-qr-test-phone"
+              />
+            </label>
+            <label className="block space-y-2 text-xs font-bold text-stone-700">
+              Mensaje entrante de prueba
+              <textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                className="min-h-28 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
+                data-testid="sofia-qr-test-text"
+              />
+            </label>
             <Button
               size="sm"
               className="bg-emerald-600 text-white hover:bg-emerald-700"
               onClick={() => testInbound.mutate()}
-              disabled={testInbound.isPending}
+              disabled={validationPending || !phone.trim() || !text.trim()}
               data-testid="sofia-qr-test-inbound-submit"
             >
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -553,16 +611,16 @@ export default function SofiaWhatsappQrPage() {
           </p>
           {lastInbound && (
             <SofiaTechnicalDetailsAccordion
-              title="Resultado técnico del inbound"
-              description="Respuesta cruda del backend para esta prueba."
+              title="Resultado sanitizado del inbound"
+              description="Resumen validado; no expone payloads ni respuesta JSON cruda."
               data-testid="sofia-qr-last-inbound-details"
             >
-              <pre
-                className="max-h-64 overflow-auto rounded-2xl bg-stone-950 p-4 text-[11px] font-semibold text-stone-100"
-                data-testid="sofia-qr-last-inbound"
-              >
-                {JSON.stringify(lastInbound, null, 2)}
-              </pre>
+              <div className="grid gap-2 text-xs font-semibold text-stone-700" data-testid="sofia-qr-last-inbound">
+                <p>Estado: {humanizeEventStatus(lastInbound.processingStatus)}</p>
+                <p>Modo: receive-only</p>
+                <p>Duplicado: {lastInbound.duplicate ? 'Sí' : 'No'}</p>
+                <p>Envío real: bloqueado</p>
+              </div>
             </SofiaTechnicalDetailsAccordion>
           )}
         </SofiaSectionCard>
@@ -571,7 +629,7 @@ export default function SofiaWhatsappQrPage() {
         <SofiaSectionCard data-testid="sofia-qr-test-send">
           <SofiaSectionHeader
             eyebrow="Verificación de seguridad"
-            title="Confirmar bloqueo de envío"
+            title="Confirmar gate de bloqueo"
             icon={<Send className="h-4 w-4" />}
             description="El envío real está bloqueado por diseño. Esta verificación confirma que el bloqueo funciona."
           />
@@ -580,24 +638,23 @@ export default function SofiaWhatsappQrPage() {
             size="sm"
             className="mt-5 bg-red-600 text-white hover:bg-red-700"
             onClick={() => testSend.mutate()}
-            disabled={testSend.isPending}
+            disabled={validationPending || !phone.trim()}
             data-testid="sofia-qr-test-send-submit"
           >
-            Probar bloqueo de envío
+            Verificar gate sin enviar
           </Button>
 
           {lastSend && (
             <SofiaTechnicalDetailsAccordion
-              title="Resultado técnico del bloqueo"
-              description="Respuesta cruda del backend para esta verificación."
+              title="Resultado validado del bloqueo"
+              description="La verificación solo se acepta si status=BLOCKED_REAL_SEND_DISABLED y sent=false."
               data-testid="sofia-qr-last-send-details"
             >
-              <pre
-                className="max-h-64 overflow-auto rounded-2xl bg-stone-950 p-4 text-[11px] font-semibold text-stone-100"
-                data-testid="sofia-qr-last-send"
-              >
-                {JSON.stringify(lastSend, null, 2)}
-              </pre>
+              <div className="grid gap-2 text-xs font-semibold text-stone-700" data-testid="sofia-qr-last-send">
+                <p>Estado: bloqueo confirmado</p>
+                <p>sent=false</p>
+                <p>Envío real habilitado: no</p>
+              </div>
             </SofiaTechnicalDetailsAccordion>
           )}
 

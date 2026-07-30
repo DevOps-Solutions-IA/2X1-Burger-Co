@@ -12,6 +12,7 @@ const logger = new Logger('Bootstrap');
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     cors: false,
+    rawBody: true,
   });
 
   const config = app.get<ConfigService<AppEnv, true>>(ConfigService);

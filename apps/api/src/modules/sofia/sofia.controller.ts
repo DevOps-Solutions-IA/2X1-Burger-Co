@@ -1,8 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WhatsappDeliveryOrderStatus } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -16,7 +15,6 @@ import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalo
 import {
   CreateMockConversationDto,
   CreateSofiaOrderDraftDto,
-  CreateWhatsappDeliveryOrderDto,
   EvaluateSofiaAutoSafeDto,
   MarkConversationHandoffDto,
   MockOutboundMessageDto,
@@ -37,6 +35,7 @@ import { SofiaCustomerMemoryService } from './memory/sofia-customer-memory.servi
 import { SofiaMetricsService } from './metrics/sofia-metrics.service';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
+import { SofiaAdminResponseSanitizerInterceptor } from './privacy/sofia-admin-response-sanitizer.interceptor';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { SofiaAgentService } from './sofia-agent.service';
@@ -46,6 +45,7 @@ import { SofiaWhatsappService } from './sofia-whatsapp.service';
 
 @Controller('admin/sofia')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@UseInterceptors(SofiaAdminResponseSanitizerInterceptor)
 @Roles('admin', 'cashier', 'supervisor')
 export class SofiaController {
   constructor(
@@ -90,11 +90,6 @@ export class SofiaController {
   @Get('catalog/:slug')
   findCatalogItem(@Param('slug') slug: string) {
     return this.catalogService.findBySlug(slug);
-  }
-
-  @Get('memory/:phone')
-  getCustomerMemory(@Param('phone') phone: string) {
-    return this.customerMemoryService.getMemoryByPhone(phone);
   }
 
   @Post('sandbox/commercial-message')
@@ -234,6 +229,7 @@ export class SofiaController {
   }
 
   @Patch('payment-settings')
+  @Roles('admin')
   updatePaymentSettings(@Body() dto: UpdateSofiaPaymentSettingsDto, @CurrentUser() actor: AuthUser) {
     return this.paymentLinkService.updatePaymentSettings(dto, actor.sub);
   }
@@ -296,36 +292,43 @@ export class SofiaController {
   }
 
   @Post('conversations/:id/pause')
+  @Roles('admin', 'supervisor')
   pauseConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.pauseConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/resume')
+  @Roles('admin', 'supervisor')
   resumeConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.resumeConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/take-over')
+  @Roles('admin', 'supervisor')
   takeOverConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.takeOverConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/release')
+  @Roles('admin', 'supervisor')
   releaseConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.releaseConversation(id, actor.sub);
   }
 
   @Post('outbound/:id/approve-send')
+  @Roles('admin', 'supervisor')
   approveOutbound(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.approveSend(id, actor.sub);
   }
 
   @Post('outbound/:id/cancel')
+  @Roles('admin', 'supervisor')
   cancelOutbound(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.cancelOutbound(id, actor.sub);
   }
 
   @Post('outbound/:id/retry')
+  @Roles('admin', 'supervisor')
   retryOutbound(@Param('id') id: string) {
     return this.sofiaWhatsappService.retryOutbound(id);
   }
@@ -365,12 +368,12 @@ export class SofiaController {
   }
 
   @Post('delivery-orders/from-draft/:draftId')
+  @Roles('admin', 'supervisor')
   createDeliveryOrderFromDraft(
     @Param('draftId') draftId: string,
-    @Body() dto: CreateWhatsappDeliveryOrderDto,
     @CurrentUser() actor: AuthUser,
   ) {
-    return this.sofiaService.createDeliveryOrderFromDraft(draftId, actor.sub, dto.createOperationalTicket ?? true);
+    return this.sofiaService.createDeliveryOrderFromDraft(draftId, actor.sub);
   }
 
   @Get('delivery-orders')
@@ -384,6 +387,7 @@ export class SofiaController {
   }
 
   @Patch('delivery-orders/:id/status')
+  @Roles('admin', 'supervisor')
   updateDeliveryOrderStatus(
     @Param('id') id: string,
     @Body() dto: UpdateWhatsappDeliveryOrderStatusDto,
@@ -548,11 +552,13 @@ export class SofiaController {
   /* ------------------------------------------------------------------ */
 
   @Post('control/pause-global')
+  @Roles('admin', 'supervisor')
   async pauseGlobal(@Body('reason') reason: string, @CurrentUser() actor: AuthUser) {
     return this.governanceService.pauseGlobal(actor.sub, reason);
   }
 
   @Post('control/resume-global')
+  @Roles('admin', 'supervisor')
   async resumeGlobal(@CurrentUser() actor: AuthUser) {
     return this.governanceService.resumeGlobal(actor.sub);
   }
@@ -583,11 +589,13 @@ export class SofiaController {
   }
 
   @Post('control/kill-switch/activate')
+  @Roles('admin', 'supervisor')
   activateKillSwitch(@Body('reason') reason: string, @CurrentUser() actor: AuthUser) {
     return this.governanceService.activateKillSwitch(actor.sub, reason);
   }
 
   @Post('control/kill-switch/deactivate')
+  @Roles('admin')
   deactivateKillSwitch(@CurrentUser() actor: AuthUser) {
     return this.governanceService.deactivateKillSwitch(actor.sub);
   }
@@ -603,16 +611,19 @@ export class SofiaController {
   }
 
   @Post('governance/pause')
+  @Roles('admin', 'supervisor')
   pauseGovernance(@Body() dto: PauseSofiaGovernanceDto, @CurrentUser() actor: AuthUser) {
     return this.governanceService.pauseGlobal(actor.sub, dto.reason);
   }
 
   @Post('governance/resume')
+  @Roles('admin', 'supervisor')
   resumeGovernance(@CurrentUser() actor: AuthUser) {
     return this.governanceService.resumeGlobal(actor.sub);
   }
 
   @Post('governance/settings')
+  @Roles('admin')
   updateGovernanceSettings(@Body() dto: UpdateSofiaGovernanceSettingsDto, @CurrentUser() actor: AuthUser) {
     return this.governanceService.updateGovernanceSettings(actor.sub, dto);
   }

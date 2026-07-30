@@ -25,7 +25,6 @@ export class SofiaCustomerMemoryService {
       },
       update: {
         displayName: safeName ?? undefined,
-        consentState: SofiaMemoryConsentState.IMPLIED_BY_CONVERSATION,
         lastInteractionAt: new Date(),
       },
     });
@@ -153,7 +152,7 @@ export class SofiaCustomerMemoryService {
   }): SofiaMemorySnapshot {
     return {
       id: memory.id,
-      phoneNormalized: memory.phoneNormalized,
+      phoneMasked: this.maskPhone(memory.phoneNormalized),
       displayName: memory.displayName,
       lastKnownAddress: memory.lastKnownAddress,
       preferredPaymentMethod: memory.preferredPaymentMethod,
@@ -169,6 +168,12 @@ export class SofiaCustomerMemoryService {
     const text = JSON.stringify(value);
     if (this.looksSensitive(text)) return { blocked: true, reason: 'sensitive_payload_rejected' };
     return value;
+  }
+
+  private maskPhone(value: string) {
+    const digits = value.replace(/\D/g, '');
+    if (!digits) return 'No disponible';
+    return `${'*'.repeat(Math.max(3, digits.length - 4))}${digits.slice(-4)}`;
   }
 
   private safeText(value?: string | null) {

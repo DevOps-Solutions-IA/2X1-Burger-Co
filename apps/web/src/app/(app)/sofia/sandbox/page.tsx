@@ -1,10 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import Image from 'next/image';
 import { useMutation } from '@tanstack/react-query';
 import {
-  ArrowRight,
   Bot,
   Brain,
   ImageIcon,
@@ -25,8 +24,14 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { apiFetch } from '@/lib/api';
+import { apiFetchSchema } from '@/lib/api';
 import { formatCurrency } from '@/lib/format';
+import {
+  sofiaSandboxAgentResultSchema,
+  sofiaSandboxRecoveryResultSchema,
+  type SofiaSandboxAgentResult as AgentResult,
+  type SofiaSandboxRecoveryResult as RecoveryResult,
+} from '@/features/sofia/contracts';
 import {
   SofiaPageHero,
   SofiaPageShell,
@@ -38,162 +43,6 @@ import {
   humanizeReasonCode,
 } from '@/components/sofia';
 import type { SofiaPillStatus, SofiaSandboxCaseResult } from '@/components/sofia';
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-type AgentItem = {
-  productId: string;
-  code: string;
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  imageUrl?: string | null;
-  categoryName?: string | null;
-};
-
-type AgentResult = {
-  conversationId: string;
-  detectedIntent: string;
-  confidence: number;
-  extractedItems: AgentItem[];
-  currentItems: AgentItem[];
-  missingFields: string[];
-  suggestedUpsell: { productId: string; name: string; price: number | null; message: string } | null;
-  mediaSuggestion: {
-    type: string;
-    productId: string;
-    productName: string;
-    imageUrl: string | null;
-    altText: string;
-    offerSlug?: string;
-    salesHint?: string;
-  } | null;
-  featuredOffers?: SofiaFeaturedOffer[];
-  commercialCatalog?: SofiaCommercialCatalogItem[];
-  matchedCatalogItem?: SofiaCommercialCatalogItem | null;
-  matchedFeaturedOffer?: SofiaFeaturedOffer | null;
-  promptVersion?: string;
-  memory?: {
-    customer?: { displayName?: string | null; lastKnownAddress?: string | null; memorySummary?: string | null; lastOrderSummary?: unknown };
-    conversation?: { currentIntent?: string | null; lastProductDiscussed?: string | null; memorySummary?: string | null };
-    repeatLastOrder?: { canRepeat: boolean; responseText: string } | null;
-  };
-  autoSafeDecision?: {
-    status: 'AUTO_SAFE_APPROVED' | 'HUMAN_REQUIRED' | 'BLOCKED' | 'DRAFT_ONLY';
-    approved: boolean;
-    shouldSend: boolean;
-    reasonCodes: string[];
-    blockingReasons: string[];
-    warnings: string[];
-    finalReply: string | null;
-    requiredHumanAction: string | null;
-  };
-  nextAction: string;
-  responseText: string;
-  shouldCreateDraft: boolean;
-  shouldConfirmOrder: boolean;
-  shouldHandoff: boolean;
-  paymentLinkUrl: string | null;
-  draft?: { id: string; status: string; total: number | string } | null;
-  deliveryOrder?: { id: string; orderTicketId?: string | null; status?: string } | null;
-  businessStatus: { isOpen: boolean; timezone: string; schedule: string };
-  safeguards: Record<string, boolean>;
-};
-
-type SofiaFeaturedOffer = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  imageUrl: string;
-  salesHint: string;
-  sortOrder: number;
-  isActive: boolean;
-  linkedProductName: string | null;
-  offerType: string;
-};
-
-type SofiaCommercialCatalogItem = {
-  slug: string;
-  name: string;
-  type: string;
-  price: number | null;
-  priceSource: string;
-  imageUrl: string | null;
-  shortDescription: string | null;
-  composition?: { requiredCopy?: string; items?: string[]; notes?: string[] } | null;
-  aliases?: string[];
-  upsellRules?: string[];
-  prohibitedClaims?: string[];
-};
-
-type RecoveryResult = {
-  conversationId?: string | null;
-  draftId?: string;
-  detectedIntent: string;
-  currentItems?: AgentItem[];
-  nextAction: string;
-  responseText: string;
-};
-
-/* ------------------------------------------------------------------ */
-/*  Fallback data                                                      */
-/* ------------------------------------------------------------------ */
-
-const featuredOffersFallback: SofiaFeaturedOffer[] = [
-  {
-    id: 'sofia-offer-maxi-family',
-    slug: 'maxi-family',
-    name: 'Maxy Family',
-    description: '6 burgers + 1 porción personal de papitas + 1 Pepsi 1.5 L',
-    imageUrl: '/uploads/sofia-offers/maxi-family.webp',
-    salesHint:
-      'Ideal para compartir en familia o grupo. Incluye una porción personal de papitas; si quieren acompañar mejor el combo, se pueden agregar papitas adicionales.',
-    sortOrder: 1,
-    isActive: true,
-    linkedProductName: null,
-    offerType: 'FAMILY',
-  },
-  {
-    id: 'sofia-offer-2x1-hamburguesas',
-    slug: '2x1-hamburguesas',
-    name: '2x1 Hamburguesas',
-    description: '2 burgers',
-    imageUrl: '/uploads/sofia-offers/2x1-hamburguesas.webp',
-    salesHint: 'Ideal para compartir o para dos personas. Se puede completar con papitas y bebida.',
-    sortOrder: 2,
-    isActive: true,
-    linkedProductName: 'Hamburguesa 2x1',
-    offerType: 'PROMO',
-  },
-  {
-    id: 'sofia-offer-doble-todo',
-    slug: 'doble-todo',
-    name: 'Doble Todo',
-    description: 'doble carne + doble tocineta + doble queso cheddar en lonjas',
-    imageUrl: '/uploads/sofia-offers/doble-todo.webp',
-    salesHint: 'Ideal para quien quiere una burger más cargada y completa. Se puede acompañar con papitas o bebida.',
-    sortOrder: 3,
-    isActive: true,
-    linkedProductName: null,
-    offerType: 'LOADED',
-  },
-  {
-    id: 'sofia-offer-hamburguesa-sencilla',
-    slug: 'hamburguesa-sencilla',
-    name: 'Hamburguesa Sencilla',
-    description: '1 burger sencilla',
-    imageUrl: '/uploads/sofia-offers/hamburguesa-sencilla.webp',
-    salesHint: 'Ideal para algo rápido y clásico. Se puede mejorar con queso, tocineta, carne extra, papitas o bebida.',
-    sortOrder: 4,
-    isActive: true,
-    linkedProductName: null,
-    offerType: 'CLASSIC',
-  },
-];
 
 const exampleMessages = [
   'kiero una hamburgesa 2x1 con domisilio',
@@ -230,6 +79,23 @@ function caseResultFor(status: AgentResult['autoSafeDecision']): SofiaSandboxCas
   return 'PENDING';
 }
 
+function nextActionLabel(action: AgentResult['nextAction']) {
+  const labels: Record<AgentResult['nextAction'], string> = {
+    HANDOFF: 'Revisión humana',
+    SANDBOX_DRAFT_CONFIRMED: 'Borrador sandbox confirmado',
+    ASK_MISSING_FIELDS: 'Solicitar datos faltantes',
+    READY_TO_CONFIRM: 'Listo para confirmar en sandbox',
+  };
+  return labels[action];
+}
+
+function sandboxResponseText(result: AgentResult) {
+  if (result.nextAction === 'SANDBOX_DRAFT_CONFIRMED') {
+    return 'Borrador sandbox confirmado. No se creó OrderTicket, pago ni link operacional.';
+  }
+  return result.responseText;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -246,9 +112,8 @@ export default function SofiaSandboxPage() {
   const [recovery, setRecovery] = useState<RecoveryResult | null>(null);
 
   const lastResult = history[0] ?? null;
-  const activeItems = lastResult?.currentItems ?? [];
-  const usingFallbackOffers = !lastResult?.featuredOffers?.length;
-  const featuredOffers = usingFallbackOffers ? featuredOffersFallback : lastResult!.featuredOffers!;
+  const activeItems = useMemo(() => lastResult?.currentItems ?? [], [lastResult]);
+  const featuredOffers = lastResult?.featuredOffers ?? [];
   const activeTotal = useMemo(
     () => activeItems.reduce((sum, item) => sum + Number(item.totalPrice ?? 0), 0),
     [activeItems],
@@ -256,19 +121,22 @@ export default function SofiaSandboxPage() {
 
   const processMessage = useMutation({
     mutationFn: () =>
-      apiFetch<AgentResult>('/admin/sofia/sandbox/commercial-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId: conversationId || undefined,
-          phone,
-          customerName,
-          message,
-          messageType,
-          transcriptConfidence: messageType === 'AUDIO_TRANSCRIPT' ? Number(transcriptConfidence || 0.7) : undefined,
-          sandboxNow: sandboxNow || undefined,
-        }),
-      }),
+      apiFetchSchema(
+        '/admin/sofia/sandbox/commercial-message',
+        sofiaSandboxAgentResultSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: conversationId || undefined,
+            phone,
+            customerName,
+            message,
+            messageType,
+            transcriptConfidence: messageType === 'AUDIO_TRANSCRIPT' ? Number(transcriptConfidence || 0.7) : undefined,
+            sandboxNow: sandboxNow || undefined,
+          }),
+        },
+      ),
     onSuccess: (result) => {
       setConversationId(result.conversationId);
       setHistory((current) => [result, ...current].slice(0, 8));
@@ -281,19 +149,22 @@ export default function SofiaSandboxPage() {
 
   const recoverDraft = useMutation({
     mutationFn: () =>
-      apiFetch<RecoveryResult>('/admin/sofia/agent/recover-abandoned', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId: conversationId || lastResult?.conversationId,
-        }),
-      }),
+      apiFetchSchema(
+        '/admin/sofia/agent/recover-abandoned',
+        sofiaSandboxRecoveryResultSchema,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: conversationId || lastResult?.conversationId,
+          }),
+        },
+      ),
     onSuccess: (result) => {
       setRecovery(result);
       toast.success('Recuperación sandbox generada');
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No se pudo recuperar el pedido.'),
+      toast.error(error instanceof Error ? error.message : 'No se pudo recuperar el borrador.'),
   });
 
   return (
@@ -302,22 +173,22 @@ export default function SofiaSandboxPage() {
       <SofiaPageHero
         eyebrow="Laboratorio Sofía"
         title="Sandbox Sofía"
-        description="Laboratorio de pruebas para validar IA, SafetyGuard y reglas comerciales. Nada aquí representa operación real por sí sola — excepción: si confirmas un pedido de prueba hasta el final, eso sí crea una orden operativa real en Domicilios/POS. Usa siempre datos ficticios."
+        description="Laboratorio aislado para validar IA, SafetyGuard y reglas comerciales con datos ficticios. Nunca crea OrderTicket, pago ni link operacional."
         statusChips={
           <>
             <SofiaStatusPill status="DRY_RUN" label="Entorno de laboratorio" />
             <SofiaStatusPill status="INFO" label="Sin envío WhatsApp real" />
-            <SofiaStatusPill status="WARNING" label="Confirmar pedido crea orden real" />
+            <SofiaStatusPill status="BLOCKED" label="Sin operación real" />
           </>
         }
         data-testid="sofia-sandbox-hero"
       />
 
       <SofiaRiskBanner
-        tone="warning"
+        tone="info"
         icon={ShieldAlert}
-        title="Laboratorio, no operación real"
-        description="Este sandbox no envía WhatsApp real, no marca pagos como PAID y no confirma pagos desde Sofía. Solo se convierte en operación real si confirmas explícitamente un pedido de prueba hasta el final, con el mismo flujo que un pedido real de Domicilios/POS."
+        title="Aislado de la operación"
+        description="Procesar o confirmar aquí solo actualiza borradores sandbox. No crea OrderTicket, pedido operativo, pago, link de pago, movimiento de caja ni movimiento de stock."
         data-testid="sofia-sandbox-risk-banner"
       />
 
@@ -327,27 +198,35 @@ export default function SofiaSandboxPage() {
           eyebrow="Catálogo visual Sofía"
           title="Ofertas comerciales principales"
           description={
-            usingFallbackOffers
-              ? 'Catálogo de referencia mostrado antes de procesar un mensaje. No es resultado de un procesamiento real todavía.'
-              : 'Catálogo devuelto por el último procesamiento real de Sofía.'
+            lastResult
+              ? 'Catálogo devuelto por el último procesamiento sandbox.'
+              : 'Procesa un mensaje para consultar el catálogo del backend. No se muestran ofertas estáticas como respaldo.'
           }
           icon={<ImageIcon className="h-4 w-4" />}
           actions={
-            <Badge tone={usingFallbackOffers ? 'warning' : 'success'}>
-              {usingFallbackOffers ? 'Referencia, sin resultado aún' : 'Desde último resultado'}
+            <Badge tone={lastResult ? 'success' : 'neutral'}>
+              {lastResult ? 'Desde último resultado' : 'Sin consulta'}
             </Badge>
           }
         />
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {featuredOffers.map((offer) => (
+        {featuredOffers.length > 0 ? (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {featuredOffers.map((offer) => (
             <div
               key={offer.slug}
-              className="overflow-hidden rounded-2xl border border-sofia-100 bg-white shadow-sm transition-shadow hover:shadow-md"
+              className="overflow-hidden rounded-2xl border border-sofia-100 bg-white shadow-sm"
               data-testid={`sofia-featured-offer-${offer.slug}`}
             >
               <div className="relative h-28 bg-gradient-to-br from-stone-950 via-sofia-950 to-stone-900">
-                <img src={offer.imageUrl} alt={offer.name} className="h-full w-full object-cover opacity-75" />
+                <Image
+                  src={offer.imageUrl}
+                  alt={offer.name}
+                  fill
+                  sizes="(min-width: 1280px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  className="object-cover opacity-75"
+                  unoptimized
+                />
                 <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.10em] text-sofia-700">
                   {offer.isActive ? 'Activo' : 'Inactivo'}
                 </div>
@@ -364,8 +243,21 @@ export default function SofiaSandboxPage() {
                 <p className="text-[11px] font-semibold leading-relaxed text-stone-500">{offer.salesHint}</p>
               </div>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5">
+            <SofiaEmptyState
+              icon={ImageIcon}
+              title={lastResult ? 'Backend sin ofertas activas' : 'Catálogo aún no consultado'}
+              description={
+                lastResult
+                  ? 'La lista vacía se conserva como respuesta válida; no se reemplaza con ofertas estáticas.'
+                  : 'Las ofertas aparecerán solo si el backend las devuelve al procesar un mensaje.'
+              }
+            />
+          </div>
+        )}
       </Card>
 
       {/* ---- Input + Response ---- */}
@@ -508,7 +400,7 @@ export default function SofiaSandboxPage() {
               <div>
                 <h2 className="text-base font-extrabold text-stone-900">Respuesta estructurada</h2>
                 <p className="mt-1 text-xs font-medium text-stone-500">
-                  Lista para futura integración.
+                  Resultado aislado del laboratorio, sin efectos operativos.
                 </p>
               </div>
               <Badge
@@ -516,7 +408,7 @@ export default function SofiaSandboxPage() {
                   lastResult?.shouldHandoff ? 'warning' : lastResult ? 'success' : 'neutral'
                 }
               >
-                {lastResult?.nextAction ?? 'Sin procesar'}
+                {lastResult ? nextActionLabel(lastResult.nextAction) : 'Sin procesar'}
               </Badge>
             </div>
 
@@ -545,10 +437,14 @@ export default function SofiaSandboxPage() {
                   <div className="rounded-2xl border border-sofia-100 bg-white p-4">
                     <PackageCheck className="h-4 w-4 text-sofia-600" />
                     <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.10em] text-stone-400">
-                      Pedido
+                      Borrador sandbox
                     </p>
                     <p className="mt-1 text-[15px] font-extrabold text-stone-900">
-                      {lastResult.deliveryOrder ? 'Creado' : lastResult.draft ? 'Draft' : 'Sin draft'}
+                      {lastResult.nextAction === 'SANDBOX_DRAFT_CONFIRMED'
+                        ? 'Confirmado sin operación'
+                        : lastResult.draft
+                          ? 'En preparación'
+                          : 'Sin borrador'}
                     </p>
                   </div>
                 </div>
@@ -560,7 +456,7 @@ export default function SofiaSandboxPage() {
                     Respuesta Sofía
                   </div>
                   <p className="mt-3 text-sm font-bold leading-relaxed text-stone-900">
-                    {lastResult.responseText}
+                    {sandboxResponseText(lastResult)}
                   </p>
                 </div>
 
@@ -638,7 +534,7 @@ export default function SofiaSandboxPage() {
                 {/* Items + missing fields */}
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="rounded-2xl border border-stone-200 bg-white p-4" data-testid="sofia-agent-extracted-items">
-                    <p className="text-xs font-extrabold text-stone-900">Productos reales detectados</p>
+                    <p className="text-xs font-extrabold text-stone-900">Productos de catálogo detectados</p>
                     <div className="mt-3 space-y-2">
                       {lastResult.currentItems.length ? (
                         lastResult.currentItems.map((item) => (
@@ -651,7 +547,7 @@ export default function SofiaSandboxPage() {
                                 {item.quantity} x {item.name}
                               </p>
                               <p className="text-[10px] font-bold text-stone-400">
-                                {item.code || item.categoryName || 'Catálogo real'}
+                                {item.code || item.categoryName || 'Catálogo consultado'}
                               </p>
                             </div>
                             <p className="text-xs font-extrabold text-stone-900 tabular-nums">
@@ -679,7 +575,7 @@ export default function SofiaSandboxPage() {
                         ))
                       ) : (
                         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-extrabold text-emerald-700">
-                          Listo para confirmar
+                          Listo para confirmar en sandbox
                         </span>
                       )}
                     </div>
@@ -725,42 +621,14 @@ export default function SofiaSandboxPage() {
                   </div>
                 </div>
 
-                {/* Payment link */}
-                {lastResult.paymentLinkUrl && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4" data-testid="sofia-agent-payment-link">
-                    <p className="text-xs font-extrabold text-emerald-800">Link de pago generado</p>
-                    <a
-                      href={lastResult.paymentLinkUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 block break-all text-xs font-bold text-emerald-700 underline"
-                    >
-                      {lastResult.paymentLinkUrl}
-                    </a>
-                  </div>
-                )}
-
-                {/* Delivery order created */}
-                {lastResult.deliveryOrder && (
+                {lastResult.nextAction === 'SANDBOX_DRAFT_CONFIRMED' && (
                   <div className="rounded-2xl border border-sofia-200 bg-sofia-50 p-4" data-testid="sofia-agent-confirmed-order">
                     <p className="text-xs font-extrabold text-sofia-800">
-                      Pedido operativo real creado en Domicilios/POS
+                      Borrador sandbox confirmado
                     </p>
                     <p className="mt-1 text-[11px] font-semibold text-sofia-700">
-                      Este pedido de prueba ya no es solo sandbox: quedó registrado igual que un pedido confirmado por un cliente real. Si usaste datos ficticios, cancélalo o márcalo desde Domicilios/POS.
+                      La confirmación permanece aislada. No creó OrderTicket, pedido operativo, pago ni link operacional.
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button asChild size="sm">
-                        <Link href="/deliveries">
-                          Ver en Domicilios <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                      <Button asChild size="sm" variant="secondary">
-                        <Link href="/pos">
-                          Ver en POS <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    </div>
                   </div>
                 )}
 
@@ -787,7 +655,7 @@ export default function SofiaSandboxPage() {
           {recovery && (
             <Card className="!border-amber-200 !bg-amber-50/60" data-testid="sofia-agent-recovery-result">
               <h3 className="text-sm font-extrabold text-amber-900">
-                Recuperación de pedido abandonado
+                Recuperación de borrador abandonado
               </h3>
               <p className="mt-2 text-[13px] font-bold text-amber-800">{recovery.responseText}</p>
             </Card>
@@ -824,7 +692,7 @@ export default function SofiaSandboxPage() {
               <SofiaSandboxCaseCard
                 key={`${item.conversationId}-${index}`}
                 title={`${item.detectedIntent} · ${confidenceLabel(item.confidence)}`}
-                description={item.responseText || 'Sin respuesta estructurada.'}
+                description={sandboxResponseText(item) || 'Sin respuesta estructurada.'}
                 inputPreview={
                   item.currentItems.length
                     ? `${item.currentItems.length} producto(s) · total ${formatCurrency(
@@ -833,7 +701,7 @@ export default function SofiaSandboxPage() {
                     : undefined
                 }
                 result={caseResultFor(item.autoSafeDecision)}
-                resultDetail={`Acción: ${item.nextAction}`}
+                resultDetail={`Acción: ${nextActionLabel(item.nextAction)}`}
                 data-testid="sofia-sandbox-case-card"
               />
             ))

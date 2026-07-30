@@ -32,20 +32,20 @@ LABEL org.opencontainers.image.revision=$OCI_REVISION \
       org.opencontainers.image.title="2X1 Burger Co Web" \
       org.opencontainers.image.source="inventory-fastfood-system" \
       org.opencontainers.image.description="Inventory Fastfood web release artifact"
-WORKDIR /app/apps/web
+WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV RELEASE_MANIFEST_PATH=/app/release-manifest.json
 ENV RELEASE_BUILD_ID=$RELEASE_BUILD_ID
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-COPY apps/web/package.json ./package.json
-RUN npm install --omit=dev --ignore-scripts
-COPY --from=build /app/apps/web/.next ./.next
-COPY --from=build /app/apps/web/public ./public
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
 COPY .release/release-manifest.json /app/release-manifest.json
-RUN chown -R node:node /app/apps/web
+RUN chown -R node:node /app
 EXPOSE 3001
 USER node
-CMD ["node_modules/.bin/next", "start", "--port", "3001"]
+CMD ["node", "apps/web/server.js"]

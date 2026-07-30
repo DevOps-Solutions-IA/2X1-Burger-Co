@@ -110,6 +110,13 @@ describe('SofiaRuntimeSafetyService', () => {
     expect(decision.phoneMasked ?? '').not.toContain('573000000000');
   });
 
+  it('fails closed when the QR allowlist is not configured', () => {
+    const decision = service.evaluateAllowlist('573000000000', { enabled: false });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toBe('ALLOWLIST_NOT_CONFIGURED');
+  });
+
   it('writes a blocked audit event without raw phone or idempotency key', async () => {
     await service.recordBlocked('MARK_PAID', {
       phone: '573000000000',

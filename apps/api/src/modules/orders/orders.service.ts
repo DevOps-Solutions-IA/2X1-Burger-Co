@@ -937,30 +937,17 @@ export class OrdersService {
       return 0;
     }
 
-    let bestScore = 0;
     for (const senderPhone of senderPhoneCandidates) {
       if (!senderPhone) {
         continue;
       }
 
       if (candidatePhone === senderPhone) {
-        bestScore = Math.max(bestScore, 100);
-        continue;
-      }
-
-      const senderSuffix = senderPhone.slice(-10);
-      const candidateSuffix = candidatePhone.slice(-10);
-      if (senderSuffix && candidateSuffix && senderSuffix === candidateSuffix) {
-        bestScore = Math.max(bestScore, 80);
-        continue;
-      }
-
-      if (candidatePhone.endsWith(senderPhone) || senderPhone.endsWith(candidatePhone)) {
-        bestScore = Math.max(bestScore, 60);
+        return 100;
       }
     }
 
-    return bestScore;
+    return 0;
   }
 
   private resolveDeliveryLocationMatch(
@@ -1013,22 +1000,6 @@ export class OrdersService {
       }
     }
 
-    const distinctActivePhones = Array.from(
-      new Set(
-        activeDeliveryOrders
-          .map((candidate) => this.normalizeDeliveryPhone(candidate.customerPhone))
-          .filter((candidate) => Boolean(candidate)),
-      ),
-    );
-
-    if (!normalizedCandidates.length && activeDeliveryOrders.length === 1) {
-      return { order: activeDeliveryOrders[0], rule: 'single_active_delivery_order' };
-    }
-
-    if (!normalizedCandidates.length && distinctActivePhones.length === 1 && activeDeliveryOrders.length > 0) {
-      return { order: activeDeliveryOrders[0], rule: 'single_active_phone_most_recent_order' };
-    }
-
     return null;
   }
 
@@ -1059,7 +1030,7 @@ export class OrdersService {
 
   updateSofiaPaymentStatus(
     id: string,
-    dto: { status: 'PAID' | 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED'; paymentMethod?: 'ONLINE' | 'NEQUI_MANUAL' | 'CASH'; message?: string },
+    dto: { status: 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED'; paymentMethod?: 'ONLINE' | 'NEQUI_MANUAL' | 'CASH'; message?: string },
     actorId: string,
   ) {
     return this.sofiaPaymentLinkService.updateManualPaymentStatus(id, dto, actorId);
@@ -3395,10 +3366,10 @@ export class OrdersService {
 
     const inbox = await this.prisma.deliveryLocationInbox.create({
       data: {
-        rawSenderJid: input.rawSenderJid ?? null,
-        participantJid: input.participantJid ?? null,
-        remoteJid: input.remoteJid ?? null,
-        normalizedSenderPhone: normalizedCandidates[0] ?? null,
+        rawSenderJid: this.maskWhatsappIdentifier(input.rawSenderJid),
+        participantJid: this.maskWhatsappIdentifier(input.participantJid),
+        remoteJid: this.maskWhatsappIdentifier(input.remoteJid),
+        normalizedSenderPhone: this.maskPhoneForAudit(normalizedCandidates[0]),
         latitude: toDecimal(input.latitude),
         longitude: toDecimal(input.longitude),
         rawPayload: input.rawPayload ?? undefined,
@@ -3445,8 +3416,10 @@ export class OrdersService {
         actorId: input.actorId ?? null,
         deliveryLocationInboxId: unresolved.id,
         metadata: {
-          remoteJid: input.remoteJid ?? null,
-          normalizedSenderPhone: normalizedCandidates,
+          senderIdentitiesMasked: normalizedCandidates
+            .map((candidate) => this.maskPhoneForAudit(candidate))
+            .filter(Boolean),
+          valuesSanitized: true,
         },
       });
 
@@ -3793,6 +3766,13 @@ export class OrdersService {
     }
 
     return digits;
+  }
+
+  private maskWhatsappIdentifier(identifier?: string | null) {
+    if (!identifier) return null;
+    const [local, domain] = identifier.split('@', 2);
+    const maskedLocal = this.maskPhoneForAudit(local);
+    return maskedLocal ? `${maskedLocal}${domain ? `@${domain}` : ''}` : '[REDACTED_IDENTIFIER]';
   }
 
   private async resolveDeliverySnapshot(
@@ -4219,7 +4199,9 @@ export class OrdersService {
     // 2. Si no hay teléfono o no se encontró, buscar por nombre + dirección
     if (!customer && dto.fullName && dto.fullName.length >= 3) {
       const normalizedName = normalizeSearchText(dto.fullName);
-      const where: any = { fullNameNormalized: { contains: normalizedName } };
+      const where: Prisma.DeliveryCustomerWhereInput = {
+        fullNameNormalized: { contains: normalizedName },
+      };
       if (dto.defaultAddress) {
         const normalizedAddr = normalizeAddrForCustomer(dto.defaultAddress);
         if (normalizedAddr) {
@@ -4232,7 +4214,7 @@ export class OrdersService {
     // 3. Crear o actualizar
     if (customer) {
       // Actualizar campos vacíos con datos nuevos (sin sobrescribir datos buenos)
-      const updates: any = {};
+      const updates: Prisma.DeliveryCustomerUpdateInput = {};
       if (dto.fullName && (!customer.fullName || customer.fullName.length < 2)) {
         updates.fullName = dto.fullName;
         updates.fullNameNormalized = normalizeSearchText(dto.fullName);

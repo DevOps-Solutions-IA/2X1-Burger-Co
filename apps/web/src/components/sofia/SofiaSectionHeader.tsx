@@ -35,7 +35,7 @@ export function SofiaSectionHeader({
         )}
         <div>
           {eyebrow && (
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-500">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-sofia-700">
               {eyebrow}
             </p>
           )}

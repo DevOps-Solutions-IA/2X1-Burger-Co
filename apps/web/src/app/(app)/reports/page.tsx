@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, FileDown, History, MessageCircle, PackageSearch, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
+import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -18,6 +19,134 @@ import { useAuth } from '@/features/auth/auth-provider';
 
 type ReportMode = 'CURRENT_SESSION' | 'CUSTOM_RANGE';
 
+const numericValueSchema = z.union([z.number(), z.string()]);
+
+const reportSummarySchema = z.object({
+  journey: z.object({
+    status: z.string(),
+    openedAt: z.string().nullable(),
+    closedAt: z.string().nullable(),
+    responsibleUser: z.string().nullable(),
+  }).passthrough(),
+  cash: z.object({
+    expectedAmount: numericValueSchema.nullable(),
+    actualAmount: numericValueSchema.nullable(),
+    difference: numericValueSchema.nullable(),
+  }).passthrough(),
+  sales: z.object({
+    total: numericValueSchema,
+    count: z.number(),
+    byPaymentMethod: z.array(z.object({
+      paymentMethod: z.string(),
+      total: numericValueSchema,
+    }).passthrough()),
+    byChannel: z.array(z.object({
+      label: z.string(),
+      count: z.number(),
+      total: numericValueSchema,
+    }).passthrough()),
+  }).passthrough(),
+  purchases: z.object({
+    total: numericValueSchema,
+    count: z.number(),
+  }).passthrough(),
+  expenses: z.object({
+    total: numericValueSchema,
+    count: z.number(),
+  }).passthrough(),
+  metrics: z.object({
+    costOfSales: numericValueSchema,
+    grossProfit: numericValueSchema,
+    netProfit: numericValueSchema,
+  }).passthrough(),
+}).passthrough();
+
+const dailyClosureSchema = z.object({
+  id: z.string(),
+  periodStart: z.string(),
+  createdAt: z.string(),
+  journey: z.object({
+    responsibleUser: z.string().nullable(),
+  }).passthrough().optional(),
+}).passthrough();
+
+const supplyAlertItemSchema = z.object({
+  ingredientId: z.string(),
+  ingredientName: z.string(),
+  suggestedReorderLabel: z.string(),
+}).passthrough();
+
+const supplyAlertsSchema = z.object({
+  groupedBySupplier: z.array(z.object({
+    supplierId: z.string().nullable(),
+    supplierName: z.string(),
+    supplierPhone: z.string().nullable(),
+    items: z.array(supplyAlertItemSchema),
+  }).passthrough()),
+}).passthrough();
+
+const salesByHourSchema = z.array(z.object({
+  hour: z.number(),
+  label: z.string(),
+  total: z.number(),
+  count: z.number(),
+}).passthrough());
+
+const productMarginSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  quantity: z.number(),
+  revenue: z.number(),
+  cost: z.number(),
+  margin: z.number(),
+}).passthrough();
+
+const ingredientRotationSchema = z.object({
+  ingredientId: z.string(),
+  name: z.string(),
+  unit: z.string(),
+  outbound: z.number(),
+  currentStock: z.number(),
+}).passthrough();
+
+const comparisonRangeSchema = z.object({
+  salesTotal: z.number(),
+  salesCount: z.number(),
+  expensesTotal: z.number(),
+  expensesCount: z.number(),
+});
+
+const comparisonBlockSchema = z.object({
+  currentLabel: z.string(),
+  previousLabel: z.string(),
+  current: comparisonRangeSchema,
+  previous: comparisonRangeSchema,
+  deltas: z.object({
+    salesTotal: z.number(),
+    salesCount: z.number(),
+    expensesTotal: z.number(),
+  }),
+});
+
+const comparisonsSchema = z.object({
+  day: comparisonBlockSchema,
+  week: comparisonBlockSchema,
+  month: comparisonBlockSchema,
+});
+
+const supplierNotificationSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  createdAt: z.string(),
+  supplier: z.object({ name: z.string() }).passthrough().nullable().optional(),
+}).passthrough();
+
+const generatedSupplierNotificationSchema = z.object({
+  whatsappLink: z.string().nullable(),
+}).passthrough();
+
+type ComparisonBlock = z.infer<typeof comparisonBlockSchema>;
+
 export default function ReportsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -30,41 +159,48 @@ export default function ReportsPage() {
 
   const summary = useQuery({
     queryKey: isCurrentSession ? ['reports-operational'] : ['reports-range', from, to],
-    queryFn: () =>
-      isCurrentSession
-        ? apiFetch<any>('/reports/operational')
-        : apiFetch<any>(`/reports/range?from=${from}&to=${to}`),
+    queryFn: async () => reportSummarySchema.parse(
+      await apiFetch<unknown>(isCurrentSession ? '/reports/operational' : `/reports/range?from=${from}&to=${to}`),
+    ),
   });
   const closures = useQuery({
     queryKey: ['daily-closures', from, to],
-    queryFn: () => apiFetch<any[]>(`/reports/daily-closures?from=${from}&to=${to}`),
+    queryFn: async () => z.array(dailyClosureSchema).parse(
+      await apiFetch<unknown>(`/reports/daily-closures?from=${from}&to=${to}`),
+    ),
     refetchInterval: 3000,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
   });
   const supplyAlerts = useQuery({
     queryKey: ['supply-alerts'],
-    queryFn: () => apiFetch<any>('/reports/supply-alerts'),
+    queryFn: async () => supplyAlertsSchema.parse(await apiFetch<unknown>('/reports/supply-alerts')),
   });
   const salesByHour = useQuery({
     queryKey: ['sales-by-hour', from, to],
-    queryFn: () => apiFetch<any[]>(`/reports/sales-by-hour?from=${from}&to=${to}`),
+    queryFn: async () => salesByHourSchema.parse(await apiFetch<unknown>(`/reports/sales-by-hour?from=${from}&to=${to}`)),
   });
   const productMargins = useQuery({
     queryKey: ['product-margins', from, to],
-    queryFn: () => apiFetch<any[]>(`/reports/product-margins?from=${from}&to=${to}`),
+    queryFn: async () => z.array(productMarginSchema).parse(
+      await apiFetch<unknown>(`/reports/product-margins?from=${from}&to=${to}`),
+    ),
   });
   const ingredientRotation = useQuery({
     queryKey: ['ingredient-rotation', from, to],
-    queryFn: () => apiFetch<any[]>(`/reports/ingredient-rotation?from=${from}&to=${to}`),
+    queryFn: async () => z.array(ingredientRotationSchema).parse(
+      await apiFetch<unknown>(`/reports/ingredient-rotation?from=${from}&to=${to}`),
+    ),
   });
   const comparisons = useQuery({
     queryKey: ['report-comparisons', to],
-    queryFn: () => apiFetch<any>(`/reports/comparisons?date=${to}`),
+    queryFn: async () => comparisonsSchema.parse(await apiFetch<unknown>(`/reports/comparisons?date=${to}`)),
   });
   const supplierNotifications = useQuery({
     queryKey: ['supplier-notifications'],
-    queryFn: () => apiFetch<any[]>('/reports/supplier-notifications'),
+    queryFn: async () => z.array(supplierNotificationSchema).parse(
+      await apiFetch<unknown>('/reports/supplier-notifications'),
+    ),
     enabled: canManageSupply,
   });
   const openPdf = async (path: string) => {
@@ -93,11 +229,12 @@ export default function ReportsPage() {
   };
 
   const generateSupplierMessage = useMutation({
-    mutationFn: (supplierId: string) =>
-      apiFetch<any>('/reports/supplier-notifications/manual', {
+    mutationFn: async (supplierId: string) => generatedSupplierNotificationSchema.parse(
+      await apiFetch<unknown>('/reports/supplier-notifications/manual', {
         method: 'POST',
         body: JSON.stringify({ supplierId }),
       }),
+    ),
     onSuccess: async (notification) => {
       toast.success('Mensaje preparado');
       if (notification.whatsappLink) {
@@ -277,7 +414,7 @@ export default function ReportsPage() {
             <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Metodo de pago</p>
               <div className="space-y-1.5">
-              {(summary.data?.sales?.byPaymentMethod ?? []).map((item: any) => {
+              {(summary.data?.sales?.byPaymentMethod ?? []).map((item) => {
                 const isCash = /efectivo|cash/i.test(item.paymentMethod);
                 return (
                 <div key={item.paymentMethod} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2">
@@ -294,7 +431,7 @@ export default function ReportsPage() {
             <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Canal</p>
               <div className="space-y-1.5">
-              {(summary.data?.sales?.byChannel ?? []).map((item: any) => (
+              {(summary.data?.sales?.byChannel ?? []).map((item) => (
                 <div key={item.label} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2">
                   <div>
                     <span className="text-[12px] font-bold text-stone-700">{item.label}</span>
@@ -320,10 +457,10 @@ export default function ReportsPage() {
           </div>
           <div className="mt-4 space-y-2">
             {supplyAlerts.isLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />) : null}
-            {(supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group: any) => (
+            {(supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group) => (
               <div key={group.supplierId ?? group.supplierName} className="rounded-xl border border-stone-200 bg-white p-3">
                 <div className="space-y-1.5">
-                  {group.items.slice(0, 3).map((item: any) => (
+                  {group.items.slice(0, 3).map((item) => (
                     <div key={item.ingredientId} className="flex items-center justify-between">
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-extrabold text-ink truncate">{item.ingredientName}</p>
@@ -332,7 +469,7 @@ export default function ReportsPage() {
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[12px] font-bold text-ink tabular-nums">{item.suggestedReorderLabel}</span>
                         {canManageSupply && group.supplierId ? (
-                          <button type="button" className="text-stone-400 hover:text-emerald-600 transition" onClick={() => generateSupplierMessage.mutate(group.supplierId)}>
+                          <button type="button" className="text-stone-400 hover:text-emerald-600 transition" onClick={() => group.supplierId && generateSupplierMessage.mutate(group.supplierId)}>
                             <MessageCircle className="h-3.5 w-3.5" />
                           </button>
                         ) : null}
@@ -350,7 +487,7 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Ventas por franja horaria</h2>
           <div className="mt-4 space-y-2.5">
-            {hourlyTop.length ? hourlyTop.map((item: any) => (
+            {hourlyTop.length ? hourlyTop.map((item) => (
               <div key={item.hour} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div>
                   <p className="font-medium text-ink">{item.label}</p>
@@ -365,7 +502,7 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Margen por producto</h2>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
-            {(productMargins.data ?? []).map((item: any) => (
+            {(productMargins.data ?? []).map((item) => (
               <div key={item.productId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-ink">{item.name}</p>
@@ -382,7 +519,7 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Rotación de insumos</h2>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
-            {(ingredientRotation.data ?? []).map((item: any) => (
+            {(ingredientRotation.data ?? []).map((item) => (
               <div key={item.ingredientId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-ink">{item.name}</p>
@@ -455,7 +592,7 @@ export default function ReportsPage() {
 
 
 
-function ComparisonCard({ title, data, loading }: { title: string; data: any; loading: boolean }) {
+function ComparisonCard({ title, data, loading }: { title: string; data: ComparisonBlock | undefined; loading: boolean }) {
   if (loading) {
     return <Skeleton className="h-28 rounded-[1.5rem]" />;
   }

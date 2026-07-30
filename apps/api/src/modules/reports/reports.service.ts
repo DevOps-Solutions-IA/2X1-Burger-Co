@@ -18,6 +18,18 @@ import { CashReconciliationService } from '../cash-register/cash-reconciliation.
 const DAILY_CLOSURE_TYPE = 'DAILY_CLOSURE';
 
 type ClosurePayload = Awaited<ReturnType<ReportsService['buildSummary']>>;
+type ReportPdfData = Omit<ClosurePayload, 'journey' | 'sales'> & {
+  journey: Omit<ClosurePayload['journey'], 'status'> & {
+    status: string;
+  };
+  sales: Omit<ClosurePayload['sales'], 'adjustments'> & {
+    adjustments?: ClosurePayload['sales']['adjustments'];
+  };
+  metadata?: {
+    generatedAt?: string;
+  };
+};
+type PdfDocument = InstanceType<typeof PDFDocument>;
 
 @Injectable()
 export class ReportsService {
@@ -1382,7 +1394,7 @@ export class ReportsService {
     };
   }
 
-  private async renderDailyPdf(data: any): Promise<Buffer> {
+  private async renderDailyPdf(data: ReportPdfData): Promise<Buffer> {
     const document = new PDFDocument({ size: 'A4', margin: 42, bufferPages: true });
     const buffers: Buffer[] = [];
 
@@ -1441,7 +1453,7 @@ export class ReportsService {
         title: 'Recaudo por método de pago',
         headers: ['Método de pago', 'Total'],
         widths: [355, 120],
-        rows: (data.sales.byPaymentMethod ?? []).map((item: any) => [
+        rows: (data.sales.byPaymentMethod ?? []).map((item) => [
           item.paymentMethod,
           this.formatCurrency(item.total),
         ]),
@@ -1480,7 +1492,7 @@ export class ReportsService {
       title: 'Recaudo por método de pago',
       headers: ['Método de pago', 'Total'],
       widths: [355, 120],
-      rows: (data.sales.byPaymentMethod ?? []).map((item: any) => [
+      rows: (data.sales.byPaymentMethod ?? []).map((item) => [
         item.paymentMethod,
         this.formatCurrency(item.total),
       ]),
@@ -1492,7 +1504,7 @@ export class ReportsService {
       title: 'Egresos por método de pago',
       headers: ['Método', 'Gastos', 'Compras'],
       widths: [195, 140, 140],
-      rows: ['cash', 'nequi', 'daviplata', 'transfer', 'card', 'other'].map((method) => [
+      rows: (['cash', 'nequi', 'daviplata', 'transfer', 'card', 'other'] as const).map((method) => [
         methodLabels[method] ?? method,
         this.formatCurrency(data.cash.reconciliation?.expensesByMethod?.[method] ?? 0),
         this.formatCurrency(data.cash.reconciliation?.purchasesByMethod?.[method] ?? 0),
@@ -1519,7 +1531,7 @@ export class ReportsService {
       title: 'Ventas por canal',
       headers: ['Canal', 'Pedidos', 'Total'],
       widths: [220, 90, 165],
-      rows: (data.sales.byChannel ?? []).map((item: any) => [
+      rows: (data.sales.byChannel ?? []).map((item) => [
         item.label,
         item.count.toLocaleString('es-CO'),
         this.formatCurrency(item.total),
@@ -1536,7 +1548,7 @@ export class ReportsService {
         title: 'Ventas por mesa',
         headers: ['Mesa', 'Pedidos', 'Total'],
         widths: [220, 90, 165],
-        rows: (data.sales.byTable ?? []).map((item: any) => [
+        rows: (data.sales.byTable ?? []).map((item) => [
           item.tableLabel,
           item.count.toLocaleString('es-CO'),
           this.formatCurrency(item.total),
@@ -1550,7 +1562,7 @@ export class ReportsService {
       title: 'Ventas por mesa',
       headers: ['Mesa', 'Pedidos', 'Total'],
       widths: [220, 90, 165],
-      rows: (data.sales.byTable ?? []).map((item: any) => [
+      rows: (data.sales.byTable ?? []).map((item) => [
         item.tableLabel,
         item.count.toLocaleString('es-CO'),
         this.formatCurrency(item.total),
@@ -1563,7 +1575,7 @@ export class ReportsService {
       title: 'Pedidos a domicilio',
       headers: ['Pedido', 'Cliente / referencia', 'Total'],
       widths: [90, 275, 110],
-      rows: (data.sales.byDelivery ?? []).map((item: any) => [
+      rows: (data.sales.byDelivery ?? []).map((item) => [
         item.number,
         `${item.customerName} - ${item.reference}`,
         this.formatCurrency(item.total),
@@ -1576,7 +1588,7 @@ export class ReportsService {
       title: 'Comandas cerradas',
       headers: ['Comanda', 'Canal', 'Detalle', 'Total'],
       widths: [85, 95, 210, 85],
-      rows: (data.sales.commandasClosed ?? []).slice(0, 24).map((sale: any) => [
+      rows: (data.sales.commandasClosed ?? []).slice(0, 24).map((sale) => [
         sale.orderTicketNumber ?? sale.number,
         sale.channel,
         sale.tableLabel ?? sale.deliveryReference ?? sale.customerName ?? 'Operación general',
@@ -1590,7 +1602,7 @@ export class ReportsService {
       title: 'Ventas con ajuste manual',
       headers: ['Venta', 'Canal', 'Subtotal base', 'Ajuste', 'Total'],
       widths: [85, 90, 105, 95, 100],
-      rows: (data.sales.adjustments?.details ?? []).map((sale: any) => [
+      rows: (data.sales.adjustments?.details ?? []).map((sale) => [
         sale.number,
         sale.channel,
         this.formatCurrency(sale.subtotal),
@@ -1609,7 +1621,7 @@ export class ReportsService {
         title: 'Top vendidos',
         headers: ['Producto', 'Cantidad', 'Venta'],
         widths: [250, 85, 140],
-        rows: (data.sales.bestSellers ?? []).map((item: any) => [
+        rows: (data.sales.bestSellers ?? []).map((item) => [
           item.productName,
           item.quantity.toLocaleString('es-CO'),
           this.formatCurrency(item.total),
@@ -1623,7 +1635,7 @@ export class ReportsService {
       title: 'Top vendidos',
       headers: ['Producto', 'Cantidad', 'Venta'],
       widths: [250, 85, 140],
-      rows: (data.sales.bestSellers ?? []).map((item: any) => [
+      rows: (data.sales.bestSellers ?? []).map((item) => [
         item.productName,
         item.quantity.toLocaleString('es-CO'),
         this.formatCurrency(item.total),
@@ -1636,7 +1648,7 @@ export class ReportsService {
       title: 'Menor salida',
       headers: ['Producto', 'Cantidad', 'Venta'],
       widths: [250, 85, 140],
-      rows: (data.sales.leastSellers ?? []).map((item: any) => [
+      rows: (data.sales.leastSellers ?? []).map((item) => [
         item.productName,
         item.quantity.toLocaleString('es-CO'),
         this.formatCurrency(item.total),
@@ -1649,7 +1661,7 @@ export class ReportsService {
       title: 'Productos sin rotación',
       headers: ['Producto', 'Categoría', 'Stock'],
       widths: [220, 155, 100],
-      rows: (data.sales.nonMovingProducts ?? []).map((item: any) => [
+      rows: (data.sales.nonMovingProducts ?? []).map((item) => [
         item.productName,
         item.categoryName,
         item.trackStock ? item.currentStock.toLocaleString('es-CO') : 'Por receta',
@@ -1666,7 +1678,7 @@ export class ReportsService {
         title: 'Compras registradas',
         headers: ['Compra', 'Proveedor', 'Responsable', 'Valor'],
         widths: [95, 165, 125, 90],
-        rows: (data.purchases.details ?? []).map((purchase: any) => [
+        rows: (data.purchases.details ?? []).map((purchase) => [
           purchase.number,
           purchase.supplierName,
           purchase.createdBy,
@@ -1681,7 +1693,7 @@ export class ReportsService {
       title: 'Compras registradas',
       headers: ['Compra', 'Proveedor', 'Responsable', 'Valor'],
       widths: [95, 165, 125, 90],
-      rows: (data.purchases.details ?? []).map((purchase: any) => [
+      rows: (data.purchases.details ?? []).map((purchase) => [
         purchase.number,
         purchase.supplierName,
         purchase.createdBy,
@@ -1695,7 +1707,7 @@ export class ReportsService {
       title: 'Gastos registrados',
       headers: ['Concepto', 'Método', 'Responsable', 'Valor'],
       widths: [170, 100, 115, 90],
-      rows: (data.expenses.details ?? []).map((expense: any) => [
+      rows: (data.expenses.details ?? []).map((expense) => [
         expense.concept,
         expense.paymentMethod,
         expense.createdBy,
@@ -1739,21 +1751,21 @@ export class ReportsService {
       headers: ['Insumo', 'Estado', 'Stock', 'Pedido sugerido', 'Proveedor'],
       widths: [145, 70, 65, 95, 100],
       rows: [
-        ...(data.replenishment.outOfStock ?? []).map((item: any) => [
+        ...(data.replenishment.outOfStock ?? []).map((item) => [
           item.ingredientName,
           'Agotado',
           item.currentStock.toLocaleString('es-CO'),
           item.suggestedReorderLabel,
           item.supplier?.name ?? 'Proveedor pendiente',
         ]),
-        ...(data.replenishment.criticalStock ?? []).map((item: any) => [
+        ...(data.replenishment.criticalStock ?? []).map((item) => [
           item.ingredientName,
           'Crítico',
           item.currentStock.toLocaleString('es-CO'),
           item.suggestedReorderLabel,
           item.supplier?.name ?? 'Proveedor pendiente',
         ]),
-        ...(data.replenishment.lowStock ?? []).map((item: any) => [
+        ...(data.replenishment.lowStock ?? []).map((item) => [
           item.ingredientName,
           'Bajo',
           item.currentStock.toLocaleString('es-CO'),
@@ -1769,19 +1781,19 @@ export class ReportsService {
       headers: ['Producto directo', 'Estado', 'Stock actual', 'Mínimo'],
       widths: [220, 95, 80, 80],
       rows: [
-        ...(data.replenishment.productOutOfStock ?? []).map((item: any) => [
+        ...(data.replenishment.productOutOfStock ?? []).map((item) => [
           item.productName,
           'Agotado',
           item.currentStock.toLocaleString('es-CO'),
           item.stockMin.toLocaleString('es-CO'),
         ]),
-        ...(data.replenishment.productCriticalStock ?? []).map((item: any) => [
+        ...(data.replenishment.productCriticalStock ?? []).map((item) => [
           item.productName,
           'Crítico',
           item.currentStock.toLocaleString('es-CO'),
           item.stockMin.toLocaleString('es-CO'),
         ]),
-        ...(data.replenishment.productLowStock ?? []).map((item: any) => [
+        ...(data.replenishment.productLowStock ?? []).map((item) => [
           item.productName,
           'Bajo',
           item.currentStock.toLocaleString('es-CO'),
@@ -1796,7 +1808,7 @@ export class ReportsService {
       title: 'Proveedores sugeridos',
       headers: ['Proveedor', 'Alertas', 'WhatsApp'],
       widths: [210, 80, 185],
-      rows: (data.replenishment.groupedBySupplier ?? []).map((group: any) => [
+      rows: (data.replenishment.groupedBySupplier ?? []).map((group) => [
         group.supplierName,
         group.items.length.toLocaleString('es-CO'),
         group.supplierPhone ?? 'Sin teléfono',
@@ -1817,7 +1829,7 @@ export class ReportsService {
     });
   }
 
-  private async renderPremiumHeader(document: any, data: any) {
+  private async renderPremiumHeader(document: PdfDocument, data: ReportPdfData) {
     const x = 42;
     const y = 34;
     const width = 511;
@@ -1937,7 +1949,7 @@ export class ReportsService {
     document.y = y + height + 8;
   }
 
-  private renderStatusChip(document: any, x: number, y: number, width: number, label: string) {
+  private renderStatusChip(document: PdfDocument, x: number, y: number, width: number, label: string) {
     document.roundedRect(x, y, width, 22, 10).fillAndStroke('#FFFFFF', '#EAD8BC');
     document.font('Helvetica-Bold').fontSize(8.2).fillColor('#8A5A16').text(label, x, y + 7, {
       width,
@@ -1945,7 +1957,7 @@ export class ReportsService {
     });
   }
 
-  private renderMetaPair(document: any, label: string, value: string, x: number, y: number, width: number) {
+  private renderMetaPair(document: PdfDocument, label: string, value: string, x: number, y: number, width: number) {
     document.font('Helvetica-Bold').fontSize(8).fillColor('#8A5A16').text(label, x, y, {
       width,
       align: 'left',
@@ -1958,7 +1970,7 @@ export class ReportsService {
   }
 
   private renderHeroStatCard(
-    document: any,
+    document: PdfDocument,
     x: number,
     y: number,
     width: number,
@@ -1979,7 +1991,7 @@ export class ReportsService {
     });
   }
 
-  private renderSectionTitle(document: any, title: string, subtitle?: string, nextBlockMinHeight = 0) {
+  private renderSectionTitle(document: PdfDocument, title: string, subtitle?: string, nextBlockMinHeight = 0) {
     const selfHeight = subtitle ? 56 : 34;
     this.ensureSectionStart(document, selfHeight + nextBlockMinHeight);
 
@@ -2007,7 +2019,7 @@ export class ReportsService {
   }
 
   private renderMetricCards(
-    document: any,
+    document: PdfDocument,
     items: Array<{ label: string; value: string }>,
     columns = 4,
     variant: 'default' | 'compact' = 'default',
@@ -2045,7 +2057,7 @@ export class ReportsService {
     }
   }
 
-  private renderParagraphBlock(document: any, title: string, text: string) {
+  private renderParagraphBlock(document: PdfDocument, title: string, text: string) {
     const x = 42;
     const boxWidth = 511;
     const textWidth = 483;
@@ -2078,7 +2090,7 @@ export class ReportsService {
   }
 
   private renderStyledTable(
-    document: any,
+    document: PdfDocument,
     options: {
       title?: string;
       headers: string[];
@@ -2181,7 +2193,7 @@ export class ReportsService {
     document.y += 2;
   }
 
-  private renderSignatureBlock(document: any) {
+  private renderSignatureBlock(document: PdfDocument) {
     const x = 42;
     const width = 511;
     const height = 76;
@@ -2206,7 +2218,7 @@ export class ReportsService {
     document.y = y + height + 8;
   }
 
-  private renderFooter(document: any, data: any) {
+  private renderFooter(document: PdfDocument, data: ReportPdfData) {
     const range = document.bufferedPageRange();
 
     for (let pageIndex = range.start; pageIndex < range.start + range.count; pageIndex += 1) {
@@ -2248,20 +2260,20 @@ export class ReportsService {
     }
   }
 
-  private ensurePageSpace(document: any, height: number) {
+  private ensurePageSpace(document: PdfDocument, height: number) {
     if (document.y + height > this.pageBottom(document)) {
       document.addPage();
     }
   }
 
-  private ensureSectionStart(document: any, height: number) {
+  private ensureSectionStart(document: PdfDocument, height: number) {
     if (document.y > 505 || document.y + height > this.pageBottom(document)) {
       document.addPage();
     }
   }
 
   private estimateTableStartHeight(
-    document: any,
+    document: PdfDocument,
     options: {
       title?: string;
       headers: string[];
@@ -2282,7 +2294,7 @@ export class ReportsService {
   }
 
   private estimateFullTableHeight(
-    document: any,
+    document: PdfDocument,
     options: {
       title?: string;
       headers: string[];
@@ -2300,7 +2312,7 @@ export class ReportsService {
   }
 
   private estimateRowsHeight(
-    document: any,
+    document: PdfDocument,
     rows: string[][],
     widths: number[],
     numericColumns?: number[],
@@ -2327,7 +2339,7 @@ export class ReportsService {
     }, 0);
   }
 
-  private ensureTableStart(document: any, initialHeight: number, fullHeight: number, rowCount: number) {
+  private ensureTableStart(document: PdfDocument, initialHeight: number, fullHeight: number, rowCount: number) {
     const pageCapacity = this.pageBottom(document) - document.page.margins.top;
 
     if (rowCount <= 5 && fullHeight <= pageCapacity && document.y + fullHeight > this.pageBottom(document)) {
@@ -2340,7 +2352,7 @@ export class ReportsService {
     }
   }
 
-  private pageBottom(document: any) {
+  private pageBottom(document: PdfDocument) {
     return document.page.height - document.page.margins.bottom - 18;
   }
 

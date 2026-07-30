@@ -9,7 +9,7 @@ import { SofiaWhatsappQrGatewayService } from './sofia-whatsapp-qr-gateway.servi
 
 @Controller('admin/sofia/whatsapp/qr')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'cashier', 'supervisor')
+@Roles('admin', 'supervisor')
 export class SofiaWhatsappQrGatewayController {
   constructor(private readonly qrGatewayService: SofiaWhatsappQrGatewayService) {}
 

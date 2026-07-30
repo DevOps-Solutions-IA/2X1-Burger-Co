@@ -49,21 +49,35 @@ for (const conversation of priorInbox.body.internalValidation?.conversations ?? 
   });
 }
 const eventPrefix = `p22-${Date.now()}`;
-const postInbound = (payload) =>
+const postExternalQrInbound = (payload) =>
   request('/integrations/whatsapp/qr_gateway/webhook', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  }, [401]);
+const postInternalValidationInbound = (payload) =>
+  request('/admin/sofia/whatsapp/qr/test-inbound', {
+    method: 'POST',
+    headers: auth,
+    body: JSON.stringify({
+      phone: payload.phone,
+      text: payload.text,
+      externalMessageId: payload.externalMessageId,
+      messageType: payload.messageType,
+    }),
   });
 
 const initial = await request('/admin/sofia/runtime-safety', { headers: auth });
+const externalQrInbound = await postExternalQrInbound(
+  inbound(phones[0], `${eventPrefix}-external-blocked`, 'Hola'),
+);
 
 await request('/admin/sofia/governance/pause', {
   method: 'POST',
   headers: auth,
   body: JSON.stringify({ reason: 'Phase 2.2 isolated canary validation' }),
 });
-const pausedInbound = await postInbound(inbound(phones[0], `${eventPrefix}-paused`, 'Hola'));
+const pausedInbound = await postInternalValidationInbound(inbound(phones[0], `${eventPrefix}-paused`, 'Hola'));
 const pausedStatus = await request('/admin/sofia/runtime-safety', { headers: auth });
 await request('/admin/sofia/governance/resume', { method: 'POST', headers: auth, body: '{}' });
 
@@ -72,16 +86,15 @@ await request('/admin/sofia/control/kill-switch/activate', {
   headers: auth,
   body: JSON.stringify({ reason: 'Phase 2.2 isolated canary validation' }),
 });
-const killedInbound = await postInbound(inbound(phones[1], `${eventPrefix}-killed`, 'Hola'));
+const killedInbound = await postInternalValidationInbound(inbound(phones[1], `${eventPrefix}-killed`, 'Hola'));
 const killedStatus = await request('/admin/sofia/runtime-safety', { headers: auth });
 await request('/admin/sofia/control/kill-switch/deactivate', { method: 'POST', headers: auth, body: '{}' });
 
-const denied = await postInbound(inbound('573000000099', `${eventPrefix}-denied`, 'Hola'));
 const maxiPayload = inbound(phones[0], `${eventPrefix}-maxi`, 'Qué trae el Maxi Family');
-const maxi = await postInbound(maxiPayload);
-const duplicate = await postInbound(maxiPayload);
-const payment = await postInbound(inbound(phones[1], `${eventPrefix}-payment`, 'Ya pagué por Nequi'));
-const unknown = await postInbound(inbound(phones[2], `${eventPrefix}-unknown`, 'Quiero sushi'));
+const maxi = await postInternalValidationInbound(maxiPayload);
+const duplicate = await postInternalValidationInbound(maxiPayload);
+const payment = await postInternalValidationInbound(inbound(phones[1], `${eventPrefix}-payment`, 'Ya pagué por Nequi'));
+const unknown = await postInternalValidationInbound(inbound(phones[2], `${eventPrefix}-unknown`, 'Quiero sushi'));
 
 const sendBlocked = await request(
   `/admin/sofia/outbound/${maxi.body.outbound.id}/approve-send`,
@@ -102,9 +115,9 @@ const enterprise = await request('/admin/sofia/enterprise-status', { headers: au
 
 const checks = {
   effectiveFlagsFalse: Object.values(finalSafety.body.state.effective).every((value) => value === false),
+  externalQrIngressBlocked: externalQrInbound.status === 401,
   pauseBlocked: pausedInbound.body.processingStatus === 'GLOBAL_PAUSED' && pausedStatus.body.state.globalPaused === true,
   killBlocked: killedInbound.body.processingStatus === 'KILL_SWITCH_ACTIVE' && killedStatus.body.state.killSwitchActive === true,
-  allowlistDenied: denied.body.processingStatus === 'ALLOWLIST_REQUIRED',
   allowedSuggested: maxi.body.processingStatus === 'SUGGESTED' && maxi.body.outbound?.status === 'SUGGESTED',
   duplicateSuppressed: duplicate.body.processingStatus === 'DUPLICATE_IGNORED',
   paymentBlocked:

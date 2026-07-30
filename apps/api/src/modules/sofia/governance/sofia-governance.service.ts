@@ -50,11 +50,9 @@ export class SofiaGovernanceService {
       this.runtimeSafetyService.getState(),
     ]);
     const aiStatus = this.aiProviderFactory.getStatus();
-    const whatsappStatus = this.sofiaWhatsappService.getStatus();
     const qrStatus = await this.qrGatewayService.getStatus();
     const secretRotationStatus = this.secretRotationStatus(governanceSettings.secretRotationStatus);
     const globalPaused = runtimeSafety.globalPaused;
-    const qrAllowed = governanceSettings.qrRealAllowed.allowed === true;
     const deepSeekAllowed = governanceSettings.deepSeekRealAllowed.allowed === true;
     const autoSafeProductionAllowed = governanceSettings.autoSafeProductionAllowed.allowed === true;
     const deepSeekEnvReady = Boolean(
@@ -62,7 +60,7 @@ export class SofiaGovernanceService {
         this.configService.get<string>('DEEPSEEK_BASE_URL') &&
         this.configService.get<boolean>('DEEPSEEK_ENABLED') === true,
     );
-    const qrGatewayReady = true;
+    const qrGatewayReady = qrStatus.adapterReal && (qrStatus.connected || qrStatus.qrAvailable);
     const realSendingEnabled = false;
 
     const [
@@ -76,7 +74,6 @@ export class SofiaGovernanceService {
       outboundToday,
       pendingOutbound,
       conversations,
-      paymentSettings,
       lastEvents,
     ] = await Promise.all([
       this.autoSafeCounts(todayStart),
@@ -89,7 +86,6 @@ export class SofiaGovernanceService {
       this.prisma.whatsappOutboundMessage.count({ where: { sentAt: { gte: todayStart } } }),
       this.prisma.whatsappOutboundMessage.count({ where: { status: { in: ['QUEUED', 'RETRYING', 'APPROVAL_PENDING'] } } }),
       this.conversationCounts(todayStart),
-      this.prisma.sofiaPaymentSettings.findUnique({ where: { id: 'default' } }),
       this.lastEvents(),
     ]);
 
@@ -194,15 +190,15 @@ export class SofiaGovernanceService {
       conversations,
       payments: {
         whatsappCanMarkPaid: false,
-        paymentLinksEnabled: true,
-        manualPaymentsEnabled: Boolean((paymentSettings?.cashEnabled ?? true) || (paymentSettings?.nequiManualEnabled ?? true)),
-        nequiManualEnabled: paymentSettings?.nequiManualEnabled ?? true,
-        cashEnabled: paymentSettings?.cashEnabled ?? true,
+        paymentLinksEnabled: false,
+        manualPaymentsEnabled: false,
+        nequiManualEnabled: false,
+        cashEnabled: false,
       },
       operations: {
-        posStatus: 'PASS',
-        deliveriesStatus: 'PASS',
-        checkoutStatus: 'PASS',
+        posStatus: 'BLOCKED',
+        deliveriesStatus: 'BLOCKED',
+        checkoutStatus: 'BLOCKED',
         stockProtected: true,
         cashProtected: true,
       },
@@ -532,14 +528,18 @@ export class SofiaGovernanceService {
   }
 
   private async dashboardConversationSummary() {
-    const [totalConversations, sandboxConversations, internalValidationConversations, humanRequired, paymentSensitive, unknownProduct, pendingReview] =
+    const [totalConversations, sandboxConversations, historicalConversations, internalValidationConversations, humanRequired, paymentSensitive, unknownProduct, pendingReview] =
       await Promise.all([
         this.prisma.whatsappConversation.count(),
         this.prisma.whatsappConversation.count({
-          where: { OR: [{ provider: 'mock' }, { mode: 'mock' }] },
+          where: { OR: [{ source: 'MOCK_ADMIN' }, { provider: 'mock' }, { mode: 'mock' }] },
         }),
+        this.prisma.whatsappConversation.count({ where: { status: 'ARCHIVED' } }),
         this.prisma.whatsappConversation.count({
-          where: { provider: { in: ['mock', 'qr_gateway'] } },
+          where: {
+            status: { not: 'ARCHIVED' },
+            source: { in: ['SOFIA', 'WHATSAPP_SOFIA'] },
+          },
         }),
         this.prisma.whatsappConversation.count({ where: { humanStatus: 'HUMAN_REQUIRED' } }),
         this.prisma.whatsappConversation.count({
@@ -569,11 +569,15 @@ export class SofiaGovernanceService {
           },
         }),
       ]);
-    const realConversations = Math.max(0, totalConversations - sandboxConversations);
+    const realConversations = Math.max(
+      0,
+      totalConversations - sandboxConversations - historicalConversations - internalValidationConversations,
+    );
     return {
       totalConversations,
       realConversations,
       sandboxConversations,
+      historicalConversations,
       internalValidationConversations,
       humanRequired,
       paymentSensitive,

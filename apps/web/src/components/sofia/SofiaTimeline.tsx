@@ -48,7 +48,7 @@ export function SofiaTimeline({
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-sofia-100 text-sofia-600">
           <Clock className="h-4 w-4" />
         </span>
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-400">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-600">
           Últimos eventos
         </p>
       </div>
@@ -58,7 +58,7 @@ export function SofiaTimeline({
           visible.map((event, index) => (
             <div
               key={`${event.type}-${event.createdAt}-${index}`}
-              className="flex flex-col gap-1 rounded-xl border border-sofia-100/50 bg-sofia-50/20 px-4 py-3 transition-colors hover:bg-sofia-50/40 md:flex-row md:items-center md:justify-between"
+              className="flex flex-col gap-1 rounded-xl border border-sofia-100/50 bg-sofia-50/20 px-4 py-3 md:flex-row md:items-center md:justify-between"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -72,7 +72,7 @@ export function SofiaTimeline({
                   {event.detail}
                 </p>
               </div>
-              <span className="shrink-0 text-[11px] font-semibold text-stone-400">
+              <span className="shrink-0 text-[11px] font-semibold text-stone-600">
                 {formatTime(event.createdAt)}
               </span>
             </div>

@@ -1,6 +1,5 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -21,12 +20,6 @@ export class SofiaOrderItemDto {
   @IsNumber()
   @Min(0.001)
   quantity!: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  unitPrice?: number;
 
   @IsOptional()
   @IsString()
@@ -85,12 +78,6 @@ export class CreateSofiaOrderDraftDto {
   deliveryNotes?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  deliveryFee?: number;
-
-  @IsOptional()
   @IsString()
   aiSummary?: string;
 
@@ -123,12 +110,6 @@ export class UpdateSofiaOrderDraftDto {
   deliveryNotes?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  deliveryFee?: number;
-
-  @IsOptional()
   @IsString()
   aiSummary?: string;
 
@@ -137,12 +118,6 @@ export class UpdateSofiaOrderDraftDto {
   @ValidateNested({ each: true })
   @Type(() => SofiaOrderItemDto)
   items?: SofiaOrderItemDto[];
-}
-
-export class CreateWhatsappDeliveryOrderDto {
-  @IsOptional()
-  @IsBoolean()
-  createOperationalTicket?: boolean;
 }
 
 export class UpdateWhatsappDeliveryOrderStatusDto {
@@ -231,14 +206,11 @@ export class UpdateSofiaPaymentSettingsDto {
   @IsBoolean()
   prepareOnlineOrdersBeforePaid?: boolean;
 
-  @IsOptional()
-  @IsBoolean()
-  autoMarkPaidFromWebhook?: boolean;
 }
 
 export class UpdateSofiaManualPaymentStatusDto {
-  @IsIn(['PAID', 'FAILED', 'MANUAL_REVIEW', 'CANCELLED'])
-  status!: 'PAID' | 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED';
+  @IsIn(['FAILED', 'MANUAL_REVIEW', 'CANCELLED'])
+  status!: 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED';
 
   @IsOptional()
   @IsIn(['ONLINE', 'NEQUI_MANUAL', 'CASH'])

@@ -1,5 +1,3 @@
-import type { WhatsappPaymentStatus } from '@prisma/client';
-
 export type OnlinePaymentProvider = 'MOCK' | 'BOLD' | 'NONE';
 export type ProviderPaymentStatus = 'PENDING' | 'APPROVED' | 'FAILED' | 'REVIEW';
 
@@ -39,8 +37,11 @@ export interface PaymentProviderAdapter {
   createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult>;
   getPaymentStatus(reference: string): Promise<ProviderPaymentStatus>;
   parseWebhook(rawPayload: unknown, headers: Record<string, string | string[] | undefined>): ParsedWebhookPayment;
-  verifyWebhookSignature(rawPayload: unknown, headers: Record<string, string | string[] | undefined>): boolean;
-  mapProviderStatus(providerStatus: ProviderPaymentStatus): WhatsappPaymentStatus;
+  verifyWebhookSignature(
+    rawPayload: unknown,
+    headers: Record<string, string | string[] | undefined>,
+    rawBody?: Buffer,
+  ): boolean;
 }
 
 export function headerValue(headers: Record<string, string | string[] | undefined>, name: string) {

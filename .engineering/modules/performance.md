@@ -32,6 +32,7 @@ NOT READY
 | PER-02 | MEDIA | Metricas son in-memory y se reinician con el proceso. | `/health/metrics` | No hay tendencias ni error budget persistente. |
 | PER-03 | MEDIA | Critical/RBAC siguen siendo lentos. | Phase 2.3 | Feedback CI costoso. |
 | PER-04 | MEDIA | Backend remoto de metricas/traces no existe. | alert/SLO catalogs | Diagnostico historico bloqueado. |
+| PER-05 | BAJA | Tres runs core actuales terminaron en 53/60/52 s; operaciones criticas mantienen baseline local estable. | Enterprise resilience report | No sustituye load/soak. |
 
 ## Bloqueadores
 
@@ -59,12 +60,13 @@ NOT READY
 - Alertas persistentes y performance regression required.
 
 ## Ultima auditoria
-2026-07-14.
+2026-07-27.
 
 ## Historial
 
 - Phase 1: ROJO 36%, sin observabilidad ni SLO.
 - Phase 2.4: AMARILLO 65%, metricas locales, tracing base, baseline de recovery y catalogo SLO disponibles.
+- Enterprise resilience: repetibilidad funcional estable 3X; capacidad productiva continua no demostrada.
 
 ## GO
 NO

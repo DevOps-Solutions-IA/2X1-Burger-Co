@@ -113,7 +113,7 @@ export class SofiaAIProviderFactory {
       mode,
       deepseekEnabled,
       deepseekConfigured,
-      deepseekModel: this.configService.get<string>('DEEPSEEK_MODEL') ?? 'deepseek-chat',
+      deepseekModel: this.configService.get<string>('DEEPSEEK_MODEL') ?? 'deepseek-v4-flash',
       minConfidence: this.configService.get<number>('SOFIA_AI_MIN_CONFIDENCE') ?? 0.82,
       logPrompts: this.configService.get<boolean>('SOFIA_AI_LOG_PROMPTS') === true,
       redactPersonalData: this.configService.get<boolean>('SOFIA_AI_REDACT_PERSONAL_DATA') !== false,

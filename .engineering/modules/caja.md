@@ -7,7 +7,7 @@ AMARILLO
 🟡
 
 ## Enterprise Score
-90%
+92%
 
 ## Source State
 PASS
@@ -19,7 +19,7 @@ PASS
 PASS EFIMERO
 
 ## Operational State
-PASS LOCAL / AUDITORIA CONDICIONADA
+PASS LOCAL
 
 ## Production State
 NOT READY
@@ -31,11 +31,11 @@ NOT READY
 | CAJ-01 | MEDIA | Apertura, cierre, reapertura concurrente y movimiento pasan 3X; el lock evita dos sesiones reabiertas. | `phase-2-5/repeatability-3x.json` | Riesgo de doble reapertura corregido y validado localmente. |
 | CAJ-02 | BAJA | AuditLog v2 persiste rol/request/correlation/idempotency y snapshots. | Phase 2.5.1-R1 | Contrato local validado. |
 | CAJ-03 | MEDIA | UI observa estados y efectos reales, pero no todas las mutaciones se ejecutaron desde clicks Playwright. | `phase25-final3/playwright.log` | Cobertura UI mutante parcial. |
-| CAJ-04 | MEDIA | Open/close/reopen/movement audit transaccional pasa 3X; recovery/release sigue NO-GO. | Phase 2.5.1-R1 | Producción bloqueada por release gate. |
+| CAJ-04 | BAJA | Open/close/reopen/movement audit transaccional y release local pasan 3X. | Phase 2.5.1-R2 | Gate interno cerrado. |
 
 ## Bloqueadores
 
-- Cerrar recovery y artifact release limpio.
+- Required CI y staging remoto.
 - E2E UI mutante de cierre/reapertura como required check remoto.
 - Resolver warnings de tipos del frontend financiero.
 
@@ -63,12 +63,13 @@ NOT READY
 - Required CI y staging remoto PASS.
 
 ## Última auditoría
-2026-07-14.
+2026-07-15.
 
 ## Historial
 
 - Phase 2.5: close/reopen concurrente 3X PASS; carrera de reapertura corregida con advisory lock transaccional.
 - Phase 2.5.1: auditoria transaccional integrada; gate global NO-GO antes de repetibilidad.
+- Phase 2.5.1-R2: audit/core/recovery 3X y canary read-only PASS.
 
 ## GO
 NO

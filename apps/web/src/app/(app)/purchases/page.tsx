@@ -25,6 +25,39 @@ type PurchaseItemState = {
   unitCost: string;
 };
 
+type PurchaseCatalogItem = {
+  id: string;
+  name: string;
+};
+
+type Supplier = PurchaseCatalogItem & {
+  isActive: boolean;
+};
+
+type PaymentMethod = PurchaseCatalogItem;
+
+type PurchaseLine = {
+  id: string;
+  quantity: number | string;
+  unitCost: number | string;
+  totalCost: number | string;
+  lotNumber: string | null;
+  ingredient: PurchaseCatalogItem | null;
+  product: PurchaseCatalogItem | null;
+};
+
+type Purchase = {
+  id: string;
+  number: string;
+  purchasedAt: string;
+  invoiceNumber: string | null;
+  notes: string | null;
+  total: number | string;
+  supplier: Supplier;
+  paymentMethod: PaymentMethod | null;
+  items: PurchaseLine[];
+};
+
 function createEmptyLine(): PurchaseItemState {
   return { targetType: 'ingredient', targetId: '', quantity: '1', unitCost: '0' };
 }
@@ -61,16 +94,16 @@ export default function PurchasesPage() {
 
   const purchases = useQuery({
     queryKey: ['purchases'],
-    queryFn: () => apiFetch<any[]>('/purchases'),
+    queryFn: () => apiFetch<Purchase[]>('/purchases'),
   });
   const purchaseDetail = useQuery({
     queryKey: ['purchase-detail', selectedPurchaseId],
-    queryFn: () => apiFetch<any>(`/purchases/${selectedPurchaseId}`),
+    queryFn: () => apiFetch<Purchase>(`/purchases/${selectedPurchaseId}`),
     enabled: Boolean(selectedPurchaseId),
   });
   const suppliers = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => apiFetch<any[]>('/suppliers'),
+    queryFn: () => apiFetch<Supplier[]>('/suppliers'),
   });
   const activeSuppliers = useMemo(
     () => (suppliers.data ?? []).filter((supplier) => supplier.isActive),
@@ -78,20 +111,21 @@ export default function PurchasesPage() {
   );
   const ingredients = useQuery({
     queryKey: ['ingredients'],
-    queryFn: () => apiFetch<any[]>('/ingredients'),
+    queryFn: () => apiFetch<PurchaseCatalogItem[]>('/ingredients'),
   });
   const products = useQuery({
     queryKey: ['products'],
-    queryFn: () => apiFetch<any[]>('/products'),
+    queryFn: () => apiFetch<PurchaseCatalogItem[]>('/products'),
   });
   const paymentMethods = useQuery({
     queryKey: ['payment-methods'],
-    queryFn: () => apiFetch<any[]>('/payment-methods'),
+    queryFn: () => apiFetch<PaymentMethod[]>('/payment-methods'),
   });
 
   useEffect(() => {
-    if (!selectedPurchaseId && purchases.data?.length) {
-      setSelectedPurchaseId(purchases.data[0].id);
+    const firstPurchase = purchases.data?.[0];
+    if (!selectedPurchaseId && firstPurchase) {
+      setSelectedPurchaseId(firstPurchase.id);
     }
   }, [purchases.data, selectedPurchaseId]);
 
@@ -131,7 +165,7 @@ export default function PurchasesPage() {
 
   const createPurchase = useMutation({
     mutationFn: () =>
-      apiFetch('/purchases', {
+      apiFetch<Purchase>('/purchases', {
         method: 'POST',
         body: JSON.stringify({
           supplierId: useTempProvider ? undefined : supplierId,
@@ -148,7 +182,7 @@ export default function PurchasesPage() {
           })),
         }),
       }),
-    onSuccess: async (purchase: any) => {
+    onSuccess: async (purchase) => {
       toast.success('Compra registrada y stock actualizado');
       setSupplierId('');
       setUseTempProvider(false);
@@ -296,7 +330,7 @@ export default function PurchasesPage() {
                           <Field label="Item" error={lineErrors[index]} required>
                             <Select value={item.targetId} onChange={(event) => setItems((c) => c.map((e, i) => i === index ? { ...e, targetId: event.target.value } : e))}>
                               <option value="">Selecciona</option>
-                              {(item.targetType === 'ingredient' ? ingredients.data : products.data)?.map((t: any) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+                              {(item.targetType === 'ingredient' ? ingredients.data : products.data)?.map((target) => (<option key={target.id} value={target.id}>{target.name}</option>))}
                             </Select>
                           </Field>
                           <Field label="Cant.">
@@ -336,7 +370,7 @@ export default function PurchasesPage() {
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">Total proyectado</p>
                     <p className="mt-1 text-[1.5rem] font-black leading-none text-ink tabular-nums">{formatCurrency(computedTotal)}</p>
-                    <p className="mt-1 text-[11px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((s: any) => s.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
+                    <p className="mt-1 text-[11px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
                   </div>
                   <Button data-testid="purchase-submit" type="submit" disabled={createPurchase.isPending} className="shrink-0">
                     {createPurchase.isPending ? 'Registrando...' : 'Guardar compra'}
@@ -430,7 +464,7 @@ export default function PurchasesPage() {
                   {purchaseDetail.data.notes || 'Sin notas registradas.'}
                 </p>
               </div>
-              {purchaseDetail.data.items.map((item: any) => (
+              {purchaseDetail.data.items.map((item) => (
                 <div key={item.id} className="rounded-[1.2rem] border border-stone-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>

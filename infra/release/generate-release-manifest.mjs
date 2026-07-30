@@ -45,8 +45,10 @@ const buildId = `${releaseVersion}-${epoch}`;
 const schemaExpectation = resolveMigrationExpectation(path.join(root, 'prisma/migrations'));
 
 const manifest = {
+  releaseManifestVersion: 1,
   application: 'inventory-fastfood-system',
   releaseVersion,
+  commitSha: commit,
   gitCommit: commit,
   gitCommitShort: short,
   buildTimestamp: new Date(epoch * 1000).toISOString(),
@@ -57,6 +59,21 @@ const manifest = {
   schemaCompatibilityVersion: `prisma-${schemaExpectation.latest}`,
   schemaMigrationCount: schemaExpectation.count,
   schemaFingerprint: schemaExpectation.fingerprint,
+  migrationCount: schemaExpectation.count,
+  migrationDigest: schemaExpectation.fingerprint,
+  schemaVersion: schemaExpectation.latest,
+  migrationInventory: schemaExpectation.inventory,
+  contractSuiteVersion: 'production-closure-v1',
+  frontendBuildId: buildId,
+  backendBuildId: buildId,
+  safetyFlags: {
+    realSendingEnabled: false,
+    autoReplyEnabled: false,
+    autoSafeEnabled: false,
+    productionEnabled: false,
+    whatsappCanMarkPaid: false,
+  },
+  generatedAt: new Date(epoch * 1000).toISOString(),
   dirtyBuild,
   sourceRepository: 'inventory-fastfood-system',
 };

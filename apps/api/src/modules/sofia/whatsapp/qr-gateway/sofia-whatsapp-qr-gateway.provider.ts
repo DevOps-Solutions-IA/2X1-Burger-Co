@@ -19,7 +19,7 @@ export class SofiaWhatsappQrGatewayProvider extends WhatsappProviderAdapter {
         rawPayload.providerMessageId ??
         rawPayload.messageId ??
         nestedMessage?.id ??
-        `qr-${Date.now()}`,
+        `qr-${createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex').slice(0, 24)}`,
     );
     const providerEventId = rawPayload.providerEventId ? String(rawPayload.providerEventId) : `qr-event-${providerMessageId}`;
     const transcript = rawPayload.transcript ? String(rawPayload.transcript) : nestedMessage?.transcript ? String(nestedMessage.transcript) : null;

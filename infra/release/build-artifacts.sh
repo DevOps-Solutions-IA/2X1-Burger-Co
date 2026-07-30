@@ -53,6 +53,13 @@ WEB_DIGEST="$(docker image inspect --format '{{.Id}}' "$WEB_TAG")"
 API_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$API_TAG")"
 WEB_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$WEB_TAG")"
 [[ "$API_LABEL_COMMIT" == "$COMMIT" && "$WEB_LABEL_COMMIT" == "$COMMIT" ]]
+EXPECTED_MIGRATIONS="$(node -p "require('$OUTPUT_DIR/release-manifest.json').schemaMigrationCount")"
+docker run --rm --network none --entrypoint sh "$API_TAG" -lc \
+  'test "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq "$1" && test ! -e /app/.git && test ! -e /app/.env' \
+  _ "$EXPECTED_MIGRATIONS"
+docker run --rm --network none --entrypoint sh "$WEB_TAG" -lc 'test ! -e /app/.git && test ! -e /app/.env'
+[[ "$(docker image inspect --format '{{.Config.User}}' "$API_TAG")" == node ]]
+[[ "$(docker image inspect --format '{{.Config.User}}' "$WEB_TAG")" == node ]]
 
 node - "$OUTPUT_DIR/artifact-record.json" "$OUTPUT_DIR/release-manifest.json" "$API_TAG" "$API_DIGEST" "$WEB_TAG" "$WEB_DIGEST" <<'NODE'
 const fs = require('fs');
@@ -60,7 +67,7 @@ const [output, manifestPath, apiTag, apiDigest, webTag, webDigest] = process.arg
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 fs.writeFileSync(output, JSON.stringify({
   manifest,
-  api: { tag: apiTag, digest: apiDigest, immutableReference: apiDigest },
+  api: { tag: apiTag, digest: apiDigest, immutableReference: apiDigest, migrationCount: manifest.schemaMigrationCount },
   web: { tag: webTag, digest: webDigest, immutableReference: webDigest },
 }, null, 2) + '\n');
 NODE

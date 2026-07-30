@@ -1,6 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import {
   ParsedWhatsappInbound,
   WhatsappProviderAdapter,
@@ -23,7 +23,12 @@ export class HermesWhatsappProvider extends WhatsappProviderAdapter {
   parseInboundWebhook(rawPayload: Record<string, unknown>): ParsedWhatsappInbound {
     const message = typeof rawPayload.message === 'object' && rawPayload.message ? (rawPayload.message as Record<string, unknown>) : rawPayload;
     const phone = this.normalizePhone(String(message.from ?? rawPayload.from ?? rawPayload.phone ?? ''));
-    const providerMessageId = String(message.id ?? rawPayload.messageId ?? rawPayload.providerMessageId ?? `hermes-${Date.now()}`);
+    const providerMessageId = String(
+      message.id ??
+        rawPayload.messageId ??
+        rawPayload.providerMessageId ??
+        `hermes-${createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex').slice(0, 24)}`,
+    );
     const providerEventId = rawPayload.id ? String(rawPayload.id) : rawPayload.eventId ? String(rawPayload.eventId) : `hermes-event-${providerMessageId}`;
     const rawType = String(message.type ?? rawPayload.type ?? 'text').toUpperCase();
     const transcript = message.transcript ? String(message.transcript) : rawPayload.transcript ? String(rawPayload.transcript) : null;

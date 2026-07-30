@@ -61,7 +61,7 @@ export function SofiaLiveSignalCard({
         <SofiaLiveStatusDot tone={tone} pulse={tone === 'safe' || tone === 'dryRun'} />
       </div>
 
-      <p className="mt-3 text-[11px] font-black uppercase tracking-[0.14em] text-stone-400">{title}</p>
+      <p className="mt-3 text-[11px] font-black uppercase tracking-[0.14em] text-stone-600">{title}</p>
       <p className={cn('mt-1 text-lg font-extrabold leading-tight', statusText[tone])}>{statusLabel}</p>
 
       {chips.length > 0 && (
@@ -74,9 +74,9 @@ export function SofiaLiveSignalCard({
         </div>
       )}
 
-      <div className="mt-auto pt-3 text-[11px] font-semibold text-stone-400">
+      <div className="mt-auto pt-3 text-[11px] font-semibold text-stone-600">
         {lastReading && <p>{lastReading}</p>}
-        {suggestedAction && <p className="mt-0.5 text-stone-500">→ {suggestedAction}</p>}
+        {suggestedAction && <p className="mt-0.5 text-stone-500">Siguiente control: {suggestedAction}</p>}
       </div>
 
       {footer}

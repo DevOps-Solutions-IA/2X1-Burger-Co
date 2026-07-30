@@ -8,6 +8,7 @@ import {
   SofiaAIIntent,
   SofiaAIProviderAdapter,
 } from './sofia-ai-provider.adapter';
+import { SofiaPromptService } from '../prompt/sofia-prompt.service';
 
 const VALID_INTENTS: SofiaAIIntent[] = [
   'GREETING',
@@ -32,7 +33,10 @@ const VALID_INTENTS: SofiaAIIntent[] = [
 export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
   readonly provider = 'deepseek' as const;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly promptService: SofiaPromptService,
+  ) {
     super();
   }
 
@@ -59,12 +63,12 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
       };
     }
 
-    const prompt = this.buildSystemPrompt();
+    const prompt = await this.promptService.getCompiledSystemPrompt();
     const userPayload = this.redactedInput(input);
     const timeoutMs = this.configService.get<number>('DEEPSEEK_TIMEOUT_MS') ?? 12000;
     const maxRetries = this.configService.get<number>('DEEPSEEK_MAX_RETRIES') ?? 2;
     const maxTokens = this.configService.get<number>('DEEPSEEK_MAX_TOKENS') ?? 700;
-    const model = this.configService.get<string>('DEEPSEEK_MODEL') || 'deepseek-chat';
+    const model = this.configService.get<string>('DEEPSEEK_MODEL') || 'deepseek-v4-flash';
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -202,19 +206,6 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
         ? 'El Maxi Family trae 6 burgers, una porción personal de papitas y una Pepsi 1.5 L. Si quieren más acompañamiento, puedo agregar papitas adicionales.'
         : input.ruleSuggestedReply ?? 'Te ayudo con tu pedido usando el catálogo real.',
     };
-  }
-
-  private buildSystemPrompt() {
-    return [
-      'Eres Sofía, asistente de pedidos de 2X1 Burger Co.',
-      'Tu función es ayudar a entender mensajes de clientes y proponer respuestas cortas.',
-      'No puedes inventar productos, precios, promociones, stock, pagos ni tiempos.',
-      'Solo puedes usar los datos que el sistema te entrega en el snapshot.',
-      'Si falta información, pregunta solo lo faltante. Si hay duda, escala a humano.',
-      'Para Maxi Family siempre debes decir que incluye 6 burgers, una porción personal de papitas y una Pepsi 1.5 L.',
-      'Nunca uses claims prohibidos del snapshot sobre el tamaño o alcance de las papitas del Maxi Family.',
-      'Responde únicamente JSON con el schema solicitado.',
-    ].join(' ');
   }
 
   private redactedInput(input: SofiaAIAnalysisInput) {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   CircleDollarSign,
@@ -171,6 +172,70 @@ type CloseChecklist = {
   }>;
 };
 
+type CashSession = {
+  id: string;
+  status: string;
+  openedAt: string;
+  closedAt: string | null;
+  updatedAt: string;
+  openingAmount: number | string;
+  closingAmount: number | string | null;
+  difference: number | string | null;
+  reopenedFromSessionId: string | null;
+  openedBy: {
+    fullName: string;
+  } | null;
+};
+
+type OperationalReport = {
+  cash?: {
+    expectedAmount?: number | string;
+  };
+  sales?: {
+    total?: number | string;
+  };
+  metrics?: {
+    netProfit?: number | string;
+  };
+  operations?: {
+    activeOrdersCount?: number;
+  };
+};
+
+type CashDailySummary = {
+  expectedPhysicalCash?: number | string;
+  methodLabels?: Record<string, string>;
+  salesByMethod?: Record<string, number>;
+  expensesByMethod?: Record<string, number>;
+  purchasesByMethod?: Record<string, number>;
+  cashRevenue?: number | string;
+  digitalRevenue?: number | string;
+  totalRevenue?: number | string;
+  totalExpenses?: number | string;
+  operationalResult?: number | string;
+};
+
+type CashOperationalLog = {
+  items: Array<{
+    id: string;
+    title: string;
+    detail: string;
+    type: string;
+    amount: number | string;
+    at: string;
+  }>;
+};
+
+type CloseCashResponse = {
+  notifications?: {
+    whatsapp?: {
+      success: boolean;
+      skipped?: boolean;
+      reason?: string;
+    } | null;
+  };
+};
+
 export default function CashPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -195,25 +260,25 @@ export default function CashPage() {
 
   const currentCash = useQuery({
     queryKey: ['cash-current'],
-    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+    queryFn: () => apiFetch<CashSession | null>('/cash-register/current'),
   });
   const history = useQuery({
     queryKey: ['cash-history'],
-    queryFn: () => apiFetch<any[]>('/cash-register/history'),
+    queryFn: () => apiFetch<CashSession[]>('/cash-register/history'),
   });
   const dailySummary = useQuery({
     queryKey: ['reports-operational'],
-    queryFn: () => apiFetch<any>('/reports/operational'),
+    queryFn: () => apiFetch<OperationalReport>('/reports/operational'),
   });
   const closingAmount = sumBreakdown(closingBreakdown);
   const cashDailySummary = useQuery({
     queryKey: ['cash-daily-summary', currentCash.data?.id ?? 'no-session', closingAmount],
-    queryFn: () => apiFetch<any>(`/cash-register/daily-summary?actualAmount=${encodeURIComponent(String(closingAmount))}`),
+    queryFn: () => apiFetch<CashDailySummary>(`/cash-register/daily-summary?actualAmount=${encodeURIComponent(String(closingAmount))}`),
     enabled: Boolean(currentCash.data),
   });
   const operationalLog = useQuery({
     queryKey: ['cash-operational-log'],
-    queryFn: () => apiFetch<any>('/cash-register/operational-log'),
+    queryFn: () => apiFetch<CashOperationalLog>('/cash-register/operational-log'),
   });
   const sales = useQuery({
     queryKey: ['sales'],
@@ -270,7 +335,7 @@ export default function CashPage() {
     total: Number(total ?? 0),
   }));
   const rankedPaymentMethods = [...paymentBreakdown]
-    .map((item: any) => ({ ...item, totalValue: Number(item.total ?? 0) }))
+    .map((item) => ({ ...item, totalValue: Number(item.total ?? 0) }))
     .sort((left, right) => right.totalValue - left.totalValue);
   const activeOrdersCount = Number(dailySummary.data?.operations?.activeOrdersCount ?? 0);
   const availableConversionTables = (tables.data ?? []).filter(
@@ -350,7 +415,7 @@ export default function CashPage() {
 
   const closeCash = useMutation({
     mutationFn: () =>
-      apiFetch('/cash-register/close', {
+      apiFetch<CloseCashResponse>('/cash-register/close', {
         method: 'POST',
         body: JSON.stringify({
           actualAmount: closingAmount,
@@ -358,7 +423,7 @@ export default function CashPage() {
           closingBreakdown: serializeBreakdown(closingBreakdown),
         }),
       }),
-    onSuccess: async (response: any) => {
+    onSuccess: async (response) => {
       const whatsappNotification = response?.notifications?.whatsapp;
       if (whatsappNotification?.success) {
         toast.success('Caja cerrada, snapshot guardado y cierre enviado por WhatsApp');
@@ -923,7 +988,12 @@ export default function CashPage() {
                 </div>
               </div>
             </div>
-            <div className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100">
+            <div
+              className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100"
+              role="region"
+              aria-label="Historial de jornadas de caja"
+              tabIndex={0}
+            >
               {history.isLoading ? Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="px-5 py-4"><Skeleton className="h-16 rounded-2xl" /></div>
               )) : null}
@@ -983,8 +1053,13 @@ export default function CashPage() {
               <SummaryItem label="Egresos digitales" value={formatCurrency(digitalExpenses + digitalPurchases)} tone="warning" />
               <SummaryItem label="Total egresos" value={formatCurrency(totalExpenses)} tone="danger" />
             </div>
-            <div className="hide-scrollbar list-scroll-5-compact mt-5 space-y-2.5 pr-1">
-              {paymentBreakdown.length ? paymentBreakdown.map((item: any) => (
+            <div
+              className="hide-scrollbar list-scroll-5-compact mt-5 space-y-2.5 pr-1"
+              role="region"
+              aria-label="Desglose por medio de pago"
+              tabIndex={0}
+            >
+              {paymentBreakdown.length ? paymentBreakdown.map((item) => (
                 <div key={item.paymentMethod} className={`flex items-center justify-between gap-4 rounded-[1.15rem] border px-4 py-3 ${getPaymentMethodClass(item, rankedPaymentMethods)}`}>
                   <span className="min-w-0 truncate text-[13px] font-semibold">{translatePaymentMethod(item.paymentMethod)}</span>
                   <span className="numeric-tabular shrink-0 text-[13px] font-bold">{formatCurrency(item.total)}</span>
@@ -1049,7 +1124,12 @@ export default function CashPage() {
                   <Badge tone="default">{sales.data?.length ?? 0} ventas</Badge>
                 </div>
               </div>
-              <div className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100">
+              <div
+                className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100"
+                role="region"
+                aria-label="Ventas de la jornada"
+                tabIndex={0}
+              >
                 {sales.isLoading
                   ? Array.from({ length: 5 }).map((_, index) => (
                       <div key={index} className="px-5 py-4">
@@ -1191,11 +1271,16 @@ export default function CashPage() {
               />
             </div>
           ) : null}
-          <div className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100">
+          <div
+            className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100"
+            role="region"
+            aria-label="Bitacora operativa de caja"
+            tabIndex={0}
+          >
             {operationalLog.isLoading ? Array.from({ length: 5 }).map((_, index) => (
               <div key={index} className="px-5 py-4"><Skeleton className="h-16 rounded-2xl" /></div>
             )) : null}
-            {!operationalLog.isLoading && operationalLog.data?.items?.length ? operationalLog.data.items.map((item: any) => (
+            {!operationalLog.isLoading && operationalLog.data?.items?.length ? operationalLog.data.items.map((item) => (
               <div key={item.id} className="grid gap-3 px-5 py-4 md:grid-cols-[0.9fr_0.7fr_0.7fr]">
                 <div>
                   <p className="font-medium text-ink">{item.title}</p>
@@ -1410,9 +1495,12 @@ export default function CashPage() {
                       </div>
                     </div>
                     <div className="mt-4 flex justify-center rounded-[1.25rem] border border-stone-200 bg-white p-4">
-                      <img
+                      <Image
                         src={whatsappSession.data.qrDataUrl}
                         alt="QR de conexión de WhatsApp"
+                        width={256}
+                        height={256}
+                        unoptimized
                         className="h-64 w-64 max-w-full rounded-[1rem] object-contain"
                       />
                     </div>
@@ -1537,7 +1625,7 @@ function SummaryItem({
 
   return (
     <div className={`rounded-[1.35rem] border px-4 py-3.5 ${palette[tone]} ${emphasis ? 'shadow-soft' : ''}`}>
-      <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${tone === 'ink' ? 'text-white/70' : 'opacity-75'}`}>{label}</p>
+      <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${tone === 'ink' ? 'text-white/70' : ''}`}>{label}</p>
       <p className={`numeric-tabular mt-2 font-bold leading-none ${emphasis ? 'text-[1.25rem]' : 'text-[1rem]'} ${tone === 'ink' ? 'text-white' : 'text-ink'}`}>{value}</p>
     </div>
   );

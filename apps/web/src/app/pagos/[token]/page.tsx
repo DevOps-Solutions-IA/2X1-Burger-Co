@@ -14,7 +14,6 @@ type PublicPaymentOrder = {
   expired: boolean;
   orderReference: string | null;
   customerName?: string | null;
-  customerPhone?: string | null;
   deliveryAddress?: string | null;
   deliveryNeighborhood?: string | null;
   items?: Array<{ code: string; name: string; quantity: number; unitPrice: number; totalPrice: number; notes?: string | null }>;
@@ -164,8 +163,7 @@ export default function PublicPaymentPage() {
             <div data-testid="public-payment-customer">
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500 mb-4">Entrega</p>
               <p className="text-[14px] font-semibold text-white">{order.customerName ?? '—'}</p>
-              <p className="mt-1 text-[13px] text-stone-400">{order.customerPhone ?? '—'}</p>
-              <p className="mt-0.5 text-[13px] text-stone-500">{order.deliveryAddress ?? '—'}</p>
+              <p className="mt-1 text-[13px] text-stone-500">{order.deliveryAddress ?? '—'}</p>
             </div>
 
             {/* Divider */}
@@ -232,13 +230,8 @@ export default function PublicPaymentPage() {
               </div>
             ) : null}
 
-            {/* WhatsApp + Checkout */}
+            {/* Provider checkout */}
             <div className="space-y-2 pt-2">
-              <a href={order.customerPhone ? `https://wa.me/${order.customerPhone.replace(/[^\d]/g, '')}` : '#'}
-                className="flex w-full items-center justify-center gap-2 rounded-xl py-4 text-[13px] font-semibold text-stone-500 hover:text-stone-300 transition"
-                data-testid="public-payment-whatsapp-link">
-                <MessageCircle className="h-4 w-4" />WhatsApp
-              </a>
               {checkoutUrl ? (
                 <a href={checkoutUrl} target="_blank" rel="noreferrer"
                   className="flex w-full items-center justify-center rounded-xl bg-white py-4 text-[14px] font-extrabold text-black hover:bg-stone-200 transition"

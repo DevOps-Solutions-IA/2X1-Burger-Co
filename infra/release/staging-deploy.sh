@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ "${API_IMAGE:-}" =~ @sha256:[a-f0-9]{64}$ ]]
-[[ "${WEB_IMAGE:-}" =~ @sha256:[a-f0-9]{64}$ ]]
-[[ "${RELEASE_COMMIT:-}" =~ ^[a-f0-9]{40}$ ]]
 [[ -n "${STAGING_PATH:-}" && -d "$STAGING_PATH" ]]
+[[ "$STAGING_PATH" =~ ^/[A-Za-z0-9._/-]+$ && "$STAGING_PATH" != *".."* ]]
+source "$STAGING_PATH/infra/scripts/common.sh"
+
+validate_image_reference "${API_IMAGE:-}"
+validate_image_reference "${WEB_IMAGE:-}"
+[[ "${RELEASE_COMMIT:-}" =~ ^[a-f0-9]{40}$ ]]
+
+API_DIGEST="${API_IMAGE##*@}"
+WEB_DIGEST="${WEB_IMAGE##*@}"
 
 cd "$STAGING_PATH"
 test -x ./infra/scripts/backup.sh
@@ -22,18 +28,30 @@ RELEASE_COMMIT=$RELEASE_COMMIT
 EOF
 chmod 600 "$STATE_DIR/candidate.env"
 
-API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml pull api web
-API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
+API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" API_DIGEST="$API_DIGEST" WEB_DIGEST="$WEB_DIGEST" \
+  docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml pull api web
+API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" API_DIGEST="$API_DIGEST" WEB_DIGEST="$WEB_DIGEST" \
+  docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml run --rm --no-deps api \
+  sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma'
+API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" API_DIGEST="$API_DIGEST" WEB_DIGEST="$WEB_DIGEST" \
+  docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
 
-if ./infra/scripts/smoke.sh; then
+if EXPECTED_RELEASE_COMMIT="$RELEASE_COMMIT" EXPECTED_API_DIGEST="$API_DIGEST" EXPECTED_WEB_DIGEST="$WEB_DIGEST" ./infra/scripts/smoke.sh; then
   mv "$STATE_DIR/candidate.env" "$STATE_DIR/current.env"
 else
   if [[ -f "$STATE_DIR/previous.env" ]]; then
-    set -a
-    source "$STATE_DIR/previous.env"
-    set +a
-    API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
-    ./infra/scripts/smoke.sh
+    PREVIOUS_API_IMAGE="$(awk -F= '$1 == "API_IMAGE" { print substr($0, index($0, "=") + 1) }' "$STATE_DIR/previous.env")"
+    PREVIOUS_WEB_IMAGE="$(awk -F= '$1 == "WEB_IMAGE" { print substr($0, index($0, "=") + 1) }' "$STATE_DIR/previous.env")"
+    PREVIOUS_RELEASE_COMMIT="$(awk -F= '$1 == "RELEASE_COMMIT" { print substr($0, index($0, "=") + 1) }' "$STATE_DIR/previous.env")"
+    validate_image_reference "$PREVIOUS_API_IMAGE"
+    validate_image_reference "$PREVIOUS_WEB_IMAGE"
+    [[ "$PREVIOUS_RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+    PREVIOUS_API_DIGEST="${PREVIOUS_API_IMAGE##*@}"
+    PREVIOUS_WEB_DIGEST="${PREVIOUS_WEB_IMAGE##*@}"
+    API_IMAGE="$PREVIOUS_API_IMAGE" WEB_IMAGE="$PREVIOUS_WEB_IMAGE" API_DIGEST="$PREVIOUS_API_DIGEST" WEB_DIGEST="$PREVIOUS_WEB_DIGEST" \
+      docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
+    EXPECTED_RELEASE_COMMIT="$PREVIOUS_RELEASE_COMMIT" EXPECTED_API_DIGEST="$PREVIOUS_API_DIGEST" EXPECTED_WEB_DIGEST="$PREVIOUS_WEB_DIGEST" \
+      ./infra/scripts/smoke.sh
   fi
   exit 1
 fi

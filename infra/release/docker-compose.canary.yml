@@ -55,7 +55,6 @@ services:
       DEEPSEEK_ENABLED: "false"
       DELIVERY_EXTERNAL_PROVIDERS_ENABLED: "false"
       DELIVERY_EXTERNAL_SMOKE_ENABLED: "false"
-      EXPECTED_MIGRATION_COUNT: ${CANARY_EXPECTED_MIGRATION_COUNT:-0}
       RELEASE_ARTIFACT_DIGEST: ${CANARY_API_DIGEST:?required}
 
   canary-api:
@@ -72,7 +71,7 @@ services:
         aliases:
           - api
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/ready >/dev/null || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20

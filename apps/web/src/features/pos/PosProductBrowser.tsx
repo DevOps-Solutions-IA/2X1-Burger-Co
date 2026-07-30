@@ -43,7 +43,7 @@ export function PosProductBrowser({
               Busca por nombre o código, filtra por categoría y arma la venta o la comanda sin cortar el ritmo de atención.
             </p>
           </div>
-          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-[11px] font-bold text-brand-700">
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-[11px] font-bold text-brand-900">
             {filteredProducts.length} listos
           </div>
         </div>
@@ -59,7 +59,11 @@ export function PosProductBrowser({
               data-testid="pos-search"
             />
           </div>
-          <Select value={categoryFilter} onChange={(event) => onCategoryFilterChange(event.target.value)}>
+          <Select
+            aria-label="Filtrar productos por categoría"
+            value={categoryFilter}
+            onChange={(event) => onCategoryFilterChange(event.target.value)}
+          >
             <option value="ALL">Todas las categorías</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>

@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { WhatsappPaymentStatus } from '@prisma/client';
 import {
   CreatePaymentInput,
   CreatePaymentResult,
@@ -84,10 +83,4 @@ export class MockPaymentProvider implements PaymentProviderAdapter {
     return headerValue(headers, 'x-mock-payment-signature') === 'mock-dev-signature';
   }
 
-  mapProviderStatus(providerStatus: ProviderPaymentStatus): WhatsappPaymentStatus {
-    if (providerStatus === 'APPROVED') return WhatsappPaymentStatus.PAID;
-    if (providerStatus === 'FAILED') return WhatsappPaymentStatus.FAILED;
-    if (providerStatus === 'REVIEW') return WhatsappPaymentStatus.MANUAL_REVIEW;
-    return WhatsappPaymentStatus.PENDING_ONLINE_PAYMENT;
-  }
 }

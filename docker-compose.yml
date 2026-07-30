@@ -34,11 +34,12 @@ services:
       # Override para Docker: usar nombre de servicio en vez de localhost
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-inventory_fastfood_system}?schema=public
       # Storage persistente y escribible por el usuario node del contenedor API.
-      WHATSAPP_QR_SESSION_PATH: /app/data/whatsapp-auth/whatsapp-sessions
+      WHATSAPP_QR_SESSION_PATH: /app/data/sofia-whatsapp-auth/sessions
     ports:
-      - "4300:3000"
+      - "127.0.0.1:4300:3000"
     volumes:
       - whatsapp_auth:/app/data/whatsapp-auth
+      - sofia_whatsapp_auth:/app/data/sofia-whatsapp-auth
       # backups montado como solo lectura; el backup script escribe directamente desde el host
       - ./backups:/app/backups:ro
     healthcheck:
@@ -58,7 +59,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "3301:3001"
+      - "127.0.0.1:3301:3001"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
       interval: 15s
@@ -106,3 +107,4 @@ services:
 volumes:
   postgres_data:
   whatsapp_auth:
+  sofia_whatsapp_auth:

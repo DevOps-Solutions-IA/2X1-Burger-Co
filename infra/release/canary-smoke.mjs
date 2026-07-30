@@ -14,6 +14,8 @@ async function requestJson(url, options) {
 const apiVersion = await requestJson(`${apiBase}/version`);
 const webVersion = await requestJson(`${webBase}/version`);
 const health = await requestJson(`${apiBase}/health`);
+const liveness = await requestJson(`${apiBase}/health/live`);
+const readiness = await requestJson(`${apiBase}/health/ready`);
 const login = await requestJson(`${apiBase}/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -29,10 +31,11 @@ const deliveries = await requestJson(`${apiBase}/orders/delivery-active`, { head
 const expected = record.manifest;
 const mismatches = [];
 for (const [component, actual] of [['api', apiVersion], ['web', webVersion]]) {
-  if (actual.gitCommit !== expected.gitCommit) mismatches.push(`${component}:commit`);
+  if (actual.commitSha !== expected.gitCommit) mismatches.push(`${component}:commit`);
   if (actual.buildId !== expected.buildId) mismatches.push(`${component}:buildId`);
-  if (actual.dirtyBuild !== false) mismatches.push(`${component}:dirtyBuild`);
 }
+if (expected.dirtyBuild !== false) mismatches.push('manifest:dirtyBuild');
+if (apiVersion.migrationCount !== expected.schemaMigrationCount) mismatches.push('api:migrationCount');
 const safety = {
   realSendingEnabled: dashboard.general?.realSendingEnabled,
   autoReplyEnabled: dashboard.general?.autoReplyEnabled,
@@ -50,6 +53,8 @@ if (dashboard.ai?.aiProvider !== 'deepseek' || dashboard.ai?.aiMode !== 'dry_run
   mismatches.push('ai:not-deepseek-dry-run');
 }
 if (health.status !== 'ok') mismatches.push('health');
+if (liveness.status !== 'ALIVE') mismatches.push('liveness');
+if (readiness.status !== 'READY' || readiness.checks?.migrationIdentityVerified !== true) mismatches.push('readiness');
 if (mismatches.length) throw new Error(`Canary smoke failed: ${mismatches.join(', ')}`);
 
 process.stdout.write(`${JSON.stringify({

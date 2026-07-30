@@ -2,6 +2,11 @@
 
 import React, { useId } from 'react';
 
+type FieldControlAriaProps = {
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean;
+};
+
 export function Field({
   label,
   children,
@@ -19,7 +24,7 @@ export function Field({
   const hintId = useId();
 
   const childWithAria = React.isValidElement(children)
-    ? React.cloneElement(children as React.ReactElement<any>, {
+    ? React.cloneElement(children as React.ReactElement<FieldControlAriaProps>, {
         'aria-describedby': error ? errorId : hint ? hintId : undefined,
         'aria-invalid': error ? true : undefined,
       })
@@ -30,7 +35,7 @@ export function Field({
       <span className="flex flex-wrap items-center gap-2 text-[12px] font-semibold tracking-[0.01em] text-stone-700">
         {label}
         {required ? (
-          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-700">
+          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-900">
             Obligatorio
           </span>
         ) : null}

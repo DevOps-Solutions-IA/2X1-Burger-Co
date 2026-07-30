@@ -21,12 +21,18 @@ HTTP_TEMPLATE="$ROOT_DIR/infra/nginx/templates/http.conf.template"
 HTTPS_TEMPLATE="$ROOT_DIR/infra/nginx/templates/https.conf.template"
 OUTPUT_FILE="$GENERATED_DIR/default.conf"
 CERT_PATH="$ROOT_DIR/infra/nginx/certs/live/${SERVER_NAME}/fullchain.pem"
+KEY_PATH="$ROOT_DIR/infra/nginx/certs/live/${SERVER_NAME}/privkey.pem"
 
 mkdir -p "$GENERATED_DIR" "$ROOT_DIR/infra/nginx/acme" "$ROOT_DIR/infra/nginx/certs"
 
 TEMPLATE_FILE="$HTTP_TEMPLATE"
 if [[ "${ENABLE_HTTPS:-false}" == "true" && "$SERVER_NAME" != "_" && -f "$CERT_PATH" ]]; then
+  [[ -f "$KEY_PATH" ]] || fail "HTTPS private key is missing for the configured domain."
   TEMPLATE_FILE="$HTTPS_TEMPLATE"
+fi
+
+if [[ "${REQUIRE_HTTPS:-false}" == "true" && "$TEMPLATE_FILE" != "$HTTPS_TEMPLATE" ]]; then
+  fail "HTTPS is required but a valid domain and certificate pair are not available."
 fi
 
 # Usar awk con delimitador no especial en vez de sed con '/' como delimitador

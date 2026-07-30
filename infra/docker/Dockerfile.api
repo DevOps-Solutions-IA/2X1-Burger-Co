@@ -42,7 +42,7 @@ COPY apps/api/package.json ./apps/api/package.json
 COPY prisma/seed.ts prisma/beverage-catalog.ts ./prisma/
 COPY .release/release-manifest.json ./release-manifest.json
 # Crear directorios que necesita escritura y asignar permisos al usuario node
-RUN mkdir -p /app/data/whatsapp-auth /app/backups && \
+RUN mkdir -p /app/data/whatsapp-auth /app/data/sofia-whatsapp-auth /app/backups && \
     chown -R node:node /app/data /app/backups
 EXPOSE 3000
 USER node

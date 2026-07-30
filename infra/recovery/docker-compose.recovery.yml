@@ -58,7 +58,6 @@ services:
       APP_URL: http://127.0.0.1:${RECOVERY_WEB_PORT:?required}
       PUBLIC_PAYMENTS_BASE_URL: http://127.0.0.1:${RECOVERY_WEB_PORT:?required}
       COOKIE_SECURE: "false"
-      EXPECTED_MIGRATION_COUNT: "${RECOVERY_EXPECTED_MIGRATION_COUNT}"
       WHATSAPP_INTERNAL_ENABLED: "false"
       WHATSAPP_MODE: receive_only
       WHATSAPP_PROVIDER: qr_gateway

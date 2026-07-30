@@ -154,7 +154,7 @@
     {
       "id": "3",
       "title": "Sof\u00eda Ultra Premium Design System",
-      "status": "open",
+      "status": "in_progress",
       "goal": "Create or refine reusable Sof\u00eda UI components for ultra premium enterprise experience.",
       "routes": [
         "/sofia",
@@ -168,7 +168,10 @@
         "Purple identity is elegant, not heavy.",
         "Responsive desktop and mobile are clean.",
         "Dangerous actions are visually blocked."
-      ]
+      ],
+      "startedAt": "2026-07-09T21:21:35.065891+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-07-09T21:21:35.065942+00:00"
     },
     {
       "id": "4",

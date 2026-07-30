@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
 export type SessionExpiredReason = 'expired' | 'cash_closed';
 
@@ -44,6 +46,8 @@ interface RefreshSessionResult {
   failureReason?: RefreshFailureReason;
   status?: number;
 }
+
+const refreshSessionSchema = z.object({ accessToken: z.string().min(1) });
 
 export class ApiError extends Error {
   constructor(
@@ -203,7 +207,7 @@ async function executeRefreshSession(): Promise<RefreshSessionResult> {
       return { refreshed: false, failureReason: 'transient', status: response.status };
     }
 
-    const data = (await response.json()) as { accessToken: string };
+    const data = refreshSessionSchema.parse(await response.json());
     setAccessToken(data.accessToken);
     lastSuccessfulRefreshAt = Date.now();
     return { refreshed: true };
@@ -259,6 +263,20 @@ export async function apiFetch<T>(path: string, init?: RequestInit, options?: Ap
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function apiFetchSchema<TSchema extends z.ZodType>(
+  path: string,
+  schema: TSchema,
+  init?: RequestInit,
+  options?: ApiFetchOptions,
+): Promise<z.infer<TSchema>> {
+  const payload = await apiFetch<unknown>(path, init, options);
+  const result = schema.safeParse(payload);
+  if (!result.success) {
+    throw new ApiError('El servidor devolvió una respuesta incompatible.', 502);
+  }
+  return result.data;
 }
 
 export async function apiFetchBlob(path: string, init?: RequestInit, options?: ApiFetchOptions): Promise<Blob> {

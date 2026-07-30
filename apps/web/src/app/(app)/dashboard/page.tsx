@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import Link from 'next/link';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
 import {
   AlertTriangle,
   CircleDollarSign,
@@ -60,6 +60,79 @@ type DashboardStockAlert = {
 
 type AttentionFilter = 'ALL' | 'PRODUCTS' | 'INGREDIENTS';
 
+const numericValueSchema = z.union([z.number(), z.string()]);
+
+const productStockAlertSchema = z.object({
+  productId: z.string(),
+  productName: z.string().optional(),
+  categoryName: z.string().nullable().optional(),
+  currentStock: numericValueSchema.optional(),
+  stockMin: numericValueSchema.nullable().optional(),
+  missingQty: numericValueSchema.nullable().optional(),
+  unit: z.string().nullable().optional(),
+  suggestedQuantity: numericValueSchema.nullable().optional(),
+}).passthrough();
+
+const ingredientStockAlertSchema = z.object({
+  ingredientId: z.string(),
+  ingredientName: z.string().optional(),
+  currentStock: numericValueSchema.optional(),
+  stockMin: numericValueSchema.nullable().optional(),
+  unit: z.string().nullable().optional(),
+  suggestedQuantity: numericValueSchema.nullable().optional(),
+}).passthrough();
+
+const replenishmentSchema = z.object({
+  productOutOfStock: z.array(productStockAlertSchema).default([]),
+  productCriticalStock: z.array(productStockAlertSchema).default([]),
+  productLowStock: z.array(productStockAlertSchema).default([]),
+  outOfStock: z.array(ingredientStockAlertSchema).default([]),
+  criticalStock: z.array(ingredientStockAlertSchema).default([]),
+  lowStock: z.array(ingredientStockAlertSchema).default([]),
+}).passthrough();
+
+const dashboardReportSchema = z.object({
+  journey: z.object({
+    status: z.string(),
+  }).passthrough(),
+  cash: z.object({
+    expectedAmount: numericValueSchema.nullable(),
+  }).passthrough(),
+  sales: z.object({
+    total: numericValueSchema,
+    count: z.number(),
+    itemsSold: numericValueSchema,
+    bestSellers: z.array(z.object({
+      productName: z.string(),
+      quantity: numericValueSchema,
+      total: numericValueSchema,
+    }).passthrough()),
+  }).passthrough(),
+  expenses: z.object({
+    total: numericValueSchema,
+    count: z.number(),
+  }).passthrough(),
+  metrics: z.object({
+    netProfit: numericValueSchema,
+  }).passthrough(),
+  replenishment: replenishmentSchema,
+}).passthrough();
+
+const currentCashSchema = z.object({
+  openingAmount: numericValueSchema,
+}).passthrough().nullable();
+
+const inventoryMovementSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  quantity: numericValueSchema,
+  occurredAt: z.string(),
+  product: z.object({ name: z.string() }).passthrough().nullable().optional(),
+  ingredient: z.object({ name: z.string() }).passthrough().nullable().optional(),
+}).passthrough();
+
+type DashboardReplenishment = z.infer<typeof replenishmentSchema>;
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('ALL');
@@ -70,15 +143,15 @@ export default function DashboardPage() {
 
   const dailyReport = useQuery({
     queryKey: ['reports-operational'],
-    queryFn: () => apiFetch<any>('/reports/operational'),
+    queryFn: async () => dashboardReportSchema.parse(await apiFetch<unknown>('/reports/operational')),
   });
   const currentCash = useQuery({
     queryKey: ['current-cash'],
-    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+    queryFn: async () => currentCashSchema.parse(await apiFetch<unknown>('/cash-register/current')),
   });
   const inventoryMovements = useQuery({
     queryKey: ['inventory-movements'],
-    queryFn: () => apiFetch<any[]>('/inventory/movements'),
+    queryFn: async () => z.array(inventoryMovementSchema).parse(await apiFetch<unknown>('/inventory/movements')),
   });
 
   const journeyClosed = dailyReport.data?.journey?.status === 'CERRADA';
@@ -105,7 +178,7 @@ export default function DashboardPage() {
       {/* ── Header operativo ── */}
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-2xl">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-400">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-700">
             {today} · {now}
           </p>
           <h1 className="mt-2 text-[1.66rem] font-bold tracking-tight text-ink lg:text-[1.86rem]">
@@ -253,7 +326,12 @@ export default function DashboardPage() {
             </div>
             <Badge tone="default">{dailyReport.data?.sales?.bestSellers?.length ?? 0}</Badge>
           </div>
-          <div className="hide-scrollbar list-scroll-5-rows flex-1 space-y-3 pr-1">
+          <div
+            className="hide-scrollbar list-scroll-5-rows flex-1 space-y-3 pr-1"
+            role="region"
+            aria-label="Productos mas vendidos"
+            tabIndex={0}
+          >
             {dailyReport.isLoading
               ? Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-16 rounded-2xl" />
@@ -261,7 +339,7 @@ export default function DashboardPage() {
               : null}
 
             {!dailyReport.isLoading && dailyReport.data?.sales?.bestSellers?.length ? (
-              dailyReport.data.sales.bestSellers.map((item: any) => (
+              dailyReport.data.sales.bestSellers.map((item) => (
                 <div
                   key={item.productName}
                   className="flex items-center justify-between gap-4 rounded-[1.35rem] border border-stone-200/80 border-l-[4px] border-l-brand-500 bg-brand-50/40 px-4 py-3.5 transition hover:shadow-soft"
@@ -294,7 +372,12 @@ export default function DashboardPage() {
             </div>
             <Badge tone="default">{inventoryMovements.data?.length ?? 0}</Badge>
           </div>
-          <div className="hide-scrollbar list-scroll-5-rows flex-1 space-y-3 pr-1">
+          <div
+            className="hide-scrollbar list-scroll-5-rows flex-1 space-y-3 pr-1"
+            role="region"
+            aria-label="Ultimos movimientos de inventario"
+            tabIndex={0}
+          >
             {inventoryMovements.isLoading
               ? Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-16 rounded-2xl" />
@@ -344,17 +427,7 @@ function translateMovementType(type: string) {
   return labels[type] ?? type;
 }
 
-function translateStockStatus(status: string) {
-  const labels: Record<string, string> = {
-    OUT_OF_STOCK: 'Agotado',
-    CRITICAL: 'Crítico',
-    LOW: 'Bajo',
-    NORMAL: 'Normal',
-  };
-  return labels[status] ?? 'Revisar';
-}
-
-function buildDashboardAlerts(replenishment: any): DashboardStockAlert[] {
+function buildDashboardAlerts(replenishment: DashboardReplenishment | undefined): DashboardStockAlert[] {
   const seen = new Set<string>();
   const alerts: DashboardStockAlert[] = [];
 
@@ -456,42 +529,5 @@ function AttentionTab({
     >
       {label} <span className="tabular-nums">({count})</span>
     </button>
-  );
-}
-
-
-function PulseBlock({
-  label,
-  value,
-  description,
-  accent = 'ink',
-}: {
-  label: string;
-  value: string;
-  description: string;
-  accent?: 'brand' | 'success' | 'danger' | 'warning' | 'ink';
-}) {
-  const accentBorder = {
-    brand: 'border-l-brand-500',
-    success: 'border-l-emerald-500',
-    danger: 'border-l-red-500',
-    warning: 'border-l-amber-500',
-    ink: 'border-l-stone-400',
-  };
-  const accentBg = {
-    brand: 'bg-brand-50/60',
-    success: 'bg-emerald-50/60',
-    danger: 'bg-red-50/60',
-    warning: 'bg-amber-50/60',
-    ink: 'bg-stone-50/80',
-  };
-  return (
-    <div className={`flex items-center justify-between gap-3 rounded-xl border border-l-[3px] ${accentBorder[accent]} ${accentBg[accent]} px-3.5 py-3 transition hover:shadow-sm`}>
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">{label}</p>
-        <p className="mt-0.5 text-[15px] font-extrabold leading-none text-ink">{value}</p>
-      </div>
-      <p className="text-[10px] font-medium text-stone-500 text-right shrink-0">{description}</p>
-    </div>
   );
 }

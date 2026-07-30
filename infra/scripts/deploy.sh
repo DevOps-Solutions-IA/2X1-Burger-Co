@@ -23,23 +23,20 @@ if [[ "$JWT_ACCESS_SECRET" == change-this-* || "$JWT_REFRESH_SECRET" == change-t
   fail "Replace placeholder JWT secrets before deploying."
 fi
 
-./infra/scripts/render-nginx-conf.sh "$ROOT_DIR/.env"
-
-if [[ "${ALLOW_UNSAFE_DEPLOY:-false}" == "true" ]]; then
-  warn "Deploy ejecutado sin backup previo por ALLOW_UNSAFE_DEPLOY=true"
+if [[ "${NODE_ENV:-development}" == "production" ]]; then
+  REQUIRE_HTTPS=true ./infra/scripts/render-nginx-conf.sh "$ROOT_DIR/.env"
 else
-  ./infra/scripts/backup.sh
+  ./infra/scripts/render-nginx-conf.sh "$ROOT_DIR/.env"
 fi
 
-docker compose build api web
-docker compose up -d postgres api web nginx
+validate_image_reference "${API_IMAGE:-}"
+validate_image_reference "${WEB_IMAGE:-}"
+[[ "${RELEASE_COMMIT:-}" =~ ^[a-f0-9]{40}$ ]] || fail "RELEASE_COMMIT must be a full commit SHA."
 
-docker compose exec -T api pnpm --filter @inventory-fastfood/api prisma:migrate:deploy
-pnpm --dir apps/api exec node ../../infra/scripts/sync-role-permissions.mjs
-
-if [[ "${CLOUDFLARE_TUNNEL_ENABLED:-false}" == "true" ]]; then
-  ./infra/scripts/cloudflare-tunnel.sh restart
-fi
-
-./infra/scripts/smoke.sh
-info "Deploy completed successfully"
+info "Delegating deployment to the immutable staging release pipeline"
+exec env \
+  API_IMAGE="$API_IMAGE" \
+  WEB_IMAGE="$WEB_IMAGE" \
+  RELEASE_COMMIT="$RELEASE_COMMIT" \
+  STAGING_PATH="$ROOT_DIR" \
+  "$ROOT_DIR/infra/release/staging-deploy.sh"

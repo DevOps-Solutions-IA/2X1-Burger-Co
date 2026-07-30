@@ -17,7 +17,7 @@ assert.equal(publicHealth.body.status, 'ok');
 checks.push({ name: 'health', path: '/health', status: 200, result: 'PASS' });
 
 const version = await apiRequest('/version');
-for (const key of ['application', 'gitCommit', 'buildId', 'environment', 'dirtyBuild']) assert.ok(key in version.body);
+for (const key of ['application', 'commitSha', 'buildId', 'environment', 'migrationCount', 'releaseManifestVersion']) assert.ok(key in version.body);
 assert.ok(['test', 'e2e'].includes(version.body.environment));
 assert.equal(version.body.dirtyBuild, process.env.EPHEMERAL_EXPECT_DIRTY_BUILD === 'true');
 checks.push({ name: 'version', path: '/version', status: 200, result: 'PASS' });

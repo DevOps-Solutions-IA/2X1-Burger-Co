@@ -1,5 +1,6 @@
 'use client';
 import { useEffect } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { useAuth } from '@/features/auth/auth-provider';
@@ -40,7 +41,7 @@ export default function WaiterLayoutClient({ children }: { children: React.React
             Esta superficie está reservada para usuarios autorizados a crear o actualizar comandas.
           </p>
           <div className="mt-6 flex justify-center">
-            <a href="/" className="inline-flex items-center justify-center rounded-xl bg-ink px-4 py-2.5 text-[13px] font-bold text-white hover:bg-stone-800">Volver al inicio</a>
+            <Link href="/" className="inline-flex items-center justify-center rounded-xl bg-ink px-4 py-2.5 text-[13px] font-bold text-white hover:bg-stone-800">Volver al inicio</Link>
           </div>
         </div>
       </div>

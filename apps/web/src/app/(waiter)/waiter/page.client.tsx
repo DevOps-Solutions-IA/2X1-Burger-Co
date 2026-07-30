@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LogOut, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { ApiError, apiFetch, subscribeOperationalStream } from '@/lib/api';
-import { formatCurrency, formatNumber, matchesSearch } from '@/lib/format';
+import { formatCurrency, formatNumber as _formatNumber, matchesSearch as _matchesSearch } from '@/lib/format';
 import { getOperationalOrderDisplayCode as _g } from '@/lib/order-display';
 import { expireCurrentSession, useAuth } from '@/features/auth/auth-provider';
 import { CacheStorage, TTL } from '@/lib/cache-storage';
@@ -177,6 +177,10 @@ type WaiterOperationalAlert = {
   createdAt: string;
 };
 
+type CurrentCashSession = {
+  id: string;
+};
+
 function getWaiterDraftKey(waiterId: string, tableId: string) {
   return `${WAITER_DRAFT_KEY_PREFIX}${waiterId}:${tableId}`;
 }
@@ -273,7 +277,7 @@ function getOrderOwnerName(order: Pick<ActiveOrder, 'assignedWaiter' | 'createdB
   return order.waiterNameSnapshot ?? order.assignedWaiter?.fullName ?? order.createdBy.fullName;
 }
 
-function getOrderStatusMeta(status: OrderStatus | 'PAID' | 'CANCELLED') {
+function _getOrderStatusMeta(status: OrderStatus | 'PAID' | 'CANCELLED') {
   switch (status) {
     case 'OPEN':
       return { label: 'Abierta', tone: 'warning' as const };
@@ -306,7 +310,7 @@ function toEditableOrderStatus(status: ActiveOrder['status']): OrderStatus {
   return status;
 }
 
-function toggleNoteSnippet(currentNotes: string, snippet: string) {
+function _toggleNoteSnippet(currentNotes: string, snippet: string) {
   const lines = currentNotes
     .split('\n')
     .map((line) => line.trim())
@@ -330,7 +334,7 @@ function getMinutesSince(isoDate: string) {
   return Math.max(0, Math.round((Date.now() - timestamp) / 60000));
 }
 
-function getWaiterAlertTone(severity: WaiterAlertSeverity) {
+function _getWaiterAlertTone(severity: WaiterAlertSeverity) {
   switch (severity) {
     case 'CRITICAL':
       return 'danger' as const;
@@ -362,7 +366,7 @@ export default function WaiterClientPage() {
   const [urlSelectionEnabled, setUrlSelectionEnabled] = useState(true);
   const [selectedTableId, setSelectedTableId] = useState('');
   const [hydratedOrderId, setHydratedOrderId] = useState<string | null>(null);
-  const [drinkBrandFilter, setDrinkBrandFilter] = useState<ProductBrand | 'ALL'>('ALL');
+  const [, setDrinkBrandFilter] = useState<ProductBrand | 'ALL'>('ALL');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -381,8 +385,8 @@ export default function WaiterClientPage() {
   const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [draftHydratedTableId, setDraftHydratedTableId] = useState<string | null>(null);
-  const [saveRetryPending, setSaveRetryPending] = useState(false);
-  const [modalRetryPending, setModalRetryPending] = useState(false);
+  const [, setSaveRetryPending] = useState(false);
+  const [, setModalRetryPending] = useState(false);
   const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const [isFlushingQueue, setIsFlushingQueue] = useState(false);
   const hadOpenCashRef = useRef(false);
@@ -427,7 +431,7 @@ export default function WaiterClientPage() {
   });
   const currentCash = useQuery({
     queryKey: ['cash-current'],
-    queryFn: () => apiFetch<any | null>('/cash-register/current'),
+    queryFn: () => apiFetch<CurrentCashSession | null>('/cash-register/current'),
     refetchInterval: 4000,
   });
 
@@ -458,7 +462,7 @@ export default function WaiterClientPage() {
     });
   }, [activeProducts, composeCategory]);
 
-  const burgerProducts = useMemo(
+  const _burgerProducts = useMemo(
     () =>
       activeProducts
         .filter((product) => product.kind === 'PREPARED')
@@ -478,7 +482,7 @@ export default function WaiterClientPage() {
     [activeProducts],
   );
 
-  const drinkBrandTabs = useMemo(() => {
+  const _drinkBrandTabs = useMemo(() => {
     const tabs: Array<{ value: ProductBrand | 'ALL'; label: string }> = [{ value: 'ALL', label: 'Todas' }];
 
     if (beverageProducts.some((product) => product.brand === 'COCA_COLA')) {
@@ -492,7 +496,7 @@ export default function WaiterClientPage() {
     return tabs;
   }, [beverageProducts]);
 
-  const filteredDrinks = useMemo(
+  const _filteredDrinks = useMemo(
     () => (products.data ?? []).filter((product) => product.isActive),
     [products.data],
   );
@@ -511,13 +515,15 @@ export default function WaiterClientPage() {
     () => activeOrders.data?.find((order) => order.id === activeOrderModalId) ?? null,
     [activeOrders.data, activeOrderModalId],
   );
+  const modalOrderRef = useRef(modalOrder);
+  modalOrderRef.current = modalOrder;
 
-  const modalTable = useMemo(
+  const _modalTable = useMemo(
     () => availableTables.find((table) => table.id === modalOrder?.tableId) ?? null,
     [availableTables, modalOrder?.tableId],
   );
 
-  const modalFilteredDrinks = useMemo(
+  const _modalFilteredDrinks = useMemo(
     () =>
       beverageProducts
         .filter((product) => (modalDrinkBrandFilter === 'ALL' ? true : product.brand === modalDrinkBrandFilter))
@@ -597,7 +603,7 @@ export default function WaiterClientPage() {
     };
   }, [availableTables, activeOrders.data, agedOrders, tableOrderMap, user?.sub]);
 
-  const visibleWaiterAlerts = useMemo(
+  const _visibleWaiterAlerts = useMemo(
     () =>
       (waiterAlerts.data ?? []).filter((alert) =>
         !alert.entityId ? true : (activeOrders.data ?? []).some((order) => order.id === alert.entityId),
@@ -605,7 +611,7 @@ export default function WaiterClientPage() {
     [activeOrders.data, waiterAlerts.data],
   );
 
-  const visibleActiveOrders = useMemo(
+  const _visibleActiveOrders = useMemo(
     () =>
       (activeOrders.data ?? []).filter((order) =>
         orderScope === 'ALL' ? true : getOrderOwnerId(order) === user?.sub,
@@ -617,9 +623,9 @@ export default function WaiterClientPage() {
     Boolean(selectedOrder) && !selectedOrder?.assignedWaiterId && selectedOrder?.createdById !== user?.sub;
   const modalOrderClaimable =
     Boolean(modalOrder) && !modalOrder?.assignedWaiterId && modalOrder?.createdById !== user?.sub;
-  const selectedOrderOwnedByAnotherWaiter =
+  const _selectedOrderOwnedByAnotherWaiter =
     Boolean(selectedOrder) && !selectedOrderClaimable && getOrderOwnerId(selectedOrder!) !== user?.sub;
-  const modalOrderOwnedByAnotherWaiter =
+  const _modalOrderOwnedByAnotherWaiter =
     Boolean(modalOrder) && !modalOrderClaimable && getOrderOwnerId(modalOrder!) !== user?.sub;
 
   const shiftStartedLabel = useMemo(() => {
@@ -633,10 +639,10 @@ export default function WaiterClientPage() {
     });
   }, [user?.lastLoginAt]);
 
-  const orderTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const _orderTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const modalExtraTotal = modalExtraItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const modalProjectedTotal = Number(modalOrder?.subtotal ?? 0) + modalExtraTotal;
-  const modalHasChanges =
+  const _modalProjectedTotal = Number(modalOrder?.subtotal ?? 0) + modalExtraTotal;
+  const _modalHasChanges =
     modalExtraItems.length > 0 ||
     modalNotes.trim() !== (modalOrder?.notes ?? '').trim() ||
     modalOrderStatus !== toEditableOrderStatus(modalOrder?.status ?? 'OPEN');
@@ -733,15 +739,16 @@ export default function WaiterClientPage() {
       setOrderStatus('OPEN');
       setHydratedOrderId(null);
     }
-  }, [selectedOrder, selectedTableId, hydratedOrderId]);
+  }, [selectedOrder, selectedTableId, hydratedOrderId, user?.sub]);
 
   useEffect(() => {
-    if (!modalOrder) {
+    const currentModalOrder = modalOrderRef.current;
+    if (!currentModalOrder) {
       return;
     }
 
-    setModalOrderStatus(toEditableOrderStatus(modalOrder.status));
-    setModalNotes(modalOrder.notes ?? '');
+    setModalOrderStatus(toEditableOrderStatus(currentModalOrder.status));
+    setModalNotes(currentModalOrder.notes ?? '');
     setModalExtraItems([]);
     setModalDrinkBrandFilter('ALL');
     setModalRetryPending(false);
@@ -980,7 +987,7 @@ export default function WaiterClientPage() {
     ];
   };
 
-  const addToCart = (product: Product) => {
+  const _addToCart = (product: Product) => {
     if (!selectedTableId) {
       toast.error('Selecciona una mesa antes de cargar productos.');
       return;
@@ -989,7 +996,7 @@ export default function WaiterClientPage() {
     setCart((current) => addCartItem(current, product, `Stock insuficiente para ${product.name}`));
   };
 
-  const addToModalOrder = (product: Product) => {
+  const _addToModalOrder = (product: Product) => {
     if (!modalOrder) {
       toast.error('Abre una comanda para adicionar productos.');
       return;
@@ -1021,7 +1028,7 @@ export default function WaiterClientPage() {
     );
   };
 
-  const updateModalQuantity = (productId: string, nextQuantity: number) => {
+  const _updateModalQuantity = (productId: string, nextQuantity: number) => {
     setModalExtraItems((current) =>
       current
         .map((item) => {
@@ -1223,7 +1230,7 @@ export default function WaiterClientPage() {
     void flushQueuedOperations();
   }, [flushQueuedOperations, isOnline]);
 
-  const issues = [
+  const _issues = [
     !currentCash.isLoading && !currentCash.data ? 'Abre caja antes de registrar pedidos.' : null,
     !selectedTableId ? 'Selecciona una mesa.' : null,
     !cart.length ? 'Agrega al menos un producto.' : null,
@@ -1309,7 +1316,7 @@ export default function WaiterClientPage() {
     },
   });
 
-  const updateExistingOrder = useMutation({
+  const _updateExistingOrder = useMutation({
     mutationFn: async () => {
       if (!modalOrder) {
         throw new Error('No encontramos la comanda activa.');
@@ -1406,7 +1413,7 @@ export default function WaiterClientPage() {
     },
   });
 
-  const claimSelectedOrder = useMutation({
+  const _claimSelectedOrder = useMutation({
     mutationFn: async () => {
       if (!selectedOrder) {
         throw new Error('No encontramos la comanda a reclamar.');
@@ -1428,7 +1435,7 @@ export default function WaiterClientPage() {
     },
   });
 
-  const claimModalOrder = useMutation({
+  const _claimModalOrder = useMutation({
     mutationFn: async () => {
       if (!modalOrder) {
         throw new Error('No encontramos la comanda a reclamar.');
@@ -1450,7 +1457,7 @@ export default function WaiterClientPage() {
     },
   });
 
-  const updateWaiterAlert = useMutation({
+  const _updateWaiterAlert = useMutation({
     mutationFn: ({ alertId, status }: { alertId: string; status: Exclude<WaiterAlertStatus, 'OPEN'> }) =>
       apiFetch<WaiterOperationalAlert>(`/orders/operational-alerts/${alertId}`, {
         method: 'PATCH',
@@ -1464,7 +1471,7 @@ export default function WaiterClientPage() {
     },
   });
 
-  const pageStatus = currentCash.data ? (
+  const _pageStatus = currentCash.data ? (
     <div className="flex flex-wrap items-center gap-2">
       <Badge tone="success">{serviceMetrics.activeOrders} comandas activas</Badge>
       <Badge tone="neutral">Turno {shiftStartedLabel}</Badge>
@@ -1492,7 +1499,7 @@ export default function WaiterClientPage() {
           <div className="-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 lg:-mx-6 lg:-mt-6 mb-4 rounded-b-2xl bg-black px-4 py-4 sm:px-5 lg:px-6">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <img src="/brand/sidebar-logo.png" alt="2X1" className="h-8 w-8 rounded-lg object-contain opacity-90" />
+                <Image src="/brand/sidebar-logo.png" alt="2X1" width={32} height={32} className="h-8 w-8 rounded-lg object-contain opacity-90" />
                 <div className="min-w-0">
                   <h1 className="text-[1.1rem] font-extrabold text-white leading-tight truncate">{user?.fullName ?? 'Mesero'}</h1>
                   <p className="text-[10px] text-stone-400">Turno {shiftStartedLabel} · {serviceMetrics.free} mesas libres</p>
@@ -1533,7 +1540,6 @@ export default function WaiterClientPage() {
             {visibleTables.map((table) => {
               const activeOrder = tableOrderMap.get(table.id) ?? null;
               const tableStatus = getTableStatusMeta(activeOrder);
-              const isMine = activeOrder ? getOrderOwnerId(activeOrder) === user?.sub : false;
               return (
                 <button key={table.id} type="button" onClick={() => openComposer(table.id)}
                   data-testid={`waiter-table-${table.label.toLowerCase().replace(/\s+/g, '-')}`}
@@ -1541,7 +1547,7 @@ export default function WaiterClientPage() {
                   <div className="h-1 w-full shrink-0" style={{ backgroundColor: activeOrder ? (table.group?.color ?? '#e7e5e4') : 'transparent' }} />
                   <div className="flex flex-1 flex-col items-center justify-center px-3 py-3 text-center">
                     <p className="text-[1.5rem] font-black leading-none text-ink">{table.label}</p>
-                    <span className={`mt-1.5 inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${activeOrder ? ((tableStatus.tone as string) === 'danger' ? 'bg-red-100 text-red-700' : (tableStatus.tone as string) === 'info' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700') : 'bg-emerald-100 text-emerald-700'}`}>
+                    <span className={`mt-1.5 inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${activeOrder ? (tableStatus.tone === 'info' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700') : 'bg-emerald-100 text-emerald-700'}`}>
                       {activeOrder ? 'Con servicio' : 'Libre'}
                     </span>
                     {activeOrder ? (
@@ -1582,7 +1588,12 @@ export default function WaiterClientPage() {
           ) : null}
 
           {/* Category tabs */}
-          <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1 no-scrollbar">
+          <div
+            className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1 no-scrollbar"
+            role="region"
+            aria-label="Filtros de mesas"
+            tabIndex={0}
+          >
             {composeCategories.map((cat) => (
               <button key={cat} type="button" onClick={() => { setComposeCategory(cat); }}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
@@ -1632,10 +1643,10 @@ export default function WaiterClientPage() {
                 {cart.map((item, i) => (
                   <div key={i} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 shadow-sm">
                     <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => setCart((c: any[]) => { const n = [...c]; (n[i] as any).quantity = Math.max(0, (n[i] as any).quantity - 1); return n.filter((x: any) => x.quantity > 0); })}
+                      <button type="button" onClick={() => updateQuantity(item.productId, item.quantity - 1)}
                         className="flex h-6 w-6 items-center justify-center rounded-full border border-stone-200 bg-white text-[12px] font-bold text-stone-500 hover:border-stone-300">-</button>
                       <span className="text-[13px] font-bold tabular-nums w-5 text-center">{item.quantity}</span>
-                      <button type="button" onClick={() => setCart((c: any[]) => { const n = [...c]; (n[i] as any).quantity = (n[i] as any).quantity + 1; return n; })}
+                      <button type="button" onClick={() => updateQuantity(item.productId, item.quantity + 1)}
                         className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-[12px] font-bold text-ink hover:bg-brand-600">+</button>
                     </div>
                     <span className="text-[12px] font-bold text-ink truncate flex-1 mx-3">{item.name}</span>

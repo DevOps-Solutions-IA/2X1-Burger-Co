@@ -24,6 +24,105 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type StockStatus = 'NORMAL' | 'LOW' | 'CRITICAL' | 'OUT_OF_STOCK';
 type InventoryItemType = 'PRODUCT' | 'INGREDIENT';
+type StockCountScope = 'CRITICAL' | 'ALL' | 'PRODUCTS' | 'INGREDIENTS';
+type InventoryMovementType =
+  | 'INITIAL'
+  | 'PURCHASE'
+  | 'SALE'
+  | 'ADJUSTMENT'
+  | 'WASTE'
+  | 'DAMAGE'
+  | 'RETURN'
+  | 'INTERNAL_USE'
+  | 'RECIPE_CONSUMPTION';
+
+type InventoryStockItem = {
+  id: string;
+  itemType: InventoryItemType;
+  code: string;
+  name: string;
+  categoryName: string;
+  unitName: string;
+  unitCode: string;
+  currentStock: number;
+  stockMin: number | null;
+  stockMax: number | null;
+  status: StockStatus;
+  updatedAt: string;
+};
+
+type InventoryStockResponse = {
+  metrics: {
+    totalItems: number;
+    productsCount: number;
+    ingredientsCount: number;
+    lowStockCount: number;
+    criticalStockCount: number;
+    outOfStockCount: number;
+    adjustmentsToday: number;
+  };
+  items: InventoryStockItem[];
+};
+
+type InventoryMovement = {
+  id: string;
+  type: InventoryMovementType;
+  quantity: number | string;
+  balanceAfter: number | string | null;
+  referenceType: string | null;
+  occurredAt: string;
+  product: { name: string } | null;
+  ingredient: { name: string } | null;
+  performedBy: { fullName: string } | null;
+};
+
+type ReorderAlert = {
+  id: string;
+  itemType: InventoryItemType;
+  name: string;
+  code: string;
+  unitCode: string;
+  currentStock: number;
+  stockMin: number;
+  avgDailyConsumption: number;
+  daysOfCoverage: number | null;
+  suggestedQuantity: number;
+  severity: StockStatus;
+  supplier: { id: string; name: string; phone: string | null } | null;
+};
+
+type ReorderSuggestionsResponse = {
+  alerts: ReorderAlert[];
+  groupedBySupplier: Array<{
+    supplierId: string | null;
+    supplierName: string;
+    supplierPhone: string | null;
+    items: ReorderAlert[];
+  }>;
+};
+
+type StockCountPreviewItem = {
+  id: string;
+  itemType: InventoryItemType;
+  code: string;
+  name: string;
+  unitCode: string;
+  expectedStock: number;
+  stockMin: number | null;
+  status: StockStatus;
+};
+
+type StockCountPreviewResponse = {
+  scope: StockCountScope;
+  items: StockCountPreviewItem[];
+};
+
+type StockCountSession = {
+  id: string;
+  scope: StockCountScope;
+  createdAt: string;
+  items: Array<{ id: string }>;
+};
 
 const quickAdjustments = [
   { label: 'Merma', movementType: 'WASTE', quantity: -1 },
@@ -40,7 +139,7 @@ export default function InventoryPage() {
   const [status, setStatus] = useState<'ALL' | StockStatus>('ALL');
   const [movementSearch, setMovementSearch] = useState('');
   const [movementType, setMovementType] = useState<'ALL' | string>('ALL');
-  const [scope, setScope] = useState<'CRITICAL' | 'ALL' | 'PRODUCTS' | 'INGREDIENTS'>('CRITICAL');
+  const [scope, setScope] = useState<StockCountScope>('CRITICAL');
   const [countNotes, setCountNotes] = useState('');
   const [adjustmentItemType, setAdjustmentItemType] = useState<InventoryItemType>('INGREDIENT');
   const [adjustmentItemId, setAdjustmentItemId] = useState('');
@@ -54,7 +153,7 @@ export default function InventoryPage() {
 
   const stock = useQuery({
     queryKey: ['inventory-stock'],
-    queryFn: () => apiFetch<any>('/inventory/stock'),
+    queryFn: () => apiFetch<InventoryStockResponse>('/inventory/stock'),
   });
   const movements = useQuery({
     queryKey: ['inventory-movements', movementSearch, movementType],
@@ -65,25 +164,25 @@ export default function InventoryPage() {
       params.set('from', today);
       params.set('to', today);
       params.set('limit', '120');
-      return apiFetch<any[]>(`/inventory/movements?${params.toString()}`);
+      return apiFetch<InventoryMovement[]>(`/inventory/movements?${params.toString()}`);
     },
   });
   const reorderSuggestions = useQuery({
     queryKey: ['inventory-reorder-suggestions'],
-    queryFn: () => apiFetch<any>('/inventory/reorder-suggestions'),
+    queryFn: () => apiFetch<ReorderSuggestionsResponse>('/inventory/reorder-suggestions'),
   });
   const stockCountPreview = useQuery({
     queryKey: ['inventory-stock-count-preview', scope],
-    queryFn: () => apiFetch<any>(`/inventory/stock-counts/preview?scope=${scope}`),
+    queryFn: () => apiFetch<StockCountPreviewResponse>(`/inventory/stock-counts/preview?scope=${scope}`),
   });
   const stockCounts = useQuery({
     queryKey: ['inventory-stock-counts'],
-    queryFn: () => apiFetch<any[]>('/inventory/stock-counts'),
+    queryFn: () => apiFetch<StockCountSession[]>('/inventory/stock-counts'),
   });
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (stock.data?.items ?? []).filter((item: any) => {
+    return (stock.data?.items ?? []).filter((item) => {
       const matchesSearch = term
         ? [item.name, item.code, item.categoryName].some((value: string) => value.toLowerCase().includes(term))
         : true;
@@ -94,18 +193,18 @@ export default function InventoryPage() {
   }, [stock.data?.items, search, itemType, status]);
 
   const adjustmentOptions = useMemo(
-    () => (stock.data?.items ?? []).filter((item: any) => item.itemType === adjustmentItemType),
+    () => (stock.data?.items ?? []).filter((item) => item.itemType === adjustmentItemType),
     [stock.data?.items, adjustmentItemType],
   );
 
   const selectedAdjustmentItem = useMemo(
-    () => adjustmentOptions.find((item: any) => item.id === adjustmentItemId) ?? null,
+    () => adjustmentOptions.find((item) => item.id === adjustmentItemId) ?? null,
     [adjustmentOptions, adjustmentItemId],
   );
   const adjustmentQuantityNum = Number(adjustmentQuantity);
   const isAdjustmentQuantityValid = !Number.isNaN(adjustmentQuantityNum) && adjustmentQuantityNum > 0;
 
-  const createAdjustment = useMutation<any, Error, string>({
+  const createAdjustment = useMutation<unknown, Error, string>({
     mutationFn: (movementTypeValue = 'ADJUSTMENT') =>
       apiFetch('/inventory/adjustments', {
         method: 'POST',
@@ -133,7 +232,7 @@ export default function InventoryPage() {
         body: JSON.stringify({
           scope,
           notes: countNotes || undefined,
-          items: (stockCountPreview.data?.items ?? []).map((item: any) => ({
+          items: (stockCountPreview.data?.items ?? []).map((item) => ({
             itemType: item.itemType,
             itemId: item.id,
             countedStock: Number(countValues[item.id] ?? item.expectedStock ?? 0),
@@ -151,7 +250,7 @@ export default function InventoryPage() {
   });
 
   const criticalAlerts = useMemo(
-    () => (reorderSuggestions.data?.alerts ?? []).filter((item: any) => item.severity === 'CRITICAL' || item.severity === 'OUT_OF_STOCK').slice(0, 4),
+    () => (reorderSuggestions.data?.alerts ?? []).filter((item) => item.severity === 'CRITICAL' || item.severity === 'OUT_OF_STOCK').slice(0, 4),
     [reorderSuggestions.data?.alerts],
   );
   const pageError =
@@ -172,7 +271,7 @@ export default function InventoryPage() {
     }
 
     const target = (stock.data?.items ?? []).find(
-      (item: any) => item.id === editItemId && item.itemType === validType,
+      (item) => item.id === editItemId && item.itemType === validType,
     );
 
     if (!target) {
@@ -187,7 +286,7 @@ export default function InventoryPage() {
   }, [editItemId, editItemType, stock.data?.items]);
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
+    <div className="space-y-6 p-6 lg:p-8" data-testid="inventory-page">
       <SectionTitle
         eyebrow="Inventario"
         title="Inventario — Lo que entra y sale"
@@ -235,15 +334,15 @@ export default function InventoryPage() {
           </div>
           <div className="mt-5 grid gap-4 xl:grid-cols-[0.72fr_1.18fr_0.68fr_0.9fr]">
             <Field label="Tipo de ítem">
-              <Select value={adjustmentItemType} onChange={(event) => setAdjustmentItemType(event.target.value as InventoryItemType)}>
+              <Select aria-label="Tipo de ítem para ajustar" value={adjustmentItemType} onChange={(event) => setAdjustmentItemType(event.target.value as InventoryItemType)}>
                 <option value="INGREDIENT">Insumo</option>
                 <option value="PRODUCT">Producto</option>
               </Select>
             </Field>
             <Field label="Ítem">
-              <Select value={adjustmentItemId} onChange={(event) => setAdjustmentItemId(event.target.value)}>
+              <Select aria-label="Ítem para ajustar" value={adjustmentItemId} onChange={(event) => setAdjustmentItemId(event.target.value)}>
                 <option value="">Selecciona</option>
-                {adjustmentOptions.map((item: any) => (
+                {adjustmentOptions.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
@@ -297,7 +396,7 @@ export default function InventoryPage() {
         <Card>
           <h2 className="text-lg font-semibold lg:text-[1.12rem]">¡Atención! Stock crítico</h2>
           <div className="mt-4 space-y-2">
-            {criticalAlerts.length ? criticalAlerts.map((item: any) => (
+            {criticalAlerts.length ? criticalAlerts.map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
                 href={`/inventory?edit=${item.id}&itemType=${item.itemType ?? 'PRODUCT'}`}
@@ -332,12 +431,12 @@ export default function InventoryPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ítem" />
-            <Select value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
+            <Select aria-label="Filtrar resumen por tipo de ítem" value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
               <option value="ALL">Todos</option>
               <option value="PRODUCT">Productos</option>
               <option value="INGREDIENT">Insumos</option>
             </Select>
-            <Select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+            <Select aria-label="Filtrar resumen por estado de stock" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
               <option value="ALL">Todos los estados</option>
               <option value="LOW">Bajo</option>
               <option value="CRITICAL">Crítico</option>
@@ -353,12 +452,17 @@ export default function InventoryPage() {
             <span className="text-right">Mínimo</span>
             <span className="text-right">Estado</span>
           </div>
-          <div className="hide-scrollbar list-scroll-5-rows">
+          <div
+            className="hide-scrollbar list-scroll-5-rows"
+            role="region"
+            aria-label="Resumen de existencias"
+            tabIndex={0}
+          >
             {stock.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="m-3 h-16 rounded-2xl" />) : null}
             {!stock.isLoading && !filteredItems.length ? (
               <EmptyState title="Nada con ese filtro" description="Probá con otra búsqueda o ajustá los filtros." />
             ) : null}
-            {!stock.isLoading && filteredItems.length ? filteredItems.map((item: any) => (
+            {!stock.isLoading && filteredItems.length ? filteredItems.map((item) => (
               <div key={item.id} className="border-b border-stone-100 px-4 py-4 text-sm">
                 {/* Mobile: card layout */}
                 <div className="md:hidden space-y-2">
@@ -399,7 +503,7 @@ export default function InventoryPage() {
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">Conteo rápido</h2>
               <p className="mt-1 text-[13px] leading-6 text-stone-500">Contá y ajustá el stock real contra el sistema.</p>
             </div>
-            <Select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
+            <Select aria-label="Alcance del conteo de inventario" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
               <option value="CRITICAL">Críticos</option>
               <option value="ALL">Todo</option>
               <option value="PRODUCTS">Solo productos</option>
@@ -413,7 +517,7 @@ export default function InventoryPage() {
           </div>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-3 pr-1">
             {stockCountPreview.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
-            {(stockCountPreview.data?.items ?? []).map((item: any) => (
+            {(stockCountPreview.data?.items ?? []).map((item) => (
               <div key={item.id} className="grid gap-3 rounded-[1.35rem] border border-stone-200 bg-stone-50 px-4 py-4 md:grid-cols-[1fr_0.5fr_0.5fr]">
                 <div>
                   <p className="font-medium text-ink">{item.name}</p>
@@ -448,7 +552,12 @@ export default function InventoryPage() {
               <Badge tone="default">{stockCounts.data?.length ?? 0}</Badge>
             </div>
           </div>
-          <div className="hide-scrollbar list-scroll-5-compact space-y-3 px-4 py-4 pr-3">
+          <div
+            className="hide-scrollbar list-scroll-5-compact space-y-3 px-4 py-4 pr-3"
+            role="region"
+            aria-label="Historial de conteos de inventario"
+            tabIndex={0}
+          >
             {stockCounts.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
             {!stockCounts.isLoading && stockCounts.data?.length ? stockCounts.data.map((session) => (
               <div key={session.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 px-4 py-4">
@@ -473,7 +582,7 @@ export default function InventoryPage() {
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
             <Input value={movementSearch} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Buscar movimiento" />
-            <Select value={movementType} onChange={(event) => setMovementType(event.target.value)}>
+            <Select aria-label="Filtrar movimientos por tipo" value={movementType} onChange={(event) => setMovementType(event.target.value)}>
               <option value="ALL">Todos</option>
               <option value="PURCHASE">Compra</option>
               <option value="SALE">Venta</option>
@@ -483,7 +592,12 @@ export default function InventoryPage() {
               <option value="INTERNAL_USE">Uso interno</option>
             </Select>
           </div>
-          <div className="hide-scrollbar list-scroll-5-rows mt-4 overflow-auto rounded-[1.35rem] border border-stone-200">
+          <div
+            className="hide-scrollbar list-scroll-5-rows mt-4 overflow-auto rounded-[1.35rem] border border-stone-200"
+            role="region"
+            aria-label="Movimientos de inventario"
+            tabIndex={0}
+          >
             <div className="hidden min-w-[760px] grid-cols-[1.2fr_0.7fr_0.7fr_0.8fr] gap-4 border-b border-stone-100 bg-stone-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500 md:grid">
               <span>Item</span>
               <span>Cantidad / saldo</span>
@@ -550,9 +664,14 @@ export default function InventoryPage() {
               <Badge tone="default">{reorderSuggestions.data?.alerts?.length ?? 0}</Badge>
             </div>
           </div>
-          <div className="hide-scrollbar list-scroll-5-compact space-y-2 px-4 py-4 pr-3">
+          <div
+            className="hide-scrollbar list-scroll-5-compact space-y-2 px-4 py-4 pr-3"
+            role="region"
+            aria-label="Compra sugerida de inventario"
+            tabIndex={0}
+          >
             {reorderSuggestions.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
-            {(reorderSuggestions.data?.alerts ?? []).map((item: any) => (
+            {(reorderSuggestions.data?.alerts ?? []).map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
                 href={`/inventory?edit=${item.id}&itemType=${item.itemType ?? 'PRODUCT'}`}
@@ -630,7 +749,7 @@ async function invalidateInventory(queryClient: ReturnType<typeof useQueryClient
   ]);
 }
 
-function getMovementTone(type: string): { tone: 'success' | 'danger' | 'warning' | 'neutral'; border: string } {
+function getMovementTone(type: InventoryMovementType): { tone: 'success' | 'danger' | 'warning' | 'neutral'; border: string } {
   switch (type) {
     case 'PURCHASE':
     case 'INITIAL':

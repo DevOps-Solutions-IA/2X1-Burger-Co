@@ -5,9 +5,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PaymentProviderFactory } from './payments/payment-provider.factory';
+import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
+import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 
 type PublicPaymentMethod = 'ONLINE' | 'NEQUI_MANUAL' | 'CASH';
-type OperatorPaymentStatus = 'PAID' | 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED';
+type OperatorPaymentStatus = 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED';
 
 type SofiaPaymentItem = {
   code: string;
@@ -27,6 +29,8 @@ export class SofiaPaymentLinkService {
     private readonly auditService: AuditService,
     private readonly realtimeService: RealtimeService,
     private readonly paymentProviderFactory: PaymentProviderFactory,
+    private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
+    private readonly privacyService: SofiaPrivacyService,
   ) {}
 
   private toNumber(value: Prisma.Decimal | number | string | null | undefined) {
@@ -51,7 +55,10 @@ export class SofiaPaymentLinkService {
     });
   }
 
-  private buildAvailablePaymentMethods(settings: Awaited<ReturnType<SofiaPaymentLinkService['getOrCreatePaymentSettings']>>) {
+  private buildAvailablePaymentMethods(
+    settings: Awaited<ReturnType<SofiaPaymentLinkService['getOrCreatePaymentSettings']>>,
+    productiveActionsAllowed = false,
+  ) {
     return [
       {
         method: 'ONLINE' as const,
@@ -62,6 +69,7 @@ export class SofiaPaymentLinkService {
             : 'Pago online provider-ready.'
           : 'Pago en línea aún no disponible. Puedes elegir efectivo o Nequi.',
         enabled:
+          productiveActionsAllowed &&
           settings.onlinePaymentsEnabled &&
           ((settings.onlinePaymentProvider === 'MOCK' && settings.mockOnlinePaymentsEnabled && process.env.NODE_ENV !== 'production') ||
             (settings.onlinePaymentProvider === 'BOLD' && settings.boldEnabled)),
@@ -72,7 +80,7 @@ export class SofiaPaymentLinkService {
         description: settings.nequiManualPhone
           ? 'Transferencia manual pendiente de verificación por operador.'
           : 'Nequi no está configurado todavía.',
-        enabled: settings.nequiManualEnabled && Boolean(settings.nequiManualPhone),
+        enabled: productiveActionsAllowed && settings.nequiManualEnabled && Boolean(settings.nequiManualPhone),
         phone: settings.nequiManualPhone,
         holderName: settings.nequiManualHolderName,
         instructionsText: settings.paymentInstructionsText,
@@ -81,7 +89,7 @@ export class SofiaPaymentLinkService {
         method: 'CASH' as const,
         label: 'Pago en efectivo',
         description: 'Pago contra entrega. El operador recauda al entregar.',
-        enabled: settings.cashEnabled,
+        enabled: productiveActionsAllowed && settings.cashEnabled,
       },
     ];
   }
@@ -241,10 +249,21 @@ export class SofiaPaymentLinkService {
       paymentLinkTtlMinutes?: number;
       onlinePaymentExpiresMinutes?: number;
       prepareOnlineOrdersBeforePaid?: boolean;
-      autoMarkPaidFromWebhook?: boolean;
     },
     actorId: string,
   ) {
+    if (dto.onlinePaymentsEnabled === true || dto.boldEnabled === true) {
+      const gate = await this.runtimeSafetyService.evaluate('PRODUCTIVE_ACTION');
+      if (!gate.allowed) {
+        await this.runtimeSafetyService.recordBlocked('PRODUCTIVE_ACTION', {
+          actorId,
+          reason: gate.reason,
+          blockers: gate.blockers,
+          idempotencyKey: 'sofia-payment-settings-enable',
+        });
+        throw new BadRequestException('Los pagos externos no pueden habilitarse mientras producción está bloqueada.');
+      }
+    }
     const updated = await this.prisma.sofiaPaymentSettings.upsert({
       where: { id: DEFAULT_SETTINGS_ID },
       update: {
@@ -269,7 +288,6 @@ export class SofiaPaymentLinkService {
         ...(dto.paymentLinkTtlMinutes != null ? { paymentLinkTtlMinutes: dto.paymentLinkTtlMinutes } : {}),
         ...(dto.onlinePaymentExpiresMinutes != null ? { onlinePaymentExpiresMinutes: dto.onlinePaymentExpiresMinutes } : {}),
         ...(dto.prepareOnlineOrdersBeforePaid != null ? { prepareOnlineOrdersBeforePaid: dto.prepareOnlineOrdersBeforePaid } : {}),
-        ...(dto.autoMarkPaidFromWebhook != null ? { autoMarkPaidFromWebhook: dto.autoMarkPaidFromWebhook } : {}),
       },
       create: {
         id: DEFAULT_SETTINGS_ID,
@@ -282,13 +300,13 @@ export class SofiaPaymentLinkService {
         manualPaymentRequiresOperator: dto.manualPaymentRequiresOperator ?? true,
         paymentInstructionsText: dto.paymentInstructionsText?.trim() || null,
         onlinePaymentsEnabled: dto.onlinePaymentsEnabled ?? false,
-        onlinePaymentProvider: dto.onlinePaymentProvider ?? 'MOCK',
-        mockOnlinePaymentsEnabled: dto.mockOnlinePaymentsEnabled ?? true,
+        onlinePaymentProvider: dto.onlinePaymentProvider ?? 'NONE',
+        mockOnlinePaymentsEnabled: dto.mockOnlinePaymentsEnabled ?? false,
         boldEnabled: dto.boldEnabled ?? false,
         paymentLinkTtlMinutes: dto.paymentLinkTtlMinutes ?? 1440,
         onlinePaymentExpiresMinutes: dto.onlinePaymentExpiresMinutes ?? 20,
         prepareOnlineOrdersBeforePaid: dto.prepareOnlineOrdersBeforePaid ?? false,
-        autoMarkPaidFromWebhook: dto.autoMarkPaidFromWebhook ?? true,
+        autoMarkPaidFromWebhook: false,
       },
     });
 
@@ -313,6 +331,18 @@ export class SofiaPaymentLinkService {
   }
 
   async generateOperationalLink(orderTicketId: string, actorId: string) {
+    const gate = await this.runtimeSafetyService.evaluate('PRODUCTIVE_ACTION');
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('PRODUCTIVE_ACTION', {
+        actorId,
+        reason: gate.reason,
+        blockers: gate.blockers,
+        idempotencyKey: `payment-link:${orderTicketId}`,
+      });
+      throw new BadRequestException(
+        'Los links de pago están bloqueados mientras Sofía no esté habilitada para producción.',
+      );
+    }
     const order = await this.findSofiaDeliveryOrderByOrderTicket(orderTicketId);
     const deliveryOrder = order.whatsappDeliveryOrder;
     if (!deliveryOrder) {
@@ -413,13 +443,16 @@ export class SofiaPaymentLinkService {
       };
     }
 
-    const settings = await this.getOrCreatePaymentSettings();
+    const [settings, safetyState] = await Promise.all([
+      this.getOrCreatePaymentSettings(),
+      this.runtimeSafetyService.getState(),
+    ]);
+    const productiveActionsAllowed: boolean = safetyState.effective.productionEnabled;
 
     return {
       expired: false,
       orderReference: deliveryOrder.orderReference,
       customerName: deliveryOrder.customerNameSnapshot,
-      customerPhone: deliveryOrder.customerPhoneSnapshot,
       deliveryAddress: deliveryOrder.deliveryAddressSnapshot,
       deliveryNeighborhood: deliveryOrder.deliveryNeighborhoodSnapshot,
       items: this.parseItemsSnapshot(deliveryOrder.itemsSnapshot),
@@ -435,15 +468,28 @@ export class SofiaPaymentLinkService {
       providerCheckoutUrl: deliveryOrder.providerCheckoutUrl,
       providerStatus: deliveryOrder.providerStatus,
       source: 'SOFIA',
-      availablePaymentMethods: this.buildAvailablePaymentMethods(settings),
+      availablePaymentMethods: this.buildAvailablePaymentMethods(settings, productiveActionsAllowed),
       expiresAt,
-      message: 'Revisa tu pedido y elige cómo quieres pagar.',
+      message: productiveActionsAllowed
+        ? 'Revisa tu pedido y elige cómo quieres pagar.'
+        : 'Consulta de pedido disponible. La selección de pago está bloqueada mientras producción está deshabilitada.',
     };
   }
 
   async selectPublicPaymentMethod(token: string, method: PublicPaymentMethod) {
     if (!['ONLINE', 'NEQUI_MANUAL', 'CASH'].includes(method)) {
       throw new BadRequestException('Método de pago no disponible.');
+    }
+
+    const gate = await this.runtimeSafetyService.evaluate('PRODUCTIVE_ACTION');
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('PRODUCTIVE_ACTION', {
+        reason: gate.reason,
+        blockers: gate.blockers,
+      });
+      throw new BadRequestException(
+        'La selección de pago está bloqueada mientras Sofía no esté habilitada para producción.',
+      );
     }
 
     const deliveryOrder = await this.prisma.whatsappDeliveryOrder.findUnique({
@@ -543,6 +589,15 @@ export class SofiaPaymentLinkService {
     }>,
     settings: Awaited<ReturnType<SofiaPaymentLinkService['getOrCreatePaymentSettings']>>,
   ) {
+    const gate = await this.runtimeSafetyService.evaluate('PRODUCTIVE_ACTION');
+    if (!gate.allowed) {
+      await this.runtimeSafetyService.recordBlocked('PRODUCTIVE_ACTION', {
+        reason: gate.reason,
+        blockers: gate.blockers,
+        idempotencyKey: `online-payment:${deliveryOrder.id}`,
+      });
+      throw new BadRequestException('El pago en línea está bloqueado mientras Sofía no esté habilitada para producción.');
+    }
     if (!deliveryOrder.orderReference) {
       throw new BadRequestException('Primero genera la referencia pública del pedido.');
     }
@@ -612,7 +667,7 @@ export class SofiaPaymentLinkService {
     input: { status: OperatorPaymentStatus; paymentMethod?: PublicPaymentMethod; message?: string },
     actorId: string,
   ) {
-    if (!['PAID', 'FAILED', 'MANUAL_REVIEW', 'CANCELLED'].includes(input.status)) {
+    if (!['FAILED', 'MANUAL_REVIEW', 'CANCELLED'].includes(input.status)) {
       throw new BadRequestException('Estado manual de pago no permitido.');
     }
 
@@ -625,7 +680,6 @@ export class SofiaPaymentLinkService {
     const nextStatus = input.status as WhatsappPaymentStatus;
     const paymentMethod = input.paymentMethod ?? (deliveryOrder.paymentMethod as PublicPaymentMethod | null) ?? null;
     const previousStatus = deliveryOrder.paymentStatus;
-    const now = new Date();
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const saved = await tx.whatsappDeliveryOrder.update({
@@ -633,12 +687,6 @@ export class SofiaPaymentLinkService {
         data: {
           paymentStatus: nextStatus,
           paymentMethod,
-          ...(nextStatus === WhatsappPaymentStatus.PAID
-            ? {
-                manuallyVerifiedAt: now,
-                manuallyVerifiedById: actorId,
-              }
-            : {}),
         },
       });
 
@@ -647,9 +695,7 @@ export class SofiaPaymentLinkService {
         orderTicketId,
         actorId,
         eventType:
-          nextStatus === WhatsappPaymentStatus.PAID
-            ? 'OPERATOR_MARKED_PAID'
-            : nextStatus === WhatsappPaymentStatus.FAILED
+          nextStatus === WhatsappPaymentStatus.FAILED
               ? 'OPERATOR_MARKED_FAILED'
               : nextStatus === WhatsappPaymentStatus.MANUAL_REVIEW
                 ? 'OPERATOR_SENT_MANUAL_REVIEW'
@@ -696,23 +742,11 @@ export class SofiaPaymentLinkService {
     providerName: string,
     rawPayload: unknown,
     headers: Record<string, string | string[] | undefined>,
+    rawBody?: Buffer,
   ) {
     const provider = this.paymentProviderFactory.resolve(providerName.toUpperCase());
     const parsed = provider.parseWebhook(rawPayload, headers);
-    const signatureValid = provider.verifyWebhookSignature(rawPayload, headers);
-
-    if (parsed.eventId) {
-      const existing = await this.prisma.paymentWebhookEvent.findUnique({
-        where: { eventId: parsed.eventId },
-      });
-      if (existing) {
-        return {
-          processedStatus: 'DUPLICATE_IGNORED',
-          paymentStatus: null,
-          eventId: parsed.eventId,
-        };
-      }
-    }
+    const signatureValid = provider.verifyWebhookSignature(rawPayload, headers, rawBody);
 
     const lookupClauses = [
       ...(parsed.orderReference ? [{ orderReference: parsed.orderReference }] : []),
@@ -721,7 +755,10 @@ export class SofiaPaymentLinkService {
     ];
     const deliveryOrder = lookupClauses.length
       ? await this.prisma.whatsappDeliveryOrder.findFirst({
-          where: { OR: lookupClauses },
+          where: {
+            onlinePaymentProvider: provider.provider,
+            OR: lookupClauses,
+          },
           include: {
             orderTicket: {
               select: {
@@ -736,7 +773,9 @@ export class SofiaPaymentLinkService {
 
     if (!signatureValid) {
       await this.recordWebhookOnly({
-        parsed,
+        // An unauthenticated event id must never reserve the provider's
+        // idempotency key and suppress a later valid webhook.
+        parsed: { ...parsed, eventId: null },
         provider: provider.provider,
         deliveryOrderId: deliveryOrder?.id,
         signatureValid,
@@ -752,11 +791,24 @@ export class SofiaPaymentLinkService {
             previousStatus: deliveryOrder.paymentStatus,
             newStatus: deliveryOrder.paymentStatus,
             message: 'Webhook rechazado por firma inválida.',
-            metadata: parsed.rawPayload as Prisma.InputJsonValue,
+            metadata: this.privacyService.sanitizeJson(parsed.rawPayload) as Prisma.InputJsonValue,
           }),
         );
       }
       return { processedStatus: 'SIGNATURE_INVALID', paymentStatus: deliveryOrder?.paymentStatus ?? null };
+    }
+
+    if (parsed.eventId) {
+      const existing = await this.prisma.paymentWebhookEvent.findUnique({
+        where: { eventId: parsed.eventId },
+      });
+      if (existing) {
+        return {
+          processedStatus: 'DUPLICATE_IGNORED',
+          paymentStatus: null,
+          eventId: parsed.eventId,
+        };
+      }
     }
 
     if (!deliveryOrder) {
@@ -772,7 +824,12 @@ export class SofiaPaymentLinkService {
     const expectedAmount = this.toNumber(deliveryOrder.total);
     const amountMatches = parsed.amount != null && parsed.amount === expectedAmount;
     const currencyMatches = parsed.currency === 'COP';
-    let nextStatus = provider.mapProviderStatus(parsed.status);
+    let nextStatus =
+      parsed.status === 'APPROVED' || parsed.status === 'REVIEW'
+        ? WhatsappPaymentStatus.MANUAL_REVIEW
+        : parsed.status === 'FAILED'
+          ? WhatsappPaymentStatus.FAILED
+          : WhatsappPaymentStatus.PENDING_ONLINE_PAYMENT;
     let processedStatus = 'PROCESSED';
     let eventType = 'WEBHOOK_RECEIVED';
     let message = 'Webhook recibido y procesado.';
@@ -784,18 +841,15 @@ export class SofiaPaymentLinkService {
       message = !amountMatches
         ? 'Webhook enviado a revisión por diferencia de monto.'
         : 'Webhook enviado a revisión por moneda inválida.';
-    } else if (deliveryOrder.paymentStatus === WhatsappPaymentStatus.PAID && nextStatus === WhatsappPaymentStatus.PAID) {
-      processedStatus = 'DUPLICATE_PAID_IGNORED';
-      eventType = 'WEBHOOK_DUPLICATE_IGNORED';
-      message = 'Webhook PAID duplicado ignorado por idempotencia.';
+    } else if (parsed.status === 'APPROVED') {
+      processedStatus = 'PROVIDER_APPROVAL_REQUIRES_RECONCILIATION';
+      eventType = 'WEBHOOK_APPROVAL_REQUIRES_RECONCILIATION';
+      message = 'Webhook firmado aprobado; conciliación financiera requerida fuera de Sofía.';
     } else if (deliveryOrder.paymentStatus === WhatsappPaymentStatus.PAID && nextStatus === WhatsappPaymentStatus.FAILED) {
       nextStatus = WhatsappPaymentStatus.MANUAL_REVIEW;
       processedStatus = 'FAILED_AFTER_PAID_REVIEW';
       eventType = 'WEBHOOK_MARKED_REVIEW';
       message = 'Webhook fallido posterior a pago aprobado enviado a revisión manual.';
-    } else if (nextStatus === WhatsappPaymentStatus.PAID) {
-      eventType = 'WEBHOOK_MARKED_PAID';
-      message = 'Webhook válido marcó el pago online como pagado.';
     } else if (nextStatus === WhatsappPaymentStatus.FAILED) {
       eventType = 'WEBHOOK_MARKED_FAILED';
       message = 'Webhook válido marcó el pago online como fallido.';
@@ -821,36 +875,26 @@ export class SofiaPaymentLinkService {
           currency: parsed.currency,
           signatureValid,
           processedStatus,
-          rawPayload: parsed.rawPayload as Prisma.InputJsonValue,
+          rawPayload: this.privacyService.sanitizeJson(parsed.rawPayload) as Prisma.InputJsonValue,
           processedAt: now,
         },
       });
 
-      const shouldUpdateStatus = processedStatus !== 'DUPLICATE_PAID_IGNORED';
-      const saved = shouldUpdateStatus
-        ? await tx.whatsappDeliveryOrder.update({
-            where: { id: deliveryOrder.id },
-            data: {
-              paymentMethod: 'ONLINE',
-              paymentStatus: nextStatus,
-              onlinePaymentProvider: provider.provider,
-              providerPaymentId: parsed.providerPaymentId ?? deliveryOrder.providerPaymentId,
-              providerReference: parsed.providerReference ?? deliveryOrder.providerReference,
-              providerStatus: parsed.status,
-              webhookLastEventAt: now,
-              webhookEventCount: { increment: 1 },
-              ...(nextStatus === WhatsappPaymentStatus.PAID ? { onlinePaymentPaidAt: now } : {}),
-              ...(nextStatus === WhatsappPaymentStatus.FAILED ? { paymentFailureReason: message } : {}),
-              ...(nextStatus === WhatsappPaymentStatus.MANUAL_REVIEW ? { paymentReviewReason: message } : {}),
-            },
-          })
-        : await tx.whatsappDeliveryOrder.update({
-            where: { id: deliveryOrder.id },
-            data: {
-              webhookLastEventAt: now,
-              webhookEventCount: { increment: 1 },
-            },
-          });
+      const saved = await tx.whatsappDeliveryOrder.update({
+        where: { id: deliveryOrder.id },
+        data: {
+          paymentMethod: 'ONLINE',
+          paymentStatus: nextStatus,
+          onlinePaymentProvider: provider.provider,
+          providerPaymentId: parsed.providerPaymentId ?? deliveryOrder.providerPaymentId,
+          providerReference: parsed.providerReference ?? deliveryOrder.providerReference,
+          providerStatus: parsed.status,
+          webhookLastEventAt: now,
+          webhookEventCount: { increment: 1 },
+          ...(nextStatus === WhatsappPaymentStatus.FAILED ? { paymentFailureReason: message } : {}),
+          ...(nextStatus === WhatsappPaymentStatus.MANUAL_REVIEW ? { paymentReviewReason: message } : {}),
+        },
+      });
 
       await this.createPaymentEvent(tx, {
         whatsappDeliveryOrderId: deliveryOrder.id,
@@ -911,7 +955,7 @@ export class SofiaPaymentLinkService {
         currency: input.parsed.currency,
         signatureValid: input.signatureValid,
         processedStatus: input.processedStatus,
-        rawPayload: input.parsed.rawPayload as Prisma.InputJsonValue,
+        rawPayload: this.privacyService.sanitizeJson(input.parsed.rawPayload) as Prisma.InputJsonValue,
         processedAt: new Date(),
       },
     });
