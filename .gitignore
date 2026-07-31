@@ -56,3 +56,7 @@ Thumbs.db
 
 # Test artifacts
 test-results/
+
+# Python generated files
+__pycache__/
+*.py[cod]
