@@ -1,16 +1,27 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import {
   Prisma,
-  ProductKind,
   SofiaOrderSource,
-  SofiaOrderDraftStatus,
-  WhatsappConversationStatus,
   WhatsappMessageDirection,
   WhatsappMessageType,
 } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import {
+  CATALOG_READ_SERVICE,
+  ORDER_CREATION_SERVICE,
+  ORDER_DRAFT_SERVICE,
+  PRODUCT_AVAILABILITY_SERVICE,
+  RECIPE_AVAILABILITY_SERVICE,
+  type CatalogProductDto,
+  type CatalogReadService,
+  type OrderCreationService,
+  type OrderDraftDto,
+  type OrderDraftService,
+  type ProductAvailabilityService,
+  type RecipeAvailabilityService,
+  type SofiaActorContext,
+} from '../../application/contracts/sofia-domain-contracts';
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAutoSafeEngineService } from './auto-safe/sofia-auto-safe-engine.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
@@ -24,8 +35,8 @@ import { SofiaCustomerMemoryService } from './memory/sofia-customer-memory.servi
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { getActiveSofiaFeaturedOffers, SofiaFeaturedOffer } from './sofia-featured-offers';
-import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaService } from './sofia.service';
+import { SofiaAgentRepository } from './repositories/sofia-agent.repository';
 
 type SofiaIntent =
   | 'GREETING'
@@ -57,26 +68,7 @@ type AgentItem = {
   categoryName?: string | null;
 };
 
-type ActiveProduct = {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  imageUrl: string | null;
-  kind: ProductKind;
-  salePrice: Prisma.Decimal;
-  trackStock: boolean;
-  currentStock: Prisma.Decimal;
-  category: { name: string; slug: string } | null;
-  recipes: Array<{
-    yieldQuantity: Prisma.Decimal;
-    items: Array<{
-      quantity: Prisma.Decimal;
-      wastePercent: Prisma.Decimal;
-      ingredient: { currentStock: Prisma.Decimal; isActive: boolean };
-    }>;
-  }>;
-};
+type ActiveProduct = CatalogProductDto & { available: boolean };
 
 type SofiaUpsell = {
   productId: string;
@@ -103,9 +95,13 @@ type HeaderMap = Record<string, string | string[] | undefined>;
 @Injectable()
 export class SofiaAgentService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly sofiaService: SofiaService,
-    private readonly paymentLinkService: SofiaPaymentLinkService,
+    private readonly repository: SofiaAgentRepository,
+    @Inject(CATALOG_READ_SERVICE) private readonly catalogRead: CatalogReadService,
+    @Inject(PRODUCT_AVAILABILITY_SERVICE) private readonly productAvailability: ProductAvailabilityService,
+    @Inject(RECIPE_AVAILABILITY_SERVICE) private readonly recipeAvailability: RecipeAvailabilityService,
+    @Inject(ORDER_DRAFT_SERVICE) private readonly orderDrafts: OrderDraftService,
+    @Inject(ORDER_CREATION_SERVICE) private readonly orderCreation: OrderCreationService,
     private readonly aiProviderFactory: SofiaAIProviderFactory,
     private readonly autoSafeEngine: SofiaAutoSafeEngineService,
     private readonly configService: ConfigService,
@@ -115,6 +111,10 @@ export class SofiaAgentService {
     private readonly conversationMemoryService: SofiaConversationMemoryService,
     private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
+
+  private actorContext(actorId: string, source: 'WHATSAPP' | 'SANDBOX'): SofiaActorContext {
+    return { actorId, roles: ['sofia-supervised'], source: source === 'WHATSAPP' ? 'SOFIA_WHATSAPP' : 'SOFIA_SANDBOX' };
+  }
 
   private normalizeText(value: string) {
     return value
@@ -226,36 +226,13 @@ export class SofiaAgentService {
   }
 
   private async activeProducts() {
-    return this.prisma.product.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        description: true,
-        imageUrl: true,
-        kind: true,
-        salePrice: true,
-        trackStock: true,
-        currentStock: true,
-        category: { select: { name: true, slug: true } },
-        recipes: {
-          where: { isActive: true },
-          take: 1,
-          select: {
-            yieldQuantity: true,
-            items: {
-              select: {
-                quantity: true,
-                wastePercent: true,
-                ingredient: { select: { currentStock: true, isActive: true } },
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ kind: 'asc' }, { name: 'asc' }],
-    });
+    const products = await this.catalogRead.listActive();
+    return Promise.all(products.map(async (product) => {
+      const availability = product.kind === 'PREPARED'
+        ? await this.recipeAvailability.check({ productId: product.id, quantity: 1 })
+        : await this.productAvailability.check({ productId: product.id, quantity: 1 });
+      return { ...product, available: availability.available };
+    }));
   }
 
   private isDrink(product: Pick<ActiveProduct, 'name' | 'category'>) {
@@ -264,22 +241,7 @@ export class SofiaAgentService {
   }
 
   private isAvailable(product: ActiveProduct, quantity = 1) {
-    if (product.kind === ProductKind.DIRECT_STOCK && product.trackStock) {
-      return Number(product.currentStock) >= quantity;
-    }
-    if (product.kind === ProductKind.PREPARED && product.trackStock) {
-      const recipe = product.recipes[0];
-      if (!recipe?.items.length || Number(recipe.yieldQuantity) <= 0) return false;
-      return recipe.items.every((item) => {
-        if (!item.ingredient.isActive) return false;
-        const required = new Prisma.Decimal(quantity)
-          .mul(item.quantity)
-          .div(recipe.yieldQuantity)
-          .mul(new Prisma.Decimal(1).add(item.wastePercent.div(100)));
-        return item.ingredient.currentStock.greaterThanOrEqualTo(required);
-      });
-    }
-    return true;
+    return quantity > 0 && product.available;
   }
 
   private matchProducts(normalized: string, products: ActiveProduct[]) {
@@ -307,7 +269,7 @@ export class SofiaAgentService {
   }
 
   private toAgentItem(product: ActiveProduct, quantity: number): AgentItem {
-    const unitPrice = Number(product.salePrice);
+    const unitPrice = product.persistedPrice;
     return {
       productId: product.id,
       code: product.code,
@@ -415,7 +377,7 @@ export class SofiaAgentService {
     return {
       productId: drink.id,
       name: drink.name,
-      price: Number(drink.salePrice),
+      price: drink.persistedPrice,
       message: `Te puedo recomendar agregar ${drink.name} para completar el pedido. ¿La agrego?`,
     };
   }
@@ -565,10 +527,7 @@ export class SofiaAgentService {
       this.customerMemoryService.resolveOrCreateMemory(initialPhone, dto.customerName ?? conversation.customerName),
     ]);
     if (conversation.customerId && customerMemoryRecord.customerId !== conversation.customerId) {
-      await this.prisma.sofiaCustomerMemory.update({
-        where: { id: customerMemoryRecord.id },
-        data: { customerId: conversation.customerId },
-      });
+      await this.repository.linkCustomerMemory(customerMemoryRecord.id, conversation.customerId);
     }
     const customerMemory = this.customerMemoryService.toSnapshot(customerMemoryRecord);
     const repeatLastOrder = this.isRepeatLastOrderRequest(normalized)
@@ -576,8 +535,7 @@ export class SofiaAgentService {
       : null;
 
     if (recordInbound) {
-      await this.prisma.whatsappMessage.create({
-        data: {
+      await this.repository.createMessage({
           conversationId: conversation.id,
           direction: WhatsappMessageDirection.INBOUND,
           type: dto.messageType === 'AUDIO_TRANSCRIPT' ? WhatsappMessageType.AUDIO : WhatsappMessageType.TEXT,
@@ -591,7 +549,6 @@ export class SofiaAgentService {
             noWhatsappReal: true,
             transcriptConfidence,
           },
-        },
       });
     }
 
@@ -602,14 +559,7 @@ export class SofiaAgentService {
     const quantity = this.quantityFromText(normalized);
     const extractedItems = matchedProducts.map((product) => this.toAgentItem(product, quantity));
 
-    const activeDraft = await this.prisma.sofiaOrderDraft.findFirst({
-      where: {
-        conversationId: conversation.id,
-        status: { in: [SofiaOrderDraftStatus.DRAFT, SofiaOrderDraftStatus.NEEDS_INFO, SofiaOrderDraftStatus.READY_TO_CONFIRM] },
-      },
-      orderBy: { updatedAt: 'desc' },
-      include: { deliveryOrder: true },
-    });
+    const activeDraft = await this.repository.findActiveDraft(conversation.id);
 
     const explicitFeaturedOffer = this.findFeaturedOffer(normalized);
     const availableOfferSnapshots = this.catalogService.toAvailableOfferSnapshots(commercialCatalog);
@@ -660,7 +610,7 @@ export class SofiaAgentService {
           id: product.id,
           code: product.code,
           name: product.name,
-          price: Number(product.salePrice),
+          price: product.persistedPrice,
           available: this.isAvailable(product),
           categoryName: product.category?.name ?? null,
         })),
@@ -689,7 +639,7 @@ export class SofiaAgentService {
     const effectiveConfidence = safeAi.mode !== 'disabled' && !safeAi.fallbackUsed ? safeAi.confidence : classified.confidence;
     const aiSuggestedReply = safeAi.mode !== 'disabled' ? safeAi.suggestedReply : null;
 
-    let draft = activeDraft;
+    let draft: Awaited<ReturnType<SofiaAgentRepository['findActiveDraft']>> | OrderDraftDto = activeDraft;
     if (nextItems.length || activeDraft) {
       const draftPayload = {
         customerName: customerName ?? undefined,
@@ -701,12 +651,12 @@ export class SofiaAgentService {
         items: nextItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
       };
       draft = activeDraft
-        ? await this.sofiaService.updateDraft(activeDraft.id, draftPayload, actorId)
-        : await this.sofiaService.createDraft({ ...draftPayload, conversationId: conversation.id }, actorId);
+        ? await this.orderDrafts.update(activeDraft.id, activeDraft.updatedAt.toISOString(), draftPayload, this.actorContext(actorId, options.source))
+        : await this.orderDrafts.create({ ...draftPayload, conversationId: conversation.id }, this.actorContext(actorId, options.source));
     }
 
-    let deliveryOrder: unknown = null;
-    let paymentLinkUrl: string | null = null;
+    const deliveryOrder: unknown = null;
+    const paymentLinkUrl: string | null = null;
     let confirmed = false;
     let productiveActionBlocked: string | null = null;
     const canConfirm = Boolean(classified.intent === 'CONFIRM_ORDER' && draft && !missingFields.length && !outsideHours);
@@ -725,16 +675,17 @@ export class SofiaAgentService {
           idempotencyKey: `sofia-draft-confirm:${draft.id}`,
         });
       } else {
-        const confirmedDraft = await this.sofiaService.confirmDraft(draft.id, actorId);
-        const createdDeliveryOrder = await this.sofiaService.createDeliveryOrderFromDraft(
-          confirmedDraft.id,
-          actorId,
-        );
-        deliveryOrder = createdDeliveryOrder;
-        const orderTicketId = createdDeliveryOrder.orderTicketId;
-        if (orderTicketId) {
-          const link = await this.paymentLinkService.generateOperationalLink(orderTicketId, actorId);
-          paymentLinkUrl = link.publicPaymentUrl;
+        const expectedVersion = 'version' in draft ? String(draft.version) : draft.updatedAt.toISOString();
+        const confirmedDraft = await this.orderDrafts.confirm(draft.id, expectedVersion, this.actorContext(actorId, options.source));
+        try {
+          await this.orderCreation.createFromSofiaDraft({
+            draftId: confirmedDraft.id,
+            expectedDraftVersion: confirmedDraft.version,
+            idempotencyKey: `sofia-draft:${confirmedDraft.id}`,
+            actor: this.actorContext(actorId, options.source),
+          });
+        } catch {
+          productiveActionBlocked = 'SOFIA_ORDER_CREATION_BLOCKED';
         }
         await this.customerMemoryService.saveLastOrder({
           phone: customerPhone,
@@ -754,15 +705,12 @@ export class SofiaAgentService {
             currency: 'COP',
           },
         });
-        confirmed = true;
+        confirmed = false;
       }
     }
 
     if (handoff || aiWantsHandoff) {
-      await this.prisma.whatsappConversation.update({
-        where: { id: conversation.id },
-        data: { status: WhatsappConversationStatus.HUMAN_REQUIRED, sofiaEnabled: false },
-      });
+      await this.repository.requireHuman(conversation.id);
     }
 
     const responseText = this.buildResponse({
@@ -957,8 +905,7 @@ export class SofiaAgentService {
     };
 
     if (recordOutbound) {
-      await this.prisma.whatsappMessage.create({
-        data: {
+      await this.repository.createMessage({
           conversationId: conversation.id,
           direction: WhatsappMessageDirection.OUTBOUND,
           type: WhatsappMessageType.SYSTEM,
@@ -966,14 +913,10 @@ export class SofiaAgentService {
           aiIntent: effectiveIntent,
           confidence: effectiveConfidence,
           rawPayload: outboundPayload,
-        },
       });
     }
 
-    await this.prisma.whatsappConversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
-    });
+    await this.repository.touchConversation(conversation.id);
 
     return result;
   }
@@ -1018,17 +961,7 @@ export class SofiaAgentService {
   }
 
   async recoverAbandonedDraft(dto: RecoverSofiaAbandonedDraftDto) {
-    const draft = dto.draftId
-      ? await this.prisma.sofiaOrderDraft.findUnique({ where: { id: dto.draftId }, include: { conversation: true, deliveryOrder: true } })
-      : await this.prisma.sofiaOrderDraft.findFirst({
-          where: {
-            conversationId: dto.conversationId,
-            status: { in: [SofiaOrderDraftStatus.DRAFT, SofiaOrderDraftStatus.NEEDS_INFO, SofiaOrderDraftStatus.READY_TO_CONFIRM] },
-            deliveryOrder: null,
-          },
-          orderBy: { updatedAt: 'desc' },
-          include: { conversation: true, deliveryOrder: true },
-        });
+    const draft = await this.repository.findDraftForRecovery(dto);
 
     if (!draft) {
       return {

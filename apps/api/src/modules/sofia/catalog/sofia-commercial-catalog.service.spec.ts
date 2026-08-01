@@ -78,12 +78,30 @@ describe('SofiaCommercialCatalogService availability truth', () => {
   };
 
   let service: SofiaCommercialCatalogService;
+  const catalogRead = {
+    listActive: jest.fn(async () => {
+      const product = await prisma.product.findUnique();
+      if (!product || !product.isActive) return [];
+      return [{
+        ...product,
+        persistedPrice: Number(product.salePrice),
+        category: product.category ?? null,
+      }];
+    }),
+    getActiveById: jest.fn(),
+    findActive: jest.fn(async ({ name }: { name?: string }) => {
+      const product = await prisma.product.findFirst({ where: { name } });
+      return product && product.isActive
+        ? { ...product, persistedPrice: Number(product.salePrice), category: product.category ?? null }
+        : null;
+    }),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.sofiaCommercialCatalogItem.upsert.mockImplementation(({ create }: { create: unknown }) => create);
     prisma.product.findFirst.mockResolvedValue(null);
-    service = new SofiaCommercialCatalogService(prisma as never);
+    service = new SofiaCommercialCatalogService(prisma as never, catalogRead as never);
   });
 
   it('keeps an unlinked Maxi Family as policy-only with exact copy and no price', async () => {
@@ -131,7 +149,7 @@ describe('SofiaCommercialCatalogService availability truth', () => {
   });
 
   it.each([
-    [{ id: 'product-2x1', name: 'Hamburguesa 2x1', isActive: false, salePrice: new Prisma.Decimal(20000) }, 'LINKED_PRODUCT_INACTIVE'],
+    [{ id: 'product-2x1', name: 'Hamburguesa 2x1', isActive: false, salePrice: new Prisma.Decimal(20000) }, 'LINKED_PRODUCT_NOT_FOUND'],
     [{ id: 'product-2x1', name: 'Hamburguesa 2x1', isActive: true, salePrice: new Prisma.Decimal(0) }, 'PERSISTED_PRICE_NOT_POSITIVE'],
     [null, 'LINKED_PRODUCT_NOT_FOUND'],
   ])('fails closed when the linked product is not commercially valid', async (product, reason) => {
@@ -163,7 +181,7 @@ describe('SofiaCommercialCatalogService availability truth', () => {
 
 describe('SofiaCommercialCatalogService.toAvailableOfferSnapshots', () => {
   it('excludes configuration-only entries and additions from the AI offer snapshot', () => {
-    const service = new SofiaCommercialCatalogService({} as never);
+    const service = new SofiaCommercialCatalogService({} as never, {} as never);
     const available = snapshot({
       id: 'catalog-item-2',
       slug: '2x1-hamburguesas',

@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
-  ProductKind,
   SofiaCatalogItemStatus,
   SofiaCatalogItemType,
   SofiaCatalogPriceSource,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CATALOG_READ_SERVICE, type CatalogReadService } from '../../../application/contracts/sofia-domain-contracts';
 import {
   SOFIA_COMMERCIAL_CATALOG_SEED,
   SOFIA_MAXI_FAMILY_FORBIDDEN_CLAIMS,
@@ -21,7 +21,10 @@ import {
 
 @Injectable()
 export class SofiaCommercialCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CATALOG_READ_SERVICE) private readonly catalogRead: CatalogReadService,
+  ) {}
 
   async ensureSeedCatalog() {
     const results = [];
@@ -146,27 +149,14 @@ export class SofiaCommercialCatalogService {
   }
 
   async listAvailableBeverages() {
-    const products = await this.prisma.product.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        salePrice: true,
-        kind: true,
-        trackStock: true,
-        currentStock: true,
-        category: { select: { name: true, slug: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
+    const products = await this.catalogRead.listActive();
 
     return products
       .filter((product) => this.isDrink(product))
-      .filter((product) => product.kind !== ProductKind.DIRECT_STOCK || !product.trackStock || Number(product.currentStock) > 0)
       .map((product) => ({
         id: product.id,
         name: product.name,
-        price: Number(product.salePrice),
+        price: product.persistedPrice,
       }));
   }
 
@@ -179,13 +169,7 @@ export class SofiaCommercialCatalogService {
   }
 
   private async findLinkedProduct(linkedProductName: string) {
-    return this.prisma.product.findFirst({
-      where: {
-        isActive: true,
-        name: { equals: linkedProductName, mode: 'insensitive' },
-      },
-      select: { id: true },
-    });
+    return this.catalogRead.findActive({ name: linkedProductName });
   }
 
   private async toSnapshot(item: {
@@ -206,19 +190,14 @@ export class SofiaCommercialCatalogService {
     sortOrder: number;
   }): Promise<SofiaCommercialCatalogItemSnapshot> {
     const product = item.linkedProductId
-      ? await this.prisma.product.findUnique({
-          where: { id: item.linkedProductId },
-          select: { id: true, name: true, salePrice: true, isActive: true },
-        })
+      ? (await this.catalogRead.listActive()).find((candidate) => candidate.id === item.linkedProductId) ?? null
       : null;
-    const persistedPrice = product ? Number(product.salePrice) : null;
+    const persistedPrice = product?.persistedPrice ?? null;
     const availabilityReason: SofiaCommercialCatalogAvailabilityReason = !item.linkedProductId
       ? 'PRODUCT_LINK_MISSING'
       : !product
         ? 'LINKED_PRODUCT_NOT_FOUND'
-        : !product.isActive
-          ? 'LINKED_PRODUCT_INACTIVE'
-          : persistedPrice === null || !Number.isFinite(persistedPrice) || persistedPrice <= 0
+        : persistedPrice === null || !Number.isFinite(persistedPrice) || persistedPrice <= 0
             ? 'PERSISTED_PRICE_NOT_POSITIVE'
             : 'ACTIVE_PRODUCT_WITH_PERSISTED_PRICE';
     const available = availabilityReason === 'ACTIVE_PRODUCT_WITH_PERSISTED_PRICE';

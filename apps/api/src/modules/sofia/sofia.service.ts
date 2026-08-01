@@ -1,16 +1,16 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
   SofiaOrderDraftStatus,
   SofiaOrderSource,
-  WhatsappConversationStatus,
   WhatsappDeliveryOrderStatus,
+  WhatsappConversationStatus,
   WhatsappMessageDirection,
   WhatsappMessageType,
-  WhatsappPaymentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CATALOG_READ_SERVICE, type CatalogReadService } from '../../application/contracts/sofia-domain-contracts';
 import { AuditService } from '../audit/audit.service';
 import {
   CreateMockConversationDto,
@@ -81,6 +81,7 @@ export class SofiaService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
+    @Inject(CATALOG_READ_SERVICE) private readonly catalogRead: CatalogReadService,
   ) {}
 
   private normalizePhone(phone: string) {
@@ -147,23 +148,10 @@ export class SofiaService {
     const snapshots: SofiaItemSnapshot[] = [];
 
     for (const item of items) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: item.productId },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          salePrice: true,
-          isActive: true,
-        },
-      });
-
-      if (!product || !product.isActive) {
-        throw new BadRequestException('Uno de los productos no está disponible para Sofía.');
-      }
+      const product = await this.catalogRead.getActiveById(item.productId);
 
       const quantity = Number(item.quantity);
-      const unitPrice = Number(product.salePrice);
+      const unitPrice = product.persistedPrice;
       snapshots.push({
         productId: product.id,
         code: product.code,
@@ -992,58 +980,19 @@ export class SofiaService {
   }
 
   async createDeliveryOrderFromDraft(draftId: string, actorId: string) {
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV === 'production') {
       throw new ForbiddenException({ code: 'SOFIA_PROD_DELIVERY_ORDER_CREATION_FORBIDDEN' });
     }
-    const draft = await this.findDraft(draftId);
-    if (draft.status !== SofiaOrderDraftStatus.CONFIRMED) {
-      throw new BadRequestException('Primero confirma el borrador Sofía.');
-    }
-    if (draft.deliveryOrder) {
-      return this.findDeliveryOrder(draft.deliveryOrder.id);
-    }
-
-    const items = this.readItemsSnapshot(draft.itemsSnapshot);
-    if (!items.length) {
-      throw new BadRequestException('El borrador no tiene productos.');
-    }
-
-    const created = await this.prisma.$transaction(async (tx) =>
-      tx.whatsappDeliveryOrder.create({
-        data: {
-          conversationId: draft.conversationId,
-          orderDraftId: draft.id,
-          orderTicketId: null,
-          status: WhatsappDeliveryOrderStatus.CONFIRMED,
-          paymentStatus: WhatsappPaymentStatus.UNSELECTED,
-          customerNameSnapshot: draft.customerName,
-          customerPhoneSnapshot: draft.customerPhone,
-          deliveryAddressSnapshot: draft.deliveryAddress,
-          deliveryNeighborhoodSnapshot: draft.deliveryNeighborhood,
-          itemsSnapshot: draft.itemsSnapshot as Prisma.InputJsonValue,
-          subtotal: draft.subtotal,
-          deliveryFee: draft.deliveryFee,
-          total: draft.total,
-          source: draft.source,
-          createdByAgentNameSnapshot: 'Sofía',
-        },
-      }),
-    );
-
     await this.auditService.log({
       userId: actorId,
-      action: 'SOFIA_DELIVERY_ORDER_CREATE',
+      action: 'SOFIA_ORDER_CREATION_BLOCKED',
       module: 'sofia',
-      entity: 'whatsapp_delivery_order',
-      entityId: created.id,
-      newValues: {
-        source: created.source,
-        paymentStatus: created.paymentStatus,
-        orderTicketId: created.orderTicketId,
-      },
+      entity: 'sofia_order_draft',
+      entityId: draftId,
+      result: 'BLOCKED',
+      reasonCode: 'SOFIA_ORDER_CREATION_BLOCKED',
     });
-
-    return this.findDeliveryOrder(created.id);
+    throw new ForbiddenException({ code: 'SOFIA_ORDER_CREATION_BLOCKED' });
   }
 
   async updateDeliveryOrderStatus(id: string, status: WhatsappDeliveryOrderStatus, actorId: string) {

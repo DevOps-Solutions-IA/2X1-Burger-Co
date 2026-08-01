@@ -1,4 +1,11 @@
 import { Module } from '@nestjs/common';
+import { DomainContractsModule } from '../../application/domain-contracts.module';
+import {
+  CUSTOMER_RESOLUTION_SERVICE,
+  ORDER_CREATION_SERVICE,
+  ORDER_DRAFT_SERVICE,
+  PAYMENT_READ_SERVICE,
+} from '../../application/contracts/sofia-domain-contracts';
 import { DeepSeekAIProvider } from './ai/deepseek-ai.provider';
 import { NullAIProvider } from './ai/null-ai.provider';
 import { RulesAIProvider } from './ai/rules-ai.provider';
@@ -10,6 +17,13 @@ import { SofiaBackupsService } from './backups/sofia-backups.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
 import { SofiaCrmController } from './crm/sofia-crm.controller';
 import { SofiaCrmService } from './crm/sofia-crm.service';
+import {
+  BlockedSofiaOrderCreationAdapter,
+  SofiaCustomerResolutionAdapter,
+  SofiaOrderDraftAdapter,
+  SofiaPaymentReadAdapter,
+} from './contracts/sofia-contract.adapters';
+import { SofiaAgentRepository } from './repositories/sofia-agent.repository';
 import { SofiaGovernanceService } from './governance/sofia-governance.service';
 import { SofiaReadinessService } from './governance/sofia-readiness.service';
 import { SofiaHardeningService } from './hardening/sofia-hardening.service';
@@ -45,7 +59,7 @@ import { SofiaWhatsappQrGatewayService } from './whatsapp/qr-gateway/sofia-whats
 import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
 
 @Module({
-  imports: [SofiaAutoSafeModule],
+  imports: [SofiaAutoSafeModule, DomainContractsModule],
   controllers: [
     SofiaController,
     SofiaPublicPaymentsController,
@@ -94,6 +108,15 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaRuntimeSafetyService,
     SofiaTestOnlyGuard,
     SofiaCrmService,
+    SofiaAgentRepository,
+    SofiaOrderDraftAdapter,
+    BlockedSofiaOrderCreationAdapter,
+    SofiaCustomerResolutionAdapter,
+    SofiaPaymentReadAdapter,
+    { provide: ORDER_DRAFT_SERVICE, useExisting: SofiaOrderDraftAdapter },
+    { provide: ORDER_CREATION_SERVICE, useExisting: BlockedSofiaOrderCreationAdapter },
+    { provide: CUSTOMER_RESOLUTION_SERVICE, useExisting: SofiaCustomerResolutionAdapter },
+    { provide: PAYMENT_READ_SERVICE, useExisting: SofiaPaymentReadAdapter },
   ],
   exports: [
     SofiaService,

@@ -5,7 +5,6 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/types/auth-user.type';
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAlertsService } from './alerts/sofia-alerts.service';
@@ -68,7 +67,6 @@ export class SofiaController {
     private readonly alertsService: SofiaAlertsService,
     private readonly backupsService: SofiaBackupsService,
     private readonly hardeningService: SofiaHardeningService,
-    private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
   ) {}
