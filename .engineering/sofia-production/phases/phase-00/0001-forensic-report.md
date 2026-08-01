@@ -50,7 +50,19 @@ checksums match the repository. Three later migrations are genuinely pending.
 6. An isolated file-drift simulation proved `prisma migrate deploy` can apply
    pending migrations without changing the historical checksum.
 
+## Owner Checksum Attestation
+
+On 2026-08-01, the owner explicitly accepted `FILE_ONLY_DRIFT` for
+`0001_initial` based on the structural equivalence at the 29-migration
+frontier. The attestation preserves both historical checksums as immutable
+evidence. It does not authorize editing the migration file, writing directly to
+`_prisma_migrations`, using `prisma migrate resolve`, or deploying pending
+migrations.
+
+**Checksum attestation: `PASS`.**
+
 ## Decision
 
-Owner review is required. The safe proposal preserves the production checksum
-and does not rewrite `_prisma_migrations`.
+The accepted safe proposal preserves the production checksum and does not
+rewrite `_prisma_migrations`. Production migration deployment remains subject
+to separate owner authorization.
