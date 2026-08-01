@@ -34,9 +34,6 @@ export type { SofiaRiskBannerTone, SofiaRiskBannerProps } from './SofiaRiskBanne
 export { SofiaConversationCard } from './SofiaConversationCard';
 export type { SofiaConversationCardScope, SofiaConversationCardProps } from './SofiaConversationCard';
 
-export { SofiaSandboxCaseCard } from './SofiaSandboxCaseCard';
-export type { SofiaSandboxCaseResult, SofiaSandboxCaseCardProps } from './SofiaSandboxCaseCard';
-
 export { SofiaLiveStatusDot } from './SofiaLiveStatusDot';
 export type { SofiaLiveStatusDotProps } from './SofiaLiveStatusDot';
 

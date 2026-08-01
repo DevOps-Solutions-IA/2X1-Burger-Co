@@ -15,7 +15,6 @@ import {
   Play,
   Radio,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetchSchema } from '@/lib/api';
@@ -255,13 +254,6 @@ export default function SofiaMainDashboardPage() {
               <MessageCircle className="h-3.5 w-3.5" />
               Conversaciones
             </Link>
-            <Link
-              href={data.routes.sandboxUrl}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-xs font-extrabold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Sandbox
-            </Link>
           </>
         }
         data-testid="sofia-main-real-data-hero"
@@ -438,7 +430,6 @@ export default function SofiaMainDashboardPage() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-navigation">
         <SofiaCommandCard href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'} label="WhatsApp QR" description="Estado Baileys receive-only" icon={Radio} />
         <SofiaCommandCard href={data.routes.conversationsUrl} label="Conversaciones" description="Inbox supervisado" icon={MessageCircle} />
-        <SofiaCommandCard href={data.routes.sandboxUrl} label="Sandbox" description="Laboratorio separado" icon={Sparkles} />
         <SofiaCommandCard href={data.routes.posUrl} label="POS" description="Operación real separada" icon={Database} />
       </section>
 

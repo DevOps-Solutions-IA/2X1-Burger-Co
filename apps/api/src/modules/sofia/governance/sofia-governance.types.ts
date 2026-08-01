@@ -104,7 +104,7 @@ export type SofiaEnterpriseStatusResponse = {
     cashProtected: boolean;
   };
   routes: {
-    sandboxUrl: string;
+    sandboxUrl: null;
     conversationsUrl: string;
     whatsappQrUrl?: string;
     deliveriesUrl: string;
