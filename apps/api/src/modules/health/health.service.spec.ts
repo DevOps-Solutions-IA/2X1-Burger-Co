@@ -26,6 +26,7 @@ describe('HealthService', () => {
     getEnvironment: jest.fn().mockReturnValue('test'),
     getSchemaMigrationCount: jest.fn().mockReturnValue(30),
     getMigrationInventory: jest.fn().mockReturnValue(inventory),
+    getMigrationAttestations: jest.fn().mockReturnValue([]),
     getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
   } as unknown as ReleaseMetadataService;
 
@@ -47,6 +48,7 @@ describe('HealthService', () => {
       getEnvironment: jest.fn().mockReturnValue('test'),
       getSchemaMigrationCount: jest.fn().mockReturnValue(29),
       getMigrationInventory: jest.fn().mockReturnValue(testInventory),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
       getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
     } as unknown as ReleaseMetadataService;
     const service = new HealthService(prisma, observability, release, config);
@@ -81,6 +83,7 @@ describe('HealthService', () => {
       getEnvironment: jest.fn().mockReturnValue('staging'),
       getSchemaMigrationCount: jest.fn().mockReturnValue(null),
       getMigrationInventory: jest.fn().mockReturnValue([]),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
       getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
     } as unknown as ReleaseMetadataService;
     const prisma = {
@@ -114,6 +117,7 @@ describe('HealthService', () => {
       getEnvironment: jest.fn().mockReturnValue('staging'),
       getSchemaMigrationCount: jest.fn().mockReturnValue(30),
       getMigrationInventory: jest.fn().mockReturnValue(inventory),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
       getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
     } as unknown as ReleaseMetadataService;
     const rows = appliedRows(inventory);
@@ -130,6 +134,7 @@ describe('HealthService', () => {
       getEnvironment: jest.fn().mockReturnValue('staging'),
       getSchemaMigrationCount: jest.fn().mockReturnValue(30),
       getMigrationInventory: jest.fn().mockReturnValue(inventory),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
       getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
     } as unknown as ReleaseMetadataService;
     const prisma = { $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)) } as unknown as PrismaService;
@@ -145,6 +150,7 @@ describe('HealthService', () => {
       getEnvironment: jest.fn().mockReturnValue('staging'),
       getSchemaMigrationCount: jest.fn().mockReturnValue(30),
       getMigrationInventory: jest.fn().mockReturnValue(inventory),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
       getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
     } as unknown as ReleaseMetadataService;
     const unsafeConfig = {

@@ -28,6 +28,7 @@ const manifest = {
   migrationDigest: 'a'.repeat(64),
   schemaVersion: '20260701000000_example',
   migrationInventory: [{ name: '20260701000000_example', checksum: 'a'.repeat(64) }],
+  migrationAttestations: [],
   contractSuiteVersion: 'production-closure-v1',
   frontendBuildId: '0.1.0-a1b2c3d-1783900800',
   backendBuildId: '0.1.0-a1b2c3d-1783900800',
@@ -75,6 +76,26 @@ describe('release manifest contract', () => {
   it('rejects malformed commits and artifact digests', () => {
     expect(() => releaseManifestSchema.parse({ ...manifest, gitCommit: 'main' })).toThrow();
     expect(() => releaseManifestSchema.parse({ ...manifest, artifactDigest: 'latest' })).toThrow();
+  });
+
+  it('rejects malformed or generalized migration attestations', () => {
+    expect(() => releaseManifestSchema.parse({
+      ...manifest,
+      migrationAttestations: [{ migrationName: '0001_initial' }],
+    })).toThrow();
+    expect(() => releaseManifestSchema.parse({
+      ...manifest,
+      migrationAttestations: [{
+        migrationName: '0002_other',
+        repositoryChecksum: 'a'.repeat(64),
+        databaseChecksum: 'b'.repeat(64),
+        classification: 'FILE_ONLY_DRIFT',
+        forensicEvidenceCommit: 'c'.repeat(40),
+        verifiedFrontierMigrationCount: 29,
+        structuralDifferenceCount: 0,
+        ownerAuthorizationReference: 'arbitrary',
+      }],
+    })).toThrow();
   });
 
   it('rejects internally inconsistent schema and component identities', () => {
