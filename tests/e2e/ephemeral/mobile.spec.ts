@@ -20,6 +20,9 @@ test('mobile login and dashboard do not overflow horizontally', async ({ page })
     scrollWidth: document.documentElement.scrollWidth,
   }));
   expect(crmDimensions.scrollWidth).toBeLessThanOrEqual(crmDimensions.width + 1);
+  const searchButton = page.getByRole('button', { name: 'Buscar' });
+  await expect(searchButton).toBeEnabled();
+  await expect(searchButton).toHaveCSS('opacity', '1');
   await expectAccessiblePage(page);
   expect(browserErrors).toEqual([]);
 });
