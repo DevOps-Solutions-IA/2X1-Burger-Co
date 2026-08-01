@@ -6,6 +6,7 @@ import { RolesGuard } from '../../../../common/guards/roles.guard';
 import type { AuthUser } from '../../../../common/types/auth-user.type';
 import { SofiaWhatsappQrTestInboundDto, SofiaWhatsappQrTestSendDto } from '../../dto/sofia.dto';
 import { SofiaWhatsappQrGatewayService } from './sofia-whatsapp-qr-gateway.service';
+import { SofiaTestOnlyGuard } from '../../runtime-safety/sofia-test-only.guard';
 
 @Controller('admin/sofia/whatsapp/qr')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -39,6 +40,7 @@ export class SofiaWhatsappQrGatewayController {
   }
 
   @Post('test-inbound')
+  @UseGuards(SofiaTestOnlyGuard)
   testInbound(@Body() dto: SofiaWhatsappQrTestInboundDto) {
     return this.qrGatewayService.testInbound(dto);
   }
@@ -49,6 +51,7 @@ export class SofiaWhatsappQrGatewayController {
   }
 
   @Post('test-send')
+  @UseGuards(SofiaTestOnlyGuard)
   testSend(@Body() dto: SofiaWhatsappQrTestSendDto) {
     return this.qrGatewayService.testSend(dto);
   }

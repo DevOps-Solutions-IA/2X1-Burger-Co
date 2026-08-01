@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
@@ -992,6 +992,9 @@ export class SofiaService {
   }
 
   async createDeliveryOrderFromDraft(draftId: string, actorId: string) {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new ForbiddenException({ code: 'SOFIA_PROD_DELIVERY_ORDER_CREATION_FORBIDDEN' });
+    }
     const draft = await this.findDraft(draftId);
     if (draft.status !== SofiaOrderDraftStatus.CONFIRMED) {
       throw new BadRequestException('Primero confirma el borrador Sofía.');

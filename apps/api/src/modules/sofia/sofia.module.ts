@@ -27,6 +27,7 @@ import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
 import { SofiaAdminResponseSanitizerInterceptor } from './privacy/sofia-admin-response-sanitizer.interceptor';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
+import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaController } from './sofia.controller';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
@@ -91,6 +92,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaBackupsService,
     SofiaHardeningService,
     SofiaRuntimeSafetyService,
+    SofiaTestOnlyGuard,
     SofiaCrmService,
   ],
   exports: [

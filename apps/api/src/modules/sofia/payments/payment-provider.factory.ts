@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { SofiaPaymentSettings } from '@prisma/client';
 import { BoldPaymentProvider } from './bold-payment.provider';
 import { MockPaymentProvider } from './mock-payment.provider';
@@ -15,7 +15,10 @@ export class PaymentProviderFactory {
 
   resolve(provider: string | null | undefined): PaymentProviderAdapter {
     const normalized = String(provider ?? 'NONE').toUpperCase() as OnlinePaymentProvider;
-    if (normalized === 'MOCK') return this.mockPaymentProvider;
+    if (normalized === 'MOCK') {
+      this.assertMockAllowed();
+      return this.mockPaymentProvider;
+    }
     if (normalized === 'BOLD') return this.boldPaymentProvider;
     return this.nullPaymentProvider;
   }
@@ -29,5 +32,11 @@ export class PaymentProviderFactory {
       return this.boldPaymentProvider;
     }
     return this.nullPaymentProvider;
+  }
+
+  private assertMockAllowed() {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN' });
+    }
   }
 }

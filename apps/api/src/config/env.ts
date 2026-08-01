@@ -131,6 +131,29 @@ const envSchema = z
         path: ['JWT_REFRESH_SECRET'],
       });
     }
+    if (data.NODE_ENV === 'production') {
+      const reject = (path: keyof typeof data, reasonCode: string) => {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: reasonCode, path: [path] });
+      };
+      if (data.WHATSAPP_PROVIDER === 'mock') {
+        reject('WHATSAPP_PROVIDER', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN');
+      }
+      if (data.WHATSAPP_MODE === 'mock') {
+        reject('WHATSAPP_MODE', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN');
+      }
+      if (data.WHATSAPP_MODE === 'auto' || data.SOFIA_AUTO_REPLY_ENABLED) {
+        reject('SOFIA_AUTO_REPLY_ENABLED', 'SOFIA_PROD_AUTOMATIC_REPLY_FORBIDDEN');
+      }
+      if (data.SOFIA_AUTO_SAFE_ENABLED) {
+        reject('SOFIA_AUTO_SAFE_ENABLED', 'SOFIA_PROD_AUTO_SAFE_FORBIDDEN');
+      }
+      if (data.WHATSAPP_QR_ALLOW_REAL_SEND || data.SOFIA_QR_PILOT_REAL_SEND) {
+        reject('WHATSAPP_QR_ALLOW_REAL_SEND', 'SOFIA_PROD_REAL_SEND_FORBIDDEN');
+      }
+      if (data.SOFIA_PRODUCTION_ENABLED) {
+        reject('SOFIA_PRODUCTION_ENABLED', 'SOFIA_PROD_ACTIVATION_FORBIDDEN');
+      }
+    }
   });
 
 export type AppEnv = z.infer<typeof envSchema>;

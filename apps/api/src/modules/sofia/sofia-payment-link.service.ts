@@ -970,8 +970,8 @@ export class SofiaPaymentLinkService {
     currency?: string;
     eventId?: string;
   }) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new BadRequestException('Webhook mock no disponible en producción.');
+    if (process.env.NODE_ENV !== 'test') {
+      throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN' });
     }
     const payload = {
       eventId: input.eventId ?? `mock_evt_${randomBytes(8).toString('hex')}`,
