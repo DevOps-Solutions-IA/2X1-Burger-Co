@@ -52,3 +52,9 @@ The first PR run after the typecheck fix reached the previously skipped recovery
 The remediation makes sanitized runtime metadata container-readable (`0644`), verifies the manifest from the API image before database startup, wires each Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local artifact contract, generates a schema-valid incompatible migration fixture, runs the existing `test:e2e:core` setup with an explicit Prisma generation step, and uses portable `grep -E` checks in the dependency-free recovery job.
 
 Local core E2E result: PASS (contracts 12, RBAC 70, Playwright 3/3). Local isolated recovery result after portable runner checks: PASS (`RPO=0s`, `RTO=12.11s`). Both teardowns reported zero containers, volumes, and networks; recovery also confirmed cryptographic material removal.
+
+## PDF verification dependency
+
+The first complete downstream E2E execution reached the real PDF evidence checks after contracts (12/12) and RBAC (70/70) passed. It failed before the operational assertions because the clean GitHub runner did not provide the `gs` executable used by `core-operational-e2e.mjs` to render and inspect receipt PDFs.
+
+The workflow now installs Ghostscript explicitly in the ephemeral E2E job and prints only its version. The PDF checks remain unchanged and mandatory; no assertion, application behavior, timeout, retry, or test scope was weakened. In the same workflow attempt, the immutable artifact and isolated encrypted recovery jobs passed.
