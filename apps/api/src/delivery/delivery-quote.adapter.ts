@@ -28,4 +28,3 @@ export class AuthoritativeDeliveryQuoteAdapter implements DeliveryQuoteService {
     };
   }
 }
-

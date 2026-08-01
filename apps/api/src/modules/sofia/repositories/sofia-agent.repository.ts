@@ -44,4 +44,3 @@ export class SofiaAgentRepository {
     return this.prisma.whatsappConversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   }
 }
-
