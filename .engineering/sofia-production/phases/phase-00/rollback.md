@@ -13,7 +13,11 @@ The three deployed migrations are additive; this phase does not assert an automa
 
 - Previous API image available: `sha256:72c801dccb1b25fdec9a1fd31dec095721b785c7257034a56f90892ead1f2803`.
 - Previous web image available: `sha256:6cdd1844221f84ac4bcffc629a332f45374db71a27ea01206af7428ab5d12fe5`.
-- Candidate API health failed before promotion completed.
-- Compose rollback restored both previous images without changing PostgreSQL or migration state.
-- API/web/nginx/database health after rollback: PASS.
-- Candidate redeploy was not attempted because both root causes remain unresolved; this is a required NO-GO condition.
+- The earlier failed candidate was rolled back without changing PostgreSQL or migration state.
+- API/web/nginx/database health after that rollback: PASS.
+- Both blocker remediations were subsequently tested in an isolated canary and promoted as candidate `b8269f5f51fed784533bb535e4ffd6c38c0c5ae6`.
+- The retained previous image tags resolve to the recorded digests and the rollback Compose override validates successfully.
+- Production remains schema-compatible with both images at 32 migrations; no database rollback is required or authorized.
+- Any failed critical gate uses the retained images with `docker compose up -d --no-build api web nginx`, followed by API/web/Nginx/database health verification.
+
+Rollback readiness: PASS. No rollback was required for the remediated candidate.
