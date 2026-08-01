@@ -6,6 +6,16 @@ const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const RELEASE_MANIFEST_FILE_NAME = 'release-manifest.json';
 const MAX_RELEASE_MANIFEST_BYTES = 128 * 1024;
+const acceptedInitialMigrationAttestationSchema = z.object({
+  migrationName: z.literal('0001_initial'),
+  repositoryChecksum: z.literal('243a52df85ce3db511c692443b8e1ac385acf64ea1593a92826fe3ca9efa443d'),
+  databaseChecksum: z.literal('6bd1cbeb053d2ef72182258a85deedfd01e7f6a7be5add33667342db18893f87'),
+  classification: z.literal('FILE_ONLY_DRIFT'),
+  forensicEvidenceCommit: z.literal('aec3c0df6c7d963f54afa3e08b52d35761600199'),
+  verifiedFrontierMigrationCount: z.literal(29),
+  structuralDifferenceCount: z.literal(0),
+  ownerAuthorizationReference: z.literal('SOFIA_PHASE_0_FILE_ONLY_DRIFT_ACCEPTANCE_2026-08-01'),
+}).strict();
 
 export const releaseManifestSchema = z.object({
   releaseManifestVersion: z.literal(1),
@@ -29,6 +39,7 @@ export const releaseManifestSchema = z.object({
     name: z.string().regex(/^\d{4,14}_[a-z0-9_]+$/),
     checksum: sha256Schema,
   })).max(512),
+  migrationAttestations: z.array(acceptedInitialMigrationAttestationSchema).max(1),
   contractSuiteVersion: z.string().min(1).max(80),
   frontendBuildId: z.string().min(1).max(120),
   backendBuildId: z.string().min(1).max(120),
@@ -102,6 +113,7 @@ export function developmentReleaseManifest(): ReleaseManifest {
     migrationDigest: null,
     schemaVersion: null,
     migrationInventory: [],
+    migrationAttestations: [],
     contractSuiteVersion: 'development',
     frontendBuildId: 'development-untracked',
     backendBuildId: 'development-untracked',
