@@ -61,7 +61,7 @@ fi
 DB_NAME="${TARGET_DATABASE:-$PRODUCTION_DB}"
 validate_db_name "$DB_NAME"
 
-VALIDATION_PREFIX="${PRODUCTION_DB:0:24}_restore_validation"
+VALIDATION_PREFIX="${PRODUCTION_DB:0:16}_restore_validation"
 VALIDATION_DB="${VALIDATION_PREFIX}_$(date +%s)_$$_${RANDOM}"
 validate_db_name "$VALIDATION_DB"
 assert_validation_database_safe "$PRODUCTION_DB" "$VALIDATION_DB"
@@ -73,6 +73,15 @@ CONTAINER_BACKUP_PATH="/tmp/inventory-restore-$$_${RANDOM}.dump"
 VALIDATION_DB_CREATED="false"
 
 ensure_compose_service "$POSTGRES_SERVICE"
+
+database_exists() {
+  local database_name="$1"
+  validate_db_name "$database_name"
+  docker compose exec -T "$POSTGRES_SERVICE" env PGPASSWORD="$DB_PASSWORD" \
+    psql --username "$DB_USER" --dbname postgres --tuples-only --no-align \
+    --command 'SELECT datname FROM pg_database ORDER BY datname;' \
+    | awk -v expected="$database_name" '$0 == expected { found = 1 } END { print found ? 1 : 0 }'
+}
 
 cleanup_restore_validation() {
   local exit_status=$?
@@ -107,10 +116,7 @@ info "Validating backup archive structure"
 docker compose exec -T "$POSTGRES_SERVICE" env PGPASSWORD="$DB_PASSWORD" \
   pg_restore --list "$CONTAINER_BACKUP_PATH" >/dev/null
 
-VALIDATION_DB_EXISTS="$(docker compose exec -T "$POSTGRES_SERVICE" env PGPASSWORD="$DB_PASSWORD" \
-  psql --username "$DB_USER" --dbname postgres --tuples-only --no-align \
-  --set=validation_db="$VALIDATION_DB" \
-  --command "SELECT count(*) FROM pg_database WHERE datname = :'validation_db';")"
+VALIDATION_DB_EXISTS="$(database_exists "$VALIDATION_DB")"
 [[ "$VALIDATION_DB_EXISTS" == "0" ]] || fail "Generated validation database already exists."
 
 info "Creating isolated validation database"
@@ -155,10 +161,7 @@ fi
 [[ "${FORCE_RESTORE:-false}" == "true" ]] || fail "FORCE_RESTORE=true is required for a target restore."
 
 if [[ "${SKIP_BACKUP_BEFORE_RESTORE:-false}" != "true" ]]; then
-  TARGET_EXISTS="$(docker compose exec -T "$POSTGRES_SERVICE" env PGPASSWORD="$DB_PASSWORD" \
-    psql --username "$DB_USER" --dbname postgres --tuples-only --no-align \
-    --set=target_db="$DB_NAME" \
-    --command "SELECT count(*) FROM pg_database WHERE datname = :'target_db';")"
+  TARGET_EXISTS="$(database_exists "$DB_NAME")"
   if [[ "$TARGET_EXISTS" == "1" ]]; then
     info "Creating a safety backup of the target database before restore"
     TARGET_DATABASE_URL="$(database_url_for_database "$DATABASE_URL_RUNTIME" "$DB_NAME")"

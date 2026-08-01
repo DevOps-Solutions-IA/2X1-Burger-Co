@@ -125,6 +125,9 @@ test('successful encrypted validation removes the temporary database and plainte
   const log = readFileSync(harness.log, 'utf8');
   assert.match(log, /createdb .*_restore_validation_/u);
   assert.match(log, /dropdb .*_restore_validation_/u);
+  const validationDatabase = log.match(/createdb .* ([a-zA-Z0-9_]+_restore_validation_[a-zA-Z0-9_]+)/u)?.[1];
+  assert.ok(validationDatabase);
+  assert.ok(validationDatabase.length <= 63);
   assert.equal(existsSync(path.join(harness.directory, 'backup.dump')), false);
 });
 
