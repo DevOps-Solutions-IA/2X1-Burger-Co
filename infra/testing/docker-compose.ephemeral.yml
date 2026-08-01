@@ -102,17 +102,12 @@ services:
       PORT: 3001
       RELEASE_MANIFEST_PATH: /app/release-manifest.json
       RELEASE_ARTIFACT_DIGEST: ${EPHEMERAL_WEB_DIGEST:?required}
+      INTERNAL_API_URL: http://ephemeral-api:3000
       NEXT_PUBLIC_API_URL: http://127.0.0.1:${EPHEMERAL_API_PORT:?required}
     ports:
       - "127.0.0.1:${EPHEMERAL_WEB_PORT:?required}:3001"
     volumes:
       - ${EPHEMERAL_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/login >/dev/null || exit 1"]
-      interval: 2s
-      timeout: 3s
-      retries: 40
-      start_period: 5s
 
 volumes:
   ephemeral_db:

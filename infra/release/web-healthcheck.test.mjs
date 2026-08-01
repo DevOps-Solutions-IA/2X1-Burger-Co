@@ -46,9 +46,14 @@ test('production and canary compose use the validated API service endpoint and i
   }
 });
 
-test('recovery web uses its verified internal API service endpoint', () => {
-  const source = readFileSync(path.join(root, 'infra/recovery/docker-compose.recovery.yml'), 'utf8');
-  assert.match(source, /INTERNAL_API_URL:\s+http:\/\/restore-api:3000/u);
-  assert.doesNotMatch(source, /INTERNAL_API_URL:\s+http:\/\/localhost:/u);
-  assert.doesNotMatch(source, /wget -qO- http:\/\/localhost:3001\/login/u);
+test('isolated web runtimes use their verified internal API service endpoints', () => {
+  for (const [relative, endpoint] of [
+    ['infra/recovery/docker-compose.recovery.yml', 'restore-api'],
+    ['infra/testing/docker-compose.ephemeral.yml', 'ephemeral-api'],
+  ]) {
+    const source = readFileSync(path.join(root, relative), 'utf8');
+    assert.match(source, new RegExp(`INTERNAL_API_URL:\\s+http:\\/\\/${endpoint}:3000`, 'u'));
+    assert.doesNotMatch(source, /INTERNAL_API_URL:\s+http:\/\/localhost:/u);
+    assert.doesNotMatch(source, /wget -qO- http:\/\/localhost:3001\/login/u);
+  }
 });

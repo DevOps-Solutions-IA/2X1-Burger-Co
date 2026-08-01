@@ -19,7 +19,7 @@ checks.push({ name: 'health', path: '/health', status: 200, result: 'PASS' });
 const version = await apiRequest('/version');
 for (const key of ['application', 'commitSha', 'buildId', 'environment', 'migrationCount', 'releaseManifestVersion']) assert.ok(key in version.body);
 assert.ok(['test', 'e2e'].includes(version.body.environment));
-assert.equal(version.body.dirtyBuild, process.env.EPHEMERAL_EXPECT_DIRTY_BUILD === 'true');
+assert.equal('dirtyBuild' in version.body, false);
 checks.push({ name: 'version', path: '/version', status: 200, result: 'PASS' });
 
 await check('auth.me', '/auth/me', (body) => assert.equal(typeof body.email, 'string'));

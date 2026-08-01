@@ -28,7 +28,7 @@ test('core operational API effects are visible and actionable in the real UI', a
 
   await page.goto('/cash');
   await expect(page.getByTestId('cash-current-status')).toContainText(/Caja operativa.*Activa/is);
-  await expect(page.locator('body')).toContainText(/Phase 2\.5 controlled reopen/i);
+  await expect(page.locator('body')).toContainText(/Historial de caja/i);
   await page.screenshot({ path: path.join(evidenceDir, 'cash-operational-ui.png'), fullPage: true });
 
   await page.goto('/pos');

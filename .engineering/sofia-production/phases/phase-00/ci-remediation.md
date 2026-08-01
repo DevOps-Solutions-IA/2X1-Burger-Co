@@ -45,7 +45,8 @@ The first PR run after the typecheck fix reached the previously skipped recovery
 - `restore-web` did not receive its verified internal endpoint (`http://restore-api:3000`) and overrode the image healthcheck with the obsolete localhost login probe.
 - The restore smoke expected the intentionally omitted public `dirtyBuild` field.
 - The migration mismatch fixture no longer satisfied the strict manifest schema and expected the superseded generic reason code.
+- The E2E workflow invoked the lightweight business fixture while running Playwright assertions that require the repository's core operational fixture.
 
-The remediation makes the sanitized manifest container-readable (`0644`), verifies it from the API image before database startup, wires the Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local artifact record, and generates a schema-valid incompatible migration fixture.
+The remediation makes sanitized runtime metadata container-readable (`0644`), verifies the manifest from the API image before database startup, wires each Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local/Web artifact contract, generates a schema-valid incompatible migration fixture, and runs the existing `test:e2e:core` setup for the core UI suite.
 
-Local isolated recovery result: PASS (`RPO=0s`, `RTO=11.923s`). Teardown reported zero containers, volumes, and networks, with cryptographic material removed.
+Local core E2E result: PASS (contracts 12, RBAC 70, Playwright 3/3). Local isolated recovery result: PASS (`RPO=0s`, `RTO=11.872s`). Both teardowns reported zero containers, volumes, and networks; recovery also confirmed cryptographic material removal.

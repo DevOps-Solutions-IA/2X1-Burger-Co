@@ -118,7 +118,8 @@ RECOVERY_INVENTORY_PASSWORD=Inventory-E2E-2300!
 RECOVERY_WAITER_PASSWORD=Waiter-E2E-2300!
 RECOVERY_DELIVERY_PASSWORD=Delivery-E2E-2300!
 EOF
-chmod 600 "$ENV_FILE" "$STATUS_FILE"
+chmod 600 "$ENV_FILE"
+chmod 644 "$STATUS_FILE"
 
 export EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" COMPOSE_PROJECT_NAME="$PROJECT"
 export EPHEMERAL_DB_PORT="$SOURCE_DB_PORT" DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public"
@@ -188,7 +189,7 @@ NODE
 cat >"$STATUS_FILE" <<EOF
 {"status":"PASS","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","checksumVerified":true,"restoreVerified":true}
 EOF
-chmod 600 "$STATUS_FILE"
+chmod 644 "$STATUS_FILE"
 
 wait_url() {
   local url="$1"
