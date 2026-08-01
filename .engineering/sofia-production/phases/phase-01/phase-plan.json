@@ -1,0 +1,10 @@
+{
+  "phase": "PHASE-01",
+  "name": "Domain Contracts and Authoritative Services",
+  "status": "PLANNED",
+  "implementationStarted": false,
+  "baseSha": "6119b7a6d1c84948840a2603d8650126f2933f5d",
+  "productionMigrations": "32/32",
+  "phase0Dependency": "PASS",
+  "phase2Authorized": false
+}
