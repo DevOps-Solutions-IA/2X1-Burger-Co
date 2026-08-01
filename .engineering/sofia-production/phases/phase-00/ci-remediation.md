@@ -58,3 +58,7 @@ Local core E2E result: PASS (contracts 12, RBAC 70, Playwright 3/3). Local isola
 The first complete downstream E2E execution reached the real PDF evidence checks after contracts (12/12) and RBAC (70/70) passed. It failed before the operational assertions because the clean GitHub runner did not provide the `gs` executable used by `core-operational-e2e.mjs` to render and inspect receipt PDFs.
 
 The workflow now installs Ghostscript explicitly in the ephemeral E2E job and prints only its version. The PDF checks remain unchanged and mandatory; no assertion, application behavior, timeout, retry, or test scope was weakened. In the same workflow attempt, the immutable artifact and isolated encrypted recovery jobs passed.
+
+After Ghostscript was available, E2E completed contracts (12/12), RBAC (70/70), PDF verification, and the complete operational API flow. The mobile accessibility scan then exposed a synchronization race: the CRM search request had completed and removed `disabled`, but the button's 150 ms opacity transition had not reached its stable value. Axe measured the interpolated colors (`#707070` on `#ffc77a`, 3.23:1) instead of the stable black-on-orange control.
+
+The mobile test now waits on two observable conditions before the unchanged WCAG A/AA scan: the search button is enabled and its computed opacity is exactly `1`. This adds no sleep, retry, exclusion, or accessibility waiver and does not change runtime UI code.
