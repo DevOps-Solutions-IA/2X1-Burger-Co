@@ -46,7 +46,9 @@ The first PR run after the typecheck fix reached the previously skipped recovery
 - The restore smoke expected the intentionally omitted public `dirtyBuild` field.
 - The migration mismatch fixture no longer satisfied the strict manifest schema and expected the superseded generic reason code.
 - The E2E workflow invoked the lightweight business fixture while running Playwright assertions that require the repository's core operational fixture.
+- The recovery job used undeclared `rg` after its runtime smoke, but the clean GitHub runner does not provide ripgrep.
+- The E2E job enabled host-side core tests without generating Prisma after its frozen install skipped package build scripts.
 
-The remediation makes sanitized runtime metadata container-readable (`0644`), verifies the manifest from the API image before database startup, wires each Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local/Web artifact contract, generates a schema-valid incompatible migration fixture, and runs the existing `test:e2e:core` setup for the core UI suite.
+The remediation makes sanitized runtime metadata container-readable (`0644`), verifies the manifest from the API image before database startup, wires each Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local artifact contract, generates a schema-valid incompatible migration fixture, runs the existing `test:e2e:core` setup with an explicit Prisma generation step, and uses portable `grep -E` checks in the dependency-free recovery job.
 
-Local core E2E result: PASS (contracts 12, RBAC 70, Playwright 3/3). Local isolated recovery result: PASS (`RPO=0s`, `RTO=11.872s`). Both teardowns reported zero containers, volumes, and networks; recovery also confirmed cryptographic material removal.
+Local core E2E result: PASS (contracts 12, RBAC 70, Playwright 3/3). Local isolated recovery result after portable runner checks: PASS (`RPO=0s`, `RTO=12.11s`). Both teardowns reported zero containers, volumes, and networks; recovery also confirmed cryptographic material removal.

@@ -237,8 +237,8 @@ AUTH_TOKEN="$(curl -fsS -H 'Content-Type: application/json' \
 
 curl -fsS -H 'traceparent: 00-11111111111111111111111111111111-2222222222222222-01' \
   "http://127.0.0.1:$API_PORT/health/live" -D "$EVIDENCE_DIR/trace-headers.txt" -o /dev/null
-rg -qi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-headers.txt"
-rg -qi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
+grep -Eqi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-headers.txt"
+grep -Eqi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
 
 "${compose[@]}" stop restore-db >"$EVIDENCE_DIR/failure-db-stop.log" 2>&1
 LIVE_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-live.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/live")"
@@ -285,9 +285,9 @@ docker rm -f "$MISMATCH_CONTAINER" >/dev/null
 MISMATCH_CONTAINER=""
 
 "${compose[@]}" logs --no-color restore-api >"$EVIDENCE_DIR/api-structured.log" 2>&1
-rg -q '"requestId"' "$EVIDENCE_DIR/api-structured.log"
-rg -q '"traceId"' "$EVIDENCE_DIR/api-structured.log"
-if rg -n 'Authorization:|Bearer |refresh_token=|data:image|qrString|DEEPSEEK_API_KEY=' "$EVIDENCE_DIR/api-structured.log"; then
+grep -Eq '"requestId"' "$EVIDENCE_DIR/api-structured.log"
+grep -Eq '"traceId"' "$EVIDENCE_DIR/api-structured.log"
+if grep -En 'Authorization:|Bearer |refresh_token=|data:image|qrString|DEEPSEEK_API_KEY=' "$EVIDENCE_DIR/api-structured.log"; then
   printf '[error] sensitive log pattern detected\n' >&2
   exit 8
 fi
