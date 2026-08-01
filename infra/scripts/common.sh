@@ -78,6 +78,24 @@ database_url_for_database() {
   " "$database_url" "$database_name"
 }
 
+validate_db_name() {
+  local database_name="$1"
+  [[ "$database_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]+$ ]] \
+    || fail "Invalid database name."
+}
+
+assert_validation_database_safe() {
+  local production_database="$1"
+  local validation_database="$2"
+
+  validate_db_name "$production_database"
+  validate_db_name "$validation_database"
+  [[ "$validation_database" != "$production_database" ]] \
+    || fail "Validation database must not be the production database."
+  [[ "$validation_database" == *_restore_validation_* ]] \
+    || fail "Validation database must use the protected restore-validation namespace."
+}
+
 validate_image_reference() {
   local image_reference="$1"
   [[ "$image_reference" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$ ]] \
