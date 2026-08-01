@@ -38,6 +38,7 @@ import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
 import { SofiaAdminResponseSanitizerInterceptor } from './privacy/sofia-admin-response-sanitizer.interceptor';
 import { SofiaRetentionService } from './retention/sofia-retention.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
+import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaService } from './sofia.service';
@@ -93,6 +94,7 @@ export class SofiaController {
   }
 
   @Post('sandbox/commercial-message')
+  @UseGuards(SofiaTestOnlyGuard)
   processCommercialSandbox(
     @Body() dto: ProcessSofiaAgentMessageDto,
     @CurrentUser() actor: AuthUser,
@@ -102,6 +104,7 @@ export class SofiaController {
   }
 
   @Post('sandbox/auto-safe-evaluate')
+  @UseGuards(SofiaTestOnlyGuard)
   async evaluateAutoSafe(
     @Body() dto: EvaluateSofiaAutoSafeDto,
     @CurrentUser() actor: AuthUser,
@@ -194,6 +197,7 @@ export class SofiaController {
   }
 
   @Post('ai/test')
+  @UseGuards(SofiaTestOnlyGuard)
   testAiProvider(
     @Body() dto: TestSofiaAiProviderDto,
     @CurrentUser() actor: AuthUser,
@@ -235,6 +239,7 @@ export class SofiaController {
   }
 
   @Post('agent/process')
+  @UseGuards(SofiaTestOnlyGuard)
   processAgentMessage(
     @Body() dto: ProcessSofiaAgentMessageDto,
     @CurrentUser() actor: AuthUser,
@@ -264,11 +269,13 @@ export class SofiaController {
   }
 
   @Post('conversations/mock-inbound')
+  @UseGuards(SofiaTestOnlyGuard)
   mockInbound(@Body() dto: CreateMockConversationDto, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.registerMockInbound(dto, actor.sub);
   }
 
   @Post('conversations/:id/mock-outbound')
+  @UseGuards(SofiaTestOnlyGuard)
   mockOutbound(
     @Param('id') id: string,
     @Body() dto: MockOutboundMessageDto,

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import {
@@ -518,6 +518,9 @@ export class SofiaAgentService {
     actorId: string,
     options: { recordInbound?: boolean; recordOutbound?: boolean; headers?: HeaderMap } = {},
   ) {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new NotFoundException({ code: 'SOFIA_TEST_ONLY_ROUTE_UNAVAILABLE' });
+    }
     return this.processMessage(dto, actorId, { ...options, source: 'SANDBOX' });
   }
 

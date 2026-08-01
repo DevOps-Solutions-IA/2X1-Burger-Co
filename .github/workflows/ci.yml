@@ -124,10 +124,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for isolated UI tests
         run: pnpm exec playwright install --with-deps chromium
+      - name: Install PDF verification runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ghostscript
+          gs --version
+      - name: Generate Prisma client for isolated core tests
+        run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
       - name: Ephemeral contracts, RBAC, business and UI E2E
         env:
           EPHEMERAL_BUILD_IF_MISSING: "true"
-        run: pnpm test:e2e:ephemeral
+        run: pnpm test:e2e:core
       - uses: actions/upload-artifact@v4
         if: always()
         with:

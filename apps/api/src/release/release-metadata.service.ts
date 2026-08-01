@@ -49,6 +49,10 @@ export class ReleaseMetadataService {
     return this.manifest.migrationInventory;
   }
 
+  getMigrationAttestations(): ReleaseManifest['migrationAttestations'] {
+    return this.manifest.migrationAttestations;
+  }
+
   getRequiredSafetyFlags(): ReleaseManifest['safetyFlags'] {
     return this.manifest.safetyFlags;
   }

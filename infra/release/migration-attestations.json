@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "attestations": [
+    {
+      "migrationName": "0001_initial",
+      "repositoryChecksum": "243a52df85ce3db511c692443b8e1ac385acf64ea1593a92826fe3ca9efa443d",
+      "databaseChecksum": "6bd1cbeb053d2ef72182258a85deedfd01e7f6a7be5add33667342db18893f87",
+      "classification": "FILE_ONLY_DRIFT",
+      "forensicEvidenceCommit": "aec3c0df6c7d963f54afa3e08b52d35761600199",
+      "verifiedFrontierMigrationCount": 29,
+      "structuralDifferenceCount": 0,
+      "ownerAuthorizationReference": "SOFIA_PHASE_0_FILE_ONLY_DRIFT_ACCEPTANCE_2026-08-01"
+    }
+  ]
+}

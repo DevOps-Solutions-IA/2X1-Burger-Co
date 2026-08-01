@@ -68,6 +68,10 @@ BUILD_ID="$(node -p "require('$ARTIFACT_RECORD').manifest.buildId")"
 EXPECTED_MIGRATION_COUNT="$(node infra/schema/migration-expectation.mjs --field count)"
 EXPECTED_DIRTY_BUILD="$(node -p "String(require('$ARTIFACT_RECORD').manifest.dirtyBuild)")"
 
+docker run --rm \
+  -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
+  "$API_IMAGE" node -e "require('node:fs').readFileSync('/app/release-manifest.json', 'utf8')" >/dev/null
+
 SOURCE_DB_PORT="$(allocate_port)"
 RESTORE_DB_PORT="$(allocate_port)"
 API_PORT="$(allocate_port)"
@@ -114,7 +118,8 @@ RECOVERY_INVENTORY_PASSWORD=Inventory-E2E-2300!
 RECOVERY_WAITER_PASSWORD=Waiter-E2E-2300!
 RECOVERY_DELIVERY_PASSWORD=Delivery-E2E-2300!
 EOF
-chmod 600 "$ENV_FILE" "$STATUS_FILE"
+chmod 600 "$ENV_FILE"
+chmod 644 "$STATUS_FILE"
 
 export EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" COMPOSE_PROJECT_NAME="$PROJECT"
 export EPHEMERAL_DB_PORT="$SOURCE_DB_PORT" DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public"
@@ -184,7 +189,7 @@ NODE
 cat >"$STATUS_FILE" <<EOF
 {"status":"PASS","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","checksumVerified":true,"restoreVerified":true}
 EOF
-chmod 600 "$STATUS_FILE"
+chmod 644 "$STATUS_FILE"
 
 wait_url() {
   local url="$1"
@@ -232,8 +237,8 @@ AUTH_TOKEN="$(curl -fsS -H 'Content-Type: application/json' \
 
 curl -fsS -H 'traceparent: 00-11111111111111111111111111111111-2222222222222222-01' \
   "http://127.0.0.1:$API_PORT/health/live" -D "$EVIDENCE_DIR/trace-headers.txt" -o /dev/null
-rg -qi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-headers.txt"
-rg -qi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
+grep -Eqi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-headers.txt"
+grep -Eqi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
 
 "${compose[@]}" stop restore-db >"$EVIDENCE_DIR/failure-db-stop.log" 2>&1
 LIVE_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-live.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/live")"
@@ -263,8 +268,11 @@ node - "$MANIFEST_FILE" "$MISMATCH_MANIFEST" <<'NODE'
 const fs = require('node:fs');
 const [source, output] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
-manifest.schemaMigrationCount += 1;
-fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+manifest.migrationInventory.pop();
+manifest.schemaMigrationCount = manifest.migrationInventory.length;
+manifest.migrationCount = manifest.schemaMigrationCount;
+manifest.schemaVersion = manifest.migrationInventory.at(-1).name;
+fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
 NODE
 "${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" \
   -v "$MISMATCH_MANIFEST:/app/release-manifest.json:ro" \
@@ -272,14 +280,14 @@ NODE
 wait_url "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/live"
 MISMATCH_CODE="$(curl -sS -o "$EVIDENCE_DIR/migration-mismatch-ready.json" -w '%{http_code}' "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/ready")"
 [[ "$MISMATCH_CODE" == 503 ]]
-jq -e '.reason == "MIGRATION_INCOMPATIBLE"' "$EVIDENCE_DIR/migration-mismatch-ready.json" >/dev/null
+jq -e '.reason == "MIGRATION_HISTORY_INCOMPATIBLE"' "$EVIDENCE_DIR/migration-mismatch-ready.json" >/dev/null
 docker rm -f "$MISMATCH_CONTAINER" >/dev/null
 MISMATCH_CONTAINER=""
 
 "${compose[@]}" logs --no-color restore-api >"$EVIDENCE_DIR/api-structured.log" 2>&1
-rg -q '"requestId"' "$EVIDENCE_DIR/api-structured.log"
-rg -q '"traceId"' "$EVIDENCE_DIR/api-structured.log"
-if rg -n 'Authorization:|Bearer |refresh_token=|data:image|qrString|DEEPSEEK_API_KEY=' "$EVIDENCE_DIR/api-structured.log"; then
+grep -Eq '"requestId"' "$EVIDENCE_DIR/api-structured.log"
+grep -Eq '"traceId"' "$EVIDENCE_DIR/api-structured.log"
+if grep -En 'Authorization:|Bearer |refresh_token=|data:image|qrString|DEEPSEEK_API_KEY=' "$EVIDENCE_DIR/api-structured.log"; then
   printf '[error] sensitive log pattern detected\n' >&2
   exit 8
 fi

@@ -18,8 +18,8 @@ export class MockPaymentProvider implements PaymentProviderAdapter {
   }
 
   private assertMockAllowed() {
-    if (process.env.NODE_ENV === 'production') {
-      throw new BadRequestException('MockPaymentProvider no está disponible en producción.');
+    if (process.env.NODE_ENV !== 'test') {
+      throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN' });
     }
   }
 

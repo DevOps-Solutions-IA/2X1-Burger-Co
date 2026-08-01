@@ -8,6 +8,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import type { AuthUser } from '../../common/types/auth-user.type';
 import { MockSofiaPaymentWebhookDto } from './dto/sofia.dto';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
+import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 
 @Controller('integrations/payments/webhook')
 @UseGuards(ThrottlerGuard)
@@ -27,7 +28,7 @@ export class SofiaPaymentWebhooksController {
 }
 
 @Controller('dev/sofia/payments')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, SofiaTestOnlyGuard)
 @Roles('admin', 'cashier', 'supervisor')
 export class SofiaDevPaymentsController {
   constructor(private readonly paymentLinkService: SofiaPaymentLinkService) {}

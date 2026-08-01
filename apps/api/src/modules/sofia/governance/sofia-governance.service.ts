@@ -203,7 +203,7 @@ export class SofiaGovernanceService {
         cashProtected: true,
       },
       routes: {
-        sandboxUrl: '/sofia/sandbox',
+        sandboxUrl: null,
         conversationsUrl: '/sofia/conversations',
         whatsappQrUrl: '/sofia/whatsapp-qr',
         deliveriesUrl: '/deliveries',

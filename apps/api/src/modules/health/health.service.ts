@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ObservabilityService } from './observability.service';
 import { ReleaseMetadataService } from '../../release/release-metadata.service';
+import { evaluateMigrationIdentity, type AppliedMigration } from './migration-identity';
 
 @Injectable()
 export class HealthService {
@@ -23,19 +24,9 @@ export class HealthService {
 
   async readiness() {
     const startedAt = performance.now();
-    let migrations: Array<{
-      migrationName: string;
-      checksum: string;
-      finished: boolean;
-      rolledBack: boolean;
-    }>;
+    let migrations: AppliedMigration[];
     try {
-      migrations = await this.prisma.$queryRaw<Array<{
-        migrationName: string;
-        checksum: string;
-        finished: boolean;
-        rolledBack: boolean;
-      }>>`
+      migrations = await this.prisma.$queryRaw<AppliedMigration[]>`
         SELECT
           migration_name AS "migrationName",
           checksum,
@@ -54,27 +45,21 @@ export class HealthService {
       });
     }
 
-    const appliedRows = migrations.filter((migration) => migration.finished && !migration.rolledBack);
-    const failed = migrations.filter((migration) => !migration.finished && !migration.rolledBack).length;
-    const applied = appliedRows.length;
     const expected = this.releaseMetadata.getSchemaMigrationCount();
     const expectedInventory = this.releaseMetadata.getMigrationInventory();
     const releaseRequiresExpectation = ['staging', 'production'].includes(this.releaseMetadata.getEnvironment());
-    const actualByName = new Map(appliedRows.map((migration) => [migration.migrationName, migration.checksum]));
-    const expectedByName = new Map(expectedInventory.map((migration) => [migration.name, migration.checksum]));
-    const exactMigrationIdentity =
-      expectedInventory.length > 0 &&
-      expectedInventory.length === appliedRows.length &&
-      expectedInventory.every((migration) => actualByName.get(migration.name) === migration.checksum) &&
-      appliedRows.every((migration) => expectedByName.has(migration.migrationName));
+    const migrationIdentity = evaluateMigrationIdentity(
+      migrations,
+      expectedInventory,
+      this.releaseMetadata.getMigrationAttestations(),
+    );
     const migrationCompatible =
-      failed === 0 &&
-      applied > 0 &&
+      migrationIdentity.compatible &&
+      migrationIdentity.appliedCount > 0 &&
       (!releaseRequiresExpectation || (expected !== null && expectedInventory.length > 0)) &&
-      (expected === null || applied === expected) &&
-      (!releaseRequiresExpectation || exactMigrationIdentity);
+      (expected === null || migrationIdentity.appliedCount === expected);
     if (!migrationCompatible) {
-      this.failReadiness('MIGRATION_INCOMPATIBLE', { api: 'ALIVE', database: 'READY', release: 'NOT_READY' });
+      this.failReadiness(migrationIdentity.status, { api: 'ALIVE', database: 'READY', release: 'NOT_READY' });
     }
 
     const requiredSafety = this.releaseMetadata.getRequiredSafetyFlags();
@@ -98,10 +83,14 @@ export class HealthService {
       services: { api: 'READY', database: 'READY', release: 'READY', safety: 'READY' },
       checks: {
         databaseLatencyMs: Math.round((performance.now() - startedAt) * 100) / 100,
-        appliedMigrations: applied,
+        appliedMigrations: migrationIdentity.appliedCount,
         expectedMigrations: expected,
         migrationCompatible,
-        migrationIdentityVerified: releaseRequiresExpectation ? exactMigrationIdentity : null,
+        migrationIdentityVerified: releaseRequiresExpectation ? migrationIdentity.compatible : null,
+        migrationIdentityExact: releaseRequiresExpectation ? migrationIdentity.exact : null,
+        migrationIdentityStatus: migrationIdentity.status,
+        migrationAttestationCount: migrationIdentity.attestedMigrationCount,
+        migrationAttestationEvidence: migrationIdentity.forensicEvidenceCommits,
         safetyCompatible,
       },
     };

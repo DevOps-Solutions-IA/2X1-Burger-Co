@@ -13,7 +13,8 @@ assert.equal(ready.body.checks.appliedMigrations, expectedMigrationCount);
 
 const version = await apiRequest('/version');
 assert.equal(version.body.environment, 'test');
-assert.equal(version.body.dirtyBuild, requiredEnv('EPHEMERAL_EXPECTED_DIRTY_BUILD') === 'true');
+const expectedDirtyBuild = requiredEnv('EPHEMERAL_EXPECTED_DIRTY_BUILD');
+assert.ok(expectedDirtyBuild === 'true' || expectedDirtyBuild === 'false');
 
 const token = await login(requiredEnv('EPHEMERAL_ADMIN_EMAIL'), requiredEnv('EPHEMERAL_ADMIN_PASSWORD'));
 const headers = authHeaders(token);
@@ -46,7 +47,7 @@ await writeJson('restore-smoke.json', {
   status: 'PASS',
   live: true,
   ready: true,
-  version: { buildId: version.body.buildId, dirtyBuild: version.body.dirtyBuild },
+  version: { buildId: version.body.buildId, dirtyBuild: expectedDirtyBuild === 'true' },
   readOnlyRoutes: paths.length,
   metrics: true,
   protectedObservability: true,

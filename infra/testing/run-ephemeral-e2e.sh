@@ -106,7 +106,7 @@ const fs = require('node:fs');
 const [input, output] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(input, 'utf8'));
 manifest.environment = 'test';
-fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
 NODE
 
 DB_PORT="$(allocate_port)"
@@ -143,7 +143,19 @@ EPHEMERAL_INVENTORY_PASSWORD=Inventory-E2E-2300!
 EPHEMERAL_WAITER_PASSWORD=Waiter-E2E-2300!
 EPHEMERAL_DELIVERY_PASSWORD=Delivery-E2E-2300!
 EOF
-chmod 600 "$ENV_FILE" "$MANIFEST_FILE" "$MANIFEST_FILE.original"
+chmod 600 "$ENV_FILE" "$MANIFEST_FILE.original"
+chmod 644 "$MANIFEST_FILE"
+
+EXPECTED_DIRTY_BUILD="${EPHEMERAL_EXPECT_DIRTY_BUILD:-false}"
+ACTUAL_DIRTY_BUILD="$(node -p "String(require('$MANIFEST_FILE').dirtyBuild)")"
+[[ "$ACTUAL_DIRTY_BUILD" == "$EXPECTED_DIRTY_BUILD" ]] || {
+  printf '[error] artifact dirty-build identity mismatch\n' >&2
+  exit 5
+}
+
+docker run --rm \
+  -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
+  "$API_IMAGE" node -e "require('node:fs').readFileSync('/app/release-manifest.json', 'utf8')" >/dev/null
 
 export EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" EPHEMERAL_DB_PORT="$DB_PORT" COMPOSE_PROJECT_NAME="$PROJECT"
 export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME?schema=public"
@@ -236,12 +248,14 @@ fi
 
 API_VERSION="$(curl -fsS "http://127.0.0.1:$API_PORT/version")"
 WEB_VERSION="$(curl -fsS "http://127.0.0.1:$WEB_PORT/version")"
-node - "$API_VERSION" "$WEB_VERSION" "$HEAD_COMMIT" "${EPHEMERAL_EXPECT_DIRTY_BUILD:-false}" <<'NODE'
-const [apiRaw, webRaw, head, expectedDirtyRaw] = process.argv.slice(2);
+node - "$API_VERSION" "$WEB_VERSION" "$HEAD_COMMIT" <<'NODE'
+const [apiRaw, webRaw, head] = process.argv.slice(2);
 const api = JSON.parse(apiRaw); const web = JSON.parse(webRaw);
-const expectedDirty = expectedDirtyRaw === 'true';
 if (api.commitSha !== head || web.commitSha !== head || api.buildId !== web.buildId || api.environment !== web.environment || !['test', 'e2e'].includes(api.environment)) {
   throw new Error('Runtime release identity mismatch.');
+}
+if ('dirtyBuild' in api || 'dirtyBuild' in web) {
+  throw new Error('Runtime version contract exposes dirty-build metadata.');
 }
 NODE
 

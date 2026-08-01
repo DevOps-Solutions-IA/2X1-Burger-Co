@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HermesWhatsappProvider } from './hermes-whatsapp.provider';
 import { MockWhatsappProvider } from './mock-whatsapp.provider';
@@ -23,7 +23,9 @@ export class WhatsappProviderFactory {
     const headerMode = this.headerValue(headers, 'x-sofia-whatsapp-mode');
     const canUseHeaderOverride = this.configService.get<string>('NODE_ENV') === 'test';
     const requested = canUseHeaderOverride && headerMode ? headerMode : this.configService.get<string>('WHATSAPP_MODE');
-    return WHATSAPP_MODES.includes(requested as WhatsappMode) ? (requested as WhatsappMode) : 'disabled';
+    const mode = WHATSAPP_MODES.includes(requested as WhatsappMode) ? (requested as WhatsappMode) : 'disabled';
+    if (mode === 'mock' && !canUseHeaderOverride) this.rejectMockProvider();
+    return mode;
   }
 
   resolveProviderName(routeProvider?: string | null, headers?: Record<string, string | string[] | undefined>): WhatsappProviderName {
@@ -33,11 +35,16 @@ export class WhatsappProviderFactory {
     const configured = canUseHeaderOverride
       ? headerProvider || routeProvider || configuredProvider
       : configuredProvider;
-    return WHATSAPP_PROVIDERS.includes(configured as WhatsappProviderName) ? (configured as WhatsappProviderName) : 'none';
+    const provider = WHATSAPP_PROVIDERS.includes(configured as WhatsappProviderName) ? (configured as WhatsappProviderName) : 'none';
+    if (provider === 'mock' && !canUseHeaderOverride) this.rejectMockProvider();
+    return provider;
   }
 
   getProvider(providerName: WhatsappProviderName): WhatsappProviderAdapter {
-    if (providerName === 'mock') return this.mockProvider;
+    if (providerName === 'mock') {
+      if (this.configService.get<string>('NODE_ENV') !== 'test') this.rejectMockProvider();
+      return this.mockProvider;
+    }
     if (providerName === 'qr_gateway') return this.qrGatewayProvider;
     if (providerName === 'hermes' && this.isHermesConfigured()) return this.hermesProvider;
     if (providerName === 'hermes') return this.nullProvider;
@@ -84,6 +91,10 @@ export class WhatsappProviderFactory {
         this.configService.get<string>('HERMES_API_TOKEN') &&
         this.configService.get<string>('HERMES_WEBHOOK_SECRET'),
     );
+  }
+
+  private rejectMockProvider(): never {
+    throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN' });
   }
 
   private headerValue(headers: Record<string, string | string[] | undefined> | undefined, name: string) {

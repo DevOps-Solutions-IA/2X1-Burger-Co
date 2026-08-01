@@ -10,7 +10,6 @@ import {
   Eye,
   EyeOff,
   LogOut,
-  MessageCircle,
   Plug,
   Power,
   QrCode,
@@ -22,11 +21,7 @@ import { toast } from 'sonner';
 import { apiFetchSchema } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
-  sofiaQrInboundTestResultSchema,
-  sofiaQrSendBlockedResultSchema,
   sofiaQrStatusSchema,
-  type SofiaQrInboundTestResult,
-  type SofiaQrSendBlockedResult,
 } from '@/features/sofia/contracts';
 import { sofiaQueryKeys, useSofiaQrStatus } from '@/features/sofia/queries';
 import {
@@ -49,10 +44,6 @@ import {
 
 export default function SofiaWhatsappQrPage() {
   const queryClient = useQueryClient();
-  const [phone, setPhone] = useState('573001112233');
-  const [text, setText] = useState('quiero un maxi family');
-  const [lastInbound, setLastInbound] = useState<SofiaQrInboundTestResult | null>(null);
-  const [lastSend, setLastSend] = useState<SofiaQrSendBlockedResult | null>(null);
   const [qrRevealed, setQrRevealed] = useState(false);
 
   const status = useSofiaQrStatus();
@@ -106,60 +97,10 @@ export default function SofiaWhatsappQrPage() {
       toast.error(error instanceof Error ? error.message : 'No se pudo cerrar sesión QR'),
   });
 
-  const testInbound = useMutation({
-    mutationFn: () =>
-      apiFetchSchema(
-        '/admin/sofia/whatsapp/qr/test-inbound',
-        sofiaQrInboundTestResultSchema,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            phone,
-            text,
-            externalMessageId: `qr-e2e-${Date.now()}`,
-            messageType: 'TEXT',
-          }),
-        },
-      ),
-    scope: { id: 'sofia-qr-validation' },
-    onMutate: () => setLastInbound(null),
-    onSuccess: async (result) => {
-      setLastInbound(result);
-      toast.success('Inbound QR receive-only registrado');
-      await invalidate();
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No se pudo registrar inbound QR'),
-  });
-
-  const testSend = useMutation({
-    mutationFn: () =>
-      apiFetchSchema(
-        '/admin/sofia/whatsapp/qr/test-send',
-        sofiaQrSendBlockedResultSchema,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            to: phone,
-            body: 'Mensaje de prueba bloqueado F4',
-          }),
-        },
-      ),
-    scope: { id: 'sofia-qr-validation' },
-    onMutate: () => setLastSend(null),
-    onSuccess: (result) => {
-      setLastSend(result);
-      toast.success('Envío real bloqueado correctamente');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No se pudo probar bloqueo de envío'),
-  });
-
   const data = status.data ?? logout.data ?? disconnect.data ?? connect.data;
   const statusUnavailable = status.isError && !data;
   const statusLoading = status.isLoading && !data;
   const sessionMutationPending = connect.isPending || disconnect.isPending || logout.isPending;
-  const validationPending = testInbound.isPending || testSend.isPending;
   const canRequestQr = Boolean(
     data && !data.connected && !['DISABLED', 'CONNECTING', 'WAITING_QR', 'RECONNECTING'].includes(data.status),
   );
@@ -566,105 +507,6 @@ export default function SofiaWhatsappQrPage() {
         </div>
       </SofiaSectionCard>
 
-      {/* ---- Test inbound / Test send ---- */}
-      <section className="grid gap-6 lg:grid-cols-2">
-        {/* Test inbound */}
-        <SofiaSectionCard data-testid="sofia-qr-test-inbound">
-          <SofiaSectionHeader
-            eyebrow="Prueba de recepción"
-            title="Registrar mensaje entrante"
-            icon={<MessageCircle className="h-4 w-4" />}
-          />
-
-          <div className="mt-5 space-y-3">
-            <label className="block space-y-2 text-xs font-bold text-stone-700">
-              Número sintético de prueba
-              <input
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
-                data-testid="sofia-qr-test-phone"
-              />
-            </label>
-            <label className="block space-y-2 text-xs font-bold text-stone-700">
-              Mensaje entrante de prueba
-              <textarea
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                className="min-h-28 w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold focus:border-sofia-300 focus:outline-none focus:ring-2 focus:ring-sofia-100"
-                data-testid="sofia-qr-test-text"
-              />
-            </label>
-            <Button
-              size="sm"
-              className="bg-emerald-600 text-white hover:bg-emerald-700"
-              onClick={() => testInbound.mutate()}
-              disabled={validationPending || !phone.trim() || !text.trim()}
-              data-testid="sofia-qr-test-inbound-submit"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Registrar inbound
-            </Button>
-          </div>
-          <p className="mt-3 text-[11px] font-semibold text-stone-500">
-            Esta prueba escribe en el mismo inbox de Conversations. Úsala solo con datos de ejemplo.
-          </p>
-          {lastInbound && (
-            <SofiaTechnicalDetailsAccordion
-              title="Resultado sanitizado del inbound"
-              description="Resumen validado; no expone payloads ni respuesta JSON cruda."
-              data-testid="sofia-qr-last-inbound-details"
-            >
-              <div className="grid gap-2 text-xs font-semibold text-stone-700" data-testid="sofia-qr-last-inbound">
-                <p>Estado: {humanizeEventStatus(lastInbound.processingStatus)}</p>
-                <p>Modo: receive-only</p>
-                <p>Duplicado: {lastInbound.duplicate ? 'Sí' : 'No'}</p>
-                <p>Envío real: bloqueado</p>
-              </div>
-            </SofiaTechnicalDetailsAccordion>
-          )}
-        </SofiaSectionCard>
-
-        {/* Test send (blocked) */}
-        <SofiaSectionCard data-testid="sofia-qr-test-send">
-          <SofiaSectionHeader
-            eyebrow="Verificación de seguridad"
-            title="Confirmar gate de bloqueo"
-            icon={<Send className="h-4 w-4" />}
-            description="El envío real está bloqueado por diseño. Esta verificación confirma que el bloqueo funciona."
-          />
-
-          <Button
-            size="sm"
-            className="mt-5 bg-red-600 text-white hover:bg-red-700"
-            onClick={() => testSend.mutate()}
-            disabled={validationPending || !phone.trim()}
-            data-testid="sofia-qr-test-send-submit"
-          >
-            Verificar gate sin enviar
-          </Button>
-
-          {lastSend && (
-            <SofiaTechnicalDetailsAccordion
-              title="Resultado validado del bloqueo"
-              description="La verificación solo se acepta si status=BLOCKED_REAL_SEND_DISABLED y sent=false."
-              data-testid="sofia-qr-last-send-details"
-            >
-              <div className="grid gap-2 text-xs font-semibold text-stone-700" data-testid="sofia-qr-last-send">
-                <p>Estado: bloqueo confirmado</p>
-                <p>sent=false</p>
-                <p>Envío real habilitado: no</p>
-              </div>
-            </SofiaTechnicalDetailsAccordion>
-          )}
-
-          <div className="mt-4 rounded-xl bg-red-50 px-4 py-3">
-            <p className="text-xs font-medium text-red-700">
-              El envío real está bloqueado por diseño. Esta fase solo recibe y analiza mensajes; el envío se habilitará en una fase piloto controlada posterior.
-            </p>
-          </div>
-        </SofiaSectionCard>
-      </section>
     </SofiaPageShell>
   );
 }

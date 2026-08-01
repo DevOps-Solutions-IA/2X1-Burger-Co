@@ -53,3 +53,31 @@ describe('environment boolean parsing', () => {
     expect(() => validateEnv({ ...requiredEnv, SOFIA_AUTO_SAFE_ENABLED: '' })).toThrow();
   });
 });
+
+describe('production Sofia safety validation', () => {
+  it.each([
+    ['WHATSAPP_PROVIDER', 'mock', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN'],
+    ['WHATSAPP_MODE', 'mock', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN'],
+    ['WHATSAPP_MODE', 'auto', 'SOFIA_PROD_AUTOMATIC_REPLY_FORBIDDEN'],
+    ['SOFIA_AUTO_REPLY_ENABLED', 'true', 'SOFIA_PROD_AUTOMATIC_REPLY_FORBIDDEN'],
+    ['SOFIA_AUTO_SAFE_ENABLED', 'true', 'SOFIA_PROD_AUTO_SAFE_FORBIDDEN'],
+    ['WHATSAPP_QR_ALLOW_REAL_SEND', 'true', 'SOFIA_PROD_REAL_SEND_FORBIDDEN'],
+    ['SOFIA_QR_PILOT_REAL_SEND', 'true', 'SOFIA_PROD_REAL_SEND_FORBIDDEN'],
+    ['SOFIA_PRODUCTION_ENABLED', 'true', 'SOFIA_PROD_ACTIVATION_FORBIDDEN'],
+  ])('rejects %s=%s with a sanitized reason code', (key, value, reasonCode) => {
+    const sensitiveMarker = 'must-not-appear-in-validation-errors';
+    expect(() =>
+      validateEnv({
+        ...requiredEnv,
+        NODE_ENV: 'production',
+        BOLD_API_KEY: sensitiveMarker,
+        [key]: value,
+      }),
+    ).toThrow(reasonCode);
+    try {
+      validateEnv({ ...requiredEnv, NODE_ENV: 'production', BOLD_API_KEY: sensitiveMarker, [key]: value });
+    } catch (error) {
+      expect(String(error)).not.toContain(sensitiveMarker);
+    }
+  });
+});

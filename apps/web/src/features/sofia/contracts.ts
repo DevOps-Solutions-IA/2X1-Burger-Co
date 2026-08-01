@@ -450,7 +450,7 @@ export const sofiaDashboardSummarySchema = z.object({
     pendingChecks: z.array(z.string()),
   }),
   routes: z.object({
-    sandboxUrl: z.string(),
+    sandboxUrl: z.null(),
     conversationsUrl: z.string(),
     whatsappQrUrl: z.string().optional(),
     deliveriesUrl: z.string(),

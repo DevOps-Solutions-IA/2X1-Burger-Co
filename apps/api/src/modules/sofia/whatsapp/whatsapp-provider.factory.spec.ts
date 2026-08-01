@@ -5,6 +5,15 @@ import type { NullWhatsappProvider } from './null-whatsapp.provider';
 import type { SofiaWhatsappQrGatewayProvider } from './qr-gateway/sofia-whatsapp-qr-gateway.provider';
 import { WhatsappProviderFactory } from './whatsapp-provider.factory';
 
+function expectReasonCode(action: () => unknown, code: string) {
+  try {
+    action();
+    throw new Error('Expected action to throw.');
+  } catch (error) {
+    expect((error as { getResponse?: () => unknown }).getResponse?.()).toEqual({ code });
+  }
+}
+
 describe('WhatsappProviderFactory runtime overrides', () => {
   const mockProvider = { provider: 'mock' } as MockWhatsappProvider;
   const hermesProvider = { provider: 'hermes' } as HermesWhatsappProvider;
@@ -24,6 +33,7 @@ describe('WhatsappProviderFactory runtime overrides', () => {
     expect(subject.resolveMode({ 'x-sofia-whatsapp-mode': 'auto' })).toBe('receive_only');
     expect(subject.resolveProviderName('mock', { 'x-sofia-whatsapp-provider': 'hermes' })).toBe('qr_gateway');
     expect(subject.isAutoReplyAllowed(1, true, { 'x-sofia-auto-reply-enabled': 'true' })).toBe(false);
+    expectReasonCode(() => subject.getProvider('mock'), 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN');
   });
 
   it('retains explicit overrides only for isolated test suites', () => {

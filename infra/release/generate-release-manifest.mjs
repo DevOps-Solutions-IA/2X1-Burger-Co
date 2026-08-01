@@ -43,6 +43,9 @@ const short = commit.slice(0, 12);
 const releaseVersion = `${rootPackage.version}-${short}`;
 const buildId = `${releaseVersion}-${epoch}`;
 const schemaExpectation = resolveMigrationExpectation(path.join(root, 'prisma/migrations'));
+const migrationAttestationContract = JSON.parse(
+  readFileSync(path.join(root, 'infra/release/migration-attestations.json'), 'utf8'),
+);
 
 const manifest = {
   releaseManifestVersion: 1,
@@ -63,6 +66,7 @@ const manifest = {
   migrationDigest: schemaExpectation.fingerprint,
   schemaVersion: schemaExpectation.latest,
   migrationInventory: schemaExpectation.inventory,
+  migrationAttestations: migrationAttestationContract.attestations,
   contractSuiteVersion: 'production-closure-v1',
   frontendBuildId: buildId,
   backendBuildId: buildId,
