@@ -68,6 +68,10 @@ BUILD_ID="$(node -p "require('$ARTIFACT_RECORD').manifest.buildId")"
 EXPECTED_MIGRATION_COUNT="$(node infra/schema/migration-expectation.mjs --field count)"
 EXPECTED_DIRTY_BUILD="$(node -p "String(require('$ARTIFACT_RECORD').manifest.dirtyBuild)")"
 
+docker run --rm \
+  -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
+  "$API_IMAGE" node -e "require('node:fs').readFileSync('/app/release-manifest.json', 'utf8')" >/dev/null
+
 SOURCE_DB_PORT="$(allocate_port)"
 RESTORE_DB_PORT="$(allocate_port)"
 API_PORT="$(allocate_port)"
@@ -263,8 +267,11 @@ node - "$MANIFEST_FILE" "$MISMATCH_MANIFEST" <<'NODE'
 const fs = require('node:fs');
 const [source, output] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
-manifest.schemaMigrationCount += 1;
-fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+manifest.migrationInventory.pop();
+manifest.schemaMigrationCount = manifest.migrationInventory.length;
+manifest.migrationCount = manifest.schemaMigrationCount;
+manifest.schemaVersion = manifest.migrationInventory.at(-1).name;
+fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
 NODE
 "${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" \
   -v "$MISMATCH_MANIFEST:/app/release-manifest.json:ro" \
@@ -272,7 +279,7 @@ NODE
 wait_url "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/live"
 MISMATCH_CODE="$(curl -sS -o "$EVIDENCE_DIR/migration-mismatch-ready.json" -w '%{http_code}' "http://127.0.0.1:$INCOMPATIBLE_API_PORT/health/ready")"
 [[ "$MISMATCH_CODE" == 503 ]]
-jq -e '.reason == "MIGRATION_INCOMPATIBLE"' "$EVIDENCE_DIR/migration-mismatch-ready.json" >/dev/null
+jq -e '.reason == "MIGRATION_HISTORY_INCOMPATIBLE"' "$EVIDENCE_DIR/migration-mismatch-ready.json" >/dev/null
 docker rm -f "$MISMATCH_CONTAINER" >/dev/null
 MISMATCH_CONTAINER=""
 

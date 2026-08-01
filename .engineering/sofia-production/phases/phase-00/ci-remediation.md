@@ -31,6 +31,21 @@
 - E2E lint: PASS
 - Secret scan: PASS
 - Workspace lint/typecheck/build: PASS
-- Phase 0 focused tests: 64/64 PASS
+- Phase 0 API focused tests: 45/45 PASS
+- Release and schema infrastructure tests: 30/30 PASS
+- Isolated recovery drill: PASS
 
 No production configuration, migration, domain behavior, or SOFIA capability changed.
+
+## Recovery job follow-up
+
+The first PR run after the typecheck fix reached the previously skipped recovery job and exposed stale recovery-only wiring:
+
+- The generated release manifest was mode `0600`, so the non-root API image could not read its bind mount.
+- `restore-web` did not receive its verified internal endpoint (`http://restore-api:3000`) and overrode the image healthcheck with the obsolete localhost login probe.
+- The restore smoke expected the intentionally omitted public `dirtyBuild` field.
+- The migration mismatch fixture no longer satisfied the strict manifest schema and expected the superseded generic reason code.
+
+The remediation makes the sanitized manifest container-readable (`0644`), verifies it from the API image before database startup, wires the Compose service endpoint, inherits the image healthcheck, keeps `dirtyBuild` validation on the local artifact record, and generates a schema-valid incompatible migration fixture.
+
+Local isolated recovery result: PASS (`RPO=0s`, `RTO=11.923s`). Teardown reported zero containers, volumes, and networks, with cryptographic material removed.

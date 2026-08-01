@@ -16,11 +16,13 @@ API_TAG="inventory-fastfood-api:${BUILD_ID}"
 WEB_TAG="inventory-fastfood-web:${BUILD_ID}"
 OUTPUT_DIR="${RECOVERY_ARTIFACT_DIR:-/tmp/inventory-phase-2-4-artifacts}/${BUILD_ID}"
 RECORD="$OUTPUT_DIR/artifact-record.json"
+MANIFEST_PATH="$OUTPUT_DIR/release-manifest.json"
 
 mkdir -p "$OUTPUT_DIR"
 chmod 700 "$(dirname "$OUTPUT_DIR")" "$OUTPUT_DIR"
 
-if docker image inspect "$API_TAG" "$WEB_TAG" >/dev/null 2>&1 && [[ -f "$RECORD" ]]; then
+if docker image inspect "$API_TAG" "$WEB_TAG" >/dev/null 2>&1 && [[ -f "$RECORD" && -f "$MANIFEST_PATH" ]]; then
+  chmod 644 "$MANIFEST_PATH"
   printf '%s\n' "$RECORD"
   exit 0
 fi
@@ -83,10 +85,10 @@ fi
 
 API_DIGEST="$(docker image inspect --format '{{.Id}}' "$API_TAG")"
 WEB_DIGEST="$(docker image inspect --format '{{.Id}}' "$WEB_TAG")"
-cp "$TEMP_DIR/.release/release-manifest.json" "$OUTPUT_DIR/release-manifest.json"
-chmod 600 "$OUTPUT_DIR/release-manifest.json"
+cp "$TEMP_DIR/.release/release-manifest.json" "$MANIFEST_PATH"
+chmod 644 "$MANIFEST_PATH"
 
-node - "$RECORD" "$OUTPUT_DIR/release-manifest.json" "$API_TAG" "$API_DIGEST" "$WEB_TAG" "$WEB_DIGEST" <<'NODE'
+node - "$RECORD" "$MANIFEST_PATH" "$API_TAG" "$API_DIGEST" "$WEB_TAG" "$WEB_DIGEST" <<'NODE'
 const fs = require('node:fs');
 const [output, manifestPath, apiTag, apiDigest, webTag, webDigest] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
