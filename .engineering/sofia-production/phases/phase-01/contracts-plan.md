@@ -49,3 +49,9 @@ Errors returned to SOFIA must be structured and sanitized. Model text cannot tur
 - Failed conversion leaves draft, order, delivery link, and audit in a consistent state.
 - Mock-admin and sandbox drafts cannot create operational orders.
 - SOFIA orchestration files contain no `PrismaService` dependency after migration to contracts/repositories.
+
+## Implemented decision
+
+All nine contracts were implemented in `apps/api/src/application/contracts/sofia-domain-contracts.ts`. Domain-owned adapters delegate to product/category, recipe/ingredient/inventory, delivery pricing, CRM, payment-link, and audit authorities. `OrderCreationService` is intentionally typed as non-returning in Phase 1 and always fails closed with a structured code. Persistent order idempotency remains a future prerequisite because no operational order command is enabled and no migration was authorized.
+
+No circular dependency was introduced: `SofiaModule` imports the neutral `DomainContractsModule`; it does not import `OrdersModule`. The pre-existing `OrdersModule -> SofiaModule` dependency is unchanged and must be removed before a future real order adapter can be enabled.

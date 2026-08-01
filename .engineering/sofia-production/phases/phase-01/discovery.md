@@ -7,7 +7,7 @@
 - Base: `6119b7a6d1c84948840a2603d8650126f2933f5d`
 - Production executable observed: `105db5b1654947e0ff79b269028e7e98b6bf8c9e`
 - Production migrations observed: `32/32`
-- Scope: read-only code discovery and contract design. No application implementation was started.
+- Initial scope: read-only code discovery and contract design. Implementation was subsequently authorized and is recorded in `implementation.md`.
 
 ## Verified architecture
 
@@ -45,3 +45,7 @@ Current production is fail-closed because `createDeliveryOrderFromDraft` rejects
 ## Phase boundary
 
 Phase 1 should introduce application contracts and adapters around existing authoritative services, plus a safe draft-to-order command. It must not enable real WhatsApp sending, autonomous confirmation, payment mutation, or Phase 2 behavior.
+
+## Implementation outcome
+
+The approved implementation preserves this boundary. Neutral contracts now own catalog, availability, customer resolution, delivery quote, draft, blocked order creation, payment read, and audit command DTOs. The unsafe draft conversion was removed from runtime reachability and replaced by a blocked adapter. No operational order, payment, stock, cash, or outbound-message mutation was enabled.

@@ -4,6 +4,8 @@
 
 `20` non-test runtime files under `apps/api/src/modules/sofia` reference `PrismaService`, `this.prisma`, or transactions. Direct Prisma inside a dedicated persistence adapter is acceptable; direct Prisma from SOFIA controllers and orchestration is the Phase 1 boundary violation.
 
+After implementation, `19` non-test runtime files still contain Prisma access. `SofiaAgentService` and `SofiaController` contain none. The reduction is intentionally narrow: remaining access belongs to SOFIA persistence, provider persistence, maintenance, governance, or read-model services. Direct operational Prisma violations in agent/controller/order conversion are `0`.
+
 ## Runtime files
 
 | File | Current persistence concern | Phase 1 disposition |
@@ -56,3 +58,15 @@
 ## Idempotency gap
 
 `AuditContextService` captures idempotency metadata and WhatsApp/payment integrations use unique keys, but there is no reusable idempotency result store for order commands. The string `sofia-draft-confirm:<draftId>` is currently used only when recording a blocked action. Phase 1 must define conflict-safe replay semantics before any operational conversion is enabled.
+
+## Post-implementation classification
+
+| Classification | Files | Decision |
+| --- | --- | --- |
+| `SOFIA_PERSISTENCE_ADAPTER` | `sofia.service.ts`, `repositories/sofia-agent.repository.ts`, `catalog/*`, `crm/*`, `memory/*`, `prompt/*`, `sofia-whatsapp.service.ts` | Allowed only for SOFIA-owned state or the existing CRM/provider authority; not imported by agent orchestration as Prisma. |
+| `READ_MODEL_ADAPTER` | `metrics/*`, `learning/*`, `governance/*`, `alerts/*`, `runtime-safety/*` | Allowed for bounded read models, safety state, and decision evidence. |
+| `MAINTENANCE_ADAPTER` | `backups/*`, `retention/*`, `whatsapp/qr-gateway/*` | Allowed; elevated/test/receive-only controls remain unchanged. |
+| Existing payment authority | `sofia-payment-link.service.ts` | Wrapped by sanitized `PaymentReadService`; mutation paths retain Phase 0 guards. |
+| `UNRESOLVED_ORCHESTRATION_VIOLATION` | None | Gate PASS. |
+
+The legacy `tx.whatsappDeliveryOrder.create` path is absent. `createDeliveryOrderFromDraft` is now a fail-closed compatibility wrapper and the agent calls only `OrderCreationService`.

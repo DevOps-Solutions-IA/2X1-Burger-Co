@@ -29,3 +29,19 @@
 - Sales/stock consumption: `apps/api/src/modules/sales/sales.service.ts:24`, especially `createInTransaction` at line 576.
 - Payments: `apps/api/src/modules/payment-methods/payment-methods.service.ts:5` and `apps/api/src/modules/sofia/sofia-payment-link.service.ts:26`.
 - Audit: `apps/api/src/modules/audit/audit.service.ts:22`.
+
+## Implemented adapter map
+
+| Contract | Concrete adapter | Authority delegated to | Operational mutation |
+| --- | --- | --- | --- |
+| `CatalogReadService` | `ProductsCatalogReadAdapter` | `ProductsService`, `CategoriesService` | None |
+| `ProductAvailabilityService` | `DomainAvailabilityAdapter` | `ProductsService`, `InventoryService` | None; advisory |
+| `RecipeAvailabilityService` | `DomainAvailabilityAdapter` | `RecipesService`, `IngredientsService` | None; advisory |
+| `CustomerResolutionService` | `SofiaCustomerResolutionAdapter` | `SofiaCrmService` | CRM resolution only |
+| `DeliveryQuoteService` | `AuthoritativeDeliveryQuoteAdapter` | `DeliveryPricingService` | Audited quote only |
+| `OrderDraftService` | `SofiaOrderDraftAdapter` | `SofiaService` draft lifecycle | SOFIA draft only |
+| `OrderCreationService` | `BlockedSofiaOrderCreationAdapter` | No operational authority injected | Always blocked |
+| `PaymentReadService` | `SofiaPaymentReadAdapter` | `SofiaPaymentLinkService` | None; sanitized read |
+| `AuditCommandService` | `AuthoritativeAuditCommandAdapter` | `AuditService` | Audit event only |
+
+The critical gap remains intentionally non-operational: no `OrdersService.create` call exists yet, but the unsafe `WhatsappDeliveryOrder` bypass has been removed. A future implementation must first resolve the module ownership and persistent idempotency prerequisites under separate owner authorization.

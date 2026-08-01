@@ -25,3 +25,15 @@ No discovery blocker exists. Implementation requires owner approval of:
 2. The persistent idempotency strategy for draft conversion.
 3. Whether customer/address normalization needs a schema change; no migration is authorized by this discovery.
 4. The exact human approval and role policy for `OrderCreationService`.
+
+## Phase 1 closure
+
+- P1-01/P1-13: controlled by the blocked `OrderCreationService`; no delivery-order or order-ticket write remains reachable from agent confirmation.
+- P1-02: no new cycle; a real order adapter remains blocked until the pre-existing dependency is extracted.
+- P1-03/P1-04: catalog and draft snapshots use persisted prices through the neutral catalog contract.
+- P1-05/P1-06: remain prerequisites for a later operational conversion; they cannot affect production because creation is blocked.
+- P1-07: neutral audit command supports an opaque existing transaction context without exposing Prisma across the boundary.
+- P1-10: availability DTOs are explicitly advisory; checkout/sales authority is unchanged.
+- P1-11/P1-14: payment is read-only and sanitized; real send/payment/order operations remain disabled.
+
+No Phase 1 release blocker remains. These residual risks block operational order enablement, not the contract-only architecture delivered here.
