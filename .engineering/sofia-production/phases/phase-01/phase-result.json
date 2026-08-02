@@ -1,0 +1,23 @@
+{
+  "phase": "PHASE-01",
+  "name": "Domain Contracts and Authoritative Services",
+  "status": "PASS",
+  "decision": "GO",
+  "baseSha": "6119b7a6d1c84948840a2603d8650126f2933f5d",
+  "implementationSha": "071a3123cf45749e5b118ba243212ba3c1241cae",
+  "productionDeployment": false,
+  "productionMutationEnabled": false,
+  "newMigrations": 0,
+  "productionMigrations": "32/32",
+  "directOperationalPrismaViolations": 0,
+  "orderCreationEnabled": false,
+  "phase2Authorized": false,
+  "tests": {
+    "sofiaFocused": "68/68 PASS",
+    "contracts": "12/12 PASS",
+    "rbac": "70/70 PASS",
+    "coreOperational": "PASS",
+    "architectureBoundary": "PASS"
+  },
+  "blockers": []
+}

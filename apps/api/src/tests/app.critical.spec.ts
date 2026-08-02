@@ -4069,22 +4069,17 @@ describe('Critical business flows', () => {
 
     expect(confirmed.body.status).toBe('CONFIRMED');
 
-    const deliveryOrder = await request(app.getHttpServer())
+    const deliveryOrdersBefore = await prisma.whatsappDeliveryOrder.count({
+      where: { orderDraftId: draft.body.id },
+    });
+    const blockedConversion = await request(app.getHttpServer())
       .post(`/admin/sofia/delivery-orders/from-draft/${draft.body.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({})
-      .expect(201);
+      .expect(403);
 
-    expect(deliveryOrder.body.status).toBe('CONFIRMED');
-    expect(deliveryOrder.body.paymentStatus).toBe('UNSELECTED');
-    expect(deliveryOrder.body.paymentMethod).toBeNull();
-    expect(deliveryOrder.body.source).toBe('MOCK_ADMIN');
-    expect(deliveryOrder.body.customerNameSnapshot).toBe('Cliente Sofía');
-    expect(deliveryOrder.body.deliveryAddressSnapshot).toBe('Cra 10 # 20-30');
-    expect(deliveryOrder.body.orderTicketId).toBeNull();
-    expect(deliveryOrder.body.orderTicket).toBeNull();
-    expect(Number(deliveryOrder.body.deliveryFee)).toBe(0);
-    expect(Number(deliveryOrder.body.total)).toBe(9000);
+    expect(blockedConversion.body.code).toBe('SOFIA_ORDER_CREATION_BLOCKED');
+    expect(await prisma.whatsappDeliveryOrder.count({ where: { orderDraftId: draft.body.id } })).toBe(deliveryOrdersBefore);
 
     const deliveryActive = await request(app.getHttpServer())
       .get('/orders/delivery-active')
@@ -4097,23 +4092,6 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(posActive.body).toHaveLength(0);
-
-    const detail = await request(app.getHttpServer())
-      .get(`/admin/sofia/delivery-orders/${deliveryOrder.body.id}`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-
-    expect(detail.body.id).toBe(deliveryOrder.body.id);
-    expect(detail.body.paymentStatus).toBe('UNSELECTED');
-    expect(detail.body.paymentMethod).toBeNull();
-    expect(detail.body.orderTicketId).toBeNull();
-
-    const list = await request(app.getHttpServer())
-      .get('/admin/sofia/delivery-orders')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .expect(200);
-
-    expect(list.body.some((order: { id: string }) => order.id === deliveryOrder.body.id)).toBe(true);
 
     const cancelDraft = await request(app.getHttpServer())
       .post('/admin/sofia/order-drafts')
@@ -4183,16 +4161,30 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(201);
 
-    const deliveryOrder = await request(app.getHttpServer())
+    const blockedConversion = await request(app.getHttpServer())
       .post(`/admin/sofia/delivery-orders/from-draft/${draft.body.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({})
-      .expect(201);
+      .expect(403);
+    expect(blockedConversion.body.code).toBe('SOFIA_ORDER_CREATION_BLOCKED');
 
-    expect(deliveryOrder.body.orderTicketId).toBeNull();
-    const onlineRecord = await prisma.whatsappDeliveryOrder.update({
-      where: { id: deliveryOrder.body.id },
+    // Provider reconciliation needs a persisted test fixture, not the disabled SOFIA conversion path.
+    const onlineRecord = await prisma.whatsappDeliveryOrder.create({
       data: {
+        conversationId: inbound.body.id,
+        orderDraftId: draft.body.id,
+        orderTicketId: null,
+        status: 'CONFIRMED',
+        customerNameSnapshot: draft.body.customerName,
+        customerPhoneSnapshot: draft.body.customerPhone,
+        deliveryAddressSnapshot: draft.body.deliveryAddress,
+        deliveryNeighborhoodSnapshot: draft.body.deliveryNeighborhood,
+        itemsSnapshot: draft.body.itemsSnapshot as Prisma.InputJsonValue,
+        subtotal: draft.body.subtotal,
+        deliveryFee: draft.body.deliveryFee,
+        total: draft.body.total,
+        source: draft.body.source,
+        createdByAgentNameSnapshot: 'Sofía',
         onlinePaymentProvider: 'MOCK',
         providerPaymentId: 'mock-payment-critical-1',
         providerReference: 'mock-provider-critical-1',
@@ -4283,13 +4275,13 @@ describe('Critical business flows', () => {
     expect(validAfterForgedEvent.body.paymentStatus).toBe('MANUAL_REVIEW');
 
     const events = await prisma.sofiaPaymentEvent.findMany({
-      where: { whatsappDeliveryOrderId: deliveryOrder.body.id },
+      where: { whatsappDeliveryOrderId: onlineRecord.id },
     });
     expect(events.some((event) => event.eventType === 'WEBHOOK_APPROVAL_REQUIRES_RECONCILIATION')).toBe(true);
     expect(events.some((event) => event.eventType === 'WEBHOOK_AMOUNT_MISMATCH')).toBe(true);
 
     const reflectedOrder = await prisma.whatsappDeliveryOrder.findUniqueOrThrow({
-      where: { id: deliveryOrder.body.id },
+      where: { id: onlineRecord.id },
     });
     expect(reflectedOrder.orderTicketId).toBeNull();
     expect(reflectedOrder.paymentMethod).toBe('ONLINE');
@@ -5333,9 +5325,10 @@ describe('Critical business flows', () => {
       .expect(201);
 
     expect(confirmed.body.detectedIntent).toBe('CONFIRM_ORDER');
-    expect(confirmed.body.deliveryOrder.orderTicketId).toBeNull();
+    expect(confirmed.body.deliveryOrder).toBeNull();
     expect(confirmed.body.paymentLinkUrl).toBeNull();
     expect(confirmed.body.safeguards.sandboxOperationalIsolation).toBe(true);
+    expect(confirmed.body.safeguards.productiveActionBlocked).toBe('SOFIA_ORDER_CREATION_BLOCKED');
 
     const activeDeliveries = await request(app.getHttpServer())
       .get('/orders/delivery-active')
