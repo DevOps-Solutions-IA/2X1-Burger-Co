@@ -1,0 +1,17 @@
+{
+  "phase": "PHASE-02",
+  "name": "Secure Command Execution Core",
+  "status": "IMPLEMENTED_LOCAL",
+  "implementationStarted": true,
+  "baseSha": "cfe10b7175676ba2822369bbc19aea73417f3736",
+  "productionExecutableSha": "0c2c2cbc88cadba2304f32079641c77e25e499cb",
+  "productionMigrations": "32/32",
+  "phase1Dependency": "PASS",
+  "orderCreationEnabled": false,
+  "realWhatsappEnabled": false,
+  "paymentMutationEnabled": false,
+  "migrationRequired": true,
+  "migrationAuthorized": true,
+  "threatCount": 17,
+  "phase3Authorized": false
+}

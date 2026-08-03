@@ -179,6 +179,42 @@ enum SofiaOrderDraftStatus {
   EXPIRED
 }
 
+enum SofiaCommandStatus {
+  RECEIVED
+  VALIDATED
+  APPROVAL_REQUIRED
+  APPROVED
+  CLAIMED
+  EXECUTING
+  SUCCEEDED
+  FAILED
+  REJECTED
+  EXPIRED
+}
+
+enum SofiaCommandApprovalStatus {
+  APPROVED
+  REVOKED
+  EXPIRED
+}
+
+enum SofiaCommandAttemptOutcome {
+  CLAIMED
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
+enum SofiaCommandFailureClass {
+  VALIDATION
+  POLICY
+  CONFLICT
+  DEPENDENCY
+  TIMEOUT
+  UNKNOWN_RESULT
+  INTERNAL
+}
+
 enum WhatsappDeliveryOrderStatus {
   CONFIRMED
   SENT_TO_KITCHEN
@@ -1795,6 +1831,121 @@ model OperationalAlert {
   @@index([entityType, entityId])
   @@index([severity, status, createdAt])
   @@map("operational_alerts")
+}
+
+model SofiaCommand {
+  id                 String                    @id @default(cuid())
+  commandType        String                    @map("command_type")
+  scope              String
+  idempotencyKey     String                    @map("idempotency_key")
+  status             SofiaCommandStatus        @default(RECEIVED)
+  actorId            String                    @map("actor_id")
+  actorType          String                    @default("USER") @map("actor_type")
+  actorRolesSnapshot Json                      @map("actor_roles_snapshot")
+  source             String
+  targetType         String                    @map("target_type")
+  targetId           String?                   @map("target_id")
+  expectedVersion    String?                   @map("expected_version")
+  payloadHash        String                    @map("payload_hash")
+  policyHash         String                    @map("policy_hash")
+  releaseVersion     String                    @map("release_version")
+  correlationId      String?                   @map("correlation_id")
+  traceId            String?                   @map("trace_id")
+  claimOwnerHash     String?                   @map("claim_owner_hash")
+  leaseExpiresAt     DateTime?                 @map("lease_expires_at")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @default(now()) @updatedAt @map("updated_at")
+  expiresAt          DateTime                  @map("expires_at")
+  claimedAt          DateTime?                 @map("claimed_at")
+  completedAt        DateTime?                 @map("completed_at")
+  failureClass       SofiaCommandFailureClass? @map("failure_class")
+  failureCode        String?                   @map("failure_code")
+  retryable          Boolean                   @default(false)
+  version            Int                       @default(0)
+  attempts           SofiaCommandAttempt[]
+  approvals          SofiaCommandApproval[]
+  result             SofiaCommandResult?
+
+  @@unique([scope, commandType, idempotencyKey])
+  @@index([status, expiresAt])
+  @@index([status, leaseExpiresAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([correlationId])
+  @@map("sofia_commands")
+}
+
+model SofiaCommandApproval {
+  id                    String                     @id @default(cuid())
+  commandId             String                     @map("command_id")
+  approverActorId       String                     @map("approver_actor_id")
+  approverRolesSnapshot Json                       @map("approver_roles_snapshot")
+  approvalAction        String                     @map("approval_action")
+  status                SofiaCommandApprovalStatus @default(APPROVED)
+  payloadHash           String                     @map("payload_hash")
+  expectedVersion       String?                    @map("expected_version")
+  targetType            String                     @map("target_type")
+  targetId              String?                    @map("target_id")
+  source                String
+  grantedAt             DateTime                   @default(now()) @map("granted_at")
+  expiresAt             DateTime                   @map("expires_at")
+  revokedAt             DateTime?                  @map("revoked_at")
+  reasonCode            String                     @map("reason_code")
+  policyReference       String                     @map("policy_reference")
+  auditIdentity         String                     @unique @map("audit_identity")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @default(now()) @updatedAt @map("updated_at")
+  version               Int                        @default(0)
+  command               SofiaCommand               @relation(fields: [commandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  attempts              SofiaCommandAttempt[]
+
+  @@index([commandId, status, expiresAt])
+  @@index([approverActorId, grantedAt])
+  @@index([status, expiresAt])
+  @@map("sofia_command_approvals")
+}
+
+model SofiaCommandAttempt {
+  id             String                     @id @default(cuid())
+  commandId      String                     @map("command_id")
+  approvalId     String?                    @map("approval_id")
+  attemptNumber  Int                        @map("attempt_number")
+  claimOwnerHash String                     @map("claim_owner_hash")
+  leaseExpiresAt DateTime                   @map("lease_expires_at")
+  startedAt      DateTime                   @default(now()) @map("started_at")
+  finishedAt     DateTime?                  @map("finished_at")
+  releaseVersion String                     @map("release_version")
+  outcome        SofiaCommandAttemptOutcome @default(CLAIMED)
+  failureClass   SofiaCommandFailureClass?  @map("failure_class")
+  retryable      Boolean                    @default(false)
+  errorCode      String?                    @map("error_code")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  command        SofiaCommand               @relation(fields: [commandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  approval       SofiaCommandApproval?      @relation(fields: [approvalId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([commandId, attemptNumber])
+  @@index([commandId, startedAt])
+  @@index([outcome, startedAt])
+  @@index([leaseExpiresAt, outcome])
+  @@index([approvalId])
+  @@map("sofia_command_attempts")
+}
+
+model SofiaCommandResult {
+  id                 String       @id @default(cuid())
+  commandId          String       @unique @map("command_id")
+  resultCode         String       @map("result_code")
+  sanitizedPayload   Json         @map("sanitized_payload")
+  resultHash         String       @map("result_hash")
+  domainReferenceIds Json?        @map("domain_reference_ids")
+  completedAt        DateTime     @default(now()) @map("completed_at")
+  redactionVersion   Int          @default(1) @map("redaction_version")
+  retentionUntil     DateTime     @map("retention_until")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  command            SofiaCommand @relation(fields: [commandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([retentionUntil])
+  @@map("sofia_command_results")
 }
 
 model ExternalApiCache {
