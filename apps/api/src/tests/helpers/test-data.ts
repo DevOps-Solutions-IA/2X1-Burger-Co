@@ -24,6 +24,10 @@ export async function resetDatabase(prisma: PrismaService) {
   // advisory transaction lock. This prevents deadlocks when several suites reset
   // the shared _test database while app connections are still closing.
   const tables = [
+    'sofia_command_results',
+    'sofia_command_attempts',
+    'sofia_command_approvals',
+    'sofia_commands',
     'delivery_pricing_audits',
     'delivery_provider_usage',
     'external_api_cache',
