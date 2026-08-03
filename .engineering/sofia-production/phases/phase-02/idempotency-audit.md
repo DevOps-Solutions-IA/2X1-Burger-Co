@@ -51,3 +51,12 @@
 | Approval scope/hash differs | Reject approval; require new approval |
 | Result of external side effect unknown | No automatic replay; manual reconciliation |
 | Kill switch/pause becomes active | Reject before side effect or record controlled interruption |
+
+## Implemented result
+
+- Scoped uniqueness is enforced by `(scope, commandType, idempotencyKey)`; the stored key is a digest, not the caller value.
+- Identical retries return the persisted command/result and never re-enter the handler.
+- Actor, source, target and payload mismatches return dedicated sanitized conflict codes.
+- Claims use optimistic command versioning plus unique `(commandId, attemptNumber)` attempts and bounded leases.
+- An expired pre-execution lease may be recovered once under policy. An expired `EXECUTING` lease is classified `UNKNOWN_RESULT`, terminal and non-retryable.
+- Concurrent integration testing proved a single claimant and deterministic replay.

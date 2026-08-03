@@ -40,3 +40,9 @@ No future secure command may hold a database transaction open across WhatsApp/pr
 5. Persist provider result or classify as unknown; never infer success from timeout.
 
 Phase 2 must not activate an outbox or external send. This is a design boundary for later separately authorized capabilities.
+
+## Implemented atomicity boundary
+
+The dedicated repository uses Prisma transactions for command creation plus initial audit, approval plus approval audit, claim plus attempt plus claim audit, lifecycle transitions, terminal result persistence and terminal audit. Mandatory audit failure rolls back command creation in integration tests.
+
+No operational domain handler is registered. A future handler whose domain transaction cannot share the command transaction must use the documented pre-execution/unknown-result protocol. The core persists `EXECUTING` before entering such a handler, persists only sanitized committed truth afterward, and marks an expired executing lease `UNKNOWN_RESULT` without automatic retry. Universal cross-service atomicity is therefore not claimed.

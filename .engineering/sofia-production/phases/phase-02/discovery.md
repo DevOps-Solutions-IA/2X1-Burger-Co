@@ -60,3 +60,7 @@ The following were verified as absent from the current schema and runtime:
 ## Scope boundary
 
 Phase 2 design does not authorize order creation, real WhatsApp, payment mutation, stock/cash/sale mutation, or autonomous customer responses. It does not replace domain services or create a generic workflow engine. Any schema change requires separate owner authorization.
+
+## Implementation closure
+
+The owner subsequently authorized one additive migration. The implementation preserves every discovery boundary: only a closed, non-operational validation handler is enabled; all eight operational command types remain blocked; and no SOFIA order, sale, payment, stock, cash or outbound path was enabled. The verified implementation baseline is `1eb939c11d2131f9ca8b42ded15476b4c1f44318` before the evidence-only commit.

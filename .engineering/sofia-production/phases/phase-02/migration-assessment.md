@@ -104,3 +104,7 @@ The compensation states should exist only if the separately authorized implement
 ## Authorization gate
 
 Before implementation, owner must approve exact Prisma schema, migration SQL, retention, enum/state subset, release strategy and rollback. `migrationAuthorized` remains `false`.
+
+## Authorized implementation result
+
+The owner authorized one additive migration. The resulting schema uses four bounded models (`SofiaCommand`, `SofiaCommandApproval`, `SofiaCommandAttempt`, `SofiaCommandResult`) and four enums. It adds no columns or constraints to existing operational tables, performs no backfill, and leaves `AuditLog.idempotencyKey` non-unique. Fresh ephemeral deployment reached `33/33`; production remains `32/32` and was not touched.

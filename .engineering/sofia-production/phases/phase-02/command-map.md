@@ -22,3 +22,7 @@
 ## Dependency decision
 
 The secure command core should depend on neutral Phase 1 contracts and dedicated command persistence ports. It must never depend directly on `PrismaService`, `OrdersService` internals, payment providers or WhatsApp providers. Domain command adapters remain authoritative for their own transactions and return sanitized results to the core.
+
+## Implemented command boundary
+
+`SecureCommandModule` now implements the planned ports under `apps/api/src/modules/secure-command`. `PrismaService` is imported only by `persistence/prisma-command.repository.ts`. The registry enables `SOFIA_INTERNAL_VALIDATE` as a non-operational deterministic handler and explicitly blocks order, WhatsApp, payment, stock, cash, sale, delivery-assignment and customer-auto-response commands.

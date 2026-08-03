@@ -30,3 +30,7 @@ Threat count: **17**.
 - Mutation success is derived only from committed backend state.
 - Audit and command records contain hashes or sanitized fields, not raw credentials or unrestricted PII.
 - Phase 0 pause, kill switch, mock isolation, webhook verification and payment fail-closed controls remain mandatory.
+
+## Verification result
+
+All 17 threats have an implemented control or an explicit fail-closed boundary. Unit and integration coverage exercised duplicate delivery, replay, concurrent claim, actor/source/target/payload binding, expired/revoked approval, stale expected version, audit failure, lease recovery, unknown-result handling, runtime pause and kill-switch revalidation, and recursive result redaction. Operational side-effect counters remained unchanged.
