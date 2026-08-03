@@ -10,6 +10,8 @@
 - Known local audit and encrypted backup artifacts: preserved
 - Unknown tracked application changes: none
 - Phase 2 source branch: fully merged
-- Phase 2 worktree: scheduled for removal after this evidence branch is pushed
+- Phase 2 worktree: removed after the evidence branch was pushed
+- Local Phase 2 branch: deleted after full-merge verification
+- Remote Phase 2 branch: preserved
 
 This evidence is maintained on `docs/sofia-phase2-closure-evidence` so the verified runtime/main SHA remains unchanged. Phase 3 is not authorized.
