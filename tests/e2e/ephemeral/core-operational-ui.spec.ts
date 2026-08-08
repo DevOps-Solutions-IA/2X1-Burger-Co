@@ -10,6 +10,7 @@ function requiredEnv(name: string) {
 const email = requiredEnv('EPHEMERAL_ADMIN_EMAIL');
 const password = requiredEnv('EPHEMERAL_ADMIN_PASSWORD');
 const evidenceDir = requiredEnv('EPHEMERAL_EVIDENCE_DIR');
+const coreOperationalEnabled = process.env.EPHEMERAL_INCLUDE_CORE_OPERATIONAL === 'true';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -20,6 +21,8 @@ async function login(page: Page) {
 }
 
 test('core operational API effects are visible and actionable in the real UI', async ({ page }) => {
+  test.skip(!coreOperationalEnabled, 'Core operational fixtures are not enabled for this ephemeral run.');
+
   const serverFailures: string[] = [];
   page.on('response', (response) => {
     if (response.status() >= 500) serverFailures.push(`${response.status()} ${response.url()}`);
