@@ -201,6 +201,13 @@ enum SofiaOrderDraftStatus {
   EXPIRED
 }
 
+enum SofiaPaymentPreference {
+  UNKNOWN
+  ONLINE
+  CASH_ON_DELIVERY
+  PAY_AT_PICKUP
+}
+
 enum SofiaCommandStatus {
   RECEIVED
   VALIDATED
@@ -1073,28 +1080,47 @@ model WhatsappMessage {
 }
 
 model SofiaOrderDraft {
-  id                   String                 @id @default(cuid())
-  conversationId       String?                @map("conversation_id")
-  status               SofiaOrderDraftStatus  @default(DRAFT)
-  customerName         String?                @map("customer_name")
-  customerPhone        String?                @map("customer_phone")
-  deliveryAddress      String?                @map("delivery_address")
-  deliveryNeighborhood String?                @map("delivery_neighborhood")
-  deliveryNotes        String?                @map("delivery_notes")
-  itemsSnapshot        Json                   @map("items_snapshot")
-  subtotal             Decimal                @default(0) @db.Decimal(12, 2)
-  deliveryFee          Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
-  total                Decimal                @default(0) @db.Decimal(12, 2)
-  currency             String                 @default("COP")
-  missingFields        Json?                  @map("missing_fields")
-  aiSummary            String?                @map("ai_summary")
-  source               SofiaOrderSource       @default(SOFIA)
-  createdAt            DateTime               @default(now()) @map("created_at")
-  updatedAt            DateTime               @updatedAt @map("updated_at")
-  conversation         WhatsappConversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  deliveryOrder        WhatsappDeliveryOrder?
+  id                     String                 @id @default(cuid())
+  conversationId         String?                @map("conversation_id")
+  customerId             String?                @map("customer_id")
+  status                 SofiaOrderDraftStatus  @default(DRAFT)
+  fulfillment            OrderTicketType?
+  paymentPreference      SofiaPaymentPreference @default(UNKNOWN) @map("payment_preference")
+  version                Int                    @default(1)
+  draftHash              String?                @map("draft_hash")
+  expiresAt              DateTime?              @map("expires_at")
+  confirmedAt            DateTime?              @map("confirmed_at")
+  confirmationHash       String?                @map("confirmation_hash")
+  addressConfirmedAt     DateTime?              @map("address_confirmed_at")
+  deliveryQuoteAuditId   String?                @map("delivery_quote_audit_id")
+  deliveryQuoteVersion   Int?                   @map("delivery_quote_version")
+  deliveryQuoteExpiresAt DateTime?              @map("delivery_quote_expires_at")
+  availabilitySnapshot   Json?                  @map("availability_snapshot")
+  availabilityCheckedAt  DateTime?              @map("availability_checked_at")
+  customerName           String?                @map("customer_name")
+  customerPhone          String?                @map("customer_phone")
+  deliveryAddress        String?                @map("delivery_address")
+  deliveryNeighborhood   String?                @map("delivery_neighborhood")
+  deliveryNotes          String?                @map("delivery_notes")
+  itemsSnapshot          Json                   @map("items_snapshot")
+  subtotal               Decimal                @default(0) @db.Decimal(12, 2)
+  deliveryFee            Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total                  Decimal                @default(0) @db.Decimal(12, 2)
+  currency               String                 @default("COP")
+  missingFields          Json?                  @map("missing_fields")
+  aiSummary              String?                @map("ai_summary")
+  source                 SofiaOrderSource       @default(SOFIA)
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  conversation           WhatsappConversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  customer               Customer?              @relation("SofiaOrderDraftCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  deliveryQuoteAudit     DeliveryPricingAudit?  @relation("SofiaOrderDraftDeliveryQuote", fields: [deliveryQuoteAuditId], references: [id], onDelete: SetNull)
+  deliveryOrder          WhatsappDeliveryOrder?
 
   @@index([conversationId])
+  @@index([conversationId, status, expiresAt])
+  @@index([customerId, status])
+  @@index([status, expiresAt])
   @@index([status, updatedAt])
   @@index([customerPhone])
   @@map("sofia_order_drafts")
@@ -1243,6 +1269,7 @@ model Customer {
   campaignDeliveries    CustomerCampaignDelivery[]
   sofiaCustomerMemory   SofiaCustomerMemory?
   whatsappConversations WhatsappConversation[]
+  sofiaOrderDrafts      SofiaOrderDraft[]           @relation("SofiaOrderDraftCustomer")
   deliveryCustomer      DeliveryCustomer?
 
   @@index([displayNameNormalized])
@@ -2116,20 +2143,21 @@ model DeliveryProviderUsage {
 }
 
 model DeliveryPricingAudit {
-  id                  String   @id @default(cuid())
-  orderTicketId       String?  @map("order_ticket_id")
-  saleId              String?  @map("sale_id")
-  customerId          String?  @map("customer_id")
-  operatorId          String?  @map("operator_id")
-  requestJson         Json     @map("request_json")
-  resultJson          Json     @map("result_json")
-  suggestedFee        Decimal? @map("suggested_fee") @db.Decimal(12, 2)
-  finalFee            Decimal? @map("final_fee") @db.Decimal(12, 2)
-  manualEdited        Boolean  @default(false) @map("manual_edited")
-  manualEditReason    String?  @map("manual_edit_reason")
-  calculationVersion  String   @map("calculation_version")
-  providerSummaryJson Json?    @map("provider_summary_json")
-  createdAt           DateTime @default(now()) @map("created_at")
+  id                  String            @id @default(cuid())
+  orderTicketId       String?           @map("order_ticket_id")
+  saleId              String?           @map("sale_id")
+  customerId          String?           @map("customer_id")
+  operatorId          String?           @map("operator_id")
+  requestJson         Json              @map("request_json")
+  resultJson          Json              @map("result_json")
+  suggestedFee        Decimal?          @map("suggested_fee") @db.Decimal(12, 2)
+  finalFee            Decimal?          @map("final_fee") @db.Decimal(12, 2)
+  manualEdited        Boolean           @default(false) @map("manual_edited")
+  manualEditReason    String?           @map("manual_edit_reason")
+  calculationVersion  String            @map("calculation_version")
+  providerSummaryJson Json?             @map("provider_summary_json")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  sofiaOrderDrafts    SofiaOrderDraft[] @relation("SofiaOrderDraftDeliveryQuote")
 
   @@index([orderTicketId])
   @@index([saleId])
