@@ -4,11 +4,14 @@ Verified locally on the Phase 4 branch:
 
 - Frozen install and production dependency audit: PASS (patched transitive `nanoid` pinned to 3.3.17).
 - Secret scan, lint, typecheck, API/Web build and Prisma validate: PASS.
-- Focused commercial unit/architecture: 56/56 PASS; the focused suite passed twice consecutively before final closure fixes and passed again afterward.
+- Conversational correction focused suite: 91/91 PASS twice consecutively on `8097313e644b1a8e63ea38c62af7ff90dfd7d528`.
+- Response composition includes takeaway/delivery payment, address, summary, price, expiry, modifier, discount, dependency and handoff variants. Adversarial outputs covering false payment/order/discount/ETA/sandbox/secret/product/money claims fall back safely.
+- Phase 0-3 contract, policy, architecture and unit regression: 226/226 PASS.
+- CI-equivalent database suites: 195/195 PASS for config, provenance, timeout, Delivery Phase A, RBAC, secure-command, WhatsApp and critical integration; commercial persistence separately passed 4/4 with both database variables bound to the isolated resource.
 - Commercial PostgreSQL integration: PASS, including one optimistic concurrency winner and preserved confirmed history.
 - Phase 0-3 regression and RBAC grouped suite: PASS after preserving specialized Phase 3 routing.
 - Critical integration: 92/92 PASS on the final application source; legacy confirmation assertions require fail-closed binding.
-- Core E2E run `run-20260808043312-f5d01caf`: PASS on `6afb11f205a109715fde85099dd242913da6d688`, 35 migrations, contracts 12, role checks 70, cleanup 0 containers/volumes/networks.
-- Recovery run `run-20260808043525-4845ba4a`: PASS on the final application source, RPO 0 seconds, RTO 12.607 seconds, cryptographic material removed.
+- Core E2E run `run-20260808054602-57ab9d43`: PASS on `8097313e644b1a8e63ea38c62af7ff90dfd7d528`, 35 migrations, contracts 12, role checks 70, Playwright 3/3 and cleanup 0 containers/volumes/networks.
+- Recovery run `run-20260808054849-36ba88a9`: PASS on the final application source, RPO 0 seconds, RTO 12.564 seconds, cryptographic material removed.
 
 Remote CI is not PASS; GitHub Actions is blocked before job execution by external billing controls.
