@@ -58,6 +58,7 @@ export interface ProductAvailabilityService {
 
 export type RecipeAvailabilityDto = AvailabilityDto & {
   missingIngredients: Array<{ ingredientId: string; name: string; required: number; available: number }>;
+  recipeIngredients?: Array<{ ingredientId: string; name: string }>;
 };
 
 export interface RecipeAvailabilityService {

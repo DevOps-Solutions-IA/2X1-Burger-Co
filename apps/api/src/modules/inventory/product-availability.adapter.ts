@@ -42,6 +42,14 @@ export class DomainAvailabilityAdapter implements ProductAvailabilityService, Re
         ? [{ ingredientId: item.ingredientId, name: ingredient?.name ?? item.ingredient.name, required, available }]
         : [];
     });
-    return { productId: product.id, quantity: input.quantity, available: missingIngredients.length === 0, reasonCode: missingIngredients.length ? 'INGREDIENT_STOCK_INSUFFICIENT' : 'AVAILABLE', checkedAt, missingIngredients };
+    return {
+      productId: product.id,
+      quantity: input.quantity,
+      available: missingIngredients.length === 0,
+      reasonCode: missingIngredients.length ? 'INGREDIENT_STOCK_INSUFFICIENT' : 'AVAILABLE',
+      checkedAt,
+      missingIngredients,
+      recipeIngredients: recipe.items.map((item) => ({ ingredientId: item.ingredientId, name: item.ingredient.name })),
+    };
   }
 }

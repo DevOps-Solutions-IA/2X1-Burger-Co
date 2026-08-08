@@ -17,6 +17,12 @@ import { SofiaBackupsService } from './backups/sofia-backups.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
 import { SofiaCrmController } from './crm/sofia-crm.controller';
 import { SofiaCrmService } from './crm/sofia-crm.service';
+import { CommercialCheckoutService } from './commercial/commercial-checkout.service';
+import { CommercialIntentEngine } from './commercial/commercial-intent.engine';
+import { CommercialMetricsService } from './commercial/commercial-metrics.service';
+import { CommercialPolicyService } from './commercial/commercial-policy.service';
+import { COMMERCIAL_REPOSITORY } from './commercial/commercial.repository';
+import { PrismaCommercialRepository } from './commercial/persistence/prisma-commercial.repository';
 import {
   BlockedSofiaOrderCreationAdapter,
   SofiaCustomerResolutionAdapter,
@@ -123,6 +129,12 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     SofiaRuntimeSafetyService,
     SofiaTestOnlyGuard,
     SofiaCrmService,
+    CommercialIntentEngine,
+    CommercialPolicyService,
+    CommercialMetricsService,
+    CommercialCheckoutService,
+    PrismaCommercialRepository,
+    { provide: COMMERCIAL_REPOSITORY, useExisting: PrismaCommercialRepository },
     SofiaAgentRepository,
     PrismaWhatsappProductionRepository,
     PrismaWhatsappConversationRepository,
@@ -139,6 +151,7 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     WhatsappProviderHealthService,
     WhatsappOutboundGateway,
     WhatsappOutboundCommandHandler,
+    CommercialCheckoutService,
     SofiaOrderDraftAdapter,
     BlockedSofiaOrderCreationAdapter,
     SofiaCustomerResolutionAdapter,

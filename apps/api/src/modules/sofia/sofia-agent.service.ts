@@ -675,9 +675,9 @@ export class SofiaAgentService {
           idempotencyKey: `sofia-draft-confirm:${draft.id}`,
         });
       } else {
-        const expectedVersion = 'version' in draft ? String(draft.version) : draft.updatedAt.toISOString();
-        const confirmedDraft = await this.orderDrafts.confirm(draft.id, expectedVersion, this.actorContext(actorId, options.source));
         try {
+          const expectedVersion = String(draft.version);
+          const confirmedDraft = await this.orderDrafts.confirm(draft.id, expectedVersion, this.actorContext(actorId, options.source));
           await this.orderCreation.createFromSofiaDraft({
             draftId: confirmedDraft.id,
             expectedDraftVersion: confirmedDraft.version,

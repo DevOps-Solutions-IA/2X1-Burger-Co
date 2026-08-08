@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
 import {
   Prisma,
   SofiaOrderDraftStatus,
@@ -867,6 +868,15 @@ export class SofiaService {
     if (blockedStatuses.includes(draft.status)) {
       throw new ConflictException('No puedes confirmar un borrador cancelado o vencido.');
     }
+    if (
+      !draft.draftHash ||
+      !draft.expiresAt ||
+      draft.expiresAt <= new Date() ||
+      !draft.fulfillment ||
+      draft.paymentPreference === 'UNKNOWN'
+    ) {
+      throw new ConflictException({ code: 'SOFIA_DRAFT_NOT_CONFIRMABLE', reasonCode: 'PHASE_4_BINDING_REQUIRED' });
+    }
 
     const items = this.readItemsSnapshot(draft.itemsSnapshot);
     const missingFields = this.missingFields({
@@ -879,17 +889,20 @@ export class SofiaService {
       throw new BadRequestException(`Faltan datos para confirmar: ${missingFields.join(', ')}`);
     }
 
-    const updated = await this.prisma.sofiaOrderDraft.update({
-      where: { id },
+    const confirmationHash = createHash('sha256')
+      .update(JSON.stringify({ id: draft.id, version: draft.version, draftHash: draft.draftHash }))
+      .digest('hex');
+    const changed = await this.prisma.sofiaOrderDraft.updateMany({
+      where: { id, version: draft.version, draftHash: draft.draftHash, status: SofiaOrderDraftStatus.READY_TO_CONFIRM, expiresAt: { gt: new Date() } },
       data: {
         status: SofiaOrderDraftStatus.CONFIRMED,
         missingFields: Prisma.JsonNull,
-      },
-      include: {
-        conversation: true,
-        deliveryOrder: true,
+        confirmedAt: new Date(),
+        confirmationHash,
       },
     });
+    if (changed.count !== 1) throw new ConflictException({ code: 'SOFIA_DRAFT_VERSION_CONFLICT' });
+    const updated = await this.findDraft(id);
 
     await this.auditService.log({
       userId: actorId,
