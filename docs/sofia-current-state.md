@@ -6,9 +6,9 @@ Este archivo es la fuente de verdad vigente para agentes. Los reportes historico
 
 ## Decision vigente
 
-**Phase 3 implementada en branch y pendiente de PR. Produccion: NOT READY.**
+**Phase 4 implementada localmente en stack sobre Phase 3 y pendiente de CI/PR. Produccion: NOT READY.**
 
-El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbound y un handler outbound seguro, pero no esta desplegado. Produccion conserva el ejecutable anterior, 33/33 migraciones, receive-only y todos los efectos productivos bloqueados.
+El source candidato Phase 4 incorpora checkout comercial gobernado y una migracion aditiva local 35, pero no esta desplegado. Phase 3 PR #8 permanece draft y su CI remoto esta bloqueado externamente por billing. Produccion conserva el ejecutable anterior, 33/33 migraciones, receive-only y todos los efectos productivos bloqueados.
 
 ## Controles efectivos
 
@@ -29,6 +29,7 @@ El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbou
 | Sandbox | Separado y oculto por defecto | Source/scope backend |
 | Phase 3 outbound | Implementado pero deshabilitado | Secure command + runtime gate |
 | Migracion Phase 3 | 34/34 solo en PostgreSQL efimero | No aplicada a produccion |
+| Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
 
 ## Capacidades implementadas
 
@@ -45,6 +46,8 @@ El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbou
 - El candidato Phase 3 normaliza eventos, reclama inbound de forma atomica, separa estados de la IA y centraliza consentimiento y handoff versionado.
 - El candidato Phase 3 agrega estado de entrega append-only, politica de medios metadata-only y binding de cuenta/sesion sin persistir credenciales.
 - `SOFIA_SEND_WHATSAPP` usa el nucleo de comandos seguros, pero su definicion y validacion de runtime mantienen la ejecucion deshabilitada.
+- Phase 4 agrega estado comercial versionado, catalogo/precio/disponibilidad de dominio, delivery/takeaway, preferencia de pago sin mutacion y confirmacion exacta de borrador.
+- Los borradores historicos sin hash, expiracion, fulfillment y pago vinculados son no confirmables hasta ser refrescados.
 
 ## Validacion actual
 
@@ -58,6 +61,7 @@ El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbou
 | Suite critica/RBAC/delivery | 157/157 PASS | Base efimera aislada |
 | Playwright estandar/core | 2/2 y 3/3 PASS | Runtimes efimeros desde source |
 | Migraciones efimeras | 34/34 PASS | Produccion permanece 33/33 |
+| Phase 4 local mirror | 35/35 PASS | Remote CI bloqueado por billing; no equivale a CI remoto PASS |
 | Seguridad focalizada | Secret scan PASS; envio real OFF | Sin credenciales reales |
 | Runtime operativo | NO CERTIFICA el candidato | No desplegado por alcance |
 
@@ -79,7 +83,7 @@ El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbou
 
 ## Bloqueadores de produccion
 
-1. Revisar el Draft PR de Phase 3 y completar CI requerido.
+1. Restaurar GitHub Actions, completar CI de Phase 3 y revisar/mergear PR #8 antes de Phase 4.
 2. Revisar y autorizar separadamente la migracion aditiva antes de cualquier despliegue.
 3. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
 4. Cerrar secret store, rotacion, monitoreo y proteccion de sesion Baileys.

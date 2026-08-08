@@ -6,13 +6,13 @@ describe('WhatsApp production additive migration', () => {
   const name = '20260807230000_sofia_whatsapp_production_core';
   const migration = readFileSync(resolve(root, name, 'migration.sql'), 'utf8');
 
-  it('is the single migration after the 33-migration frontier', () => {
+  it('remains migration 34 immediately after the 33-migration frontier', () => {
     const migrations = readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort();
-    expect(migrations).toHaveLength(34);
-    expect(migrations.at(-1)).toBe(name);
+    expect(migrations.filter((migrationName) => migrationName === name)).toHaveLength(1);
+    expect(migrations.indexOf(name)).toBe(33);
   });
 
   it('is additive and does not backfill operational data', () => {

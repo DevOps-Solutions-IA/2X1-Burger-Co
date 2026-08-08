@@ -9,6 +9,7 @@ import {
   SofiaAIProviderAdapter,
 } from './sofia-ai-provider.adapter';
 import { SofiaPromptService } from '../prompt/sofia-prompt.service';
+import type { CommercialFactEnvelope } from '../commercial/response/commercial-response.types';
 
 const VALID_INTENTS: SofiaAIIntent[] = [
   'GREETING',
@@ -147,6 +148,52 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
           : 'DeepSeek habilitado sin credenciales completas; se usará fallback a reglas.'
         : 'DeepSeek deshabilitado por configuración segura.',
     };
+  }
+
+  async composeCommercialResponse(envelope: CommercialFactEnvelope): Promise<string | null> {
+    if (!this.isEnabled()) return null;
+    const apiKey = this.configService.get<string>('DEEPSEEK_API_KEY');
+    const baseUrl = this.configService.get<string>('DEEPSEEK_BASE_URL');
+    if (!apiKey || !baseUrl) return null;
+
+    const controller = new AbortController();
+    const timeoutMs = Math.min(this.configService.get<number>('DEEPSEEK_TIMEOUT_MS') ?? 12000, 12000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: this.configService.get<string>('DEEPSEEK_MODEL') || 'deepseek-v4-flash',
+          max_tokens: 220,
+          temperature: 0.55,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: [
+                'Eres un compositor de lenguaje, no un agente ni un motor de decisiones.',
+                'Devuelve JSON {"text":"..."} con una respuesta breve y natural en es-CO.',
+                'Usa exclusivamente los hechos y opciones del sobre. No agregues precios, productos, descuentos, pagos, estados, ETA ni acciones.',
+                'No llames herramientas, no interpretes intención y no alteres ningún hecho.',
+              ].join(' '),
+            },
+            { role: 'user', content: JSON.stringify(envelope) },
+          ],
+        }),
+      });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const content = payload.choices?.[0]?.message?.content;
+      if (!content) return null;
+      const parsed = JSON.parse(content) as { text?: unknown };
+      return typeof parsed.text === 'string' ? parsed.text : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private isEnabled() {
