@@ -10,6 +10,7 @@
 | Typecheck | PASS |
 | API/Web build | PASS |
 | Prisma validate | PASS |
+| Existing encrypted backup decryptability | PASS; decrypted to `/dev/null` only |
 
 ## Focused and regression gates
 
@@ -33,4 +34,3 @@ Evidence runs:
 - Standard plus API regression: `run-20260808020826-ab6ea2ba`.
 
 All runs report `realWhatsapp=OFF`, `productionModified=false`, and `operationalDatabaseTouched=false`.
-
