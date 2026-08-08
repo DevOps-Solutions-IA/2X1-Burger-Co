@@ -10,7 +10,7 @@
   "responseValidator": "PASS",
   "safeTemplateFallback": "PASS",
   "stackedOnPr": 8,
-  "remoteCi": "BLOCKED_EXTERNAL_BILLING",
+  "remoteCi": "PASS",
   "localCiMirror": "PASS",
   "newMigrations": 1,
   "ephemeralMigrations": "35/35",
@@ -26,5 +26,5 @@
   "unexpectedSideEffects": 0,
   "mergeAuthorized": false,
   "deployAuthorized": false,
-  "blockers": ["EXTERNAL_GITHUB_ACTIONS_BILLING", "PHASE_3_MUST_MERGE_FIRST"]
+  "blockers": ["PHASE_3_MUST_MERGE_FIRST", "FINAL_CODE_REVIEW_REQUIRED"]
 }
