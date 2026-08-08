@@ -48,14 +48,14 @@ describe('bounded commercial response composition', () => {
 
   it.each([
     ['ASK_PAYMENT', 'Listo, ¿lo pagas ahora en línea o en efectivo cuando llegue?'],
-    ['ASK_ADDRESS', 'Claro, ¿a qué dirección debemos enviarlo?'],
     ['SUMMARIZE_DRAFT', 'Te confirmo 1 Combo 2x1 para enviar a Carrera 10. Subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos así?'],
     ['PRICE_CHANGED', 'El precio cambió. 1 Combo 2x1 para enviar a Carrera 10: subtotal $25.000, domicilio $5.000, total $30.000. ¿Confirmamos el valor actualizado?'],
     ['QUOTE_EXPIRED', 'La cotización venció. Revisé 1 Combo 2x1 para enviar a Carrera 10: subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos de nuevo?'],
   ] as Array<[CommercialResponsePurpose, string]>)('preserves bounded facts for %s', async (responsePurpose, output) => {
     const facts = baseFacts({ responsePurpose });
-    const { composer } = fixture([output]);
-    await expect(composer.compose(facts)).resolves.toMatchObject({ source: 'BOUNDED_AI', validation: { valid: true } });
+    const { composer, generator } = fixture([output]);
+    await expect(composer.compose(facts)).resolves.toMatchObject({ source: 'SAFE_TEMPLATE', validation: { valid: true } });
+    expect(generator.compose).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -64,7 +64,7 @@ describe('bounded commercial response composition', () => {
     ['DEPENDENCY_FAILURE', 'Ahora no puedo confirmar los datos de forma segura. Prefiero no darte información incorrecta.'],
     ['HUMAN_HANDOFF', 'Voy a pasarte con el equipo para resolverlo de forma segura.'],
   ] as Array<[CommercialResponsePurpose, string]>)('supports a safe non-transactional variation for %s', async (responsePurpose, output) => {
-    const facts = baseFacts({ responsePurpose, subtotal: null, deliveryFee: null, total: null, items: [], handoffRequired: responsePurpose === 'HUMAN_HANDOFF' });
+    const facts = baseFacts({ responsePurpose, subtotal: null, deliveryFee: null, total: null, addressSafe: null, items: [], handoffRequired: responsePurpose === 'HUMAN_HANDOFF' });
     const { composer } = fixture([output]);
     await expect(composer.compose(facts)).resolves.toMatchObject({ source: 'BOUNDED_AI', validation: { valid: true } });
   });
@@ -101,6 +101,45 @@ describe('bounded commercial response composition', () => {
     expect(result.text).toEqual(expect.stringContaining('total $30.000'));
   });
 
+  it.each([
+    ['ASK_PRODUCT', '¿Quieres Sushi galáctico?'],
+    ['CLARIFY_PRODUCT', '¿Prefieres Pizza lunar?'],
+    ['ASK_ADDRESS', 'Comparte cualquier ubicación.'],
+  ] as Array<[CommercialResponsePurpose, string]>)('uses the controlled template without invoking generated prose for %s', async (responsePurpose, output) => {
+    const facts = baseFacts({
+      responsePurpose,
+      subtotal: null,
+      deliveryFee: null,
+      total: null,
+      addressSafe: null,
+      items: [],
+    });
+    const { composer, generator } = fixture([output]);
+    await expect(composer.compose(facts)).resolves.toMatchObject({ source: 'SAFE_TEMPLATE', validation: { valid: true } });
+    expect(generator.compose).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Te confirmo 1 Combo 2x1 para enviar a Carrera 99. Subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos así?',
+    'Te confirmo 1 Combo 2x1. Subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos así?',
+  ])('rejects changed or omitted authoritative address text: %s', (output) => {
+    const validation = new CommercialResponseValidator().validate(output, baseFacts());
+    expect(validation).toMatchObject({ valid: false, violations: expect.arrayContaining(['ADDRESS_MISMATCH']) });
+  });
+
+  it('accepts the canonical authoritative address in a governed summary', () => {
+    const output = 'Te confirmo 1 Combo 2x1 para enviar a Carrera 10. Subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos así?';
+    expect(new CommercialResponseValidator().validate(output, baseFacts())).toEqual({ valid: true, violations: [] });
+  });
+
+  it('never invokes generated prose when an authoritative address is present', async () => {
+    const { composer, generator } = fixture(['Texto que cambia Carrera 10 por Carrera 99']);
+    const result = await composer.compose(baseFacts());
+    expect(result).toMatchObject({ source: 'SAFE_TEMPLATE', validation: { valid: true } });
+    expect(result.text).toContain('Carrera 10');
+    expect(generator.compose).not.toHaveBeenCalled();
+  });
+
   it('passes an immutable typed envelope and exposes no mutation or tool surface', async () => {
     const generator: CommercialLanguageGenerator = {
       compose: jest.fn(async (facts) => {
@@ -108,11 +147,11 @@ describe('bounded commercial response composition', () => {
         expect(Object.isFrozen(facts.items)).toBe(true);
         expect(Object.isFrozen(facts.items[0])).toBe(true);
         expect(Object.keys(facts)).not.toEqual(expect.arrayContaining(['draftId', 'draftHash', 'customerId', 'tool', 'command']));
-        return 'Te confirmo 1 Combo 2x1 para enviar a Carrera 10. Subtotal $25.000, domicilio $5.000 y total $30.000. ¿Confirmamos así?';
+        return 'Te confirmo 1 Combo 2x1 para recoger. Subtotal $25.000, domicilio $0 y total $25.000. ¿Confirmamos así?';
       }),
     };
     const composer = new CommercialResponseComposer(generator, new CommercialResponseValidator(), new SafeCommercialResponseTemplates());
-    await expect(composer.compose(baseFacts())).resolves.toMatchObject({ source: 'BOUNDED_AI' });
+    await expect(composer.compose(baseFacts({ fulfillment: 'TAKEAWAY', paymentOptions: ['ONLINE', 'PAY_AT_PICKUP'], addressSafe: null, deliveryFee: 0, total: 25000 }))).resolves.toMatchObject({ source: 'BOUNDED_AI' });
   });
 
   it('falls back when generation is unavailable', async () => {

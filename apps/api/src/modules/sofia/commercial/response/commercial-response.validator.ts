@@ -4,6 +4,8 @@ import type { CommercialFactEnvelope, CommercialResponseValidation } from './com
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const monetaryPurposes = new Set(['SUMMARIZE_DRAFT', 'CONFIRM_DRAFT', 'PRICE_CHANGED', 'QUOTE_EXPIRED']);
 const productPurposes = new Set(['SUMMARIZE_DRAFT', 'CONFIRM_DRAFT', 'PRICE_CHANGED', 'QUOTE_EXPIRED']);
+const addressPurposes = new Set(['SUMMARIZE_DRAFT', 'CONFIRM_DRAFT', 'PRICE_CHANGED', 'QUOTE_EXPIRED']);
+const canonicalAddressText = (value: string) => normalize(value).replace(/[^a-z0-9]+/g, ' ').trim();
 
 const forbiddenPatterns: Array<[string, RegExp]> = [
   ['PAYMENT_CLAIM', /\b(pago (?:recibido|aprobado|confirmado)|ya (?:esta|quedo) pagad[oa]|marque? el pago|recibimos el pago|pago procesado)\b/i],
@@ -38,6 +40,12 @@ export class CommercialResponseValidator {
         const quantityPattern = new RegExp(`(?:^|\\D)${item.quantity}(?:\\D|$)`);
         if (!quantityPattern.test(normalized)) violations.push('QUANTITY_MISMATCH');
       }
+    }
+
+    if (facts.addressSafe && addressPurposes.has(facts.responsePurpose)) {
+      const canonicalText = ` ${canonicalAddressText(text)} `;
+      const canonicalAddress = ` ${canonicalAddressText(facts.addressSafe)} `;
+      if (!canonicalText.includes(canonicalAddress)) violations.push('ADDRESS_MISMATCH');
     }
 
     const paymentMentions: Array<[string, RegExp]> = [

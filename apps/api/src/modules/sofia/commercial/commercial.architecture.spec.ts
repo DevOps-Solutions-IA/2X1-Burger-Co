@@ -2,16 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(__dirname, '..');
+const readSource = (file: string) => {
+  // The filenames below are a closed test-owned allowlist, never runtime input.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  return fs.readFileSync(path.join(root, file), 'utf8');
+};
 const orchestration = [
   'commercial/commercial-checkout.service.ts',
   'commercial/commercial-intent.engine.ts',
   'commercial/commercial-policy.service.ts',
-].map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+].map(readSource).join('\n');
 const responseLayer = [
   'commercial/response/commercial-response.composer.ts',
   'commercial/response/commercial-response.validator.ts',
   'commercial/response/safe-commercial-response.templates.ts',
-].map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+].map(readSource).join('\n');
 
 describe('commercial checkout architecture', () => {
   it('keeps Prisma confined to the persistence adapter', () => {

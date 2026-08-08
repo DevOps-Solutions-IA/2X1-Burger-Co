@@ -8,6 +8,12 @@ import {
 } from './commercial-response.types';
 import { SafeCommercialResponseTemplates } from './safe-commercial-response.templates';
 
+const templateOnlyPurposes = new Set([
+  'ASK_PRODUCT',
+  'CLARIFY_PRODUCT',
+  'ASK_ADDRESS',
+]);
+
 const deepFreeze = <T>(value: T): T => {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value);
@@ -27,10 +33,13 @@ export class CommercialResponseComposer {
   async compose(input: CommercialFactEnvelope): Promise<CommercialComposedResponse> {
     const envelope = deepFreeze(structuredClone(input));
     let candidate: string | null = null;
-    try {
-      candidate = await this.generator.compose(envelope);
-    } catch {
-      candidate = null;
+    const requiresExactTemplate = envelope.addressSafe !== null || templateOnlyPurposes.has(envelope.responsePurpose);
+    if (!requiresExactTemplate) {
+      try {
+        candidate = await this.generator.compose(envelope);
+      } catch {
+        candidate = null;
+      }
     }
 
     if (candidate) {

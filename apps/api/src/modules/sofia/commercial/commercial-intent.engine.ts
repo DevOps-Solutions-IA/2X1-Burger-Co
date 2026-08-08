@@ -30,7 +30,6 @@ export class CommercialIntentEngine {
     if (/pago cuando llegue|al domiciliario|pago al recibir|cuando me lo entreguen/.test(text)) paymentPreference = 'CASH_ON_DELIVERY';
     else if (/pago alla|cuando vaya|al recoger|en el local/.test(text)) paymentPreference = 'PAY_AT_PICKUP';
     else if (/pago ya|pagar de una|pasame el link|pagarlo ahora|pago en linea|pago ahora/.test(text)) paymentPreference = 'ONLINE';
-    else if (affirmative && lastQuestion === 'PAYMENT') paymentPreference = 'ONLINE';
 
     const quantityToken = text.match(/\b(\d+|un|una|uno|dos|tres|cuatro|cinco|seis)\b/)?.[1];
     const quantity = quantityToken ? (Number(quantityToken) || quantities[quantityToken] || null) : null;
