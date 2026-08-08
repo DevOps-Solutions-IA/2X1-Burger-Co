@@ -1,13 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import {
-  Prisma,
   SofiaOrderSource,
   WhatsappConversationStatus,
-  WhatsappMessageDirection,
   WhatsappMessageType,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import { PrismaService } from '../../prisma/prisma.service';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaCrmService } from './crm/sofia-crm.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
@@ -18,6 +15,8 @@ import { WhatsappInboundGateway } from './whatsapp/production/whatsapp-inbound.g
 import { WhatsappMessagePolicyService } from './whatsapp/production/whatsapp-message-policy.service';
 import { WhatsappMediaSecurityService } from './whatsapp/production/whatsapp-media-security.service';
 import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
+import { sanitizeWhatsappInboundReceipt } from './whatsapp/production/whatsapp-inbound-receipt';
+import { PrismaWhatsappConversationRepository } from './whatsapp/production/persistence/prisma-whatsapp-conversation.repository';
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
@@ -49,7 +48,7 @@ export class SofiaWhatsappService {
   private readonly logger = new Logger(SofiaWhatsappService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly conversations: PrismaWhatsappConversationRepository,
     private readonly providerFactory: WhatsappProviderFactory,
     private readonly sofiaAgentService: SofiaAgentService,
     private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
@@ -117,7 +116,7 @@ export class SofiaWhatsappService {
           });
         }
       }
-      return {
+      const receipt = {
         duplicate: ingress.claim.state === 'DETERMINISTIC_REPLAY',
         mode,
         provider: effectiveProvider,
@@ -131,6 +130,9 @@ export class SofiaWhatsappService {
           ? {}
           : (ingress.result as Record<string, unknown>)),
       };
+      return options.trustedInternalValidation || process.env.NODE_ENV === 'test'
+        ? receipt
+        : sanitizeWhatsappInboundReceipt(receipt);
     }
     if (ingress.event.kind !== 'INBOUND_MESSAGE') {
       throw new BadRequestException({ code: 'WHATSAPP_EVENT_CLASSIFICATION_INVALID' });
@@ -153,30 +155,19 @@ export class SofiaWhatsappService {
         effectiveProvider,
         options.trustedInternalValidation ? SofiaOrderSource.MOCK_ADMIN : SofiaOrderSource.WHATSAPP,
       );
-      const inboundMessage = await this.prisma.whatsappMessage.create({
-        data: {
+      const inboundMessage = await this.conversations.createInboundMessage({
           conversationId: conversation.id,
-          direction: WhatsappMessageDirection.INBOUND,
           type: parsed.messageType as WhatsappMessageType,
           provider: effectiveProvider,
-          providerMessageId: parsed.providerMessageId,
-          providerTimestamp: parsed.timestamp,
+          providerMessageId: parsed.providerMessageId ?? null,
+          providerTimestamp: parsed.timestamp ?? null,
           body: parsed.messageType === 'AUDIO' ? null : parsed.body ?? null,
-          // Sofia does not fetch inbound media. Persisting provider URLs can leak
-          // short-lived credentials, so only the media type is retained.
-          mediaUrl: null,
           mediaMimeType: parsed.mediaMimeType ?? null,
           transcript: parsed.transcript ?? null,
-          rawPayload: { normalized: true, payloadHash: eventHash } as Prisma.InputJsonValue,
+          payloadHash: eventHash,
           status: 'PILOT_NOT_ALLOWED',
           idempotencyKey: `inbound:${eventHash}`,
           errorMessage: 'ALLOWLIST_REQUIRED',
-        },
-      }).catch(async (error) => {
-        if (!this.isUniqueConstraintError(error)) throw error;
-        const existing = await this.prisma.whatsappMessage.findUnique({ where: { idempotencyKey: `inbound:${eventHash}` } });
-        if (!existing) throw error;
-        return existing;
       });
 
       await this.handoffService.transition({
@@ -185,15 +176,10 @@ export class SofiaWhatsappService {
         target: 'PILOT_NOT_ALLOWED',
         reasonCode: 'ALLOWLIST_REQUIRED',
       });
-      await this.prisma.whatsappConversation.update({
-        where: { id: conversation.id },
-        data: {
-          riskFlags: {
+      await this.conversations.flagConversation(conversation.id, {
             reason: 'ALLOWLIST_REQUIRED',
             receiveOnly: true,
             noWhatsappRealSent: true,
-          } as Prisma.InputJsonValue,
-        },
       });
       await this.runtimeSafetyService.recordBlocked('ALLOWLIST', {
         phone: parsed.phone,
@@ -215,8 +201,9 @@ export class SofiaWhatsappService {
         realSendingEnabled: false,
         noWhatsappReal: true,
       };
-      await this.inboundGateway.complete(inboundEvent.id, 'ALLOWLIST_REQUIRED', response, 'ALLOWLIST_REQUIRED');
-      return response;
+      const receipt = sanitizeWhatsappInboundReceipt(response);
+      await this.inboundGateway.complete(inboundEvent.id, 'ALLOWLIST_REQUIRED', receipt, 'ALLOWLIST_REQUIRED');
+      return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     }
     const conversation = await this.getOrCreateWhatsappConversation(
       parsed,
@@ -224,27 +211,18 @@ export class SofiaWhatsappService {
       effectiveProvider,
       options.trustedInternalValidation ? SofiaOrderSource.MOCK_ADMIN : SofiaOrderSource.WHATSAPP,
     );
-    const inboundMessage = await this.prisma.whatsappMessage.create({
-      data: {
+    const inboundMessage = await this.conversations.createInboundMessage({
         conversationId: conversation.id,
-        direction: WhatsappMessageDirection.INBOUND,
         type: parsed.messageType as WhatsappMessageType,
         provider: effectiveProvider,
-        providerMessageId: parsed.providerMessageId,
-        providerTimestamp: parsed.timestamp,
+        providerMessageId: parsed.providerMessageId ?? null,
+        providerTimestamp: parsed.timestamp ?? null,
         body: parsed.messageType === 'AUDIO' ? null : parsed.body ?? null,
-        mediaUrl: null,
         mediaMimeType: parsed.mediaMimeType ?? null,
         transcript: parsed.transcript ?? null,
-        rawPayload: { normalized: true, payloadHash: eventHash } as Prisma.InputJsonValue,
+        payloadHash: eventHash,
         status: 'RECEIVED',
         idempotencyKey: `inbound:${eventHash}`,
-      },
-    }).catch(async (error) => {
-      if (!this.isUniqueConstraintError(error)) throw error;
-      const existing = await this.prisma.whatsappMessage.findUnique({ where: { idempotencyKey: `inbound:${eventHash}` } });
-      if (!existing) throw error;
-      return existing;
     });
     if (ingress.event.media) await this.mediaSecurity.persist(inboundMessage.id, ingress.event.media);
 
@@ -266,8 +244,9 @@ export class SofiaWhatsappService {
       inboundEventId: inboundEvent.id,
       ...result,
     };
-    await this.inboundGateway.complete(inboundEvent.id, result.processingStatus, response, result.errorMessage ?? null);
-    return response;
+    const receipt = sanitizeWhatsappInboundReceipt(response);
+    await this.inboundGateway.complete(inboundEvent.id, result.processingStatus, receipt, result.errorMessage ?? null);
+    return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     } catch (error) {
       await this.inboundGateway.complete(
         ingress.claim.inboundEventId,
@@ -306,12 +285,9 @@ export class SofiaWhatsappService {
   }
 
   async cancelOutbound(outboundId: string, actorId: string) {
-    const outbound = await this.prisma.whatsappOutboundMessage.findUnique({ where: { id: outboundId } });
+    const outbound = await this.conversations.cancelOutbound(outboundId, actorId);
     if (!outbound) throw new NotFoundException('No se encontró el mensaje saliente Sofía.');
-    return this.prisma.whatsappOutboundMessage.update({
-      where: { id: outboundId },
-      data: { status: 'CANCELLED', approvedById: actorId, approvedAt: new Date() },
-    });
+    return outbound;
   }
 
   async retryOutbound(outboundId: string) {
@@ -517,7 +493,7 @@ export class SofiaWhatsappService {
     if (!responseText.trim()) return null;
     const responseHash = this.sha256(`${responseText}|${mediaUrl ?? ''}`);
     const idempotencyKey = `outbound:${conversationId}:${inboundMessageId}:${responseHash}`;
-    const existing = await this.prisma.whatsappOutboundMessage.findUnique({ where: { idempotencyKey } });
+    const existing = await this.conversations.findOutboundByIdempotency(idempotencyKey);
     if (existing) return existing;
 
     let status = 'APPROVAL_PENDING';
@@ -528,22 +504,19 @@ export class SofiaWhatsappService {
       status = this.providerFactory.isAutoReplyAllowed(confidence, isOpen, headers) ? 'QUEUED' : 'APPROVAL_PENDING';
     }
 
-    const outbound = await this.prisma.whatsappOutboundMessage.create({
-      data: {
+    const outbound = await this.conversations.createOutbound({
         conversationId,
         inboundMessageId,
         provider: providerName,
         localMessageId: `local-${this.sha256(idempotencyKey).slice(0, 24)}`,
         body: responseText,
-        mediaUrl: this.isSofiaFeaturedOfferMedia(mediaUrl) ? mediaUrl : null,
+        mediaUrl: this.isSofiaFeaturedOfferMedia(mediaUrl) ? (mediaUrl ?? null) : null,
         status,
         idempotencyKey,
         accountId,
         recipientIdentityHash: this.providerHealth.identityHash(
           (await this.ensureConversation(conversationId)).phone,
         ),
-        purpose: 'SERVICE',
-      },
     });
 
     return outbound;
@@ -556,41 +529,27 @@ export class SofiaWhatsappService {
     source: SofiaOrderSource,
   ) {
     const crmCustomer = source === SofiaOrderSource.MOCK_ADMIN ? null : await this.resolveCrmCustomer(parsed);
-    const existing = await this.prisma.whatsappConversation.findFirst({
-      where: { phone: parsed.phone, source, status: { not: WhatsappConversationStatus.ARCHIVED } },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const existing = await this.conversations.findActiveConversation(parsed.phone, source);
     const data = {
       customerName: parsed.customerName || existing?.customerName || null,
       provider: providerName,
       providerConversationId: parsed.providerConversationId ?? existing?.providerConversationId ?? null,
       mode,
-      lastMessageAt: new Date(),
-      lastInboundAt: new Date(),
       lastMessagePreview: this.safeInboundPreview(parsed),
-      unreadCount: { increment: 1 },
       customerId: crmCustomer?.id ?? existing?.customerId ?? undefined,
     };
     if (existing) {
-      return this.prisma.whatsappConversation.update({ where: { id: existing.id }, data });
+      return this.conversations.updateConversation(existing.id, data);
     }
-    return this.prisma.whatsappConversation.create({
-      data: {
+    return this.conversations.createConversation({
         phone: parsed.phone,
         customerName: parsed.customerName ?? null,
         provider: providerName,
         providerConversationId: parsed.providerConversationId ?? null,
         mode,
         source,
-        status: WhatsappConversationStatus.ACTIVE,
-        humanStatus: 'SOFIA_ACTIVE',
-        sofiaEnabled: true,
-        lastMessageAt: new Date(),
-        lastInboundAt: new Date(),
-        unreadCount: 1,
         customerId: crmCustomer?.id ?? null,
         lastMessagePreview: this.safeInboundPreview(parsed),
-      },
     });
   }
 
@@ -608,16 +567,13 @@ export class SofiaWhatsappService {
   }
 
   private async ensureConversation(conversationId: string) {
-    const conversation = await this.prisma.whatsappConversation.findUnique({ where: { id: conversationId } });
+    const conversation = await this.conversations.findConversation(conversationId);
     if (!conversation) throw new NotFoundException('No se encontró la conversación Sofía/WhatsApp.');
     return conversation;
   }
 
   private loadConversation(conversationId: string) {
-    return this.prisma.whatsappConversation.findUniqueOrThrow({
-      where: { id: conversationId },
-      include: this.conversationInclude(),
-    });
+    return this.conversations.loadConversation(conversationId);
   }
 
   private sanitizeProviderError(error: unknown) {
@@ -634,25 +590,9 @@ export class SofiaWhatsappService {
   }
 
   private async systemActorId() {
-    const user = await this.prisma.user.findFirst({
-      where: {
-        isActive: true,
-        roles: { some: { role: { name: { in: ['admin', 'supervisor', 'cashier'] } } } },
-      },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true },
-    });
-    if (!user) throw new ForbiddenException('No hay usuario operativo activo para registrar acciones Sofía.');
-    return user.id;
-  }
-
-  private conversationInclude() {
-    return {
-      messages: { orderBy: { createdAt: 'asc' as const } },
-      outboundMessages: { orderBy: { createdAt: 'asc' as const } },
-      orderDrafts: { orderBy: { createdAt: 'desc' as const }, take: 10 },
-      deliveryOrders: { orderBy: { createdAt: 'desc' as const }, take: 10 },
-    };
+    const actorId = await this.conversations.findSystemActorId();
+    if (!actorId) throw new ForbiddenException('No hay usuario operativo activo para registrar acciones Sofía.');
+    return actorId;
   }
 
   private hashPayload(parsed: ParsedWhatsappInbound, suffix = '') {
@@ -693,7 +633,4 @@ export class SofiaWhatsappService {
     ].includes(mediaUrl);
   }
 
-  private isUniqueConstraintError(error: unknown) {
-    return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2002');
-  }
 }

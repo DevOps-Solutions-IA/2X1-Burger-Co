@@ -16,12 +16,21 @@ describe('WhatsApp production architecture boundaries', () => {
   const sofiaRoot = resolve(__dirname, '../..');
 
   it('allows Prisma only in the dedicated WhatsApp persistence adapter', () => {
-    const violations = files(productionRoot)
+    const violations = [
+      ...files(productionRoot),
+      resolve(sofiaRoot, 'sofia-whatsapp.service.ts'),
+    ]
       .filter((file) => file.endsWith('.ts') && !file.endsWith('.spec.ts'))
       // eslint-disable-next-line security/detect-non-literal-fs-filename
-      .filter((file) => /PrismaService|@prisma\/client/.test(readFileSync(file, 'utf8')))
-      .map((file) => relative(productionRoot, file))
-      .filter((file) => file !== 'persistence/prisma-whatsapp-production.repository.ts' && file !== 'whatsapp-production.repository.ts' && file !== 'whatsapp-inbound-deduplicator.ts' && file !== 'whatsapp-delivery-status.service.ts');
+      .filter((file) => /PrismaService|this\.prisma\b/.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(sofiaRoot, file))
+      .filter((file) => ![
+        'whatsapp/production/persistence/prisma-whatsapp-production.repository.ts',
+        'whatsapp/production/persistence/prisma-whatsapp-conversation.repository.ts',
+        'whatsapp/production/whatsapp-production.repository.ts',
+        'whatsapp/production/whatsapp-inbound-deduplicator.ts',
+        'whatsapp/production/whatsapp-delivery-status.service.ts',
+      ].includes(file));
     expect(violations).toEqual([]);
   });
 

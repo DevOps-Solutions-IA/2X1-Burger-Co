@@ -5,6 +5,7 @@ import type { ParsedWhatsappInbound } from '../whatsapp-provider.adapter';
 import { WhatsappEventNormalizer } from './whatsapp-event-normalizer';
 import { WhatsappMediaSecurityService } from './whatsapp-media-security.service';
 import { WhatsappProviderHealthService } from './whatsapp-provider-health.service';
+import { sanitizeWhatsappInboundReceipt } from './whatsapp-inbound-receipt';
 import type { WhatsappProductionRepository } from './whatsapp-production.repository';
 import { WhatsappWebhookVerifier } from './whatsapp-webhook-verifier';
 
@@ -100,5 +101,47 @@ describe('WhatsApp production security boundaries', () => {
 
     await expect(health.bind(account)).resolves.toMatchObject({ id: 'account-row' });
     await expect(health.bind({ ...account, sessionOwner: 'wrong-session' })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects an exact provider binding when the persisted account is disabled', async () => {
+    const repository = { resolveAccount: jest.fn().mockResolvedValue({ id: 'account-row', status: 'DISABLED' }) };
+    const values: Record<string, unknown> = {
+      NODE_ENV: 'production',
+      WHATSAPP_EXPECTED_ACCOUNT_ID: account.externalAccountId,
+      WHATSAPP_EXPECTED_BUSINESS_IDENTITY: account.businessIdentity,
+      WHATSAPP_EXPECTED_SESSION_OWNER: account.sessionOwner,
+    };
+    const health = new WhatsappProviderHealthService(
+      { get: (key: string) => values[key] } as unknown as ConfigService,
+      repository as never,
+    );
+
+    await expect(health.bind(account)).rejects.toMatchObject({
+      response: { code: 'WHATSAPP_PROVIDER_ACCOUNT_DISABLED' },
+    });
+  });
+
+  it('persists and replays only a metadata receipt without business or personal data', () => {
+    const receipt = sanitizeWhatsappInboundReceipt({
+      mode: 'receive_only',
+      provider: 'qr_gateway',
+      processingStatus: 'SUGGESTED_ONLY',
+      inboundEventId: 'event-row',
+      conversationId: 'conversation-row',
+      outbound: { body: 'Entrega en Carrera 10', status: 'SUGGESTED' },
+      sofiaResult: {
+        customer: { phone: '+573001234567', address: 'Carrera 10' },
+        draft: { customerPhone: '+573001234567', deliveryAddress: 'Carrera 10' },
+      },
+    });
+
+    expect(receipt).toEqual({
+      mode: 'receive_only',
+      provider: 'qr_gateway',
+      processingStatus: 'SUGGESTED_ONLY',
+      inboundEventId: 'event-row',
+    });
+    expect(JSON.stringify(receipt)).not.toContain('+573001234567');
+    expect(JSON.stringify(receipt)).not.toContain('Carrera 10');
   });
 });

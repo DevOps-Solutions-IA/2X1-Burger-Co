@@ -13,7 +13,11 @@ export class WhatsappProviderHealthService {
     if (!expected.configured || expected.account !== observation.externalAccountId || expected.business !== observation.businessIdentity || expected.owner !== observation.sessionOwner) {
       if (this.config.get<string>('NODE_ENV') !== 'test') throw new ForbiddenException({ code: 'WHATSAPP_PROVIDER_ACCOUNT_MISMATCH' });
     }
-    return this.repository.resolveAccount(observation);
+    const account = await this.repository.resolveAccount(observation);
+    if (account.status !== 'VERIFIED_RECEIVE_ONLY') {
+      throw new ForbiddenException({ code: 'WHATSAPP_PROVIDER_ACCOUNT_DISABLED' });
+    }
+    return account;
   }
 
   status(provider: ProviderAccountObservation['provider'], connected: boolean): ProviderHealthResult {

@@ -58,6 +58,7 @@ import { SofiaWhatsappQrGatewayProvider } from './whatsapp/qr-gateway/sofia-what
 import { SofiaWhatsappQrGatewayService } from './whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service';
 import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
 import { PrismaWhatsappProductionRepository } from './whatsapp/production/persistence/prisma-whatsapp-production.repository';
+import { PrismaWhatsappConversationRepository } from './whatsapp/production/persistence/prisma-whatsapp-conversation.repository';
 import { WhatsappConsentService } from './whatsapp/production/whatsapp-consent.service';
 import { WhatsappDeliveryStatusService } from './whatsapp/production/whatsapp-delivery-status.service';
 import { WhatsappEventNormalizer } from './whatsapp/production/whatsapp-event-normalizer';
@@ -124,6 +125,7 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     SofiaCrmService,
     SofiaAgentRepository,
     PrismaWhatsappProductionRepository,
+    PrismaWhatsappConversationRepository,
     { provide: WHATSAPP_PRODUCTION_REPOSITORY, useExisting: PrismaWhatsappProductionRepository },
     WhatsappWebhookVerifier,
     WhatsappEventNormalizer,
