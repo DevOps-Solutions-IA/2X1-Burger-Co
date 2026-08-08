@@ -9,6 +9,8 @@ const customPolicies = new Map([
   ['SofiaWhatsappWebhookController', 'PROVIDER_SIGNATURE'],
   ['SofiaHermesWhatsappWebhookController', 'PROVIDER_SIGNATURE'],
   ['SofiaPaymentWebhooksController', 'PROVIDER_SIGNATURE'],
+  ['CanonicalPaymentWebhooksController', 'PROVIDER_SIGNATURE'],
+  ['CanonicalPublicPaymentsController', 'CAPABILITY_TOKEN'],
 ]);
 
 const files = [];

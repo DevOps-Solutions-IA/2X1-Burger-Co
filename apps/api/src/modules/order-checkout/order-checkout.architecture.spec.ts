@@ -51,4 +51,10 @@ describe('Phase 5 architecture boundaries', () => {
     expect(registry).toContain("'SOFIA_MARK_PAYMENT'");
     expect(registry).toContain('enabled: false');
   });
+
+  it('classifies canonical public routes by capability token or provider signature', () => {
+    const audit = fs.readFileSync(path.resolve(root, '../../../../../infra/testing/rbac-source-audit.mjs'), 'utf8');
+    expect(audit).toContain("['CanonicalPaymentWebhooksController', 'PROVIDER_SIGNATURE']");
+    expect(audit).toContain("['CanonicalPublicPaymentsController', 'CAPABILITY_TOKEN']");
+  });
 });
