@@ -143,6 +143,18 @@ describe('commercial intent and checkout', () => {
     expect(result).toMatchObject({ nextAction: 'HANDOFF', state: { handoffState: 'HUMAN_REQUIRED' } });
   });
 
+  it('merges identity and address follow-ups without a false handoff', async () => {
+    const { service, actor } = fixture();
+    await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Quiero un combo 2x1 con domicilio', actor });
+    const identity = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Soy Cliente Hermes', actor });
+    expect(identity.nextAction).toBe('ASK_MISSING');
+    expect(identity.state.handoffState).toBe('SOFIA_ACTIVE');
+    const address = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mi direccion es Calle 8 # 9-10 barrio Centro', actor });
+    expect(address.state.address).toBe('Calle 8 # 9-10 barrio Centro');
+    const ready = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Pago al recibir', actor });
+    expect(ready.nextAction).toBe('READY_TO_CONFIRM');
+  });
+
   it.each(['qué trae el Maxi Family', 'mándame foto del maxi', 'quiero lo mismo de ayer', 'me llegó mal el pedido', 'qué combos tienen'])(
     'preserves the existing specialized Sofia capability for: %s',
     async (message) => {

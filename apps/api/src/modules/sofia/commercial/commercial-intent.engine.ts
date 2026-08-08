@@ -40,9 +40,7 @@ export class CommercialIntentEngine {
       modifiers.push({ kind: 'REMOVE', name: match[2]!.trim(), quantity: modifierQuantity });
     }
     for (const match of text.matchAll(/\b(?:con|agrega|adicional)\s+(tocineta|queso|carne|salsa|papitas)(?:\s+adicional)?/g)) modifiers.push({ kind: 'ADD', name: match[1]! });
-    const address = fulfillment === 'DELIVERY'
-      ? message.match(/(?:a|para)\s+(la\s+)?((?:carrera|calle|avenida|cra|cl)\s+.*?)(?=\s+y\s+(?:pago|lo pago)|[,.;]|$)/i)?.[2]?.trim() ?? null
-      : null;
+    const address = message.match(/(?:a|para|direccion\s+es|dirección\s+es)\s+(la\s+)?((?:carrera|calle|avenida|cra|cl)\s+.*?)(?=\s+y\s+(?:pago|lo pago)|[,.;]|$)/i)?.[2]?.trim() ?? null;
     const confidence: CommercialConfidence = adversarial ? 'LOW' : intent !== 'UNKNOWN' && (fulfillment || paymentPreference !== 'UNKNOWN' || quantity || /2x1|combo|hamburguesa/.test(text)) ? 'HIGH' : intent !== 'UNKNOWN' ? 'MEDIUM' : 'LOW';
     return { intent, confidence, fulfillment, paymentPreference, quantity, modifiers, clearModifiers: /(?:dejala|dejalo|deja)\s+normal/.test(text), address, affirmative, negative, adversarial, normalized: text };
   }
