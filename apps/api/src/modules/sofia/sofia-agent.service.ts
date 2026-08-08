@@ -575,6 +575,7 @@ export class SofiaAgentService {
           confidence,
           rawPayload: {
             commercialFactEnvelope: commercial.factEnvelope as Prisma.InputJsonValue,
+            commercialResponseSource: commercial.responseComposition.source,
             nextAction: commercial.nextAction,
             noWhatsappReal: true,
             noOperationalMutation: true,
@@ -632,7 +633,15 @@ export class SofiaAgentService {
           sandboxOperationalIsolation: options.source !== 'WHATSAPP',
           productiveActionBlocked: 'PHASE_4_DRAFT_ONLY',
         },
-        aiProvider: { provider: 'rules', mode: 'disabled', fallbackUsed: false, confidence, safetyFlags: [], forbiddenClaimsDetected: [], diagnostics: ['PHASE_4_DOMAIN_FACT_ENVELOPE'] },
+        aiProvider: {
+          provider: commercial.responseComposition.source === 'BOUNDED_AI' ? 'deepseek' : 'rules',
+          mode: commercial.responseComposition.source === 'BOUNDED_AI' ? this.aiProviderFactory.resolveMode() : 'disabled',
+          fallbackUsed: commercial.responseComposition.source === 'SAFE_TEMPLATE',
+          confidence,
+          safetyFlags: [],
+          forbiddenClaimsDetected: [],
+          diagnostics: ['PHASE_4_DOMAIN_FACT_ENVELOPE', `COMMERCIAL_RESPONSE:${commercial.responseComposition.source}`],
+        },
       };
     }
 

@@ -23,6 +23,11 @@ import { CommercialMetricsService } from './commercial/commercial-metrics.servic
 import { CommercialPolicyService } from './commercial/commercial-policy.service';
 import { COMMERCIAL_REPOSITORY } from './commercial/commercial.repository';
 import { PrismaCommercialRepository } from './commercial/persistence/prisma-commercial.repository';
+import { CommercialResponseComposer } from './commercial/response/commercial-response.composer';
+import { CommercialResponseValidator } from './commercial/response/commercial-response.validator';
+import { COMMERCIAL_LANGUAGE_GENERATOR } from './commercial/response/commercial-response.types';
+import { SafeCommercialResponseTemplates } from './commercial/response/safe-commercial-response.templates';
+import { SofiaAICommercialLanguageGenerator } from './commercial/response/sofia-ai-commercial-language.generator';
 import {
   BlockedSofiaOrderCreationAdapter,
   SofiaCustomerResolutionAdapter,
@@ -132,6 +137,11 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     CommercialIntentEngine,
     CommercialPolicyService,
     CommercialMetricsService,
+    CommercialResponseValidator,
+    SafeCommercialResponseTemplates,
+    CommercialResponseComposer,
+    SofiaAICommercialLanguageGenerator,
+    { provide: COMMERCIAL_LANGUAGE_GENERATOR, useExisting: SofiaAICommercialLanguageGenerator },
     CommercialCheckoutService,
     PrismaCommercialRepository,
     { provide: COMMERCIAL_REPOSITORY, useExisting: PrismaCommercialRepository },
@@ -151,7 +161,6 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     WhatsappProviderHealthService,
     WhatsappOutboundGateway,
     WhatsappOutboundCommandHandler,
-    CommercialCheckoutService,
     SofiaOrderDraftAdapter,
     BlockedSofiaOrderCreationAdapter,
     SofiaCustomerResolutionAdapter,

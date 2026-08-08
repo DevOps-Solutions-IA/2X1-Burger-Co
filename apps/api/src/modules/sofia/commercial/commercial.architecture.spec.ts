@@ -7,6 +7,11 @@ const orchestration = [
   'commercial/commercial-intent.engine.ts',
   'commercial/commercial-policy.service.ts',
 ].map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+const responseLayer = [
+  'commercial/response/commercial-response.composer.ts',
+  'commercial/response/commercial-response.validator.ts',
+  'commercial/response/safe-commercial-response.templates.ts',
+].map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
 
 describe('commercial checkout architecture', () => {
   it('keeps Prisma confined to the persistence adapter', () => {
@@ -21,6 +26,17 @@ describe('commercial checkout architecture', () => {
     const agent = fs.readFileSync(path.join(root, 'sofia-agent.service.ts'), 'utf8');
     expect(agent).toContain('CommercialCheckoutService');
     expect(agent).toContain('this.commercialCheckout.process');
+  });
+
+  it('routes all commercial customer wording through the bounded composer', () => {
+    const checkout = fs.readFileSync(path.join(root, 'commercial/commercial-checkout.service.ts'), 'utf8');
+    expect(checkout).toContain('CommercialResponseComposer');
+    expect(checkout).not.toMatch(/private (question|summary|handoffText|dependencyFailureText)\(/);
+    expect(checkout).not.toMatch(/responseText:\s*['"`]/);
+  });
+
+  it('keeps the response layer presentation-only without tool, state, command, or persistence access', () => {
+    expect(responseLayer).not.toMatch(/PrismaService|@prisma\/client|SecureCommand|OrdersService|CommercialIntentEngine|CommercialRepository|saveState|saveDraft|confirmDraft|execute\(|tool/i);
   });
 
   it('keeps production actions disabled in configuration', () => {

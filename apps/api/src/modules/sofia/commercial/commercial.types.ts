@@ -1,4 +1,5 @@
 import type { SofiaActorContext } from '../../../application/contracts/sofia-domain-contracts';
+import type { CommercialFactEnvelope } from './response/commercial-response.types';
 
 export type CommercialIntent = 'PURCHASE' | 'CHANGE_ORDER' | 'CONFIRM' | 'REJECT' | 'ASK_HUMAN' | 'UNKNOWN';
 export type CommercialConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -64,5 +65,6 @@ export type CommercialTurnResult = {
   state: CommercialConversationState;
   responseText: string;
   nextAction: 'ASK_MISSING' | 'READY_TO_CONFIRM' | 'DRAFT_CONFIRMED' | 'HANDOFF' | 'NO_ACTION';
-  factEnvelope: Record<string, unknown>;
+  factEnvelope: CommercialFactEnvelope;
+  responseComposition: Readonly<{ source: 'BOUNDED_AI' | 'SAFE_TEMPLATE'; violations: ReadonlyArray<string> }>;
 };

@@ -10,6 +10,7 @@ import {
   SofiaAIProviderName,
 } from './sofia-ai-provider.adapter';
 import { SofiaSafetyGuard } from './sofia-ai-safety.guard';
+import type { CommercialFactEnvelope } from '../commercial/response/commercial-response.types';
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
@@ -99,6 +100,14 @@ export class SofiaAIProviderFactory {
     const provider = this.resolveProvider(headers);
     if (provider === 'deepseek' || provider === 'hybrid') return this.deepSeekProvider.healthCheck();
     return this.rulesProvider.healthCheck();
+  }
+
+  async composeCommercialResponse(envelope: CommercialFactEnvelope): Promise<string | null> {
+    const mode = this.resolveMode();
+    const provider = this.resolveProvider();
+    if (!['dry_run', 'suggest', 'supervised'].includes(mode)) return null;
+    if (provider !== 'deepseek' && provider !== 'hybrid') return null;
+    return this.deepSeekProvider.composeCommercialResponse(envelope);
   }
 
   getStatus(headers?: HeaderMap) {

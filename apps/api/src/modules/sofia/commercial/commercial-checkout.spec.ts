@@ -4,6 +4,9 @@ import { CommercialCheckoutService } from './commercial-checkout.service';
 import { CommercialIntentEngine } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
+import { CommercialResponseComposer } from './response/commercial-response.composer';
+import { CommercialResponseValidator } from './response/commercial-response.validator';
+import { SafeCommercialResponseTemplates } from './response/safe-commercial-response.templates';
 import type { CommercialConversationState } from './commercial.types';
 
 describe('commercial intent and checkout', () => {
@@ -63,8 +66,13 @@ describe('commercial intent and checkout', () => {
     const product = { id: 'p1', code: 'COMBO-2X1', name: 'Combo 2x1', description: 'Hamburguesas con cebolla', imageUrl: null, category: { id: 'cat', name: 'Combos', slug: 'combos' }, kind: 'PREPARED', persistedPrice: 25000, active: true, trackStock: true, updatedAt: new Date().toISOString() } as const;
     const soda = { ...product, id: 'p2', code: 'COCA-400', name: 'Coca Cola', kind: 'DIRECT' as const, persistedPrice: 5000 };
     const products = [product, soda];
+    const responses = new CommercialResponseComposer(
+      { compose: jest.fn(async () => null) },
+      new CommercialResponseValidator(),
+      new SafeCommercialResponseTemplates(),
+    );
     const service = new CommercialCheckoutService(
-      engine, new CommercialPolicyService(), new CommercialMetricsService(), repository as never,
+      engine, new CommercialPolicyService(), new CommercialMetricsService(), responses, repository as never,
       { listActive: jest.fn(async () => products), getActiveById: jest.fn(async (id: string) => products.find((entry) => entry.id === id)!), findActive: jest.fn() } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString() })) } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [{ ingredientId: 'i1', name: 'Cebolla' }] })) } as never,
@@ -127,7 +135,7 @@ describe('commercial intent and checkout', () => {
   it('keeps discounts governed and does not invent a commercial adjustment', async () => {
     const { service, repository, actor } = fixture();
     const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: '¿Me das un descuento?', actor });
-    expect(result).toMatchObject({ nextAction: 'NO_ACTION', factEnvelope: { discountApplied: false } });
+    expect(result).toMatchObject({ nextAction: 'NO_ACTION', factEnvelope: { responsePurpose: 'DISCOUNT_UNAVAILABLE', allowedFacts: expect.arrayContaining(['NO_DISCOUNT_AVAILABLE']) } });
     expect(repository.saveDraft).not.toHaveBeenCalled();
   });
 
