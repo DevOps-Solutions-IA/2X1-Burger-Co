@@ -110,4 +110,24 @@ describe('production Sofia safety validation', () => {
       WHATSAPP_EXPECTED_SESSION_OWNER: 'session-1',
     }).SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED).toBe(false);
   });
+
+  it('allows only the official Bold endpoint in production', () => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://sandbox.example.test',
+    })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+
+    expect(() => validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://user:password@integrations.api.bold.co',
+    })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+
+    expect(validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://integrations.api.bold.co',
+    }).BOLD_BASE_URL).toBe('https://integrations.api.bold.co');
+  });
 });

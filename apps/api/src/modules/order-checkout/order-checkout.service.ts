@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { CheckoutPolicyService } from './checkout-policy.service';
 import type { CheckoutCustomerSnapshot, CheckoutItemSnapshot, CheckoutView, CreateSofiaCheckoutCommand } from './order-checkout.types';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
+import { withBoundedTransactionRetry } from './transaction-retry';
 
 @Injectable()
 export class OrderCheckoutService {
@@ -14,24 +15,7 @@ export class OrderCheckoutService {
   ) {}
 
   async createFromConfirmedSofiaDraft(input: CreateSofiaCheckoutCommand): Promise<CheckoutView> {
-    let checkout;
-    try {
-      checkout = await this.repository.createFromSofiaDraft(input);
-    } catch (error) {
-      const retryable =
-        error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
-      if (!retryable) throw error;
-      checkout = await this.repository.findSofiaCheckoutByIdempotency(input.idempotencyKey);
-      if (
-        !checkout ||
-        checkout.sofiaDraftId !== input.draftId ||
-        checkout.sofiaDraftVersion !== input.expectedDraftVersion ||
-        checkout.sofiaDraftHash !== input.expectedDraftHash ||
-        checkout.confirmationHash !== input.confirmationHash
-      ) {
-        throw error;
-      }
-    }
+    const checkout = await withBoundedTransactionRetry(() => this.repository.createFromSofiaDraft(input));
     this.policy.assertPaymentCombination(checkout.fulfillment, checkout.paymentPreference);
     await this.audit.log({
       userId: input.actorId,

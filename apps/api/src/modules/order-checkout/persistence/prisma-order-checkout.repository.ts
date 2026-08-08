@@ -81,33 +81,28 @@ export class PrismaOrderCheckoutRepository {
         deliveryQuoteVersion: draft.deliveryQuoteVersion,
       });
 
-      try {
-        return await tx.orderCheckout.create({
-          data: {
-            source: OrderCheckoutSource.SOFIA,
-            sourceReference: draft.id,
-            idempotencyKey: input.idempotencyKey,
-            sofiaDraftId: draft.id,
-            sofiaDraftVersion: draft.version,
-            sofiaDraftHash: draft.draftHash,
-            confirmationHash: draft.confirmationHash,
-            customerId: draft.customerId,
-            customerSnapshot: customer as unknown as Prisma.InputJsonValue,
-            itemsSnapshot: items as unknown as Prisma.InputJsonValue,
-            subtotal: draft.subtotal,
-            deliveryFee: draft.deliveryFee,
-            total: draft.total,
-            currency: draft.currency,
-            fulfillment: draft.fulfillment!,
-            paymentPreference: draft.paymentPreference,
-            status: OrderCheckoutStatus.CONFIRMED,
-            expiresAt: draft.expiresAt,
-          },
-        });
-      } catch (error) {
-        if (this.uniqueConflict(error)) checkoutConflict('CHECKOUT_IDEMPOTENCY_CONFLICT');
-        throw error;
-      }
+      return tx.orderCheckout.create({
+        data: {
+          source: OrderCheckoutSource.SOFIA,
+          sourceReference: draft.id,
+          idempotencyKey: input.idempotencyKey,
+          sofiaDraftId: draft.id,
+          sofiaDraftVersion: draft.version,
+          sofiaDraftHash: draft.draftHash,
+          confirmationHash: draft.confirmationHash,
+          customerId: draft.customerId,
+          customerSnapshot: customer as unknown as Prisma.InputJsonValue,
+          itemsSnapshot: items as unknown as Prisma.InputJsonValue,
+          subtotal: draft.subtotal,
+          deliveryFee: draft.deliveryFee,
+          total: draft.total,
+          currency: draft.currency,
+          fulfillment: draft.fulfillment!,
+          paymentPreference: draft.paymentPreference,
+          status: OrderCheckoutStatus.CONFIRMED,
+          expiresAt: draft.expiresAt,
+        },
+      });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 

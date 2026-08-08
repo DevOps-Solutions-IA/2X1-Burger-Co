@@ -177,6 +177,16 @@ const envSchema = z
       if (data.PHASE5_TEST_OPERATIONAL_ENABLED) {
         reject('PHASE5_TEST_OPERATIONAL_ENABLED', 'PHASE5_PROD_TEST_GATE_FORBIDDEN');
       }
+      const boldBaseUrl = new URL(data.BOLD_BASE_URL);
+      if (
+        boldBaseUrl.protocol !== 'https:' ||
+        boldBaseUrl.hostname !== 'integrations.api.bold.co' ||
+        boldBaseUrl.username ||
+        boldBaseUrl.password ||
+        boldBaseUrl.port
+      ) {
+        reject('BOLD_BASE_URL', 'PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+      }
       if (data.WHATSAPP_QR_ENABLED && data.WHATSAPP_PROVIDER === 'qr_gateway') {
         if (!data.WHATSAPP_EXPECTED_ACCOUNT_ID || !data.WHATSAPP_EXPECTED_BUSINESS_IDENTITY || !data.WHATSAPP_EXPECTED_SESSION_OWNER) {
           reject('WHATSAPP_EXPECTED_ACCOUNT_ID', 'SOFIA_PROD_WHATSAPP_ACCOUNT_BINDING_REQUIRED');

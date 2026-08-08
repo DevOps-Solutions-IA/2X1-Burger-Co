@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentIntentProvider, PaymentIntentStatus, Prisma, SofiaPaymentPreference } from '@prisma/client';
+import { PaymentIntentProvider, PaymentIntentStatus, SofiaPaymentPreference } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { BoldPaymentProvider } from '../sofia/payments/bold-payment.provider';
@@ -8,6 +8,7 @@ import { checkoutConflict } from './order-checkout.errors';
 import type { CreateOnlinePaymentCommand, PaymentIntentView } from './order-checkout.types';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
+import { withBoundedTransactionRetry } from './transaction-retry';
 
 @Injectable()
 export class PaymentOrchestrationService {
@@ -27,20 +28,14 @@ export class PaymentOrchestrationService {
       checkoutConflict('CHECKOUT_PAYMENT_COMBINATION_INVALID');
     }
     const expiresAt = new Date(Date.now() + this.paymentTtlMinutes() * 60_000);
-    let intent;
-    try {
-      intent = await this.repository.createPaymentIntent({
+    const intent = await withBoundedTransactionRetry(() =>
+      this.repository.createPaymentIntent({
         checkoutId: checkout.id,
         idempotencyKey: input.idempotencyKey,
         provider: PaymentIntentProvider.BOLD,
         expiresAt,
-      });
-    } catch (error) {
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
-      if (!retryable) throw error;
-      intent = await this.repository.findPaymentIntentByIdempotency(PaymentIntentProvider.BOLD, input.idempotencyKey);
-      if (!intent || intent.checkoutId !== checkout.id || !intent.amount.equals(checkout.total)) throw error;
-    }
+      }),
+    );
     const existingLink = await this.repository.findActivePaymentLink(intent.id);
     if (existingLink) {
       return {
