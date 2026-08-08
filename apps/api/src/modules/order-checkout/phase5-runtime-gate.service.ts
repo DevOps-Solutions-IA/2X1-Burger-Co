@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
 
 export type Phase5Capability = 'ORDER_CREATION' | 'PAYMENT_ORCHESTRATION' | 'KITCHEN';
 
@@ -11,13 +11,10 @@ const FLAGS: Record<Phase5Capability, string> = {
 
 @Injectable()
 export class Phase5RuntimeGate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly repository: PrismaOrderCheckoutRepository) {}
 
   async assertEnabled(capability: Phase5Capability) {
-    const settings = await this.prisma.setting.findMany({
-      where: { key: { in: ['SOFIA_GLOBAL_PAUSED', 'SOFIA_KILL_SWITCH'] } },
-      select: { key: true, value: true },
-    });
+    const settings = await this.repository.findRuntimeSafetySettings();
     const values = new Map(settings.map((entry) => [entry.key, entry.value]));
     const paused = this.objectValue(values.get('SOFIA_GLOBAL_PAUSED')).paused === true;
     const killed = this.objectValue(values.get('SOFIA_KILL_SWITCH')).active === true;
@@ -57,4 +54,3 @@ export class Phase5RuntimeGate {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 }
-

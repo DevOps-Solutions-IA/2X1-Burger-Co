@@ -15,6 +15,7 @@ describe('Phase 5 architecture boundaries', () => {
       'payment-orchestration.service.ts',
       'canonical-payment-webhook.service.ts',
       'kitchen-eligibility.service.ts',
+      'phase5-runtime-gate.service.ts',
     ].map(source).join('\n');
     expect(orchestration).not.toMatch(/PrismaService|this\.prisma|\$transaction/);
   });

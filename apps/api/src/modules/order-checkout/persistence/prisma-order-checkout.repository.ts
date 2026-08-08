@@ -35,6 +35,13 @@ type TransitionInput = {
 export class PrismaOrderCheckoutRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  findRuntimeSafetySettings() {
+    return this.prisma.setting.findMany({
+      where: { key: { in: ['SOFIA_GLOBAL_PAUSED', 'SOFIA_KILL_SWITCH'] } },
+      select: { key: true, value: true },
+    });
+  }
+
   async createFromSofiaDraft(input: CreateSofiaCheckoutCommand) {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.orderCheckout.findUnique({

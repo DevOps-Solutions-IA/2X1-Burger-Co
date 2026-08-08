@@ -53,7 +53,7 @@ describe('Phase 5 runtime gate', () => {
     process.env.NODE_ENV = 'production';
     process.env.PHASE5_ORDER_CREATION_ENABLED = 'true';
     process.env.PHASE5_TEST_OPERATIONAL_ENABLED = 'true';
-    const gate = new Phase5RuntimeGate({ setting: { findMany: jest.fn().mockResolvedValue([]) } } as never);
+    const gate = new Phase5RuntimeGate({ findRuntimeSafetySettings: jest.fn().mockResolvedValue([]) } as never);
     await expect(gate.assertEnabled('ORDER_CREATION')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -61,7 +61,7 @@ describe('Phase 5 runtime gate', () => {
     process.env.NODE_ENV = 'test';
     process.env.PHASE5_KITCHEN_ENABLED = 'true';
     process.env.PHASE5_TEST_OPERATIONAL_ENABLED = 'true';
-    const gate = new Phase5RuntimeGate({ setting: { findMany: jest.fn().mockResolvedValue([{ key: 'SOFIA_GLOBAL_PAUSED', value: { paused: true } }]) } } as never);
+    const gate = new Phase5RuntimeGate({ findRuntimeSafetySettings: jest.fn().mockResolvedValue([{ key: 'SOFIA_GLOBAL_PAUSED', value: { paused: true } }]) } as never);
     await expect(gate.assertEnabled('KITCHEN')).rejects.toMatchObject({ response: expect.objectContaining({ blockers: expect.arrayContaining(['GOVERNANCE_PAUSED']) }) });
   });
 });
