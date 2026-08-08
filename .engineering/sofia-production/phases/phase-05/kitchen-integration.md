@@ -2,10 +2,10 @@
 
 Existing canonical statuses are sufficient: `OPEN`, `IN_PREPARATION`, `SERVED`, `PAYMENT_PENDING`, `PAID`, `CANCELLED`; ticket types include `TAKEAWAY` and `DELIVERY` (`prisma/schema.prisma:51-65`). No `READY_FOR_PICKUP` migration is justified; presentation can translate `SERVED` by fulfillment type.
 
-`OrderTicketItem` stores notes but no structured modifier snapshot (`prisma/schema.prisma:1674-1689`). Kitchen must never parse WhatsApp prose. A single policy authority must decide eligibility:
+Migration 36 adds `OrderTicketItem.modifiersSnapshot` as non-null JSONB default `[]`. Canonical ticket creation copies bounded modifier structures, so kitchen never parses WhatsApp prose. `CheckoutPolicyService` is the single eligibility authority:
 
-- online: verified and applied `PAID`;
+- online: exactly one verified `PaymentIntent.SUCCEEDED`;
 - delivery COD: authorized confirmed COD;
 - takeaway pay-at-pickup: authorized confirmed pickup payment.
 
-Ticket creation must be idempotent and map structured items/modifiers to exactly one canonical `OrderTicket`.
+Ticket creation locks the checkout, attaches one `OrderTicket`, and deterministically replays. It is available only through Phase 5 test gates; production remains disabled.

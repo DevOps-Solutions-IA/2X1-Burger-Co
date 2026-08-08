@@ -4,4 +4,6 @@ The existing payment-link service is bound to `WhatsappDeliveryOrder` (`apps/api
 
 The owned frontend at `apps/web/src/app/pagos/[token]/page.tsx` is reusable, but its API types and endpoints are Sofia-specific. Phase 5 must adapt this frontend to a canonical order/payment contract, not build a second frontend or provider stack.
 
-Missing domain concepts: durable payment intent, link lifecycle, multiple attempts, uncertain result, append-only transition history, double-payment review and a channel-independent order binding.
+Phase 5 closes those gaps with canonical `OrderCheckout`, `PaymentIntent`, `PaymentLink`, and `PaymentTransition` persistence. Payment preference remains separate from financial status. Cash obligations do not create fake provider attempts. Online links persist only token hashes and reuse the existing Bold adapter and 2X1 payment page.
+
+The historical Sofia payment-link service remains for compatibility, but the canonical module does not route through its mutable WhatsApp order state. Future channel callers must use the canonical checkout/payment boundary.

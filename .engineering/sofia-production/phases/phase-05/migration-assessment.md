@@ -1,8 +1,10 @@
 # Migration assessment
 
+Status: owner-authorized and implemented as additive migration `20260808180000_sofia_order_payment_kitchen_core`. See `migration-result.md` for executed evidence. The proposal below is retained as review history.
+
 ## Decision
 
-**Migration 36 is required. No migration was created. Owner authorization is required before implementation continues.**
+**Migration 36 was required, separately authorized, and implemented.**
 
 Existing schema cannot safely satisfy the Phase 5 contract:
 

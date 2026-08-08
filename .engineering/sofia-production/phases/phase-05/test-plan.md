@@ -17,3 +17,5 @@ The implementation gate must cover all owner scenarios:
 37. Database concurrency; 38. E2E confirmed draft→checkout→payment mode→ticket.
 
 Required gates: lint, strict typecheck, build, Prisma validation, isolated database migration, focused unit/integration, full regression, RBAC, owned payment frontend E2E, concurrency, recovery and cleanup. Authorized Bold sandbox E2E is conditional on securely available credentials and never runs against production.
+
+Implemented deterministic coverage includes all four fulfillment/payment combinations, exact draft binding, checkout/intent/link/ticket concurrency, scoped webhook uniqueness, signed success, replay, amount/currency/account mismatch, invalid signature, unknown reference, provider failure, terminal checkout payment, unknown result, double success, modifier snapshot, zero pre-sale inventory impact, verified `SalePayment` linkage, production gates, and mock/sandbox architecture boundaries. External Bold sandbox was not used because no credentials or production activation are authorized.

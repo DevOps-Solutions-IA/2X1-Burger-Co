@@ -1,10 +1,12 @@
 # Sale and cash impact
 
-`Sale.orderTicketId` is unique, while `SalePayment` has no provider transaction or payment-intent identity (`prisma/schema.prisma:691-780`). Existing sale creation records `PAID` and creates cash movements transactionally; existing order checkout converts an order to a sale and marks it paid in one transaction (`orders.service.ts:2797-2860`). Digital reconciliation is separated from physical cash.
+Migration 36 adds nullable unique `SalePayment.paymentIntentId`; historical rows remain null. Existing sale creation records `PAID`, inventory, and cash movements transactionally; existing order checkout remains the authority.
 
 Required semantics:
 
-- ONLINE: create/apply the authoritative sale only after verified webhook and financial application;
+- ONLINE: canonical order checkout accepts exactly one matching `SUCCEEDED` intent and links it internally to the resulting `SalePayment`;
 - COD/PAY_AT_PICKUP: create/apply sale when an authorized operator records actual collection;
 - order creation alone must not mutate cash;
-- switching a payment preference to online must reuse the same order.
+- cash modes create no fake payment intent; preference changes occur through a newly confirmed commercial draft/checkout before execution.
+
+No production sale or cash operation was executed. Phase 5 tests use an isolated database and explicit test-only gates.
