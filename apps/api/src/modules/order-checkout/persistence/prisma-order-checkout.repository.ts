@@ -9,6 +9,7 @@ import {
   SofiaOrderDraftStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { assertCheckoutPaymentCombination } from '../checkout-policy.service';
 import { checkoutConflict, checkoutNotFound } from '../order-checkout.errors';
 import type {
   CheckoutCustomerSnapshot,
@@ -61,6 +62,7 @@ export class PrismaOrderCheckoutRepository {
         ) {
           checkoutConflict('CHECKOUT_IDEMPOTENCY_CONFLICT');
         }
+        assertCheckoutPaymentCombination(existing.fulfillment, existing.paymentPreference);
         return existing;
       }
 
@@ -72,9 +74,9 @@ export class PrismaOrderCheckoutRepository {
         draft.confirmationHash === input.confirmationHash &&
         Boolean(draft.confirmedAt) &&
         Boolean(draft.expiresAt && draft.expiresAt.getTime() > Date.now()) &&
-        Boolean(draft.fulfillment) &&
-        draft.paymentPreference !== 'UNKNOWN';
+        Boolean(draft.fulfillment);
       if (!draft || !confirmable) checkoutConflict('SOFIA_DRAFT_NOT_CONFIRMABLE');
+      assertCheckoutPaymentCombination(draft.fulfillment!, draft.paymentPreference);
 
       const items = this.items(draft.itemsSnapshot);
       if (!items.length) checkoutConflict('SOFIA_DRAFT_BINDING_INVALID');
@@ -242,9 +244,9 @@ export class PrismaOrderCheckoutRepository {
     });
   }
 
-  findPaymentLink(tokenHash: string) {
+  findPaymentLinkById(id: string) {
     return this.prisma.paymentLink.findUnique({
-      where: { tokenHash },
+      where: { id },
       include: { paymentIntent: { include: { checkout: true } } },
     });
   }

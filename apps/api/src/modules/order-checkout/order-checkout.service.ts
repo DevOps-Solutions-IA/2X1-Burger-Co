@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
-import { CheckoutPolicyService } from './checkout-policy.service';
 import type { CheckoutCustomerSnapshot, CheckoutItemSnapshot, CheckoutView, CreateSofiaCheckoutCommand } from './order-checkout.types';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
 import { withBoundedTransactionRetry } from './transaction-retry';
@@ -10,13 +9,11 @@ import { withBoundedTransactionRetry } from './transaction-retry';
 export class OrderCheckoutService {
   constructor(
     private readonly repository: PrismaOrderCheckoutRepository,
-    private readonly policy: CheckoutPolicyService,
     private readonly audit: AuditService,
   ) {}
 
   async createFromConfirmedSofiaDraft(input: CreateSofiaCheckoutCommand): Promise<CheckoutView> {
     const checkout = await withBoundedTransactionRetry(() => this.repository.createFromSofiaDraft(input));
-    this.policy.assertPaymentCombination(checkout.fulfillment, checkout.paymentPreference);
     await this.audit.log({
       userId: input.actorId,
       action: 'ORDER_CHECKOUT_CREATED',

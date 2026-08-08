@@ -1,5 +1,10 @@
 import type { INestApplication } from '@nestjs/common';
-import { OrderTicketType, ProductKind, SofiaPaymentPreference } from '@prisma/client';
+import {
+  OrderTicketType,
+  PaymentLinkStatus,
+  ProductKind,
+  SofiaPaymentPreference,
+} from '@prisma/client';
 import { KitchenEligibilityService } from '../modules/order-checkout/kitchen-eligibility.service';
 import { OrderCheckoutService } from '../modules/order-checkout/order-checkout.service';
 import { PaymentOrchestrationService } from '../modules/order-checkout/payment-orchestration.service';
@@ -7,6 +12,7 @@ import { CanonicalPaymentWebhookService } from '../modules/order-checkout/canoni
 import { BoldPaymentProvider } from '../modules/sofia/payments/bold-payment.provider';
 import { OrdersService } from '../modules/orders/orders.service';
 import { createHmac } from 'node:crypto';
+import request from 'supertest';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeTestApp, createTestApp } from './helpers/test-app';
 import { resetDatabase, seedTestData } from './helpers/test-data';
@@ -92,6 +98,17 @@ describe('Phase 5 canonical checkout integration', () => {
     });
   }
 
+  function checkoutCommand(draft: Awaited<ReturnType<typeof confirmedDraft>>, idempotencyKey: string) {
+    return {
+      draftId: draft.id,
+      expectedDraftVersion: draft.version,
+      expectedDraftHash: draft.draftHash!,
+      confirmationHash: draft.confirmationHash!,
+      idempotencyKey,
+      actorId: actor.sub,
+    };
+  }
+
   it.each([
     [SofiaPaymentPreference.CASH_ON_DELIVERY, OrderTicketType.DELIVERY],
     [SofiaPaymentPreference.PAY_AT_PICKUP, OrderTicketType.TAKEAWAY],
@@ -110,17 +127,112 @@ describe('Phase 5 canonical checkout integration', () => {
 
   it('creates one online intent/link and returns a deterministic replay without another link', async () => {
     const created = await checkout(SofiaPaymentPreference.ONLINE, OrderTicketType.DELIVERY, 'checkout-online');
+    const providerCreate = jest.spyOn(BoldPaymentProvider.prototype, 'createPayment');
     const results = await Promise.all([
       payments.createOnlinePaymentLink({ checkoutId: created.id, idempotencyKey: 'payment-online-1', actorId: actor.sub }),
       payments.createOnlinePaymentLink({ checkoutId: created.id, idempotencyKey: 'payment-online-1', actorId: actor.sub }),
     ]);
-    const first = results.find((entry) => entry.publicPath !== null)!;
-    const replay = results.find((entry) => entry.publicPath === null)!;
+    const [first, replay] = results;
     expect(first.publicPath).toMatch(/^\/pagos\//);
-    expect(replay).toMatchObject({ publicPath: null, replayed: true });
+    expect(replay.publicPath).toBe(first.publicPath);
+    expect(results.some((entry) => entry.replayed)).toBe(true);
     expect(replay.paymentIntent.id).toBe(first.paymentIntent.id);
     expect(await prisma.paymentIntent.count({ where: { checkoutId: created.id } })).toBe(1);
     expect(await prisma.paymentLink.count({ where: { paymentIntentId: first.paymentIntent.id } })).toBe(1);
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: first.paymentIntent.id, toStatus: { in: ['PENDING', 'SUCCEEDED'] } },
+    })).toBe(0);
+    expect(providerCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [OrderTicketType.DELIVERY, SofiaPaymentPreference.PAY_AT_PICKUP],
+    [OrderTicketType.TAKEAWAY, SofiaPaymentPreference.CASH_ON_DELIVERY],
+    [OrderTicketType.DELIVERY, SofiaPaymentPreference.UNKNOWN],
+  ])('rejects %s + %s before persisting a checkout', async (fulfillment, preference) => {
+    const draft = await confirmedDraft(preference, fulfillment);
+    const countBefore = await prisma.orderCheckout.count();
+    await expect(checkouts.createFromConfirmedSofiaDraft(
+      checkoutCommand(draft, `invalid-${fulfillment}-${preference}`),
+    )).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CHECKOUT_PAYMENT_COMBINATION_INVALID' }),
+    });
+    expect(await prisma.orderCheckout.count()).toBe(countBefore);
+  });
+
+  it('persists zero checkouts for concurrent invalid commands', async () => {
+    const draft = await confirmedDraft(SofiaPaymentPreference.PAY_AT_PICKUP, OrderTicketType.DELIVERY);
+    const command = checkoutCommand(draft, 'concurrent-invalid-checkout');
+    const results = await Promise.allSettled([
+      checkouts.createFromConfirmedSofiaDraft(command),
+      checkouts.createFromConfirmedSofiaDraft(command),
+      checkouts.createFromConfirmedSofiaDraft(command),
+    ]);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(await prisma.orderCheckout.count()).toBe(0);
+  });
+
+  it('recovers a lost payment-link response through the same owned public path', async () => {
+    const created = await checkout(SofiaPaymentPreference.ONLINE, OrderTicketType.TAKEAWAY, 'checkout-lost-link');
+    const providerCreate = jest.spyOn(BoldPaymentProvider.prototype, 'createPayment');
+    const command = { checkoutId: created.id, idempotencyKey: 'payment-lost-link', actorId: actor.sub };
+    const first = await payments.createOnlinePaymentLink(command);
+
+    const recovered = await payments.createOnlinePaymentLink(command);
+    expect(recovered).toMatchObject({
+      publicPath: first.publicPath,
+      replayed: true,
+      paymentIntent: { id: first.paymentIntent.id },
+    });
+    const response = await request(app.getHttpServer()).get(`/public/payments/${recovered.publicPath!.split('/').pop()!}`);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      expired: false,
+      orderReference: created.sourceReference,
+      total: created.total,
+      paymentStatus: 'LINK_READY',
+    });
+    const serialized = JSON.stringify(response.body);
+    const link = await prisma.paymentLink.findFirstOrThrow({ where: { paymentIntentId: first.paymentIntent.id } });
+    expect(serialized).not.toContain(link.tokenHash);
+    expect(serialized).not.toContain('Cliente Phase 5');
+    expect(serialized).not.toContain('BOLD_API_KEY');
+    expect(await prisma.orderCheckout.count()).toBe(1);
+    expect(await prisma.paymentIntent.count({ where: { checkoutId: created.id } })).toBe(1);
+    expect(await prisma.paymentLink.count({ where: { paymentIntentId: first.paymentIntent.id } })).toBe(1);
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: first.paymentIntent.id, toStatus: { in: ['PENDING', 'SUCCEEDED'] } },
+    })).toBe(0);
+    expect(providerCreate).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for tampered, expired, revoked and cross-bound public references', async () => {
+    const firstCheckout = await checkout(SofiaPaymentPreference.ONLINE, OrderTicketType.DELIVERY, 'checkout-public-a');
+    const secondCheckout = await checkout(SofiaPaymentPreference.ONLINE, OrderTicketType.TAKEAWAY, 'checkout-public-b');
+    const first = await payments.createOnlinePaymentLink({ checkoutId: firstCheckout.id, idempotencyKey: 'public-a', actorId: actor.sub });
+    const second = await payments.createOnlinePaymentLink({ checkoutId: secondCheckout.id, idempotencyKey: 'public-b', actorId: actor.sub });
+    const firstReference = first.publicPath!.split('/').pop()!;
+    const secondReference = second.publicPath!.split('/').pop()!;
+
+    await expect(payments.getPublicPayment('wrong-public-reference')).rejects.toMatchObject({ status: 404 });
+    const tampered = `${firstReference.slice(0, -1)}${firstReference.endsWith('a') ? 'b' : 'a'}`;
+    await expect(payments.getPublicPayment(tampered)).rejects.toMatchObject({ status: 404 });
+    expect((await payments.getPublicPayment(firstReference)).orderReference).toBe(firstCheckout.sourceReference);
+    expect((await payments.getPublicPayment(secondReference)).orderReference).toBe(secondCheckout.sourceReference);
+
+    const firstLink = await prisma.paymentLink.findFirstOrThrow({ where: { paymentIntentId: first.paymentIntent.id } });
+    await prisma.paymentLink.update({
+      where: { id: firstLink.id },
+      data: { status: PaymentLinkStatus.REVOKED, revokedAt: new Date() },
+    });
+    await expect(payments.getPublicPayment(firstReference)).rejects.toMatchObject({ status: 404 });
+
+    const secondLink = await prisma.paymentLink.findFirstOrThrow({ where: { paymentIntentId: second.paymentIntent.id } });
+    await prisma.paymentLink.update({
+      where: { id: secondLink.id },
+      data: { status: PaymentLinkStatus.EXPIRED, expiresAt: new Date(0) },
+    });
+    await expect(payments.getPublicPayment(secondReference)).rejects.toMatchObject({ status: 404 });
   });
 
   it('resolves concurrent checkout and order claims to one logical result', async () => {

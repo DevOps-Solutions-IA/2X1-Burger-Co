@@ -26,8 +26,15 @@ describe('PaymentOrchestrationService failure protocol', () => {
 
   function harness(status: PaymentIntentStatus = PaymentIntentStatus.LINK_READY) {
     const paymentIntent = { ...intent, status };
+    const linkExpiry = new Date(Date.now() + 60_000);
     const repository = {
-      findPaymentLink: jest.fn().mockResolvedValue({ id: 'link-1', expiresAt: new Date(Date.now() + 60_000), paymentIntent }),
+      findPaymentLinkById: jest.fn().mockResolvedValue({
+        id: 'link-1',
+        expiresAt: linkExpiry,
+        revokedAt: null,
+        status: 'ACTIVE',
+        paymentIntent,
+      }),
       transitionPayment: jest.fn().mockResolvedValue({ ...paymentIntent, status: PaymentIntentStatus.UNKNOWN_RESULT }),
       markPaymentLinkOpened: jest.fn(),
     };
@@ -38,6 +45,7 @@ describe('PaymentOrchestrationService failure protocol', () => {
       { assertEnabled: jest.fn().mockResolvedValue(undefined) } as never,
       bold as never,
       { log: jest.fn() } as never,
+      { verify: jest.fn().mockReturnValue({ linkId: 'link-1', expiresAt: linkExpiry }) } as never,
     );
     return { service, repository, bold };
   }

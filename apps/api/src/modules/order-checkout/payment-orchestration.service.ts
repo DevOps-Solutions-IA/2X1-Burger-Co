@@ -1,11 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentIntentProvider, PaymentIntentStatus, SofiaPaymentPreference } from '@prisma/client';
+import {
+  PaymentIntentProvider,
+  PaymentIntentStatus,
+  PaymentLinkStatus,
+  SofiaPaymentPreference,
+} from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { BoldPaymentProvider } from '../sofia/payments/bold-payment.provider';
 import { CheckoutPolicyService } from './checkout-policy.service';
 import { checkoutConflict } from './order-checkout.errors';
 import type { CreateOnlinePaymentCommand, PaymentIntentView } from './order-checkout.types';
+import { PaymentPublicReferenceService } from './payment-public-reference.service';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
 import { withBoundedTransactionRetry } from './transaction-retry';
@@ -18,6 +24,7 @@ export class PaymentOrchestrationService {
     private readonly gate: Phase5RuntimeGate,
     private readonly bold: BoldPaymentProvider,
     private readonly audit: AuditService,
+    private readonly publicReferences: PaymentPublicReferenceService,
   ) {}
 
   async createOnlinePaymentLink(input: CreateOnlinePaymentCommand) {
@@ -40,7 +47,7 @@ export class PaymentOrchestrationService {
     if (existingLink) {
       return {
         paymentIntent: this.intentView(intent),
-        publicPath: null,
+        publicPath: this.publicPath(existingLink),
         expiresAt: existingLink.expiresAt,
         replayed: true,
       };
@@ -55,7 +62,7 @@ export class PaymentOrchestrationService {
     if (!linkResult.created) {
       return {
         paymentIntent: this.intentView(readyIntent),
-        publicPath: null,
+        publicPath: this.publicPath(linkResult.link),
         expiresAt: linkResult.link.expiresAt,
         replayed: true,
       };
@@ -73,18 +80,15 @@ export class PaymentOrchestrationService {
     });
     return {
       paymentIntent: this.intentView(readyIntent),
-      publicPath: `/pagos/${token}`,
+      publicPath: this.publicPath(linkResult.link),
       expiresAt,
       replayed: false,
     };
   }
 
-  async startBoldPayment(publicToken: string) {
+  async startBoldPayment(publicReference: string) {
     await this.gate.assertEnabled('PAYMENT_ORCHESTRATION');
-    const link = await this.repository.findPaymentLink(this.hash(publicToken));
-    if (!link || link.expiresAt.getTime() <= Date.now()) {
-      throw new BadRequestException({ code: 'PAYMENT_LINK_EXPIRED' });
-    }
+    const link = await this.resolvePaymentLink(publicReference);
     const intent = link.paymentIntent;
     if (intent.status === PaymentIntentStatus.UNKNOWN_RESULT || intent.status === PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED) {
       checkoutConflict(intent.status === PaymentIntentStatus.UNKNOWN_RESULT ? 'PAYMENT_UNKNOWN_RESULT' : 'PAYMENT_FINANCIAL_REVIEW_REQUIRED');
@@ -130,12 +134,11 @@ export class PaymentOrchestrationService {
     }
   }
 
-  async getPublicPayment(publicToken: string) {
-    const link = await this.repository.findPaymentLink(this.hash(publicToken));
-    if (!link) throw new NotFoundException({ code: 'PAYMENT_LINK_NOT_FOUND' });
+  async getPublicPayment(publicReference: string) {
+    const link = await this.resolvePaymentLink(publicReference);
     const checkout = link.paymentIntent.checkout;
     return {
-      expired: link.expiresAt.getTime() <= Date.now(),
+      expired: false,
       orderReference: checkout.sourceReference,
       items: checkout.itemsSnapshot,
       subtotal: Number(checkout.subtotal),
@@ -163,6 +166,28 @@ export class PaymentOrchestrationService {
 
   private hash(value: string) {
     return createHash('sha256').update(value).digest('hex');
+  }
+
+  private publicPath(link: { id: string; expiresAt: Date }) {
+    return `/pagos/${this.publicReferences.issue({ linkId: link.id, expiresAt: link.expiresAt })}`;
+  }
+
+  private async resolvePaymentLink(publicReference: string) {
+    const verified = this.publicReferences.verify(publicReference);
+    if (!verified || verified.expiresAt.getTime() <= Date.now()) {
+      throw new NotFoundException({ code: 'PAYMENT_LINK_NOT_FOUND' });
+    }
+    const link = await this.repository.findPaymentLinkById(verified.linkId);
+    if (
+      !link ||
+      link.expiresAt.getTime() !== verified.expiresAt.getTime() ||
+      link.expiresAt.getTime() <= Date.now() ||
+      link.revokedAt ||
+      (link.status !== PaymentLinkStatus.ACTIVE && link.status !== PaymentLinkStatus.OPENED)
+    ) {
+      throw new NotFoundException({ code: 'PAYMENT_LINK_NOT_FOUND' });
+    }
+    return link;
   }
 
   private object(value: unknown): Record<string, unknown> {
