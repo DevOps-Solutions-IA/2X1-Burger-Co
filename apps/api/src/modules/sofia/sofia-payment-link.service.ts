@@ -800,7 +800,7 @@ export class SofiaPaymentLinkService {
 
     if (parsed.eventId) {
       const existing = await this.prisma.paymentWebhookEvent.findUnique({
-        where: { eventId: parsed.eventId },
+        where: { provider_eventId: { provider: provider.provider, eventId: parsed.eventId } },
       });
       if (existing) {
         return {

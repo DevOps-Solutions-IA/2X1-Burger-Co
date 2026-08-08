@@ -1506,6 +1506,109 @@ export class OrdersService {
     return order;
   }
 
+  async createFromCanonicalCheckout(checkoutId: string, actor: AuthUser) {
+    const session = await this.getCurrentCashSession();
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "order_checkouts" WHERE id = ${checkoutId} FOR UPDATE`;
+      const checkout = await tx.orderCheckout.findUnique({
+        where: { id: checkoutId },
+        include: { orderTicket: { include: orderInclude }, sofiaDraft: true },
+      });
+      if (!checkout) throw new NotFoundException('No se encontró el checkout canónico.');
+      if (checkout.orderTicket) return { order: checkout.orderTicket, replayed: true };
+      if (checkout.status !== 'KITCHEN_ELIGIBLE') {
+        throw new ConflictException({ code: 'KITCHEN_NOT_ELIGIBLE' });
+      }
+      if (checkout.fulfillment !== OrderTicketType.DELIVERY && checkout.fulfillment !== OrderTicketType.TAKEAWAY) {
+        throw new BadRequestException('Fulfillment no soportado para checkout canónico.');
+      }
+      if (checkout.source === 'SOFIA') {
+        const draft = checkout.sofiaDraft;
+        const validBinding =
+          draft?.status === 'CONFIRMED' &&
+          draft.version === checkout.sofiaDraftVersion &&
+          draft.draftHash === checkout.sofiaDraftHash &&
+          draft.confirmationHash === checkout.confirmationHash &&
+          Boolean(draft.expiresAt && draft.expiresAt.getTime() > Date.now());
+        if (!validBinding) throw new ConflictException({ code: 'SOFIA_DRAFT_BINDING_INVALID' });
+      }
+
+      const itemSnapshots = this.parseCanonicalCheckoutItems(checkout.itemsSnapshot);
+      const items = await this.buildOrderItems(tx, itemSnapshots);
+      const itemsSubtotal = items.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0));
+      const expectedItemsSubtotal = checkout.total.sub(checkout.deliveryFee);
+      if (!itemsSubtotal.equals(expectedItemsSubtotal)) {
+        throw new ConflictException({ code: 'CHECKOUT_PRICE_CHANGED' });
+      }
+      const customer = this.readAuditJsonObject(checkout.customerSnapshot);
+      const customerName = typeof customer.name === 'string' ? customer.name : null;
+      const deliveryAddress = typeof customer.deliveryAddress === 'string' ? customer.deliveryAddress : null;
+      if (checkout.fulfillment === OrderTicketType.DELIVERY && !deliveryAddress) {
+        throw new ConflictException({ code: 'CHECKOUT_DELIVERY_ADDRESS_REQUIRED' });
+      }
+
+      const order = await tx.orderTicket.create({
+        data: {
+          number: await this.generateOrderNumber(tx, checkout.fulfillment),
+          type: checkout.fulfillment,
+          customerName,
+          customerPhone: null,
+          deliveryReference: deliveryAddress,
+          deliveryAddressNormalized: deliveryAddress,
+          deliveryFee: checkout.deliveryFee,
+          deliveryWorkflowStatus:
+            checkout.fulfillment === OrderTicketType.DELIVERY
+              ? DeliveryWorkflowStatus.PENDING_ASSIGNMENT
+              : null,
+          deliveryStatusUpdatedAt:
+            checkout.fulfillment === OrderTicketType.DELIVERY ? new Date() : null,
+          subtotal: checkout.total,
+          cashSessionId: session.id,
+          createdById: actor.sub,
+          notes: `Checkout ${checkout.source}:${checkout.sourceReference}`,
+          items: { create: items },
+        },
+        include: orderInclude,
+      });
+      const attached = await tx.orderCheckout.updateMany({
+        where: { id: checkout.id, version: checkout.version, orderTicketId: null, status: 'KITCHEN_ELIGIBLE' },
+        data: { orderTicketId: order.id, status: 'ORDER_CREATED', version: { increment: 1 } },
+      });
+      if (attached.count !== 1) throw new ConflictException({ code: 'CHECKOUT_ORDER_CONFLICT' });
+      await this.auditService.log(
+        {
+          userId: actor.sub,
+          action: 'CREATE_FROM_CANONICAL_CHECKOUT',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: order.id,
+          result: 'SUCCESS',
+          reasonCode: checkout.paymentPreference,
+          idempotencyKey: checkout.idempotencyKey,
+          newValues: {
+            checkoutId: checkout.id,
+            source: checkout.source,
+            fulfillment: checkout.fulfillment,
+            paymentPreference: checkout.paymentPreference,
+            itemCount: items.length,
+            total: checkout.total.toString(),
+          },
+        },
+        tx,
+      );
+      return { order, replayed: false };
+    });
+
+    this.realtimeService.publishOrderUpdated({
+      entityId: result.order.id,
+      orderType: result.order.type,
+      status: result.order.status,
+      actorId: actor.sub,
+    });
+    this.realtimeService.publishOperationalRefresh('orders');
+    return result;
+  }
+
   async update(id: string, dto: UpdateOrderTicketDto, actor: AuthUser) {
     const current = await this.prisma.orderTicket.findUnique({
       where: { id },
@@ -3172,7 +3275,13 @@ export class OrdersService {
 
   private async buildOrderItems(
     tx: Prisma.TransactionClient,
-    items: Array<{ productId: string; quantity: number; unitPrice?: number; notes?: string }>,
+    items: Array<{
+      productId: string;
+      quantity: number;
+      unitPrice?: number;
+      notes?: string;
+      modifiersSnapshot?: Prisma.InputJsonValue;
+    }>,
   ) {
     const result: Array<{
       productId: string;
@@ -3180,6 +3289,7 @@ export class OrdersService {
       unitPrice: Prisma.Decimal;
       totalPrice: Prisma.Decimal;
       notes?: string;
+      modifiersSnapshot?: Prisma.InputJsonValue;
     }> = [];
 
     for (const item of items) {
@@ -3212,10 +3322,37 @@ export class OrdersService {
         unitPrice,
         totalPrice,
         notes: item.notes,
+        modifiersSnapshot: item.modifiersSnapshot,
       });
     }
 
     return result;
+  }
+
+  private parseCanonicalCheckoutItems(value: Prisma.JsonValue) {
+    if (!Array.isArray(value) || !value.length) {
+      throw new BadRequestException('El checkout no contiene productos válidos.');
+    }
+    return value.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new BadRequestException('El checkout contiene un producto inválido.');
+      }
+      const item = raw as Record<string, unknown>;
+      const productId = typeof item.productId === 'string' ? item.productId : '';
+      const quantity = Number(item.quantity);
+      const unitPrice = Number(item.unitPrice);
+      if (!productId || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new BadRequestException('El checkout contiene cantidades o precios inválidos.');
+      }
+      const modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
+      return {
+        productId,
+        quantity,
+        unitPrice,
+        notes: typeof item.notes === 'string' ? item.notes.slice(0, 240) : undefined,
+        modifiersSnapshot: modifiers as Prisma.InputJsonValue,
+      };
+    });
   }
 
   private async applyDeliveryLocationForLogisticsOnly(

@@ -24,6 +24,8 @@ type PublicPaymentOrder = {
   expiresAt?: string | null; message?: string;
 };
 
+type PaymentBackend = 'canonical' | 'legacy';
+
 const methodIcons: Record<PaymentMethodCode, React.ReactNode> = {
   ONLINE: <CreditCard className="h-4 w-4" />, NEQUI_MANUAL: <MessageCircle className="h-4 w-4" />, CASH: <ShieldCheck className="h-4 w-4" />,
 };
@@ -47,16 +49,22 @@ export default function PublicPaymentPage() {
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentBackend, setPaymentBackend] = useState<PaymentBackend>('legacy');
 
   useEffect(() => {
     let cancelled = false;
     async function loadOrder() {
       setIsLoading(true); setError(null);
       try {
-        const response = await fetch(`${resolveApiUrl()}/public/sofia/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+        let backend: PaymentBackend = 'canonical';
+        let response = await fetch(`${resolveApiUrl()}/public/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+        if (response.status === 404) {
+          backend = 'legacy';
+          response = await fetch(`${resolveApiUrl()}/public/sofia/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+        }
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(payload?.message ?? 'No encontramos este pedido.');
-        if (!cancelled) { setOrder(payload as PublicPaymentOrder); setSelectedMethod((payload as PublicPaymentOrder).paymentMethod as PaymentMethodCode | null); setCheckoutUrl((payload as PublicPaymentOrder).providerCheckoutUrl ?? null); }
+        if (!cancelled) { setPaymentBackend(backend); setOrder(payload as PublicPaymentOrder); setSelectedMethod((payload as PublicPaymentOrder).paymentMethod as PaymentMethodCode | null); setCheckoutUrl((payload as PublicPaymentOrder).providerCheckoutUrl ?? null); }
       } catch (loadError) { if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'No encontramos este pedido.'); }
       finally { if (!cancelled) setIsLoading(false); }
     }
@@ -72,7 +80,10 @@ export default function PublicPaymentPage() {
   async function confirmSelectedMethod() {
     if (!selectedMethod) return; setIsSubmitting(true); setSelectedMessage(null);
     try {
-      const response = await fetch(`${resolveApiUrl()}/public/sofia/payments/${token}/select-method`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: selectedMethod }) });
+      const endpoint = paymentBackend === 'canonical'
+        ? `/public/payments/${token}/start-online`
+        : `/public/sofia/payments/${token}/select-method`;
+      const response = await fetch(`${resolveApiUrl()}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: selectedMethod }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.message ?? 'No pudimos registrar el metodo.');
       setSelectedMessage(payload?.message ?? 'Metodo registrado.');
