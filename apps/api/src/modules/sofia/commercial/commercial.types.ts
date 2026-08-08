@@ -4,9 +4,10 @@ export type CommercialIntent = 'PURCHASE' | 'CHANGE_ORDER' | 'CONFIRM' | 'REJECT
 export type CommercialConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
 export type CommercialFulfillment = 'DELIVERY' | 'TAKEAWAY' | null;
 export type CommercialPaymentPreference = 'ONLINE' | 'CASH_ON_DELIVERY' | 'PAY_AT_PICKUP' | 'UNKNOWN';
+export type CommercialPaymentReadiness = 'PAYMENT_READY_ONLINE' | 'PAYMENT_COD' | 'PAYMENT_AT_PICKUP' | 'PAYMENT_UNRESOLVED';
 export type LastQuestionPurpose = 'PRODUCT' | 'FULFILLMENT' | 'PAYMENT' | 'DELIVERY_ADDRESS' | 'CONFIRM_ORDER' | null;
 
-export type CommercialModifier = { kind: 'REMOVE' | 'ADD'; name: string; itemIndex?: number };
+export type CommercialModifier = { kind: 'REMOVE' | 'ADD'; name: string; quantity?: number; itemIndex?: number };
 export type CommercialItem = {
   productId: string;
   code: string;
@@ -17,14 +18,24 @@ export type CommercialItem = {
 };
 
 export type CommercialConversationState = {
+  schemaVersion: 4;
   conversationId: string;
   customerId: string | null;
   intent: CommercialIntent;
   items: CommercialItem[];
   fulfillment: CommercialFulfillment;
   address: string | null;
+  addressConfirmed: boolean;
   location: { latitude: number; longitude: number } | null;
   paymentPreference: CommercialPaymentPreference;
+  paymentReadiness: CommercialPaymentReadiness;
+  subtotal: number | null;
+  deliveryFee: number | null;
+  total: number | null;
+  deliveryQuoteAuditId: string | null;
+  deliveryQuoteVersion: number | null;
+  deliveryQuoteExpiresAt: string | null;
+  availabilitySnapshot: Array<{ productId: string; quantity: number; checkedAt: string; reasonCode: string }>;
   draftId: string | null;
   draftVersion: number | null;
   draftHash: string | null;
@@ -55,4 +66,3 @@ export type CommercialTurnResult = {
   nextAction: 'ASK_MISSING' | 'READY_TO_CONFIRM' | 'DRAFT_CONFIRMED' | 'HANDOFF' | 'NO_ACTION';
   factEnvelope: Record<string, unknown>;
 };
-

@@ -17,6 +17,12 @@ describe('commercial checkout architecture', () => {
     expect(orchestration).not.toMatch(/OrdersService|CashRegisterService|SalesService|BoldPaymentProvider|WhatsappProvider|InventoryService/);
   });
 
+  it('routes Sofia agent commercial turns through the governed checkout service', () => {
+    const agent = fs.readFileSync(path.join(root, 'sofia-agent.service.ts'), 'utf8');
+    expect(agent).toContain('CommercialCheckoutService');
+    expect(agent).toContain('this.commercialCheckout.process');
+  });
+
   it('keeps production actions disabled in configuration', () => {
     const env = fs.readFileSync(path.resolve(root, '../../../../../.env.example'), 'utf8');
     expect(env).not.toMatch(/^(SOFIA_AUTO_REPLY_ENABLED|SOFIA_PRODUCTION_ENABLED|WHATSAPP_QR_ALLOW_REAL_SEND)=true$/m);

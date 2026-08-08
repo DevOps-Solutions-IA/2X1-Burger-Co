@@ -25,6 +25,7 @@ import {
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAutoSafeEngineService } from './auto-safe/sofia-auto-safe-engine.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
+import { CommercialCheckoutService } from './commercial/commercial-checkout.service';
 import { SOFIA_MAXI_FAMILY_REQUIRED_COPY } from './catalog/sofia-commercial-catalog.seed';
 import {
   SofiaCommercialCatalogItemSnapshot,
@@ -110,6 +111,7 @@ export class SofiaAgentService {
     private readonly customerMemoryService: SofiaCustomerMemoryService,
     private readonly conversationMemoryService: SofiaConversationMemoryService,
     private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
+    private readonly commercialCheckout: CommercialCheckoutService,
   ) {}
 
   private actorContext(actorId: string, source: 'WHATSAPP' | 'SANDBOX'): SofiaActorContext {
@@ -550,6 +552,88 @@ export class SofiaAgentService {
             transcriptConfidence,
           },
       });
+    }
+
+    if (await this.commercialCheckout.shouldHandle(conversation.id, message)) {
+      const commercial = await this.commercialCheckout.process({
+        conversationId: conversation.id,
+        phone: initialPhone,
+        displayName: dto.customerName ?? conversation.customerName ?? undefined,
+        message,
+        actor: this.actorContext(actorId, options.source),
+      });
+      const confidence = commercial.state.confidence === 'HIGH' ? 0.95 : commercial.state.confidence === 'MEDIUM' ? 0.65 : 0.25;
+      const shouldHandoff = commercial.nextAction === 'HANDOFF';
+      if (shouldHandoff) await this.repository.requireHuman(conversation.id);
+      if (recordOutbound) {
+        await this.repository.createMessage({
+          conversationId: conversation.id,
+          direction: WhatsappMessageDirection.OUTBOUND,
+          type: WhatsappMessageType.SYSTEM,
+          body: commercial.responseText,
+          aiIntent: commercial.state.intent,
+          confidence,
+          rawPayload: {
+            commercialFactEnvelope: commercial.factEnvelope as Prisma.InputJsonValue,
+            nextAction: commercial.nextAction,
+            noWhatsappReal: true,
+            noOperationalMutation: true,
+          },
+        });
+      }
+      await this.repository.touchConversation(conversation.id);
+      return {
+        conversationId: conversation.id,
+        detectedIntent: commercial.state.intent,
+        confidence,
+        extractedItems: commercial.state.items.map((item) => ({ ...item, totalPrice: item.quantity * item.unitPrice })),
+        currentItems: commercial.state.items.map((item) => ({ ...item, totalPrice: item.quantity * item.unitPrice })),
+        missingFields: commercial.state.missingFields,
+        suggestedUpsell: null,
+        mediaSuggestion: null,
+        featuredOffers: [],
+        commercialCatalog,
+        matchedCatalogItem: null,
+        matchedFeaturedOffer: null,
+        promptVersion: activePrompt.version,
+        memory: { customer: customerMemory, conversation: commercial.state, repeatLastOrder: null },
+        autoSafeDecision: {
+          status: shouldHandoff ? 'HUMAN_REQUIRED' : 'DRAFT_ONLY',
+          riskLevel: shouldHandoff ? 'HIGH' : 'LOW',
+          approved: false,
+          shouldSend: false,
+          shouldCreateOutbox: false,
+          shouldRequireHuman: shouldHandoff,
+          reasonCodes: shouldHandoff ? commercial.state.domainErrors : ['PHASE_4_SUPERVISED_DRAFT_ONLY'],
+          blockingReasons: shouldHandoff ? commercial.state.domainErrors : [],
+          warnings: ['No se creó pedido, pago, venta, movimiento de inventario ni envío real.'],
+          correctedReply: null,
+          finalReply: commercial.responseText,
+          requiredHumanAction: shouldHandoff ? 'Revisar la conversación.' : null,
+          auditJson: { phase: 'PHASE_4', noWhatsappRealSent: true, noOperationalMutation: true },
+          createdAt: new Date().toISOString(),
+        },
+        nextAction: commercial.nextAction,
+        responseText: commercial.responseText,
+        shouldCreateDraft: commercial.nextAction === 'READY_TO_CONFIRM',
+        shouldConfirmOrder: commercial.nextAction === 'DRAFT_CONFIRMED',
+        shouldHandoff,
+        paymentLinkUrl: null,
+        draft: commercial.state.draftId ? { id: commercial.state.draftId, version: commercial.state.draftVersion, status: commercial.state.confirmationState } : null,
+        deliveryOrder: null,
+        businessStatus: { isOpen: !outsideHours, timezone: 'America/Bogota', schedule: '5:00 p.m. a 12:00 a.m.' },
+        safeguards: {
+          noWhatsappReal: true,
+          noHermesReal: true,
+          deepSeekBackendOnly: true,
+          aiCannotOperateHermes: true,
+          aiCannotMarkPaid: true,
+          noRealPayments: true,
+          sandboxOperationalIsolation: options.source !== 'WHATSAPP',
+          productiveActionBlocked: 'PHASE_4_DRAFT_ONLY',
+        },
+        aiProvider: { provider: 'rules', mode: 'disabled', fallbackUsed: false, confidence, safetyFlags: [], forbiddenClaimsDetected: [], diagnostics: ['PHASE_4_DOMAIN_FACT_ENVELOPE'] },
+      };
     }
 
     const products = await this.activeProducts();

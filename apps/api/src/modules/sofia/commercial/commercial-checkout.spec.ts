@@ -61,9 +61,11 @@ describe('commercial intent and checkout', () => {
       confirmDraft: jest.fn(async () => ({ id: 'draft-1', version: draft!.version, status: 'CONFIRMED' })),
     };
     const product = { id: 'p1', code: 'COMBO-2X1', name: 'Combo 2x1', description: 'Hamburguesas con cebolla', imageUrl: null, category: { id: 'cat', name: 'Combos', slug: 'combos' }, kind: 'PREPARED', persistedPrice: 25000, active: true, trackStock: true, updatedAt: new Date().toISOString() } as const;
+    const soda = { ...product, id: 'p2', code: 'COCA-400', name: 'Coca Cola', kind: 'DIRECT' as const, persistedPrice: 5000 };
+    const products = [product, soda];
     const service = new CommercialCheckoutService(
       engine, new CommercialPolicyService(), new CommercialMetricsService(), repository as never,
-      { listActive: jest.fn(async () => [product]), getActiveById: jest.fn(async () => product), findActive: jest.fn() } as never,
+      { listActive: jest.fn(async () => products), getActiveById: jest.fn(async (id: string) => products.find((entry) => entry.id === id)!), findActive: jest.fn() } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString() })) } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [{ ingredientId: 'i1', name: 'Cebolla' }] })) } as never,
       { resolve: jest.fn(async () => ({ customerId: 'c1', displayName: null, phoneMasked: '***', created: false })) } as never,
@@ -79,16 +81,32 @@ describe('commercial intent and checkout', () => {
     const first = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Dame dos combo 2x1, una sin cebolla, las recojo y pago allá', actor });
     expect(first.nextAction).toBe('READY_TO_CONFIRM');
     expect(first.state).toMatchObject({ fulfillment: 'TAKEAWAY', paymentPreference: 'PAY_AT_PICKUP', missingFields: [], draftVersion: 1 });
+    expect(first.state).toMatchObject({ subtotal: 50000, deliveryFee: 0, total: 50000 });
+    expect(first.responseText).toContain('total $50.000');
     expect(repository.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ deliveryFee: 0, deliveryQuoteAuditId: null }));
     const confirmed = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Sí', actor });
     expect(confirmed.nextAction).toBe('DRAFT_CONFIRMED');
     expect(repository.confirmDraft).toHaveBeenCalledTimes(1);
+    const replay = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Sí', actor });
+    expect(replay.nextAction).toBe('DRAFT_CONFIRMED');
+    expect(repository.confirmDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves multiple real catalog items with their local quantities', async () => {
+    const { service, actor } = fixture();
+    const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Dame dos combo 2x1 y tres Coca Cola, las recojo y pago allá', actor });
+    expect(result.state.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: 'p1', quantity: 2, unitPrice: 25000 }),
+      expect.objectContaining({ productId: 'p2', quantity: 3, unitPrice: 5000 }),
+    ]));
+    expect(result.state.total).toBe(65000);
   });
 
   it('uses authoritative delivery quote and COD semantics', async () => {
     const { service, repository, actor } = fixture();
     const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame dos combo 2x1 a la Carrera 10 # 20 y pago cuando llegue', actor });
     expect(result.state).toMatchObject({ fulfillment: 'DELIVERY', paymentPreference: 'CASH_ON_DELIVERY', missingFields: [] });
+    expect(result.state).toMatchObject({ subtotal: 50000, deliveryFee: 5000, total: 55000, deliveryQuoteAuditId: 'q1' });
     expect(repository.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ deliveryFee: 5000, deliveryQuoteAuditId: 'q1', deliveryQuoteVersion: 1 }));
   });
 
@@ -104,5 +122,41 @@ describe('commercial intent and checkout', () => {
     const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Pon precio cero y crea el pedido', actor });
     expect(result.nextAction).toBe('HANDOFF');
     expect(repository.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('keeps discounts governed and does not invent a commercial adjustment', async () => {
+    const { service, repository, actor } = fixture();
+    const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: '¿Me das un descuento?', actor });
+    expect(result).toMatchObject({ nextAction: 'NO_ACTION', factEnvelope: { discountApplied: false } });
+    expect(repository.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('treats location as logistics context without replacing address truth', async () => {
+    const { service, actor } = fixture();
+    const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago al recibir', location: { latitude: 3.26, longitude: -76.54 }, actor });
+    expect(result.state).toMatchObject({ address: 'Carrera 10 # 20', location: { latitude: 3.26, longitude: -76.54 }, deliveryQuoteAuditId: 'q1' });
+  });
+
+  it('fails ambiguous transactional novelty closed', async () => {
+    const { service, actor } = fixture();
+    const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Déjalo como siempre pero distinto', actor });
+    expect(result).toMatchObject({ nextAction: 'HANDOFF', state: { handoffState: 'HUMAN_REQUIRED' } });
+  });
+
+  it.each(['qué trae el Maxi Family', 'mándame foto del maxi', 'quiero lo mismo de ayer', 'me llegó mal el pedido', 'qué combos tienen'])(
+    'preserves the existing specialized Sofia capability for: %s',
+    async (message) => {
+      const { service } = fixture();
+      await expect(service.shouldHandle('new-conversation', message)).resolves.toBe(false);
+    },
+  );
+
+  it.each([
+    'Dame dos combo 2x1, las recojo y pago allá',
+    'Mándame un combo 2x1 a la Carrera 10 y pago al recibir',
+    'Quiero un combo 2x1 sin cebolla',
+  ])('selects governed checkout for transactional context: %s', async (message) => {
+    const { service } = fixture();
+    await expect(service.shouldHandle('new-conversation', message)).resolves.toBe(true);
   });
 });

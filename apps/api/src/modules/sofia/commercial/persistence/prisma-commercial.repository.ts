@@ -12,7 +12,9 @@ export class PrismaCommercialRepository implements CommercialRepository {
   async loadState(conversationId: string) {
     const memory = await this.prisma.sofiaConversationMemory.findUnique({ where: { conversationId } });
     const value = memory?.currentOrderIntentJson;
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as unknown as CommercialConversationState : null;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const candidate = value as Record<string, unknown>;
+    return candidate.schemaVersion === 4 ? candidate as unknown as CommercialConversationState : null;
   }
 
   async saveState(state: CommercialConversationState) {
@@ -35,7 +37,7 @@ export class PrismaCommercialRepository implements CommercialRepository {
       draftHash,
       expiresAt,
       deliveryAddress: input.address as string | null,
-      addressConfirmedAt: input.address ? new Date() : null,
+      addressConfirmedAt: input.addressConfirmed === true ? new Date() : null,
       itemsSnapshot: input.items as Prisma.InputJsonValue,
       subtotal: input.subtotal as number,
       deliveryFee: input.deliveryFee as number,
@@ -53,7 +55,14 @@ export class PrismaCommercialRepository implements CommercialRepository {
       return { id: created.id, version: created.version, draftHash: created.draftHash!, expiresAt: created.expiresAt! };
     }
     const updated = await this.prisma.sofiaOrderDraft.updateMany({ where: { id: input.draftId, version: version - 1, status: { in: [SofiaOrderDraftStatus.DRAFT, SofiaOrderDraftStatus.NEEDS_INFO, SofiaOrderDraftStatus.READY_TO_CONFIRM] } }, data });
-    if (updated.count !== 1) throw new ConflictException({ code: 'STALE_DRAFT_VERSION' });
+    if (updated.count !== 1) {
+      const prior = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: input.draftId }, select: { status: true, version: true } });
+      if (prior?.status !== SofiaOrderDraftStatus.CONFIRMED || prior.version !== version - 1) {
+        throw new ConflictException({ code: 'STALE_DRAFT_VERSION' });
+      }
+      const created = await this.prisma.sofiaOrderDraft.create({ data: { conversationId: input.conversationId, ...data } });
+      return { id: created.id, version: created.version, draftHash: created.draftHash!, expiresAt: created.expiresAt! };
+    }
     return { id: input.draftId, version, draftHash, expiresAt };
   }
 

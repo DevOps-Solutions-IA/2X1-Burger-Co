@@ -12,7 +12,7 @@ export class CommercialIntentEngine {
   interpret(message: string, lastQuestion: LastQuestionPurpose) {
     const text = normalizeCommercialText(message);
     const adversarial = /ignora (las|tus) reglas|precio cero|gratis|marca el pago|finge que|credenciales|ejecuta sql|usa sandbox|salta la confirmacion|crea el pedido aunque|haz dos pedidos|cambia el precio/.test(text);
-    if (adversarial) return { intent: 'ASK_HUMAN' as const, confidence: 'LOW' as const, fulfillment: null, paymentPreference: 'UNKNOWN' as const, quantity: null, modifiers: [], address: null, affirmative: false, negative: false, adversarial: true, normalized: text };
+    if (adversarial) return { intent: 'ASK_HUMAN' as const, confidence: 'LOW' as const, fulfillment: null, paymentPreference: 'UNKNOWN' as const, quantity: null, modifiers: [], clearModifiers: false, address: null, affirmative: false, negative: false, adversarial: true, normalized: text };
 
     const affirmative = /^(si|sí|claro|correcto|confirmo|dale|listo)$/.test(text);
     const negative = /^(no|cancela|cancelar|mejor no)$/.test(text);
@@ -35,10 +35,15 @@ export class CommercialIntentEngine {
     const quantityToken = text.match(/\b(\d+|un|una|uno|dos|tres|cuatro|cinco|seis)\b/)?.[1];
     const quantity = quantityToken ? (Number(quantityToken) || quantities[quantityToken] || null) : null;
     const modifiers: CommercialModifier[] = [];
-    for (const match of text.matchAll(/\bsin\s+([a-z]+)/g)) modifiers.push({ kind: 'REMOVE', name: match[1]!.trim() });
+    for (const match of text.matchAll(/\b(?:(\d+|un|una|uno|dos|tres|cuatro|cinco|seis)\s+)?sin\s+([a-z]+)/g)) {
+      const modifierQuantity = match[1] ? (Number(match[1]) || quantities[match[1]] || undefined) : undefined;
+      modifiers.push({ kind: 'REMOVE', name: match[2]!.trim(), quantity: modifierQuantity });
+    }
     for (const match of text.matchAll(/\b(?:con|agrega|adicional)\s+(tocineta|queso|carne|salsa|papitas)(?:\s+adicional)?/g)) modifiers.push({ kind: 'ADD', name: match[1]! });
-    const address = fulfillment === 'DELIVERY' ? message.match(/(?:a|para)\s+(la\s+)?((?:carrera|calle|avenida|cra|cl)\s+[^,.;]+)/i)?.[2]?.trim() ?? null : null;
+    const address = fulfillment === 'DELIVERY'
+      ? message.match(/(?:a|para)\s+(la\s+)?((?:carrera|calle|avenida|cra|cl)\s+.*?)(?=\s+y\s+(?:pago|lo pago)|[,.;]|$)/i)?.[2]?.trim() ?? null
+      : null;
     const confidence: CommercialConfidence = adversarial ? 'LOW' : intent !== 'UNKNOWN' && (fulfillment || paymentPreference !== 'UNKNOWN' || quantity || /2x1|combo|hamburguesa/.test(text)) ? 'HIGH' : intent !== 'UNKNOWN' ? 'MEDIUM' : 'LOW';
-    return { intent, confidence, fulfillment, paymentPreference, quantity, modifiers, address, affirmative, negative, adversarial, normalized: text };
+    return { intent, confidence, fulfillment, paymentPreference, quantity, modifiers, clearModifiers: /(?:dejala|dejalo|deja)\s+normal/.test(text), address, affirmative, negative, adversarial, normalized: text };
   }
 }
