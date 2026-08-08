@@ -1,13 +1,15 @@
 # Phase 05 implementation result
 
-Status: `IMPLEMENTED_GATED_PENDING_PR_REVIEW`.
+Status: `IMPLEMENTED_PENDING_FINAL_REVIEW`.
 
 - Base SHA: `c079a0666297336609c0ef0486436371a8d8ec47`.
-- Runtime SHA before evidence: `bb362fafa9c03e649ff8a979b531ffbd9e0e07fa`.
+- Final-review runtime SHA before evidence: `f0c68558608d2f1d0c49d47c0a4da2ae27da3714`.
 - Migration: `20260808180000_sofia_order_payment_kitchen_core`, additive, 36/36 on fresh PostgreSQL.
 - Canonical persistence: `OrderCheckout`, `PaymentIntent`, `PaymentLink`, and append-only `PaymentTransition`.
 - Confirmed Sofia drafts require exact draft ID/version/hash/confirmation/expiry binding. Scoped source idempotency and bounded serialization retries produce one logical checkout.
-- `PaymentOrchestrationService` reuses `BoldPaymentProvider`; token hashes are persisted, plaintext tokens are returned once, and provider URLs are never stored in `PaymentLink`.
+- Checkout payment combinations are validated by one pure policy inside the serializable repository transaction before `OrderCheckout` insertion. Invalid or concurrent-invalid requests persist zero checkout rows.
+- `PaymentOrchestrationService` reuses `BoldPaymentProvider`; random token material is hashed and discarded, and plaintext tokens or provider URLs are never stored. A stateless HMAC reference binds the high-entropy `PaymentLink.id` and exact expiry so an active link replay returns the same usable 2X1-owned path.
+- Public lookup requires a valid signature, exact database expiry, active/opened state, and no revocation. Wrong, tampered, expired, revoked, or cross-bound references fail closed.
 - Verified Bold events require signature, raw body, provider reference/payment identity, merchant hash, exact amount and COP currency. Duplicate events replay deterministically.
 - `UNKNOWN_RESULT` blocks blind retry. Multiple successful intents or payment after terminal checkout require financial review.
 - `CheckoutPolicyService` is the sole kitchen eligibility authority: verified online success, explicit COD, or explicit pay-at-pickup.
