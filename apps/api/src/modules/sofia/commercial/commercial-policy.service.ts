@@ -28,4 +28,3 @@ export class CommercialPolicyService {
     return 'CONFIRM_ORDER' as const;
   }
 }
-

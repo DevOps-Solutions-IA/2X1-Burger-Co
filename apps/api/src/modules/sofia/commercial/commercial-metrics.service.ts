@@ -11,4 +11,3 @@ export class CommercialMetricsService {
   }
   snapshot() { return Object.fromEntries(this.values); }
 }
-
