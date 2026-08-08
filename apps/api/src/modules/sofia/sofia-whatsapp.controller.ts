@@ -1,4 +1,5 @@
-import { Body, Controller, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { SofiaWhatsappService } from './sofia-whatsapp.service';
 
@@ -13,8 +14,9 @@ export class SofiaWhatsappWebhookController {
     @Param('provider') provider: string,
     @Body() rawPayload: Record<string, unknown>,
     @Headers() headers: Record<string, string | string[] | undefined>,
+    @Req() request: Request & { rawBody?: Buffer },
   ) {
-    return this.sofiaWhatsappService.processInboundWebhook(provider, rawPayload, headers);
+    return this.sofiaWhatsappService.processInboundWebhook(provider, rawPayload, headers, { rawBody: request.rawBody });
   }
 }
 
@@ -28,7 +30,8 @@ export class SofiaHermesWhatsappWebhookController {
   receiveHermesWebhook(
     @Body() rawPayload: Record<string, unknown>,
     @Headers() headers: Record<string, string | string[] | undefined>,
+    @Req() request: Request & { rawBody?: Buffer },
   ) {
-    return this.sofiaWhatsappService.processInboundWebhook('hermes', rawPayload, headers);
+    return this.sofiaWhatsappService.processInboundWebhook('hermes', rawPayload, headers, { rawBody: request.rawBody });
   }
 }

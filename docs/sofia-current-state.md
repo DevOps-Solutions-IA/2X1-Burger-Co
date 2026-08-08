@@ -1,14 +1,14 @@
 # Sofia - Estado actual
 
-Ultima actualizacion: 2026-07-27.
+Ultima actualizacion: 2026-08-08.
 
 Este archivo es la fuente de verdad vigente para agentes. Los reportes historicos solo son evidencia de capacidad anterior y no certifican el runtime actual.
 
 ## Decision vigente
 
-**Implementacion supervisada: GO CONDICIONADO. Produccion: NOT READY.**
+**Phase 3 implementada en branch y pendiente de PR. Produccion: NOT READY.**
 
-Sofia puede operar en sandbox, validacion interna y dry-run sin efectos productivos. No esta autorizada para atender clientes en produccion, enviar mensajes, activar QR fisico, seleccionar pagos ni modificar POS, Caja, Stock, Checkout o Domicilios.
+El source candidato incorpora contratos WhatsApp neutrales, endurecimiento inbound y un handler outbound seguro, pero no esta desplegado. Produccion conserva el ejecutable anterior, 33/33 migraciones, receive-only y todos los efectos productivos bloqueados.
 
 ## Controles efectivos
 
@@ -27,6 +27,8 @@ Sofia puede operar en sandbox, validacion interna y dry-run sin efectos producti
 | Audio | Solo usa transcripcion disponible | Fallback multimedia |
 | Catalogo | Producto persistido y precio positivo | Catalog service |
 | Sandbox | Separado y oculto por defecto | Source/scope backend |
+| Phase 3 outbound | Implementado pero deshabilitado | Secure command + runtime gate |
+| Migracion Phase 3 | 34/34 solo en PostgreSQL efimero | No aplicada a produccion |
 
 ## Capacidades implementadas
 
@@ -40,21 +42,24 @@ Sofia puede operar en sandbox, validacion interna y dry-run sin efectos producti
 - Ubicacion WhatsApp logistics-only exige correlacion exacta. Sin identidad confiable queda en revision manual y no toca pricing.
 - QR Baileys solo puede iniciar con configuracion habilitada, `qrRealAllowed=true`, pause OFF y kill switch OFF.
 - Respuestas administrativas sanitizan secretos, telefonos, direcciones, QR raw y payloads de proveedor.
+- El candidato Phase 3 normaliza eventos, reclama inbound de forma atomica, separa estados de la IA y centraliza consentimiento y handoff versionado.
+- El candidato Phase 3 agrega estado de entrega append-only, politica de medios metadata-only y binding de cuenta/sesion sin persistir credenciales.
+- `SOFIA_SEND_WHATSAPP` usa el nucleo de comandos seguros, pero su definicion y validacion de runtime mantienen la ejecucion deshabilitada.
 
 ## Validacion actual
 
 | Capa | Resultado | Limite |
 | --- | --- | --- |
-| Prisma validate | PASS | Schema local |
-| API typecheck/build/lint | PASS | Source actual dirty |
-| Web typecheck/build/lint | PASS | Source actual dirty |
-| Tests Sofia/WhatsApp focalizados | 13 suites, 49 pruebas PASS | Sin red externa |
-| Gate de ubicacion no correlacionada | PASS en PostgreSQL efimero | Escenario focalizado |
-| Suite critica completa | NO CERTIFICADA en el source final | Ultimo full run previo: 90/91; correccion focal posterior PASS |
-| Playwright desktop/mobile | 2/2 PASS | Runtime aislado desde source |
-| Seguridad focalizada | Sin activaciones reales ni secretos detectados | Literales sinteticos de test excluidos |
-| Artifact limpio | NO DEMOSTRADO | Working tree mezclado y sin commit autorizado |
-| Runtime operativo | NO CERTIFICA este source | Imagen anterior sin provenance vigente |
+| Prisma validate | PASS | Schema candidato local |
+| API/Web typecheck, build y lint | PASS | Source candidato committeado |
+| Tests Phase 3 focalizados | 47/47 PASS | Sin red externa |
+| Tests API no DB | 278/278 PASS | Sin efectos operativos |
+| Integracion Phase 3 PostgreSQL | 3/3 PASS | Base efimera aislada |
+| Suite critica/RBAC/delivery | 157/157 PASS | Base efimera aislada |
+| Playwright estandar/core | 2/2 y 3/3 PASS | Runtimes efimeros desde source |
+| Migraciones efimeras | 34/34 PASS | Produccion permanece 33/33 |
+| Seguridad focalizada | Secret scan PASS; envio real OFF | Sin credenciales reales |
+| Runtime operativo | NO CERTIFICA el candidato | No desplegado por alcance |
 
 ## Datos reales, sandbox e historico
 
@@ -74,15 +79,13 @@ Sofia puede operar en sandbox, validacion interna y dry-run sin efectos producti
 
 ## Bloqueadores de produccion
 
-1. Consolidar changeset y construir artifact limpio con `SOURCE = COMMIT = ARTIFACT = RUNTIME`.
-2. Migrar o cifrar el almacenamiento legado de telefonos/memoria y aprobar retencion/eliminacion.
-3. Reemplazar la atribucion automatica a un usuario humano por actor de sistema persistente.
-4. Restringir y sanear la superficie WhatsApp legado que expone QR/sesion a roles operativos.
-5. Ejecutar suite critica completa sobre el candidato final y obtener PASS sin timeout.
-6. Cerrar rotacion de secretos, KMS/secret store, security owner y monitoreo persistente.
-7. Aprobar allowlist comercial y validar QR/inbound fisico sobre el mismo artifact.
-8. Demostrar staging remoto, required CI, approvals, rollback y alertas.
-9. Aprobar politica legal de CRM, consentimiento y retencion.
+1. Revisar el Draft PR de Phase 3 y completar CI requerido.
+2. Revisar y autorizar separadamente la migracion aditiva antes de cualquier despliegue.
+3. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
+4. Cerrar secret store, rotacion, monitoreo y proteccion de sesion Baileys.
+5. Validar cuenta/sesion, QR e inbound fisico sobre el mismo artifact autorizado.
+6. Ejecutar backup/restore, canary receive-only, rollback y observacion antes de activar cualquier envio.
+7. Autorizar separadamente un destinatario de prueba y el handler outbound; actualmente permanece deshabilitado.
 
 ## Owner gates
 

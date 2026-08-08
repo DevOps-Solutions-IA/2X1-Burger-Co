@@ -62,6 +62,10 @@ const envSchema = z
     SOFIA_REPLY_OUTSIDE_HOURS: envBoolean.default(false),
     SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
     SOFIA_WHATSAPP_DEDUP_TTL_MINUTES: z.coerce.number().int().positive().default(1440),
+    WHATSAPP_EXPECTED_ACCOUNT_ID: z.string().min(1).optional(),
+    WHATSAPP_EXPECTED_BUSINESS_IDENTITY: z.string().min(1).optional(),
+    WHATSAPP_EXPECTED_SESSION_OWNER: z.string().min(1).optional(),
+    SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED: envBoolean.default(false),
     SOFIA_AI_PROVIDER: z.enum(['rules', 'deepseek', 'hybrid']).default('rules'),
     SOFIA_AI_MODE: z.enum(['disabled', 'dry_run', 'suggest', 'supervised', 'auto']).default('disabled'),
     DEEPSEEK_ENABLED: envBoolean.default(false),
@@ -152,6 +156,14 @@ const envSchema = z
       }
       if (data.SOFIA_PRODUCTION_ENABLED) {
         reject('SOFIA_PRODUCTION_ENABLED', 'SOFIA_PROD_ACTIVATION_FORBIDDEN');
+      }
+      if (data.SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED) {
+        reject('SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED', 'SOFIA_PROD_WHATSAPP_HANDLER_FORBIDDEN');
+      }
+      if (data.WHATSAPP_QR_ENABLED && data.WHATSAPP_PROVIDER === 'qr_gateway') {
+        if (!data.WHATSAPP_EXPECTED_ACCOUNT_ID || !data.WHATSAPP_EXPECTED_BUSINESS_IDENTITY || !data.WHATSAPP_EXPECTED_SESSION_OWNER) {
+          reject('WHATSAPP_EXPECTED_ACCOUNT_ID', 'SOFIA_PROD_WHATSAPP_ACCOUNT_BINDING_REQUIRED');
+        }
       }
     }
   });

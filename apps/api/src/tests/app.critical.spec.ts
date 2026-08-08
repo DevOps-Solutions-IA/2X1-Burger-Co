@@ -5342,7 +5342,7 @@ describe('Critical business flows', () => {
     expect(await prisma.sale.count()).toBe(salesBefore);
   });
 
-  it('processes Sofia WhatsApp/Hermes mock inbound with safe modes, deduplication, supervised approval and human pause', async () => {
+  it('processes Sofia WhatsApp/Hermes mock inbound without bypassing secure outbound commands', async () => {
     const { accessToken } = await login();
     await request(app.getHttpServer())
       .post('/cash-register/open')
@@ -5396,7 +5396,8 @@ describe('Critical business flows', () => {
       expect(maxi.body.sofiaResult.responseText).toContain('porción personal de papitas');
       expect(maxi.body.sofiaResult.responseText).not.toContain('papas familiares');
       expect(maxi.body.sofiaResult.responseText).not.toContain('papas grandes');
-      expect(maxi.body.outbound.status).toBe('SENT');
+      expect(maxi.body.outbound.status).toBe('QUEUED');
+      expect(maxi.body.outbound.providerMessageId).toBeNull();
       expect(maxi.body.outbound.mediaUrl).toBeNull();
 
       const messagesBeforeDuplicate = await prisma.whatsappMessage.count();
@@ -5421,8 +5422,9 @@ describe('Critical business flows', () => {
       const approved = await request(app.getHttpServer())
         .post(`/admin/sofia/outbound/${supervised.body.outbound.id}/approve-send`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .expect(201);
-      expect(approved.body.status).toBe('SENT');
+        .expect(403);
+      expect(approved.body.code).toBe('SOFIA_SECURE_COMMAND_REQUIRED');
+      expect(approved.body.sent).toBe(false);
 
       const receiveOnly = await whatsappWebhook('receive_only', {
           providerEventId: 'phase8-receive-only-event',
@@ -5454,7 +5456,8 @@ describe('Critical business flows', () => {
           sandboxNow: '2026-07-01T23:00:00.000Z',
         }, true)
         .expect(201);
-      expect(autoSent.body.outbound.status).toBe('SENT');
+      expect(autoSent.body.outbound.status).toBe('QUEUED');
+      expect(autoSent.body.outbound.providerMessageId).toBeNull();
 
       const handoff = await whatsappWebhook('mock', {
           providerEventId: 'phase8-human-event',
@@ -5477,7 +5480,7 @@ describe('Critical business flows', () => {
           sandboxNow: '2026-07-01T23:00:00.000Z',
         })
         .expect(201);
-      expect(pausedFollowUp.body.processingStatus).toBe('SOFIA_PAUSED');
+      expect(pausedFollowUp.body.processingStatus).toBe('HUMAN_HANDOFF_ACTIVE');
       expect(pausedFollowUp.body.outbound).toBeNull();
 
       await request(app.getHttpServer())

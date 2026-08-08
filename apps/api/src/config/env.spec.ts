@@ -64,6 +64,7 @@ describe('production Sofia safety validation', () => {
     ['WHATSAPP_QR_ALLOW_REAL_SEND', 'true', 'SOFIA_PROD_REAL_SEND_FORBIDDEN'],
     ['SOFIA_QR_PILOT_REAL_SEND', 'true', 'SOFIA_PROD_REAL_SEND_FORBIDDEN'],
     ['SOFIA_PRODUCTION_ENABLED', 'true', 'SOFIA_PROD_ACTIVATION_FORBIDDEN'],
+    ['SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED', 'true', 'SOFIA_PROD_WHATSAPP_HANDLER_FORBIDDEN'],
   ])('rejects %s=%s with a sanitized reason code', (key, value, reasonCode) => {
     const sensitiveMarker = 'must-not-appear-in-validation-errors';
     expect(() =>
@@ -79,5 +80,24 @@ describe('production Sofia safety validation', () => {
     } catch (error) {
       expect(String(error)).not.toContain(sensitiveMarker);
     }
+  });
+
+  it('requires immutable QR account binding in production', () => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      WHATSAPP_PROVIDER: 'qr_gateway',
+      WHATSAPP_QR_ENABLED: 'true',
+    })).toThrow('SOFIA_PROD_WHATSAPP_ACCOUNT_BINDING_REQUIRED');
+
+    expect(validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      WHATSAPP_PROVIDER: 'qr_gateway',
+      WHATSAPP_QR_ENABLED: 'true',
+      WHATSAPP_EXPECTED_ACCOUNT_ID: 'account-1',
+      WHATSAPP_EXPECTED_BUSINESS_IDENTITY: 'business-1',
+      WHATSAPP_EXPECTED_SESSION_OWNER: 'session-1',
+    }).SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED).toBe(false);
   });
 });

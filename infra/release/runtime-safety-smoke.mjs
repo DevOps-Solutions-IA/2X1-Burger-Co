@@ -125,7 +125,9 @@ const checks = {
   unknownBlocked:
     JSON.stringify(unknown.body).includes('UNKNOWN_PRODUCT') && !JSON.stringify(unknown.body).includes('"status":"SENT"'),
   approvalBlocked:
-    sendBlocked.status === 403 && sendBlocked.body?.reason === 'PRODUCTION_DISABLED' && sendBlocked.body?.sent === false,
+    sendBlocked.status === 403 &&
+    sendBlocked.body?.code === 'SOFIA_SECURE_COMMAND_REQUIRED' &&
+    sendBlocked.body?.sent === false,
   adapterSendBlocked: testSend.body.sent === false && testSend.body.status === 'BLOCKED_REAL_SEND_DISABLED',
   dashboardTruthful:
     dashboard.body.general.realSendingEnabled === false &&

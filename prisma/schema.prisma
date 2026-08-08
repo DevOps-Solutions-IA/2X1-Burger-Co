@@ -170,6 +170,28 @@ enum WhatsappMessageType {
   SYSTEM
 }
 
+enum WhatsappInboundEventKind {
+  INBOUND_MESSAGE
+  STATUS_EVENT
+  UNSUPPORTED_EVENT
+}
+
+enum WhatsappDeliveryStatus {
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  UNKNOWN
+}
+
+enum WhatsappMediaSecurityStatus {
+  METADATA_ONLY
+  QUARANTINED
+  REJECTED
+  CLEARED
+}
+
 enum SofiaOrderDraftStatus {
   DRAFT
   NEEDS_INFO
@@ -373,6 +395,7 @@ model User {
   resolvedDeliveryIssues             DeliveryIssue[]              @relation("DeliveryIssueResolvedBy")
   assignedWhatsappConversations      WhatsappConversation[]       @relation("WhatsappConversationAssignedTo")
   approvedWhatsappOutboundMessages   WhatsappOutboundMessage[]    @relation("WhatsappOutboundApprovedBy")
+  whatsappHandoffEvents              WhatsappHandoffEvent[]       @relation("WhatsappHandoffActor")
 
   @@map("users")
 }
@@ -998,6 +1021,7 @@ model WhatsappConversation {
   unreadCount            Int                        @default(0) @map("unread_count")
   lastMessagePreview     String?                    @map("last_message_preview")
   riskFlags              Json?                      @map("risk_flags")
+  handoffVersion         Int                        @default(0) @map("handoff_version")
   createdAt              DateTime                   @default(now()) @map("created_at")
   updatedAt              DateTime                   @updatedAt @map("updated_at")
   assignedTo             User?                      @relation("WhatsappConversationAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
@@ -1006,6 +1030,7 @@ model WhatsappConversation {
   orderDrafts            SofiaOrderDraft[]
   deliveryOrders         WhatsappDeliveryOrder[]
   customer               Customer?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  handoffEvents          WhatsappHandoffEvent[]
 
   @@index([phone])
   @@index([provider, providerConversationId])
@@ -1017,26 +1042,28 @@ model WhatsappConversation {
 }
 
 model WhatsappMessage {
-  id                String                    @id @default(cuid())
-  conversationId    String                    @map("conversation_id")
+  id                String                       @id @default(cuid())
+  conversationId    String                       @map("conversation_id")
   direction         WhatsappMessageDirection
-  type              WhatsappMessageType       @default(TEXT)
-  provider          String                    @default("mock")
-  providerMessageId String?                   @map("provider_message_id")
-  providerTimestamp DateTime?                 @map("provider_timestamp")
+  type              WhatsappMessageType          @default(TEXT)
+  provider          String                       @default("mock")
+  providerMessageId String?                      @map("provider_message_id")
+  providerTimestamp DateTime?                    @map("provider_timestamp")
   body              String?
-  mediaUrl          String?                   @map("media_url")
-  mediaMimeType     String?                   @map("media_mime_type")
+  mediaUrl          String?                      @map("media_url")
+  mediaMimeType     String?                      @map("media_mime_type")
   transcript        String?
-  rawPayload        Json?                     @map("raw_payload")
-  status            String                    @default("RECEIVED")
-  idempotencyKey    String?                   @unique @map("idempotency_key")
-  errorMessage      String?                   @map("error_message")
-  aiIntent          String?                   @map("ai_intent")
-  confidence        Decimal?                  @db.Decimal(5, 4)
-  createdAt         DateTime                  @default(now()) @map("created_at")
-  conversation      WhatsappConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  rawPayload        Json?                        @map("raw_payload")
+  status            String                       @default("RECEIVED")
+  idempotencyKey    String?                      @unique @map("idempotency_key")
+  errorMessage      String?                      @map("error_message")
+  aiIntent          String?                      @map("ai_intent")
+  confidence        Decimal?                     @db.Decimal(5, 4)
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  conversation      WhatsappConversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   outboundMessages  WhatsappOutboundMessage[]
+  mediaEnvelope     WhatsappMediaEnvelope?
+  statusEvents      WhatsappMessageStatusEvent[]
 
   @@index([conversationId, createdAt])
   @@index([direction, createdAt])
@@ -1508,51 +1535,68 @@ model PaymentWebhookEvent {
 }
 
 model WhatsappInboundEvent {
-  id                String    @id @default(cuid())
-  provider          String
-  providerEventId   String?   @unique @map("provider_event_id")
-  providerMessageId String?   @map("provider_message_id")
-  phone             String
-  eventHash         String    @map("event_hash")
-  rawPayload        Json?     @map("raw_payload")
-  receivedAt        DateTime  @default(now()) @map("received_at")
-  processedAt       DateTime? @map("processed_at")
-  processingStatus  String    @default("RECEIVED") @map("processing_status")
-  errorMessage      String?   @map("error_message")
+  id                    String                   @id @default(cuid())
+  provider              String
+  providerEventId       String?                  @unique @map("provider_event_id")
+  providerMessageId     String?                  @map("provider_message_id")
+  phone                 String
+  eventHash             String                   @map("event_hash")
+  rawPayload            Json?                    @map("raw_payload")
+  receivedAt            DateTime                 @default(now()) @map("received_at")
+  processedAt           DateTime?                @map("processed_at")
+  processingStatus      String                   @default("RECEIVED") @map("processing_status")
+  errorMessage          String?                  @map("error_message")
+  accountId             String?                  @map("account_id")
+  eventKind             WhatsappInboundEventKind @default(INBOUND_MESSAGE) @map("event_kind")
+  normalizedPayloadHash String?                  @map("normalized_payload_hash")
+  deterministicResult   Json?                    @map("deterministic_result")
+  account               WhatsappProviderAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([provider, eventHash])
+  @@unique([accountId, providerEventId])
   @@index([provider, providerMessageId])
+  @@index([accountId, eventKind, receivedAt])
   @@index([phone, receivedAt])
   @@index([processingStatus, receivedAt])
   @@map("whatsapp_inbound_events")
 }
 
 model WhatsappOutboundMessage {
-  id                String               @id @default(cuid())
-  conversationId    String               @map("conversation_id")
-  inboundMessageId  String?              @map("inbound_message_id")
-  provider          String
-  providerMessageId String?              @map("provider_message_id")
-  localMessageId    String               @unique @map("local_message_id")
-  body              String
-  mediaUrl          String?              @map("media_url")
-  status            String               @default("QUEUED")
-  attempts          Int                  @default(0)
-  nextRetryAt       DateTime?            @map("next_retry_at")
-  lastError         String?              @map("last_error")
-  idempotencyKey    String               @unique @map("idempotency_key")
-  createdAt         DateTime             @default(now()) @map("created_at")
-  sentAt            DateTime?            @map("sent_at")
-  approvedById      String?              @map("approved_by_id")
-  approvedAt        DateTime?            @map("approved_at")
-  rawPayload        Json?                @map("raw_payload")
-  conversation      WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  inboundMessage    WhatsappMessage?     @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
-  approvedBy        User?                @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  id                    String                       @id @default(cuid())
+  conversationId        String                       @map("conversation_id")
+  inboundMessageId      String?                      @map("inbound_message_id")
+  provider              String
+  providerMessageId     String?                      @map("provider_message_id")
+  localMessageId        String                       @unique @map("local_message_id")
+  body                  String
+  mediaUrl              String?                      @map("media_url")
+  status                String                       @default("QUEUED")
+  attempts              Int                          @default(0)
+  nextRetryAt           DateTime?                    @map("next_retry_at")
+  lastError             String?                      @map("last_error")
+  idempotencyKey        String                       @unique @map("idempotency_key")
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  sentAt                DateTime?                    @map("sent_at")
+  approvedById          String?                      @map("approved_by_id")
+  approvedAt            DateTime?                    @map("approved_at")
+  rawPayload            Json?                        @map("raw_payload")
+  accountId             String?                      @map("account_id")
+  secureCommandId       String?                      @unique @map("secure_command_id")
+  recipientIdentityHash String?                      @map("recipient_identity_hash")
+  purpose               String?                      @map("purpose")
+  unknownResult         Boolean                      @default(false) @map("unknown_result")
+  conversation          WhatsappConversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  inboundMessage        WhatsappMessage?             @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
+  approvedBy            User?                        @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  account               WhatsappProviderAccount?     @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  secureCommand         SofiaCommand?                @relation(fields: [secureCommandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  statusEvents          WhatsappMessageStatusEvent[]
 
   @@index([conversationId, createdAt])
   @@index([inboundMessageId])
   @@index([provider, providerMessageId])
+  @@index([accountId, providerMessageId])
+  @@index([recipientIdentityHash, createdAt])
   @@index([status, nextRetryAt])
   @@index([approvedById])
   @@map("whatsapp_outbound_messages")
@@ -1834,37 +1878,38 @@ model OperationalAlert {
 }
 
 model SofiaCommand {
-  id                 String                    @id @default(cuid())
-  commandType        String                    @map("command_type")
-  scope              String
-  idempotencyKey     String                    @map("idempotency_key")
-  status             SofiaCommandStatus        @default(RECEIVED)
-  actorId            String                    @map("actor_id")
-  actorType          String                    @default("USER") @map("actor_type")
-  actorRolesSnapshot Json                      @map("actor_roles_snapshot")
-  source             String
-  targetType         String                    @map("target_type")
-  targetId           String?                   @map("target_id")
-  expectedVersion    String?                   @map("expected_version")
-  payloadHash        String                    @map("payload_hash")
-  policyHash         String                    @map("policy_hash")
-  releaseVersion     String                    @map("release_version")
-  correlationId      String?                   @map("correlation_id")
-  traceId            String?                   @map("trace_id")
-  claimOwnerHash     String?                   @map("claim_owner_hash")
-  leaseExpiresAt     DateTime?                 @map("lease_expires_at")
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  updatedAt          DateTime                  @default(now()) @updatedAt @map("updated_at")
-  expiresAt          DateTime                  @map("expires_at")
-  claimedAt          DateTime?                 @map("claimed_at")
-  completedAt        DateTime?                 @map("completed_at")
-  failureClass       SofiaCommandFailureClass? @map("failure_class")
-  failureCode        String?                   @map("failure_code")
-  retryable          Boolean                   @default(false)
-  version            Int                       @default(0)
-  attempts           SofiaCommandAttempt[]
-  approvals          SofiaCommandApproval[]
-  result             SofiaCommandResult?
+  id                      String                    @id @default(cuid())
+  commandType             String                    @map("command_type")
+  scope                   String
+  idempotencyKey          String                    @map("idempotency_key")
+  status                  SofiaCommandStatus        @default(RECEIVED)
+  actorId                 String                    @map("actor_id")
+  actorType               String                    @default("USER") @map("actor_type")
+  actorRolesSnapshot      Json                      @map("actor_roles_snapshot")
+  source                  String
+  targetType              String                    @map("target_type")
+  targetId                String?                   @map("target_id")
+  expectedVersion         String?                   @map("expected_version")
+  payloadHash             String                    @map("payload_hash")
+  policyHash              String                    @map("policy_hash")
+  releaseVersion          String                    @map("release_version")
+  correlationId           String?                   @map("correlation_id")
+  traceId                 String?                   @map("trace_id")
+  claimOwnerHash          String?                   @map("claim_owner_hash")
+  leaseExpiresAt          DateTime?                 @map("lease_expires_at")
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  updatedAt               DateTime                  @default(now()) @updatedAt @map("updated_at")
+  expiresAt               DateTime                  @map("expires_at")
+  claimedAt               DateTime?                 @map("claimed_at")
+  completedAt             DateTime?                 @map("completed_at")
+  failureClass            SofiaCommandFailureClass? @map("failure_class")
+  failureCode             String?                   @map("failure_code")
+  retryable               Boolean                   @default(false)
+  version                 Int                       @default(0)
+  attempts                SofiaCommandAttempt[]
+  approvals               SofiaCommandApproval[]
+  result                  SofiaCommandResult?
+  whatsappOutboundMessage WhatsappOutboundMessage?
 
   @@unique([scope, commandType, idempotencyKey])
   @@index([status, expiresAt])
@@ -1873,6 +1918,85 @@ model SofiaCommand {
   @@index([actorId, createdAt])
   @@index([correlationId])
   @@map("sofia_commands")
+}
+
+model WhatsappProviderAccount {
+  id                   String                       @id @default(cuid())
+  provider             String
+  externalAccountHash  String                       @map("external_account_hash")
+  businessIdentityHash String                       @map("business_identity_hash")
+  businessIdentityMask String?                      @map("business_identity_mask")
+  sessionOwnerHash     String                       @map("session_owner_hash")
+  status               String                       @default("DISABLED")
+  configurationVersion Int                          @default(1) @map("configuration_version")
+  lastVerifiedAt       DateTime?                    @map("last_verified_at")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+  inboundEvents        WhatsappInboundEvent[]
+  outboundMessages     WhatsappOutboundMessage[]
+  statusEvents         WhatsappMessageStatusEvent[]
+
+  @@unique([provider, externalAccountHash])
+  @@index([provider, status])
+  @@index([businessIdentityHash])
+  @@map("whatsapp_provider_accounts")
+}
+
+model WhatsappMessageStatusEvent {
+  id                    String                   @id @default(cuid())
+  accountId             String                   @map("account_id")
+  outboundMessageId     String?                  @map("outbound_message_id")
+  messageId             String?                  @map("message_id")
+  providerStatusEventId String                   @map("provider_status_event_id")
+  providerMessageId     String                   @map("provider_message_id")
+  status                WhatsappDeliveryStatus
+  occurredAt            DateTime                 @map("occurred_at")
+  payloadHash           String                   @map("payload_hash")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  account               WhatsappProviderAccount  @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  outboundMessage       WhatsappOutboundMessage? @relation(fields: [outboundMessageId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  message               WhatsappMessage?         @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([accountId, providerStatusEventId])
+  @@index([accountId, providerMessageId, occurredAt])
+  @@index([outboundMessageId, occurredAt])
+  @@index([status, occurredAt])
+  @@map("whatsapp_message_status_events")
+}
+
+model WhatsappHandoffEvent {
+  id             String               @id @default(cuid())
+  conversationId String               @map("conversation_id")
+  actorId        String               @map("actor_id")
+  previousState  String               @map("previous_state")
+  nextState      String               @map("next_state")
+  reasonCode     String               @map("reason_code")
+  version        Int
+  createdAt      DateTime             @default(now()) @map("created_at")
+  conversation   WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  actor          User                 @relation("WhatsappHandoffActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([conversationId, version])
+  @@index([actorId, createdAt])
+  @@index([nextState, createdAt])
+  @@map("whatsapp_handoff_events")
+}
+
+model WhatsappMediaEnvelope {
+  id                    String                      @id @default(cuid())
+  messageId             String                      @unique @map("message_id")
+  providerReferenceHash String                      @map("provider_reference_hash")
+  declaredMimeType      String?                     @map("declared_mime_type")
+  detectedMimeType      String?                     @map("detected_mime_type")
+  declaredSizeBytes     BigInt?                     @map("declared_size_bytes")
+  securityStatus        WhatsappMediaSecurityStatus @default(METADATA_ONLY) @map("security_status")
+  rejectionCode         String?                     @map("rejection_code")
+  expiresAt             DateTime                    @map("expires_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  message               WhatsappMessage             @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([securityStatus, expiresAt])
+  @@map("whatsapp_media_envelopes")
 }
 
 model SofiaCommandApproval {

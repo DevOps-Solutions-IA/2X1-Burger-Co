@@ -12,7 +12,7 @@ export type ParsedWhatsappInbound = {
   mediaUrl?: string | null;
   mediaMimeType?: string | null;
   transcript?: string | null;
-  messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'INTERACTIVE' | 'SYSTEM';
+  messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'DOCUMENT' | 'INTERACTIVE' | 'SYSTEM';
   timestamp?: Date | null;
   rawPayload: Record<string, unknown>;
 };
@@ -34,7 +34,11 @@ export type WhatsappSendResult = {
 export abstract class WhatsappProviderAdapter {
   abstract readonly provider: WhatsappProviderName;
   abstract parseInboundWebhook(rawPayload: Record<string, unknown>, headers: Record<string, string | string[] | undefined>): ParsedWhatsappInbound;
-  abstract verifyWebhookSignature(rawPayload: Record<string, unknown>, headers: Record<string, string | string[] | undefined>): boolean;
+  abstract verifyWebhookSignature(
+    rawPayload: Record<string, unknown>,
+    headers: Record<string, string | string[] | undefined>,
+    rawBody?: Buffer,
+  ): boolean;
   abstract sendTextMessage(input: WhatsappSendInput): Promise<WhatsappSendResult>;
   abstract sendMediaMessage(input: WhatsappSendInput): Promise<WhatsappSendResult>;
 

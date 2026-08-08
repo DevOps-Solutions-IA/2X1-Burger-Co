@@ -55,7 +55,7 @@ export type SofiaWhatsappQrInboundEvent = {
   phone: string;
   fromMe: boolean;
   timestamp: string | null;
-  messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'INTERACTIVE' | 'SYSTEM';
+  messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'DOCUMENT' | 'INTERACTIVE' | 'SYSTEM';
   text: string | null;
   mediaInfo: { url?: string; mimeType?: string } | null;
   rawSummaryJson: Record<string, unknown>;
