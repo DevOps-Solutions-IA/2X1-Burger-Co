@@ -91,4 +91,40 @@ describe('CanonicalPaymentWebhookService', () => {
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'FINANCIAL_REVIEW_REQUIRED' });
     expect(repository.markFinancialReview).toHaveBeenCalledWith('checkout-1', 'MULTIPLE_SUCCESSFUL_PAYMENTS');
   });
+
+  it('stores an unknown reference without changing financial state', async () => {
+    const { service, repository, kitchen } = harness();
+    repository.findIntentByProvider.mockResolvedValue(null);
+    await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'REFERENCE_UNKNOWN' });
+    expect(repository.createWebhookEvidence).toHaveBeenCalledWith(expect.objectContaining({ processedStatus: 'REFERENCE_UNKNOWN' }));
+    expect(repository.transitionPayment).not.toHaveBeenCalled();
+    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+  });
+
+  it('records provider failure without enabling kitchen', async () => {
+    const { service, repository, kitchen } = harness({ parsed: parsed({ status: 'FAILED' }) });
+    await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ paymentStatus: 'FAILED' });
+    expect(repository.transitionPayment).toHaveBeenCalledWith(expect.objectContaining({ toStatus: PaymentIntentStatus.FAILED }));
+    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+  });
+
+  it('requires financial review when success arrives after checkout cancellation', async () => {
+    const { service, repository, kitchen } = harness();
+    repository.findIntentByProvider.mockResolvedValue({
+      id: 'intent-1',
+      checkoutId: 'checkout-1',
+      status: PaymentIntentStatus.PENDING,
+      amount: { toString: () => '30000' },
+      currency: 'COP',
+      providerAccountHash: accountHash,
+      version: 2,
+      checkout: { status: 'CANCELLED' },
+    });
+    await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'FINANCIAL_REVIEW_REQUIRED' });
+    expect(repository.transitionPayment).toHaveBeenCalledWith(expect.objectContaining({
+      toStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
+      reasonCode: 'PAYMENT_AFTER_CHECKOUT_TERMINAL',
+    }));
+    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+  });
 });

@@ -18,6 +18,7 @@ import {
   OperationalAlertStatus,
   OrderTicketStatus,
   OrderTicketType,
+  PaymentIntentStatus,
   Prisma,
   ProductKind,
   SaleChannel,
@@ -2841,6 +2842,14 @@ export class OrdersService {
       include: {
         table: true,
         items: true,
+        orderCheckout: {
+          include: {
+            paymentIntents: {
+              where: { status: PaymentIntentStatus.SUCCEEDED },
+              orderBy: { completedAt: 'desc' },
+            },
+          },
+        },
       },
     });
 
@@ -2872,6 +2881,20 @@ export class OrdersService {
 
     this.assertDeliveryCheckoutAllowed(current);
 
+    const canonicalPaymentIntent = current.orderCheckout?.paymentPreference === 'ONLINE'
+      ? current.orderCheckout.paymentIntents[0] ?? null
+      : null;
+    if (current.orderCheckout?.paymentPreference === 'ONLINE') {
+      if (
+        current.orderCheckout.paymentIntents.length !== 1 ||
+        !canonicalPaymentIntent ||
+        !canonicalPaymentIntent.amount.equals(current.subtotal) ||
+        canonicalPaymentIntent.currency !== 'COP'
+      ) {
+        throw new ConflictException({ code: 'CANONICAL_PAYMENT_NOT_VERIFIED' });
+      }
+    }
+
     const salePayload: CreateSaleDto = {
       baseSubtotal: dto.baseSubtotal,
       channel: this.mapOrderTypeToSaleChannel(current.type),
@@ -2900,6 +2923,7 @@ export class OrdersService {
     const result = await this.prisma.$transaction(async (tx) => {
       const sale = await this.salesService.createInTransaction(tx, salePayload, actorId, session.id, {
         orderTicketId: current.id,
+        paymentIntentId: canonicalPaymentIntent?.id,
       });
 
       if (current.type === OrderTicketType.DELIVERY) {

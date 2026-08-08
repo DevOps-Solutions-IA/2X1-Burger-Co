@@ -5,6 +5,7 @@ import { OrderCheckoutService } from '../modules/order-checkout/order-checkout.s
 import { PaymentOrchestrationService } from '../modules/order-checkout/payment-orchestration.service';
 import { CanonicalPaymentWebhookService } from '../modules/order-checkout/canonical-payment-webhook.service';
 import { BoldPaymentProvider } from '../modules/sofia/payments/bold-payment.provider';
+import { OrdersService } from '../modules/orders/orders.service';
 import { createHmac } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeTestApp, createTestApp } from './helpers/test-app';
@@ -17,6 +18,7 @@ describe('Phase 5 canonical checkout integration', () => {
   let payments: PaymentOrchestrationService;
   let kitchen: KitchenEligibilityService;
   let webhooks: CanonicalPaymentWebhookService;
+  let orders: OrdersService;
   let actor: { sub: string; email: string; fullName: string; sessionVersion: number; roles: string[]; permissions: string[] };
 
   beforeAll(async () => {
@@ -36,6 +38,7 @@ describe('Phase 5 canonical checkout integration', () => {
     payments = app.get(PaymentOrchestrationService);
     kitchen = app.get(KitchenEligibilityService);
     webhooks = app.get(CanonicalPaymentWebhookService);
+    orders = app.get(OrdersService);
   });
 
   afterAll(async () => closeTestApp(app));
@@ -208,5 +211,43 @@ describe('Phase 5 canonical checkout integration', () => {
     const order = await kitchen.createOrderTicket(created.id, actor);
     expect(order.order.type).toBe(OrderTicketType.DELIVERY);
     expect(await prisma.inventoryMovement.count()).toBe(0);
+  });
+
+  it('binds a verified online intent to the authoritative SalePayment at checkout', async () => {
+    const created = await checkout(SofiaPaymentPreference.ONLINE, OrderTicketType.TAKEAWAY, 'checkout-sale-binding');
+    const prepared = await payments.createOnlinePaymentLink({ checkoutId: created.id, idempotencyKey: 'intent-sale-binding', actorId: actor.sub });
+    const token = prepared.publicPath!.split('/').pop()!;
+    jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
+      provider: 'BOLD',
+      providerPaymentId: 'provider-payment-sale-binding',
+      providerReference: `checkout_${created.id}`,
+      checkoutUrl: 'https://checkout.bold.co/test-only',
+      status: 'PENDING',
+      rawPayload: { sanitized: true },
+    });
+    await payments.startBoldPayment(token);
+    const payload = {
+      id: 'evt-sale-binding',
+      type: 'PAYMENT',
+      data: {
+        status: 'APPROVED',
+        payment_id: 'provider-payment-sale-binding',
+        reference: `checkout_${created.id}`,
+        metadata: { reference: `checkout_${created.id}` },
+        amount: { total: created.total, currency: 'COP' },
+      },
+    };
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    const signature = createHmac('sha256', process.env.BOLD_WEBHOOK_SECRET!).update(rawBody.toString('base64')).digest('hex');
+    await webhooks.processBold({ rawPayload: payload, rawBody, headers: { 'x-bold-signature': signature, 'x-bold-merchant-id': 'merchant-1' } });
+    const ticket = await kitchen.createOrderTicket(created.id, actor);
+    const paymentMethod = await prisma.paymentMethod.create({ data: { code: 'bold_phase5', name: 'Bold Phase 5' } });
+    const sale = await orders.checkout(ticket.order.id, {
+      baseSubtotal: created.total,
+      payments: [{ paymentMethodId: paymentMethod.id, amount: created.total }],
+    }, actor.sub);
+    const payment = await prisma.salePayment.findFirstOrThrow({ where: { saleId: sale.sale.id } });
+    expect(payment.paymentIntentId).toBe(prepared.paymentIntent.id);
+    expect(await prisma.inventoryMovement.count({ where: { referenceType: 'sale' } })).toBeGreaterThan(0);
   });
 });
