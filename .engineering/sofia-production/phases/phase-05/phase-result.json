@@ -1,0 +1,29 @@
+{
+  "phase": "PHASE-05",
+  "name": "Order, Payment and Kitchen Transactional Bridge",
+  "branch": "feature/sofia-05-order-payment-kitchen",
+  "worktree": "/home/wundah/inventario-sofia-phase5",
+  "baseSha": "c079a0666297336609c0ef0486436371a8d8ec47",
+  "auditSha": "c079a0666297336609c0ef0486436371a8d8ec47",
+  "migrationsBefore": 35,
+  "migrationRequired": true,
+  "migrationCreated": false,
+  "proposedMigrationNumber": 36,
+  "status": "BLOCKED_OWNER_AUTH_MIGRATION_36",
+  "realOrderCreation": "NOT_IMPLEMENTED_GATED",
+  "paymentOrchestrator": "NOT_IMPLEMENTED",
+  "paymentFrontendReuse": "IDENTIFIED",
+  "boldProduction": "OFF",
+  "kitchenIntegration": "NOT_IMPLEMENTED_GATED",
+  "inventoryMutationChanged": false,
+  "saleMutationChanged": false,
+  "cashMutationChanged": false,
+  "productionMockReachable": 0,
+  "productionSandboxReachable": 0,
+  "productionDeployed": false,
+  "realWhatsappAutoReply": false,
+  "decision": "OWNER_AUTHORIZATION_REQUIRED_FOR_MIGRATION_36",
+  "blockers": [
+    "MISSING_CANONICAL_ORDER_CHECKOUT_AND_PAYMENT_INTENT_SCHEMA"
+  ]
+}
