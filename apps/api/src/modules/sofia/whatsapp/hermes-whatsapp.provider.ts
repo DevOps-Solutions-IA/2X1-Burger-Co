@@ -35,7 +35,16 @@ export class HermesWhatsappProvider extends WhatsappProviderAdapter {
     const body = message.text ? String(message.text) : message.body ? String(message.body) : rawPayload.body ? String(rawPayload.body) : transcript;
     const media = typeof message.media === 'object' && message.media ? (message.media as Record<string, unknown>) : null;
     const mediaUrl = media?.url ? String(media.url) : rawPayload.mediaUrl ? String(rawPayload.mediaUrl) : null;
-    const messageType = rawType === 'AUDIO' ? 'AUDIO' : rawType === 'IMAGE' ? 'IMAGE' : rawType === 'INTERACTIVE' ? 'INTERACTIVE' : 'TEXT';
+    const messageType =
+      rawType === 'AUDIO'
+        ? 'AUDIO'
+        : rawType === 'IMAGE'
+          ? 'IMAGE'
+          : rawType === 'DOCUMENT'
+            ? 'DOCUMENT'
+            : rawType === 'INTERACTIVE'
+              ? 'INTERACTIVE'
+              : 'TEXT';
 
     return {
       provider: this.provider,
@@ -54,13 +63,17 @@ export class HermesWhatsappProvider extends WhatsappProviderAdapter {
     };
   }
 
-  verifyWebhookSignature(rawPayload: Record<string, unknown>, headers: Record<string, string | string[] | undefined>) {
+  verifyWebhookSignature(
+    _rawPayload: Record<string, unknown>,
+    headers: Record<string, string | string[] | undefined>,
+    rawBody?: Buffer,
+  ) {
     const secret = this.configService.get<string>('HERMES_WEBHOOK_SECRET');
-    if (!secret) return false;
+    if (!secret || !rawBody?.length) return false;
     const headerValue = headers['x-hermes-signature'] ?? headers['X-Hermes-Signature'];
     const signature = Array.isArray(headerValue) ? headerValue[0] : headerValue;
     if (!signature) return false;
-    const expected = createHmac('sha256', secret).update(JSON.stringify(rawPayload)).digest('hex');
+    const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
     const left = Buffer.from(signature.replace(/^sha256=/, ''), 'hex');
     const right = Buffer.from(expected, 'hex');
     return left.length === right.length && timingSafeEqual(left, right);

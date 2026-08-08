@@ -364,7 +364,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     phone: string;
     text?: string;
     externalMessageId?: string;
-    messageType?: 'TEXT' | 'IMAGE' | 'AUDIO' | 'INTERACTIVE' | 'SYSTEM';
+    messageType?: 'TEXT' | 'IMAGE' | 'AUDIO' | 'DOCUMENT' | 'INTERACTIVE' | 'SYSTEM';
     fromMe?: boolean;
     mediaUrl?: string;
     mediaMimeType?: string;
@@ -570,6 +570,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     socket.ev.on('messages.upsert', (payload) => {
       void this.onRealMessagesUpsert(payload);
     });
+    socket.ev.on('messages.update', (updates) => {
+      void this.onRealMessageUpdates(updates);
+    });
   }
 
   private async onRealConnectionUpdate(
@@ -656,10 +659,17 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         msgContent.videoMessage?.caption ??
         '';
       const text = typeof conversation === 'string' ? conversation : '';
+      const mediaContent =
+        msgContent.audioMessage ??
+        msgContent.imageMessage ??
+        msgContent.videoMessage ??
+        msgContent.documentMessage;
       const messageType = msgContent.audioMessage
         ? 'AUDIO'
         : msgContent.imageMessage || msgContent.videoMessage
           ? 'IMAGE'
+          : msgContent.documentMessage
+            ? 'DOCUMENT'
           : msgContent.buttonsResponseMessage || msgContent.listResponseMessage
             ? 'INTERACTIVE'
             : msgContent.locationMessage
@@ -670,12 +680,18 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       /* Build inbound payload matching existing format */
       const rawPayload = {
         provider: 'qr_gateway',
+        providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
+        businessIdentity: this.real.phoneNumber ?? '',
+        sessionOwner: this.safeSessionName(),
         externalMessageId: key?.id ?? `real-${Date.now()}`,
         providerEventId: `wa-${key?.id ?? Date.now()}`,
         providerMessageId: String(key?.id ?? ''),
         phone,
         text,
         messageType,
+        mediaReference: mediaContent ? String(key?.id ?? '') : undefined,
+        mediaMimeType: mediaContent?.mimetype ?? undefined,
+        mediaSizeBytes: mediaContent?.fileLength == null ? undefined : Number(mediaContent.fileLength),
         fromMe: false,
         timestamp:
           Number.isFinite(providerTimestamp) && providerTimestamp > 0
@@ -684,7 +700,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         rawSummaryJson: {
           source: 'REAL_BAILEYS_INBOUND',
           hasText: Boolean(text),
-          hasMedia: Boolean(msgContent.audioMessage || msgContent.imageMessage || msgContent.videoMessage),
+          hasMedia: Boolean(mediaContent),
           jidType: 'individual',
         },
       };
@@ -708,6 +724,51 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
   }
 
+  private async onRealMessageUpdates(updates: BaileysEventMap['messages.update']) {
+    for (const item of updates) {
+      const messageId = item.key.id;
+      const remoteJid = item.key.remoteJid ?? '';
+      const status = this.normalizedDeliveryStatus(item.update.status);
+      if (!messageId || !remoteJid.endsWith('@s.whatsapp.net') || !status) continue;
+      const recipient = remoteJid.replace(/@s\.whatsapp\.net$/, '').replace(/:\d+$/, '');
+      try {
+        await this.sofiaWhatsappService.processInboundWebhook(
+          'qr_gateway',
+          {
+            provider: 'qr_gateway',
+            providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
+            businessIdentity: this.real.phoneNumber ?? '',
+            sessionOwner: this.safeSessionName(),
+            providerEventId: `wa-status-${messageId}-${status}`,
+            providerMessageId: messageId,
+            recipient,
+            status,
+            eventType: 'status',
+            timestamp: new Date().toISOString(),
+          },
+          { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+          { trustedBaileysTransport: true },
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Baileys status event rejected: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error)) ?? 'UNKNOWN_ERROR'}`,
+        );
+      }
+    }
+  }
+
+  private normalizedDeliveryStatus(status: number | null | undefined) {
+    const values: Record<number, 'ACCEPTED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'> = {
+      0: 'FAILED',
+      1: 'ACCEPTED',
+      2: 'SENT',
+      3: 'DELIVERED',
+      4: 'READ',
+      5: 'READ',
+    };
+    return status == null ? null : values[status] ?? null;
+  }
+
   private async teardownRealSocket(resetPhone: boolean) {
     const socket = this.real.socket;
     this.real.socket = null;
@@ -718,6 +779,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       socket.ev.removeAllListeners('creds.update');
       socket.ev.removeAllListeners('connection.update');
       socket.ev.removeAllListeners('messages.upsert');
+      socket.ev.removeAllListeners('messages.update');
     } catch {
       // best effort
     }

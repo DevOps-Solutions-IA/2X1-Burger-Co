@@ -19,6 +19,7 @@ import {
   UpdateSofiaOrderDraftDto,
 } from './dto/sofia.dto';
 import { hashPreview, redactPhone, redactSensitiveText, sanitizeJson } from './privacy/sofia-pii-redaction';
+import { WhatsappHandoffService } from './whatsapp/production/whatsapp-handoff.service';
 
 type SofiaItemSnapshot = {
   productId: string;
@@ -82,6 +83,7 @@ export class SofiaService {
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
     @Inject(CATALOG_READ_SERVICE) private readonly catalogRead: CatalogReadService,
+    private readonly handoffService: WhatsappHandoffService,
   ) {}
 
   private normalizePhone(phone: string) {
@@ -700,44 +702,25 @@ export class SofiaService {
       }
     }
 
-    const updated = await this.prisma.whatsappConversation.update({
-      where: { id: conversation.id },
-      data: {
-        status: WhatsappConversationStatus.HUMAN_TAKEN,
-        sofiaEnabled: false,
-        assignedToUserId: assignedToUserId ?? actorId,
-      },
-      include: this.includeConversation(),
+    await this.handoffService.transition({
+      conversationId: conversation.id,
+      actorId,
+      target: 'HUMAN_TAKEN',
+      reasonCode: 'OPERATOR_HANDOFF',
+      assignedToUserId: assignedToUserId ?? actorId,
     });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'SOFIA_HANDOFF',
-      module: 'sofia',
-      entity: 'whatsapp_conversation',
-      entityId: conversation.id,
-    });
-
-    return updated;
+    return this.findConversation(conversation.id);
   }
 
   async resolveConversation(conversationId: string, actorId: string) {
     await this.findConversation(conversationId);
-    const updated = await this.prisma.whatsappConversation.update({
-      where: { id: conversationId },
-      data: { status: WhatsappConversationStatus.RESOLVED },
-      include: this.includeConversation(),
+    await this.handoffService.transition({
+      conversationId,
+      actorId,
+      target: 'RESOLVED',
+      reasonCode: 'OPERATOR_RESOLVED',
     });
-
-    await this.auditService.log({
-      userId: actorId,
-      action: 'SOFIA_CONVERSATION_RESOLVED',
-      module: 'sofia',
-      entity: 'whatsapp_conversation',
-      entityId: conversationId,
-    });
-
-    return updated;
+    return this.findConversation(conversationId);
   }
 
   async createDraft(dto: CreateSofiaOrderDraftDto, actorId: string) {

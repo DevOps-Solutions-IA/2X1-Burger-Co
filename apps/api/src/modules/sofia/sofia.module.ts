@@ -57,6 +57,20 @@ import { SofiaWhatsappQrGatewayController } from './whatsapp/qr-gateway/sofia-wh
 import { SofiaWhatsappQrGatewayProvider } from './whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.provider';
 import { SofiaWhatsappQrGatewayService } from './whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service';
 import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
+import { PrismaWhatsappProductionRepository } from './whatsapp/production/persistence/prisma-whatsapp-production.repository';
+import { WhatsappConsentService } from './whatsapp/production/whatsapp-consent.service';
+import { WhatsappDeliveryStatusService } from './whatsapp/production/whatsapp-delivery-status.service';
+import { WhatsappEventNormalizer } from './whatsapp/production/whatsapp-event-normalizer';
+import { WhatsappHandoffService } from './whatsapp/production/whatsapp-handoff.service';
+import { WhatsappInboundDeduplicator } from './whatsapp/production/whatsapp-inbound-deduplicator';
+import { WhatsappInboundGateway } from './whatsapp/production/whatsapp-inbound.gateway';
+import { WhatsappMediaSecurityService } from './whatsapp/production/whatsapp-media-security.service';
+import { WhatsappMessagePolicyService } from './whatsapp/production/whatsapp-message-policy.service';
+import { WhatsappOutboundCommandHandler } from './whatsapp/production/whatsapp-outbound-command.handler';
+import { WhatsappOutboundGateway } from './whatsapp/production/whatsapp-outbound.gateway';
+import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
+import { WHATSAPP_PRODUCTION_REPOSITORY } from './whatsapp/production/whatsapp-production.repository';
+import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-verifier';
 
 @Module({
   imports: [SofiaAutoSafeModule, DomainContractsModule],
@@ -109,6 +123,20 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaTestOnlyGuard,
     SofiaCrmService,
     SofiaAgentRepository,
+    PrismaWhatsappProductionRepository,
+    { provide: WHATSAPP_PRODUCTION_REPOSITORY, useExisting: PrismaWhatsappProductionRepository },
+    WhatsappWebhookVerifier,
+    WhatsappEventNormalizer,
+    WhatsappInboundDeduplicator,
+    WhatsappInboundGateway,
+    WhatsappConsentService,
+    WhatsappHandoffService,
+    WhatsappMessagePolicyService,
+    WhatsappMediaSecurityService,
+    WhatsappDeliveryStatusService,
+    WhatsappProviderHealthService,
+    WhatsappOutboundGateway,
+    WhatsappOutboundCommandHandler,
     SofiaOrderDraftAdapter,
     BlockedSofiaOrderCreationAdapter,
     SofiaCustomerResolutionAdapter,
@@ -141,6 +169,7 @@ import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
     SofiaHardeningService,
     SofiaRuntimeSafetyService,
     SofiaCrmService,
+    WhatsappOutboundCommandHandler,
   ],
 })
 export class SofiaModule {}

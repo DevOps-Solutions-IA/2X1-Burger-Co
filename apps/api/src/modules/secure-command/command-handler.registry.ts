@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { SecureCommandError } from './secure-command.errors';
 import type { CommandHandlerResult, CommandPolicyDefinition, CommandRecord, SecureCommandType } from './secure-command.types';
+import { WhatsappOutboundCommandHandler } from '../sofia/whatsapp/production/whatsapp-outbound-command.handler';
 
 const INTERNAL_POLICY: CommandPolicyDefinition = {
   commandType: 'SOFIA_INTERNAL_VALIDATE',
@@ -25,6 +26,8 @@ const BLOCKED_TYPES = new Set<SecureCommandType>([
 
 @Injectable()
 export class CommandHandlerRegistry {
+  constructor(@Optional() private readonly whatsappOutbound?: WhatsappOutboundCommandHandler) {}
+
   definition(commandType: string): CommandPolicyDefinition {
     if (commandType === INTERNAL_POLICY.commandType) return INTERNAL_POLICY;
     if (BLOCKED_TYPES.has(commandType as SecureCommandType)) {
@@ -42,6 +45,10 @@ export class CommandHandlerRegistry {
   }
 
   async execute(command: CommandRecord): Promise<CommandHandlerResult> {
+    if (command.commandType === 'SOFIA_SEND_WHATSAPP') {
+      if (!this.whatsappOutbound) throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
+      return this.whatsappOutbound.execute(command);
+    }
     if (command.commandType !== 'SOFIA_INTERNAL_VALIDATE') {
       throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
     }

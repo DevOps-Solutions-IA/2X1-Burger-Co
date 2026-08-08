@@ -33,7 +33,17 @@ export class SofiaWhatsappQrGatewayProvider extends WhatsappProviderAdapter {
           : transcript;
     const rawType = String(rawPayload.messageType ?? rawPayload.type ?? nestedMessage?.type ?? (mediaUrl ? 'IMAGE' : 'TEXT')).toUpperCase();
     const messageType =
-      rawType === 'AUDIO' ? 'AUDIO' : rawType === 'IMAGE' ? 'IMAGE' : rawType === 'INTERACTIVE' ? 'INTERACTIVE' : rawType === 'SYSTEM' ? 'SYSTEM' : 'TEXT';
+      rawType === 'AUDIO'
+        ? 'AUDIO'
+        : rawType === 'IMAGE'
+          ? 'IMAGE'
+          : rawType === 'DOCUMENT'
+            ? 'DOCUMENT'
+            : rawType === 'INTERACTIVE'
+              ? 'INTERACTIVE'
+              : rawType === 'SYSTEM'
+                ? 'SYSTEM'
+                : 'TEXT';
     const rawSummary =
       typeof rawPayload.rawSummaryJson === 'object' && rawPayload.rawSummaryJson && !Array.isArray(rawPayload.rawSummaryJson)
         ? (rawPayload.rawSummaryJson as Record<string, unknown>)
