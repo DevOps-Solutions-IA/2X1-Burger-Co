@@ -4062,12 +4062,13 @@ describe('Critical business flows', () => {
 
     expect(updatedDraft.body.deliveryNotes).toContain('portón negro');
 
-    const confirmed = await request(app.getHttpServer())
+    const legacyConfirmation = await request(app.getHttpServer())
       .post(`/admin/sofia/order-drafts/${draft.body.id}/confirm`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .expect(201);
+      .expect(409);
 
-    expect(confirmed.body.status).toBe('CONFIRMED');
+    expect(legacyConfirmation.body.code).toBe('SOFIA_DRAFT_NOT_CONFIRMABLE');
+    expect(legacyConfirmation.body.reasonCode).toBe('PHASE_4_BINDING_REQUIRED');
 
     const deliveryOrdersBefore = await prisma.whatsappDeliveryOrder.count({
       where: { orderDraftId: draft.body.id },
@@ -4156,10 +4157,12 @@ describe('Critical business flows', () => {
       })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const legacyConfirmation = await request(app.getHttpServer())
       .post(`/admin/sofia/order-drafts/${draft.body.id}/confirm`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .expect(201);
+      .expect(409);
+    expect(legacyConfirmation.body.code).toBe('SOFIA_DRAFT_NOT_CONFIRMABLE');
+    expect(legacyConfirmation.body.reasonCode).toBe('PHASE_4_BINDING_REQUIRED');
 
     const blockedConversion = await request(app.getHttpServer())
       .post(`/admin/sofia/delivery-orders/from-draft/${draft.body.id}`)
