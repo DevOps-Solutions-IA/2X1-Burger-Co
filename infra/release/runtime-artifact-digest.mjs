@@ -8,8 +8,10 @@ if (mode === 'filesystem') {
   process.stdout.write(`${await filesystemDigest(path.resolve(input ?? '/app'))}\n`);
 } else if (mode === 'config') {
   process.stdout.write(`${configDigest(input)}\n`);
+} else if (mode === 'rootfs') {
+  process.stdout.write(`${rootfsDigest(input)}\n`);
 } else {
-  throw new Error('Usage: runtime-artifact-digest.mjs <filesystem ROOT|config INSPECT_JSON>');
+  throw new Error('Usage: runtime-artifact-digest.mjs <filesystem ROOT|config INSPECT_JSON|rootfs INSPECT_JSON>');
 }
 
 async function filesystemDigest(root) {
@@ -59,6 +61,18 @@ function configDigest(inspectPath) {
     Healthcheck: stable(config.Healthcheck ?? null),
   };
   return `sha256:${createHash('sha256').update(JSON.stringify(normalized)).digest('hex')}`;
+}
+
+function rootfsDigest(inspectPath) {
+  const inspected = JSON.parse(readFileSync(inspectPath, 'utf8'));
+  const image = inspected[0];
+  if (!image?.RootFS?.Layers || !image.Os || !image.Architecture) throw new Error('Docker image RootFS metadata is missing.');
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    os: image.Os,
+    architecture: image.Architecture,
+    variant: image.Variant ?? null,
+    layers: image.RootFS.Layers,
+  })).digest('hex')}`;
 }
 
 function stable(value) {

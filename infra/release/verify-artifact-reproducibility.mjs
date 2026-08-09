@@ -10,20 +10,34 @@ if (!firstPath || !secondPath) {
 const first = JSON.parse(readFileSync(firstPath, 'utf8'));
 const second = JSON.parse(readFileSync(secondPath, 'utf8'));
 assert.deepEqual(second.manifest, first.manifest, 'release manifests differ across clean builds');
-assert.match(first.api.digest, /^sha256:[a-f0-9]{64}$/);
-assert.match(second.api.digest, /^sha256:[a-f0-9]{64}$/);
-assert.match(first.web.digest, /^sha256:[a-f0-9]{64}$/);
-assert.match(second.web.digest, /^sha256:[a-f0-9]{64}$/);
+assert.deepEqual(first.provenance, { type: 'local-image-config-rootfs', registryManifestDigest: null, registryPushAuthorized: false });
+assert.deepEqual(second.provenance, first.provenance);
+for (const record of [first, second]) {
+  for (const target of [record.api, record.web]) {
+    for (const field of ['digest', 'localImageConfigDigest', 'contentDigest', 'configDigest', 'rootfsDigest', 'sbomDigest']) {
+      assert.match(target[field], /^sha256:[a-f0-9]{64}$/, `${field} is missing or malformed`);
+    }
+    assert.equal(target.localImageConfigDigest, target.digest, 'local image identity is inconsistent');
+  }
+}
 assert.notEqual(second.api.tag, first.api.tag, 'API reproduction reused the original tag');
 assert.notEqual(second.web.tag, first.web.tag, 'Web reproduction reused the original tag');
+assert.equal(second.api.digest, first.api.digest, 'API image config/RootFS identity differs');
+assert.equal(second.web.digest, first.web.digest, 'Web image config/RootFS identity differs');
 assert.equal(second.api.contentDigest, first.api.contentDigest, 'API runtime filesystem content differs');
 assert.equal(second.web.contentDigest, first.web.contentDigest, 'Web runtime filesystem content differs');
 assert.equal(second.api.configDigest, first.api.configDigest, 'API runtime configuration differs');
 assert.equal(second.web.configDigest, first.web.configDigest, 'Web runtime configuration differs');
+assert.equal(second.api.rootfsDigest, first.api.rootfsDigest, 'API complete RootFS layers differ');
+assert.equal(second.web.rootfsDigest, first.web.rootfsDigest, 'Web complete RootFS layers differ');
+assert.equal(second.api.sbomDigest, first.api.sbomDigest, 'API installed-runtime SBOM differs');
+assert.equal(second.web.sbomDigest, first.web.sbomDigest, 'Web installed-runtime SBOM differs');
 
-const firstSbom = readFileSync(path.join(path.dirname(firstPath), 'sbom.cdx.json'), 'utf8');
-const secondSbom = readFileSync(path.join(path.dirname(secondPath), 'sbom.cdx.json'), 'utf8');
-assert.equal(secondSbom, firstSbom, 'SBOM is not reproducible');
+for (const name of ['sbom.cdx.json', 'api-sbom.cdx.json', 'web-sbom.cdx.json']) {
+  const firstSbom = readFileSync(path.join(path.dirname(firstPath), name), 'utf8');
+  const secondSbom = readFileSync(path.join(path.dirname(secondPath), name), 'utf8');
+  assert.equal(secondSbom, firstSbom, `${name} is not reproducible`);
+}
 
 process.stdout.write(`${JSON.stringify({
   status: 'PASS',
@@ -32,6 +46,8 @@ process.stdout.write(`${JSON.stringify({
   webContentDigest: first.web.contentDigest,
   apiConfigDigest: first.api.configDigest,
   webConfigDigest: first.web.configDigest,
-  independentImageDigests: true,
-  sbomEqual: true,
+  exactLocalImageIdentityEqual: true,
+  completeRootfsEqual: true,
+  installedRuntimeSbomsEqual: true,
+  registryManifestDigestPendingAuthorizedPush: true,
 })}\n`);

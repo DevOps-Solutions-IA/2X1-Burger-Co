@@ -75,6 +75,7 @@ jobs:
           pnpm --dir apps/api exec jest src/config/env.spec.ts src/config/canary-release-config.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
           node --test \
             infra/release/canary-deploy-config.test.mjs \
+            infra/release/generate-image-sbom.test.mjs \
             infra/release/migration-attestation.test.mjs \
             infra/release/normalize-next-build.test.mjs \
             infra/release/release-safety.test.mjs \
@@ -215,6 +216,8 @@ jobs:
         env:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-artifacts
         run: |
+          RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
+          export RELEASE_REPRODUCIBILITY_SECRET
           FIRST_RECORD="$(RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"

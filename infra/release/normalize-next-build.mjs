@@ -1,13 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] ?? 'apps/web/.next');
-const sourceRoot = path.resolve(process.argv[3] ?? 'apps/web/src');
-const releaseBuildId = process.env.RELEASE_BUILD_ID;
-if (!releaseBuildId) throw new Error('RELEASE_BUILD_ID is required to normalize a release build.');
-
-assertDraftModeIsUnused(sourceRoot);
+const releaseSecret = process.env.RELEASE_REPRODUCIBILITY_SECRET;
+if (!releaseSecret || !/^[a-f0-9]{64}$/.test(releaseSecret)) {
+  throw new Error('A 256-bit hexadecimal release reproducibility secret is required.');
+}
 
 for (const relative of [
   'app-build-manifest.json',
@@ -69,17 +68,7 @@ function stable(value, sortStringArrays) {
 }
 
 function deterministicHex(purpose, bytes) {
-  return createHash('sha256').update(`2x1-next-${purpose}:${releaseBuildId}`).digest('hex').slice(0, bytes * 2);
-}
-
-function assertDraftModeIsUnused(directory) {
-  for (const file of walk(directory)) {
-    if (!/\.(?:[cm]?[jt]sx?)$/.test(file)) continue;
-    const source = readFileSync(file, 'utf8');
-    if (/\bdraftMode\s*\(|\b(?:set|clear)PreviewData\s*\(|\bpreviewData\b/.test(source)) {
-      throw new Error(`Deterministic preview keys are forbidden when Draft Mode is used: ${file}`);
-    }
-  }
+  return createHmac('sha256', releaseSecret).update(`2x1-next-${purpose}`).digest('hex').slice(0, bytes * 2);
 }
 
 function* walk(directory) {

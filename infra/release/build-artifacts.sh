@@ -25,7 +25,9 @@ mkdir -p "$TEMP_DIR/.release"
 find "$TEMP_DIR/.release" -exec touch -h -d "@$EPOCH" {} +
 
 BUILD_ID="$(node -p "require('$TEMP_DIR/.release/release-manifest.json').buildId")"
-NEXT_ACTIONS_KEY="$(node -e "process.stdout.write(require('node:crypto').createHash('sha256').update('2x1-no-server-actions:$COMMIT').digest('base64'))")"
+RELEASE_REPRODUCIBILITY_SECRET="${RELEASE_REPRODUCIBILITY_SECRET:-$(openssl rand -hex 32)}"
+[[ "$RELEASE_REPRODUCIBILITY_SECRET" =~ ^[a-f0-9]{64}$ ]] || { printf '[error] invalid release reproducibility secret\n' >&2; exit 2; }
+export RELEASE_REPRODUCIBILITY_SECRET
 OUTPUT_DIR="$OUTPUT_ROOT/$BUILD_ID"
 mkdir -p "$OUTPUT_DIR"
 cp "$TEMP_DIR/.release/release-manifest.json" "$OUTPUT_DIR/release-manifest.json"
@@ -50,7 +52,7 @@ if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.api"
   cat "$OUTPUT_DIR/api-build.log" >&2
   exit 1
 fi
-if ! docker build "${COMMON_ARGS[@]}" --build-arg "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$NEXT_ACTIONS_KEY" \
+if ! docker build "${COMMON_ARGS[@]}" --secret id=release_reproducibility_secret,env=RELEASE_REPRODUCIBILITY_SECRET \
   -f "$TEMP_DIR/infra/docker/Dockerfile.web" -t "$WEB_TAG" "$TEMP_DIR" \
   >"$OUTPUT_DIR/web-build.log" 2>&1; then
   cat "$OUTPUT_DIR/web-build.log" >&2
@@ -69,6 +71,16 @@ WEB_CONTENT_DIGEST="$(docker run --rm --network none --entrypoint node \
   "$WEB_TAG" /tmp/runtime-artifact-digest.mjs filesystem /app)"
 API_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/api-image-inspect.json")"
 WEB_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/web-image-inspect.json")"
+API_ROOTFS_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" rootfs "$OUTPUT_DIR/api-image-inspect.json")"
+WEB_ROOTFS_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" rootfs "$OUTPUT_DIR/web-image-inspect.json")"
+docker run --rm --network none --entrypoint node \
+  -v "$TEMP_DIR/infra/release/generate-image-sbom.mjs:/tmp/generate-image-sbom.mjs:ro" \
+  "$API_TAG" /tmp/generate-image-sbom.mjs api "$COMMIT" >"$OUTPUT_DIR/api-sbom.cdx.json"
+docker run --rm --network none --entrypoint node \
+  -v "$TEMP_DIR/infra/release/generate-image-sbom.mjs:/tmp/generate-image-sbom.mjs:ro" \
+  "$WEB_TAG" /tmp/generate-image-sbom.mjs web "$COMMIT" >"$OUTPUT_DIR/web-sbom.cdx.json"
+API_SBOM_DIGEST="sha256:$(sha256sum "$OUTPUT_DIR/api-sbom.cdx.json" | cut -d' ' -f1)"
+WEB_SBOM_DIGEST="sha256:$(sha256sum "$OUTPUT_DIR/web-sbom.cdx.json" | cut -d' ' -f1)"
 rm -f "$OUTPUT_DIR/api-image-inspect.json" "$OUTPUT_DIR/web-image-inspect.json"
 API_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$API_TAG")"
 WEB_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$WEB_TAG")"
@@ -83,14 +95,17 @@ docker run --rm --network none --entrypoint sh "$WEB_TAG" -lc 'test ! -e /app/.g
 
 node - "$OUTPUT_DIR/artifact-record.json" "$OUTPUT_DIR/release-manifest.json" \
   "$API_TAG" "$API_DIGEST" "$API_CONTENT_DIGEST" "$API_CONFIG_DIGEST" \
-  "$WEB_TAG" "$WEB_DIGEST" "$WEB_CONTENT_DIGEST" "$WEB_CONFIG_DIGEST" <<'NODE'
+  "$API_ROOTFS_DIGEST" "$API_SBOM_DIGEST" \
+  "$WEB_TAG" "$WEB_DIGEST" "$WEB_CONTENT_DIGEST" "$WEB_CONFIG_DIGEST" \
+  "$WEB_ROOTFS_DIGEST" "$WEB_SBOM_DIGEST" <<'NODE'
 const fs = require('fs');
-const [output, manifestPath, apiTag, apiDigest, apiContentDigest, apiConfigDigest, webTag, webDigest, webContentDigest, webConfigDigest] = process.argv.slice(2);
+const [output, manifestPath, apiTag, apiDigest, apiContentDigest, apiConfigDigest, apiRootfsDigest, apiSbomDigest, webTag, webDigest, webContentDigest, webConfigDigest, webRootfsDigest, webSbomDigest] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 fs.writeFileSync(output, JSON.stringify({
   manifest,
-  api: { tag: apiTag, digest: apiDigest, immutableReference: apiDigest, contentDigest: apiContentDigest, configDigest: apiConfigDigest, migrationCount: manifest.schemaMigrationCount },
-  web: { tag: webTag, digest: webDigest, immutableReference: webDigest, contentDigest: webContentDigest, configDigest: webConfigDigest },
+  provenance: { type: 'local-image-config-rootfs', registryManifestDigest: null, registryPushAuthorized: false },
+  api: { tag: apiTag, digest: apiDigest, localImageConfigDigest: apiDigest, contentDigest: apiContentDigest, configDigest: apiConfigDigest, rootfsDigest: apiRootfsDigest, sbomDigest: apiSbomDigest, migrationCount: manifest.schemaMigrationCount },
+  web: { tag: webTag, digest: webDigest, localImageConfigDigest: webDigest, contentDigest: webContentDigest, configDigest: webConfigDigest, rootfsDigest: webRootfsDigest, sbomDigest: webSbomDigest },
 }, null, 2) + '\n');
 NODE
 

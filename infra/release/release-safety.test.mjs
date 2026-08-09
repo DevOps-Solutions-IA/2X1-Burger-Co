@@ -77,6 +77,10 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
     assert.match(dockerSource, /ARG SOURCE_DATE_EPOCH/);
     assert.match(dockerSource, /find \/app .*touch -h -d "@\$\{SOURCE_DATE_EPOCH\}"/);
   }
-  assert.match(readFileSync(webDockerfile, 'utf8'), /node infra\/release\/normalize-next-build\.mjs apps\/web\/\.next apps\/web\/src/);
-  assert.match(readFileSync(artifactBuilder, 'utf8'), /RELEASE_BUILD_ID=\$BUILD_ID/);
+  const webSource = readFileSync(webDockerfile, 'utf8');
+  assert.match(webSource, /--mount=type=secret,id=release_reproducibility_secret/);
+  assert.match(webSource, /node infra\/release\/normalize-next-build\.mjs apps\/web\/\.next/);
+  assert.match(webSource, /node infra\/release\/normalize-next-build\.mjs apps\/web\/\.next\/standalone\/apps\/web\/\.next/);
+  assert.doesNotMatch(webSource, /ARG (?:NEXT_SERVER_ACTIONS_ENCRYPTION_KEY|RELEASE_REPRODUCIBILITY_SECRET)/);
+  assert.match(readFileSync(artifactBuilder, 'utf8'), /--secret id=release_reproducibility_secret,env=RELEASE_REPRODUCIBILITY_SECRET/);
 });

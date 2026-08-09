@@ -6,10 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 const normalizer = path.resolve(import.meta.dirname, 'normalize-next-build.mjs');
+const releaseEnv = { ...process.env, RELEASE_REPRODUCIBILITY_SECRET: 'a'.repeat(64) };
 
 test('normalizes Next manifests without changing transactional runtime facts', () => {
-  const { root, sourceRoot } = fixture({ node: {}, edge: {}, encryptionKey: 'synthetic-stable-key' });
-  execFileSync('node', [normalizer, root, sourceRoot], { env: { ...process.env, RELEASE_BUILD_ID: 'release-1' } });
+  const { root } = fixture({ node: {}, edge: {}, encryptionKey: 'synthetic-stable-key' });
+  execFileSync('node', [normalizer, root], { env: releaseEnv });
   const prerender = JSON.parse(readFileSync(path.join(root, 'prerender-manifest.json'), 'utf8'));
   assert.deepEqual(Object.keys(prerender.routes), ['/a', '/b']);
   assert.match(prerender.preview.previewModeId, /^[a-f0-9]{32}$/);
@@ -20,23 +21,32 @@ test('normalizes Next manifests without changing transactional runtime facts', (
 });
 
 test('rejects deterministic release-key normalization when Server Actions exist', () => {
-  const { root, sourceRoot } = fixture({ node: { action: {} }, edge: {}, encryptionKey: 'synthetic-stable-key' });
-  const result = spawnSync('node', [normalizer, root, sourceRoot], { env: { ...process.env, RELEASE_BUILD_ID: 'release-1' } });
+  const { root } = fixture({ node: { action: {} }, edge: {}, encryptionKey: 'synthetic-stable-key' });
+  const result = spawnSync('node', [normalizer, root], { env: releaseEnv });
   assert.notEqual(result.status, 0);
 });
 
-test('rejects deterministic preview keys when Draft Mode is used', () => {
-  const { root, sourceRoot } = fixture({ node: {}, edge: {} });
-  writeFileSync(path.join(sourceRoot, 'page.tsx'), 'export async function Page() { return draftMode(); }');
-  const result = spawnSync('node', [normalizer, root, sourceRoot], { env: { ...process.env, RELEASE_BUILD_ID: 'release-1' } });
+test('rejects a missing or weak reproducibility secret', () => {
+  const { root } = fixture({ node: {}, edge: {} });
+  const result = spawnSync('node', [normalizer, root], { env: { ...process.env, RELEASE_REPRODUCIBILITY_SECRET: 'public-build-id' } });
   assert.notEqual(result.status, 0);
+});
+
+test('preview credentials are stable for one release secret and change with independent entropy', () => {
+  const first = fixture({ node: {}, edge: {} });
+  const second = fixture({ node: {}, edge: {} });
+  const third = fixture({ node: {}, edge: {} });
+  execFileSync('node', [normalizer, first.root], { env: releaseEnv });
+  execFileSync('node', [normalizer, second.root], { env: releaseEnv });
+  execFileSync('node', [normalizer, third.root], { env: { ...process.env, RELEASE_REPRODUCIBILITY_SECRET: 'b'.repeat(64) } });
+  const preview = ({ root }) => JSON.parse(readFileSync(path.join(root, 'prerender-manifest.json'), 'utf8')).preview;
+  assert.deepEqual(preview(second), preview(first));
+  assert.notDeepEqual(preview(third), preview(first));
 });
 
 function fixture(references) {
   const root = mkdtempSync(path.join(tmpdir(), 'next-build-normalize-'));
-  const sourceRoot = path.join(root, 'source');
   mkdirSync(path.join(root, 'server/app/demo'), { recursive: true });
-  mkdirSync(sourceRoot);
   writeFileSync(path.join(root, 'app-build-manifest.json'), JSON.stringify({ pages: { '/b': [], '/a': [] } }));
   writeFileSync(path.join(root, 'app-path-routes-manifest.json'), JSON.stringify({ '/b/page': '/b', '/a/page': '/a' }));
   writeFileSync(path.join(root, 'server/app-paths-manifest.json'), JSON.stringify({ '/b/page': 'b.js', '/a/page': 'a.js' }));
@@ -45,5 +55,5 @@ function fixture(references) {
   writeFileSync(path.join(root, 'server/next-font-manifest.js'), 'variable');
   writeFileSync(path.join(root, 'server/server-reference-manifest.json'), JSON.stringify(references));
   writeFileSync(path.join(root, 'server/app/demo/page_client-reference-manifest.js'), 'globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/demo/page"]={"z":{"value":2},"a":{"value":1}}');
-  return { root, sourceRoot };
+  return { root };
 }
