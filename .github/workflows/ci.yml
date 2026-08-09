@@ -36,13 +36,13 @@ jobs:
       JWT_REFRESH_SECRET: ci-refresh-secret-only-for-tests-2026-2x1burger-different-strong-value
       ADMIN_PASSWORD: ci-admin-password-not-for-runtime
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.16.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -192,7 +192,7 @@ jobs:
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM
         run: SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) node infra/release/generate-sbom.mjs --output .release/sbom.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: ci-evidence-${{ github.sha }}
@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Reject dirty release source
@@ -221,7 +221,7 @@ jobs:
           FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
@@ -233,18 +233,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.16.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
@@ -265,7 +265,7 @@ jobs:
           EPHEMERAL_API_IMAGE="$(node -p "require(process.argv[1]).api.tag" "$ARTIFACT_RECORD")" \
           EPHEMERAL_WEB_IMAGE="$(node -p "require(process.argv[1]).web.tag" "$ARTIFACT_RECORD")" \
             pnpm test:e2e:core
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: ephemeral-e2e-evidence-${{ github.sha }}
@@ -278,10 +278,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
@@ -291,7 +291,7 @@ jobs:
           test -n "$ARTIFACT_RECORD"
           bash infra/release/load-artifacts.sh "$ARTIFACT_RECORD"
           RECOVERY_ARTIFACT_RECORD="$ARTIFACT_RECORD" bash infra/recovery/run-ephemeral-recovery-drill.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: recovery-drill-evidence-${{ github.sha }}
@@ -304,10 +304,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
@@ -331,7 +331,7 @@ jobs:
           bash infra/release/load-artifacts.sh "$CANDIDATE_RECORD"
           bash infra/release/rollback-drill.sh "$BASELINE_RECORD" "$CANDIDATE_RECORD" "$STATE_DIR"
           test -f "$STATE_DIR/rollback-drill.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: canary-rollback-evidence-${{ github.sha }}

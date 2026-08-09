@@ -11,6 +11,8 @@ const verifier = path.join(root, 'infra/release/verify-runtime-identity.mjs');
 const artifactBuilder = path.join(root, 'infra/release/build-artifacts.sh');
 const artifactLoader = path.join(root, 'infra/release/load-artifacts.sh');
 const runtimeDigest = path.join(root, 'infra/release/runtime-artifact-digest.mjs');
+const ciWorkflow = path.join(root, '.github/workflows/ci.yml');
+const cdWorkflow = path.join(root, '.github/workflows/cd.yml');
 const apiDockerfile = path.join(root, 'infra/docker/Dockerfile.api');
 const webDockerfile = path.join(root, 'infra/docker/Dockerfile.web');
 const commit = 'a'.repeat(40);
@@ -113,4 +115,15 @@ test('complete runtime digest includes packaged tmp and run content', () => {
   writeFileSync(path.join(runtimeRoot, 'tmp', 'runtime-artifact-digest.mjs'), 'mounted-helper-v2');
   writeFileSync(path.join(runtimeRoot, 'proc', 'runtime-value'), 'injected-v2');
   assert.equal(digest(), changedRun);
+});
+
+test('CI third-party actions are pinned to immutable commits', () => {
+  const uses = [ciWorkflow, cdWorkflow].flatMap((workflow) => readFileSync(workflow, 'utf8')
+    .split('\n')
+    .map((line) => line.match(/uses:\s+([^\s#]+)/)?.[1])
+    .filter(Boolean));
+  assert.ok(uses.length > 0);
+  for (const action of uses) {
+    assert.match(action, /^[^@]+@[a-f0-9]{40}$/, `${action} is not pinned to a commit`);
+  }
 });
