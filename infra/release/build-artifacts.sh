@@ -22,6 +22,7 @@ mkdir -p "$TEMP_DIR/.release"
     node infra/release/generate-release-manifest.mjs
   SOURCE_DATE_EPOCH="$EPOCH" node infra/release/generate-sbom.mjs
 ) >"$TEMP_DIR/.release/metadata-build.log" 2>&1
+find "$TEMP_DIR/.release" -exec touch -h -d "@$EPOCH" {} +
 
 BUILD_ID="$(node -p "require('$TEMP_DIR/.release/release-manifest.json').buildId")"
 OUTPUT_DIR="$OUTPUT_ROOT/$BUILD_ID"

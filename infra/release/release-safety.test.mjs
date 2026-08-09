@@ -9,6 +9,8 @@ const root = path.resolve(import.meta.dirname, '../..');
 const common = path.join(root, 'infra/scripts/common.sh');
 const verifier = path.join(root, 'infra/release/verify-runtime-identity.mjs');
 const artifactBuilder = path.join(root, 'infra/release/build-artifacts.sh');
+const apiDockerfile = path.join(root, 'infra/docker/Dockerfile.api');
+const webDockerfile = path.join(root, 'infra/docker/Dockerfile.web');
 const commit = 'a'.repeat(40);
 const apiDigest = `sha256:${'b'.repeat(64)}`;
 const webDigest = `sha256:${'c'.repeat(64)}`;
@@ -69,4 +71,10 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
   const source = readFileSync(artifactBuilder, 'utf8');
   assert.match(source, /--build-arg "SOURCE_DATE_EPOCH=\$EPOCH"/);
   assert.match(source, /EPOCH="\$\(git -C "\$ROOT_DIR" show -s --format=%ct "\$COMMIT"\)"/);
+  assert.match(source, /find "\$TEMP_DIR\/\.release" -exec touch -h -d "@\$EPOCH"/);
+  for (const dockerfile of [apiDockerfile, webDockerfile]) {
+    const dockerSource = readFileSync(dockerfile, 'utf8');
+    assert.match(dockerSource, /ARG SOURCE_DATE_EPOCH/);
+    assert.match(dockerSource, /find \/app .*touch -h -d "@\$\{SOURCE_DATE_EPOCH\}"/);
+  }
 });
