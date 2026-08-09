@@ -14,6 +14,7 @@ import { AuditService } from '../audit/audit.service';
 import { getDayRange, getRange } from '../../common/utils/date-range.util';
 import { toNumber } from '../../common/utils/decimal.util';
 import { CashReconciliationService } from '../cash-register/cash-reconciliation.service';
+import { SafeRemoteAssetFetcher } from '../../common/security/safe-remote-asset-fetcher';
 
 const DAILY_CLOSURE_TYPE = 'DAILY_CLOSURE';
 
@@ -33,6 +34,8 @@ type PdfDocument = InstanceType<typeof PDFDocument>;
 
 @Injectable()
 export class ReportsService {
+  private readonly remoteAssetFetcher = new SafeRemoteAssetFetcher();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
@@ -1846,18 +1849,15 @@ export class ReportsService {
     let logoShiftX = 0;
     if (data.business.logoUrl) {
       try {
-        const response = await fetch(data.business.logoUrl);
-        if (response.ok) {
-          const imageBuffer = Buffer.from(await response.arrayBuffer());
-          document.image(imageBuffer, x + 28, y + 28, {
-            fit: [54, 54],
-            align: 'center',
-            valign: 'center',
-          });
-          logoShiftX = 66;
-        }
+        const image = await this.remoteAssetFetcher.fetchImage(data.business.logoUrl);
+        document.image(image.bytes, x + 28, y + 28, {
+          fit: [54, 54],
+          align: 'center',
+          valign: 'center',
+        });
+        logoShiftX = 66;
       } catch {
-        // Ignorar error del logo.
+        // A report remains available without a logo when the remote asset fails closed.
       }
     }
 

@@ -3,40 +3,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useParams } from 'next/navigation';
-import { CheckCircle2, Clock3, CreditCard, MessageCircle, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Clock3, CreditCard, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/format';
 import { resolveApiUrl } from '@/lib/api';
 
-type PaymentMethodCode = 'ONLINE' | 'NEQUI_MANUAL' | 'CASH';
+type PaymentMethodCode = 'ONLINE';
 
 type PublicPaymentOrder = {
   expired: boolean;
   orderReference: string | null;
-  customerName?: string | null;
-  deliveryAddress?: string | null;
-  deliveryNeighborhood?: string | null;
   items?: Array<{ code: string; name: string; quantity: number; unitPrice: number; totalPrice: number; notes?: string | null }>;
   subtotal?: number; deliveryFee?: number; total?: number; currency?: string;
-  orderStatus?: string; deliveryStatus?: string | null; paymentStatus?: string; paymentMethod?: string | null;
-  providerCheckoutUrl?: string | null; source?: 'SOFIA';
-  availablePaymentMethods?: Array<{ method: PaymentMethodCode; label: string; description: string; enabled: boolean; phone?: string | null; holderName?: string | null; instructionsText?: string | null }>;
+  fulfillment?: string;
+  paymentPreference?: string;
+  paymentStatus?: string;
+  source?: string;
+  availablePaymentMethods?: Array<{ method: PaymentMethodCode; label: string; description: string; enabled: boolean }>;
   expiresAt?: string | null; message?: string;
 };
 
-type PaymentBackend = 'canonical' | 'legacy';
-
 const methodIcons: Record<PaymentMethodCode, React.ReactNode> = {
-  ONLINE: <CreditCard className="h-4 w-4" />, NEQUI_MANUAL: <MessageCircle className="h-4 w-4" />, CASH: <ShieldCheck className="h-4 w-4" />,
+  ONLINE: <CreditCard className="h-4 w-4" />,
 };
 
 function paymentMessage(order: PublicPaymentOrder, selectedMessage: string | null) {
   if (selectedMessage) return selectedMessage;
   if (order.expired) return 'Link vencido';
-  if (order.paymentStatus === 'PAID') return 'Pago recibido';
-  if (order.paymentStatus === 'CASH_ON_DELIVERY') return 'Efectivo contra entrega';
-  if (order.paymentStatus === 'PENDING_MANUAL_VERIFICATION') return 'Verificando transferencia';
-  return 'Elige como pagar';
+  if (order.paymentStatus === 'SUCCEEDED') return 'Pago verificado';
+  if (order.paymentStatus === 'FAILED') return 'Pago rechazado';
+  if (order.paymentStatus === 'UNKNOWN_RESULT' || order.paymentStatus === 'FINANCIAL_REVIEW_REQUIRED') {
+    return 'Pago en revisión';
+  }
+  if (order.paymentStatus === 'PENDING') return 'Pago pendiente';
+  return order.availablePaymentMethods?.some((method) => method.enabled)
+    ? 'Pago en línea disponible'
+    : 'Pago productivo deshabilitado';
 }
 
 export default function PublicPaymentPage() {
@@ -49,22 +51,20 @@ export default function PublicPaymentPage() {
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [paymentBackend, setPaymentBackend] = useState<PaymentBackend>('legacy');
 
   useEffect(() => {
     let cancelled = false;
     async function loadOrder() {
       setIsLoading(true); setError(null);
       try {
-        let backend: PaymentBackend = 'canonical';
-        let response = await fetch(`${resolveApiUrl()}/public/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        if (response.status === 404) {
-          backend = 'legacy';
-          response = await fetch(`${resolveApiUrl()}/public/sofia/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        }
+        const response = await fetch(`${resolveApiUrl()}/public/payments/${token}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(payload?.message ?? 'No encontramos este pedido.');
-        if (!cancelled) { setPaymentBackend(backend); setOrder(payload as PublicPaymentOrder); setSelectedMethod((payload as PublicPaymentOrder).paymentMethod as PaymentMethodCode | null); setCheckoutUrl((payload as PublicPaymentOrder).providerCheckoutUrl ?? null); }
+        if (!cancelled) {
+          setOrder(payload as PublicPaymentOrder);
+          setSelectedMethod(null);
+          setCheckoutUrl(null);
+        }
       } catch (loadError) { if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'No encontramos este pedido.'); }
       finally { if (!cancelled) setIsLoading(false); }
     }
@@ -80,16 +80,13 @@ export default function PublicPaymentPage() {
   async function confirmSelectedMethod() {
     if (!selectedMethod) return; setIsSubmitting(true); setSelectedMessage(null);
     try {
-      const endpoint = paymentBackend === 'canonical'
-        ? `/public/payments/${token}/start-online`
-        : `/public/sofia/payments/${token}/select-method`;
-      const response = await fetch(`${resolveApiUrl()}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: selectedMethod }) });
+      const response = await fetch(`${resolveApiUrl()}/public/payments/${token}/start-online`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: selectedMethod }) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.message ?? 'No pudimos registrar el metodo.');
-      setSelectedMessage(payload?.message ?? 'Metodo registrado.');
+      if (!response.ok) throw new Error(payload?.message ?? 'No pudimos iniciar el pago.');
+      setSelectedMessage('Continúa en el proveedor de pago seguro.');
       setCheckoutUrl(typeof payload?.checkoutUrl === 'string' ? payload.checkoutUrl : null);
-      setOrder((c) => c ? { ...c, paymentMethod: payload?.paymentMethod ?? selectedMethod, paymentStatus: payload?.paymentStatus ?? c.paymentStatus, providerCheckoutUrl: payload?.checkoutUrl ?? c.providerCheckoutUrl } : c);
-    } catch (selectError) { setSelectedMessage(selectError instanceof Error ? selectError.message : 'No pudimos registrar el metodo.'); }
+      setOrder((current) => current ? { ...current, paymentStatus: payload?.paymentIntent?.status ?? current.paymentStatus } : current);
+    } catch (selectError) { setSelectedMessage(selectError instanceof Error ? selectError.message : 'No pudimos iniciar el pago.'); }
     finally { setIsSubmitting(false); }
   }
 
@@ -130,10 +127,10 @@ export default function PublicPaymentPage() {
         {/* Order content */}
         {!isLoading && order && !order.expired ? (
           <div className="space-y-8">
-            {/* Sofia chip */}
+            {/* Canonical checkout authority */}
             <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-2 rounded-full bg-violet-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-violet-300">
-                <Sparkles className="h-3 w-3" />Sofia
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-300">
+                <ShieldCheck className="h-3 w-3" />Pago seguro 2X1
               </span>
               <span className="text-[12px] font-medium text-stone-500" data-testid="public-payment-status">{paymentMessage(order, selectedMessage)}</span>
             </div>
@@ -170,16 +167,6 @@ export default function PublicPaymentPage() {
             {/* Divider */}
             <div className="h-px bg-white/[0.06]" />
 
-            {/* Customer — flat */}
-            <div data-testid="public-payment-customer">
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500 mb-4">Entrega</p>
-              <p className="text-[14px] font-semibold text-white">{order.customerName ?? '—'}</p>
-              <p className="mt-1 text-[13px] text-stone-500">{order.deliveryAddress ?? '—'}</p>
-            </div>
-
-            {/* Divider */}
-            <div className="h-px bg-white/[0.06]" />
-
             {/* Payment methods — subtle selection */}
             <div data-testid="public-payment-methods">
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500 mb-4">Metodo de pago</p>
@@ -202,33 +189,6 @@ export default function PublicPaymentPage() {
                 ))}
               </div>
             </div>
-
-            {/* CASH */}
-            {selectedMethodConfig?.method === 'CASH' ? (
-              <div className="text-center space-y-4" data-testid="public-cash-instructions">
-                <div className="h-px bg-white/[0.06]" />
-                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-400">Efectivo contra entrega</p>
-                <p className="text-[1.8rem] font-black text-white tabular-nums">{formatCurrency(order.total ?? 0)}</p>
-                <p className="text-[13px] text-stone-500">Pago al recibir tu pedido. Ten listo: {formatCurrency(order.total ?? 0)}.</p>
-                <Button className="w-full rounded-xl bg-white py-5 text-[14px] font-extrabold text-black hover:bg-stone-200" onClick={confirmSelectedMethod} disabled={isSubmitting} data-testid="public-confirm-cash">Confirmar efectivo</Button>
-              </div>
-            ) : null}
-
-            {/* NEQUI */}
-            {selectedMethodConfig?.method === 'NEQUI_MANUAL' ? (
-              <div className="space-y-4" data-testid="public-nequi-instructions">
-                <div className="h-px bg-white/[0.06]" />
-                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400">Transferencia Nequi</p>
-                <div className="space-y-2.5">
-                  <div className="flex justify-between text-[13px]"><span className="text-stone-500">Numero</span><span className="font-semibold text-white" data-testid="public-nequi-phone">{selectedMethodConfig.phone}</span></div>
-                  {selectedMethodConfig.holderName ? <div className="flex justify-between text-[13px]"><span className="text-stone-500">Titular</span><span className="font-semibold text-white">{selectedMethodConfig.holderName}</span></div> : null}
-                  <div className="flex justify-between text-[13px]"><span className="text-stone-500">Valor</span><span className="font-semibold text-white tabular-nums">{formatCurrency(order.total ?? 0)}</span></div>
-                  <div className="flex justify-between text-[13px]"><span className="text-stone-500">Referencia</span><span className="font-semibold text-white" data-testid="public-nequi-reference">{order.orderReference}</span></div>
-                </div>
-                <p className="text-[12px] text-stone-500 leading-relaxed">Transfiere el valor exacto y envia el comprobante por WhatsApp.</p>
-                <Button className="w-full rounded-xl bg-violet-600 py-5 text-[14px] font-extrabold text-white hover:bg-violet-700" onClick={confirmSelectedMethod} disabled={isSubmitting} data-testid="public-confirm-nequi">Ya transferi</Button>
-              </div>
-            ) : null}
 
             {/* ONLINE */}
             {selectedMethodConfig?.method === 'ONLINE' ? (

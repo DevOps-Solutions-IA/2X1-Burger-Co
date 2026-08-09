@@ -63,7 +63,7 @@ export class CommandApprovalService {
     const approval = await this.repository.findApproval(approvalId);
     if (!approval || approval.status !== 'APPROVED') throw new SecureCommandError('SOFIA_COMMAND_APPROVAL_INVALID');
     const command = await this.requiredCommand(approval.commandId);
-    await this.policy.assertApproverAllowed(command, actor);
+    await this.policy.assertApproverAllowed(command, actor, { requireSeparation: false });
     return this.repository.revokeApproval({
       approvalId,
       actorId: actor.actorId,

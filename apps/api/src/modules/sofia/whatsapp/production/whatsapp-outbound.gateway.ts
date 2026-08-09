@@ -23,6 +23,9 @@ export class WhatsappOutboundGateway {
       const result = input.mediaUrl
         ? await provider.sendMediaMessage({ to: input.to, body: input.body, mediaUrl: input.mediaUrl, idempotencyKey: input.idempotencyKey })
         : await provider.sendTextMessage({ to: input.to, body: input.body, idempotencyKey: input.idempotencyKey });
+      if (result.status === 'SENT' && !this.isValidProviderMessageId(result.providerMessageId)) {
+        return { code: 'WHATSAPP_UNKNOWN_RESULT', providerMessageId: null, acceptedAt: null, retryable: false, unknownResult: true };
+      }
       return {
         code: result.status === 'SENT' ? 'WHATSAPP_SENT' : 'WHATSAPP_PROVIDER_REJECTED', providerMessageId: result.providerMessageId,
         acceptedAt: result.status === 'SENT' ? new Date() : null, retryable: false, unknownResult: false,
@@ -30,5 +33,9 @@ export class WhatsappOutboundGateway {
     } catch {
       return { code: 'WHATSAPP_UNKNOWN_RESULT', providerMessageId: null, acceptedAt: null, retryable: false, unknownResult: true };
     }
+  }
+
+  private isValidProviderMessageId(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0 && value.length <= 256 && value.trim() === value && /^[\x21-\x7e]+$/.test(value);
   }
 }

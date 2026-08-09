@@ -147,7 +147,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     const providerCreateSpy = jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
       provider: 'BOLD',
       providerPaymentId: `provider-payment-${label}`,
-      providerReference: `checkout_${checkout.id}`,
+      providerReference: `checkout_${prepared.paymentIntent.id}`,
       checkoutUrl: 'https://checkout.bold.co/test-only',
       status: 'PENDING',
       rawPayload: { sanitized: true },
@@ -160,8 +160,8 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       data: {
         status: 'APPROVED',
         payment_id: `provider-payment-${label}`,
-        reference: `checkout_${checkout.id}`,
-        metadata: { reference: `checkout_${checkout.id}` },
+        reference: `checkout_${prepared.paymentIntent.id}`,
+        metadata: { reference: `checkout_${prepared.paymentIntent.id}` },
         amount: { total: Number(checkout.total), currency: 'COP' },
       },
     };
@@ -296,6 +296,50 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       intentId: prepared.intentId,
       eventId: 'event-after-transition',
     });
+  });
+
+  it('persists verified payment truth and resumes kitchen after its independent gate is enabled', async () => {
+    const prepared = await preparedWebhook('kitchen-gate-disabled');
+    process.env.PHASE5_KITCHEN_ENABLED = 'false';
+
+    try {
+      await expect(service().processBold(prepared.command)).resolves.toMatchObject({
+        processedStatus: 'PROCESSED',
+        paymentIntentId: prepared.intentId,
+        paymentStatus: PaymentIntentStatus.SUCCEEDED,
+      });
+
+      expect(await prisma.paymentTransition.count({
+        where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+      })).toBe(1);
+      expect(await prisma.paymentIntent.findUniqueOrThrow({ where: { id: prepared.intentId } }))
+        .toMatchObject({ status: PaymentIntentStatus.SUCCEEDED });
+      expect(await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } }))
+        .toMatchObject({ status: 'PAYMENT_VERIFIED', kitchenEligibleAt: null });
+      expect(await prisma.paymentWebhookEvent.findUniqueOrThrow({
+        where: { provider_eventId: { provider: 'BOLD', eventId: 'event-kitchen-gate-disabled' } },
+      })).toMatchObject({
+        processedStatus: 'PROCESSED',
+        retryable: false,
+        processingAttempts: 1,
+      });
+
+      process.env.PHASE5_KITCHEN_ENABLED = 'true';
+      await expect(kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null))
+        .resolves.toMatchObject({ state: 'APPLIED' });
+      await expect(kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null))
+        .resolves.toMatchObject({ state: 'APPLIED' });
+
+      const resumed = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+      expect(resumed).toMatchObject({ status: 'KITCHEN_ELIGIBLE' });
+      expect(resumed.kitchenEligibleAt).not.toBeNull();
+      expect(await prisma.paymentTransition.count({
+        where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+      })).toBe(1);
+      expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      process.env.PHASE5_KITCHEN_ENABLED = 'true';
+    }
   });
 
   it('recovers after kitchen commit and before deterministic result without a duplicate kitchen effect', async () => {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { SofiaPaymentSettings } from '@prisma/client';
 import { BoldPaymentProvider } from './bold-payment.provider';
 import { MockPaymentProvider } from './mock-payment.provider';
@@ -8,7 +8,7 @@ import { OnlinePaymentProvider, PaymentProviderAdapter } from './payment-provide
 @Injectable()
 export class PaymentProviderFactory {
   constructor(
-    private readonly mockPaymentProvider: MockPaymentProvider,
+    @Optional() private readonly mockPaymentProvider: MockPaymentProvider | null,
     private readonly boldPaymentProvider: BoldPaymentProvider,
     private readonly nullPaymentProvider: NullPaymentProvider,
   ) {}
@@ -17,6 +17,7 @@ export class PaymentProviderFactory {
     const normalized = String(provider ?? 'NONE').toUpperCase() as OnlinePaymentProvider;
     if (normalized === 'MOCK') {
       this.assertMockAllowed();
+      if (!this.mockPaymentProvider) this.rejectUnavailableMock();
       return this.mockPaymentProvider;
     }
     if (normalized === 'BOLD') return this.boldPaymentProvider;
@@ -26,6 +27,7 @@ export class PaymentProviderFactory {
   resolveFromSettings(settings: SofiaPaymentSettings): PaymentProviderAdapter {
     if (!settings.onlinePaymentsEnabled) return this.nullPaymentProvider;
     if (settings.onlinePaymentProvider === 'MOCK' && settings.mockOnlinePaymentsEnabled && process.env.NODE_ENV !== 'production') {
+      if (!this.mockPaymentProvider) this.rejectUnavailableMock();
       return this.mockPaymentProvider;
     }
     if (settings.onlinePaymentProvider === 'BOLD' && settings.boldEnabled) {
@@ -38,5 +40,9 @@ export class PaymentProviderFactory {
     if (process.env.NODE_ENV !== 'test') {
       throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN' });
     }
+  }
+
+  private rejectUnavailableMock(): never {
+    throw new BadRequestException({ code: 'SOFIA_TEST_MOCK_PAYMENT_NOT_REGISTERED' });
   }
 }

@@ -358,7 +358,6 @@ export default function DeliveriesPage() {
   const [queueFilter, setQueueFilter] = useState<DeliveryQueueFilter>('all');
   const [showAlerts, setShowAlerts] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [paymentLinks, setPaymentLinks] = useState<Record<string, string>>({});
 
   const initialDeliveries = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -485,57 +484,6 @@ export default function DeliveriesPage() {
       await queryClient.refetchQueries({ queryKey: ['delivery-admin-orders'], type: 'active' });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible actualizar el reparto'),
-  });
-
-  const generateSofiaPaymentLink = useMutation({
-    mutationFn: (orderId: string) =>
-      apiFetch<{
-        orderReference: string | null;
-        publicPaymentUrl: string | null;
-        expiresAt: string | null;
-        paymentStatus: string;
-        paymentMethod: string | null;
-      }>(`/orders/${orderId}/sofia-payment-link`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      }),
-    onSuccess: async (link, orderId) => {
-      if (link.publicPaymentUrl) {
-        setPaymentLinks((current) => ({ ...current, [orderId]: link.publicPaymentUrl! }));
-        await navigator.clipboard?.writeText(link.publicPaymentUrl).catch(() => undefined);
-      }
-      toast.success(link.publicPaymentUrl ? 'Link de pago copiado' : 'Link de pago generado');
-      await queryClient.refetchQueries({ queryKey: ['delivery-admin-orders'], type: 'active' });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible generar el link de pago'),
-  });
-
-  const updateSofiaPaymentStatus = useMutation({
-    mutationFn: ({
-      orderId,
-      status,
-      paymentMethod,
-      message,
-    }: {
-      orderId: string;
-      status: 'PAID' | 'FAILED' | 'MANUAL_REVIEW';
-      paymentMethod?: 'CASH' | 'NEQUI_MANUAL' | 'ONLINE';
-      message?: string;
-    }) =>
-      apiFetch(`/orders/${orderId}/sofia-payment-status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, paymentMethod, message }),
-      }),
-    onSuccess: async (_, variables) => {
-      const labels: Record<string, string> = {
-        PAID: 'Pago marcado como pagado',
-        FAILED: 'Pago marcado como fallido',
-        MANUAL_REVIEW: 'Pago enviado a revisión',
-      };
-      toast.success(labels[variables.status] ?? 'Pago actualizado');
-      await queryClient.refetchQueries({ queryKey: ['delivery-admin-orders'], type: 'active' });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible actualizar el pago Sofía'),
   });
 
   const summary = useMemo(() => {
@@ -1109,11 +1057,11 @@ export default function DeliveriesPage() {
                 <div className="border-y border-violet-100 bg-violet-50/60 px-5 py-3" data-testid="deliveries-sofia-payment-link-panel">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-500">Origen Sofía</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-500">Evidencia histórica Sofía</p>
                       <p className="mt-1 truncate text-[12px] font-bold text-violet-900" data-testid="deliveries-sofia-payment-link-status">
                         {selectedOrder.whatsappDeliveryOrder?.orderReference
                           ? `${selectedOrder.whatsappDeliveryOrder.orderReference} · ${sofiaPaymentSummary(selectedOrder)}`
-                          : 'Sin link generado'}
+                          : `Sin referencia histórica · ${sofiaPaymentSummary(selectedOrder)}`}
                       </p>
                       <div className="mt-2 grid gap-1.5 text-[11px] font-semibold text-violet-800 sm:grid-cols-2" data-testid="deliveries-sofia-origin-detail">
                         <span>Fuente: Sofía / WhatsApp</span>
@@ -1133,41 +1081,6 @@ export default function DeliveriesPage() {
                       ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        className="justify-center text-[11px]"
-                        onClick={() => generateSofiaPaymentLink.mutate(selectedOrder.id)}
-                        disabled={generateSofiaPaymentLink.isPending}
-                        data-testid="deliveries-generate-sofia-payment-link"
-                      >
-                        <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                        {selectedOrder.whatsappDeliveryOrder?.orderReference ? 'Regenerar link' : 'Generar link de pago'}
-                      </Button>
-                      {paymentLinks[selectedOrder.id] ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="justify-center text-[11px]"
-                            onClick={() => {
-                              const paymentLink = paymentLinks[selectedOrder.id];
-                              if (!paymentLink) return;
-                              void navigator.clipboard?.writeText(paymentLink);
-                              toast.success('Link copiado');
-                            }}
-                            data-testid="deliveries-copy-sofia-payment-link"
-                          >
-                            <Copy className="mr-1.5 h-3.5 w-3.5" />
-                            Copiar link
-                          </Button>
-                          <Button asChild size="sm" variant="secondary" className="justify-center text-[11px]" data-testid="deliveries-open-sofia-payment-link">
-                            <a href={paymentLinks[selectedOrder.id] ?? '#'} target="_blank" rel="noreferrer">
-                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                              Ver link
-                            </a>
-                          </Button>
-                        </>
-                      ) : null}
                       {selectedOrder.whatsappDeliveryOrder?.orderReference ? (
                         <Button
                           size="sm"
@@ -1187,84 +1100,13 @@ export default function DeliveriesPage() {
                       ) : null}
                     </div>
                   </div>
-	                  {paymentLinks[selectedOrder.id] ? (
-	                    <p className="mt-3 break-all rounded-xl border border-violet-100 bg-white px-3 py-2 text-[11px] font-bold text-violet-900" data-testid="deliveries-sofia-payment-url">
-	                      {paymentLinks[selectedOrder.id]}
-	                    </p>
-	                  ) : null}
-                    <div className="mt-3 grid gap-2 rounded-xl border border-violet-100 bg-white p-3" data-testid="deliveries-sofia-manual-payment-actions">
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-500">Validación manual operador</p>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedOrder.whatsappDeliveryOrder?.paymentStatus !== 'PAID' ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="justify-center text-[11px]"
-                            onClick={() => {
-                              if (!window.confirm('Confirmar que el pago Sofía fue verificado por operador.')) return;
-                              updateSofiaPaymentStatus.mutate({
-                                orderId: selectedOrder.id,
-                                status: 'PAID',
-                                paymentMethod:
-                                  selectedOrder.whatsappDeliveryOrder?.paymentMethod === 'NEQUI_MANUAL'
-                                    ? 'NEQUI_MANUAL'
-                                    : selectedOrder.whatsappDeliveryOrder?.paymentMethod === 'CASH'
-                                      ? 'CASH'
-                                      : undefined,
-                                message: 'Operador validó manualmente el pago.',
-                              });
-                            }}
-                            disabled={updateSofiaPaymentStatus.isPending}
-                            data-testid="deliveries-sofia-mark-paid"
-                          >
-                            Marcar pagado
-                          </Button>
-                        ) : null}
-                        {selectedOrder.whatsappDeliveryOrder?.paymentStatus !== 'PAID' ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="justify-center text-[11px]"
-                            onClick={() => {
-                              if (!window.confirm('Confirmar pago Sofía como fallido.')) return;
-                              updateSofiaPaymentStatus.mutate({
-                                orderId: selectedOrder.id,
-                                status: 'FAILED',
-                                message: 'Operador marcó el pago como fallido.',
-                              });
-                            }}
-                            disabled={updateSofiaPaymentStatus.isPending}
-                            data-testid="deliveries-sofia-mark-failed"
-                          >
-                            Marcar fallido
-                          </Button>
-                        ) : null}
-                        {selectedOrder.whatsappDeliveryOrder?.paymentStatus !== 'PAID' && selectedOrder.whatsappDeliveryOrder?.paymentStatus !== 'MANUAL_REVIEW' ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="justify-center text-[11px]"
-                            onClick={() =>
-                              updateSofiaPaymentStatus.mutate({
-                                orderId: selectedOrder.id,
-                                status: 'MANUAL_REVIEW',
-                                message: 'Operador envió el pago a revisión manual.',
-                              })
-                            }
-                            disabled={updateSofiaPaymentStatus.isPending}
-                            data-testid="deliveries-sofia-manual-review"
-                          >
-                            Enviar a revisión
-                          </Button>
-                        ) : null}
-                        {selectedOrder.whatsappDeliveryOrder?.paymentStatus === 'PAID' ? (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700" data-testid="deliveries-sofia-payment-already-paid">
-                            Pago validado. Continuar flujo de domicilio.
-                          </span>
-                        ) : null}
-                      </div>
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3" data-testid="deliveries-sofia-payment-read-only">
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Solo lectura</p>
+                      <p className="mt-1 text-[11px] font-semibold leading-5 text-amber-900">
+                        La creación de links y las transiciones del flujo de pago Sofía fueron retiradas. Este panel conserva únicamente evidencia histórica; los pagos productivos usan el checkout canónico.
+                      </p>
                       {selectedOrder.whatsappDeliveryOrder?.manuallyVerifiedAt ? (
-                        <p className="text-[11px] font-bold text-emerald-700">
+                        <p className="mt-2 text-[11px] font-bold text-emerald-700">
                           Verificado por {selectedOrder.whatsappDeliveryOrder.manuallyVerifiedBy?.fullName ?? 'operador'} · {formatDateTime(selectedOrder.whatsappDeliveryOrder.manuallyVerifiedAt)}
                         </p>
                       ) : null}

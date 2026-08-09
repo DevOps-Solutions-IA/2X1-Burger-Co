@@ -4,7 +4,7 @@ import { NotificationOutboxWorker } from './notification-outbox.worker';
 
 const now = new Date('2026-08-09T12:00:00.000Z');
 
-function harness() {
+function harness(enabled = false) {
   const consumer = {
     drainOnce: jest.fn().mockResolvedValue([]),
     reconcile: jest.fn().mockResolvedValue(undefined),
@@ -15,7 +15,12 @@ function harness() {
   };
   const observer = { observe: jest.fn() };
   return {
-    worker: new NotificationOutboxWorker(consumer as never, outbox as never, observer as never),
+    worker: new NotificationOutboxWorker(
+      { get: jest.fn().mockReturnValue(enabled) } as never,
+      consumer as never,
+      outbox as never,
+      observer as never,
+    ),
     consumer,
     outbox,
     observer,
@@ -23,11 +28,7 @@ function harness() {
 }
 
 describe('NotificationOutboxWorker', () => {
-  const originalEnabled = process.env.NOTIFICATION_OUTBOX_WORKER_ENABLED;
-
   afterEach(() => {
-    if (originalEnabled === undefined) delete process.env.NOTIFICATION_OUTBOX_WORKER_ENABLED;
-    else process.env.NOTIFICATION_OUTBOX_WORKER_ENABLED = originalEnabled;
     jest.useRealTimers();
   });
 
@@ -103,8 +104,7 @@ describe('NotificationOutboxWorker', () => {
 
   it('starts only when enabled and stops scheduling after shutdown', async () => {
     jest.useFakeTimers();
-    process.env.NOTIFICATION_OUTBOX_WORKER_ENABLED = 'true';
-    const { worker, consumer } = harness();
+    const { worker, consumer } = harness(true);
     worker.onModuleInit();
     await jest.advanceTimersByTimeAsync(0);
     expect(consumer.drainOnce).toHaveBeenCalledTimes(1);
@@ -112,6 +112,22 @@ describe('NotificationOutboxWorker', () => {
     await worker.onApplicationShutdown();
     await jest.advanceTimersByTimeAsync(5_000);
     expect(consumer.drainOnce).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed in production when the validated flag is absent', async () => {
+    jest.useFakeTimers();
+    const consumer = { drainOnce: jest.fn() };
+    const worker = new NotificationOutboxWorker(
+      { get: jest.fn().mockReturnValue(undefined) } as never,
+      consumer as never,
+      {} as never,
+      {} as never,
+    );
+
+    worker.onModuleInit();
+    await jest.advanceTimersByTimeAsync(2_000);
+
+    expect(consumer.drainOnce).not.toHaveBeenCalled();
   });
 
   it('waits for an active cycle during graceful shutdown', async () => {

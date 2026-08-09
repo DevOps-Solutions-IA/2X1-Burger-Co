@@ -1,6 +1,6 @@
 services:
   source-db:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
       POSTGRES_DB: ${RECOVERY_SOURCE_DB:?required}
       POSTGRES_USER: ${RECOVERY_DB_USER:?required}
@@ -16,7 +16,7 @@ services:
       retries: 30
 
   restore-db:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
       POSTGRES_DB: ${RECOVERY_RESTORE_DB:?required}
       POSTGRES_USER: ${RECOVERY_DB_USER:?required}

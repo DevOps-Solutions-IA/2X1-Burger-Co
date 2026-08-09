@@ -16,7 +16,7 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
@@ -36,13 +36,13 @@ jobs:
       JWT_REFRESH_SECRET: ci-refresh-secret-only-for-tests-2026-2x1burger-different-strong-value
       ADMIN_PASSWORD: ci-admin-password-not-for-runtime
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.16.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -53,6 +53,8 @@ jobs:
         run: ./infra/release/secret-scan.sh
       - name: Generate Prisma client
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
+      - name: Validate Prisma schema
+        run: pnpm exec prisma validate --schema prisma/schema.prisma
       - name: Deploy migrations to ephemeral database
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
       - name: Phase 6 representative legacy migration 36 to 37
@@ -69,7 +71,18 @@ jobs:
       - run: pnpm --filter @inventory-fastfood/web typecheck
       - run: pnpm --filter @inventory-fastfood/web build
       - name: Config and provenance contracts
-        run: pnpm --dir apps/api exec jest src/config/env.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+        run: |
+          pnpm --dir apps/api exec jest src/config/env.spec.ts src/config/canary-release-config.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+          node --test \
+            infra/release/canary-deploy-config.test.mjs \
+            infra/release/generate-image-sbom.test.mjs \
+            infra/release/migration-attestation.test.mjs \
+            infra/release/normalize-next-build.test.mjs \
+            infra/release/release-safety.test.mjs \
+            infra/release/restore-validation.test.mjs \
+            infra/release/sofia-production-safety.test.mjs \
+            infra/release/web-healthcheck.test.mjs \
+            infra/schema/migration-expectation.test.mjs
       - name: WhatsApp timeout lifecycle
         run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
       - name: Delivery Phase A
@@ -111,6 +124,54 @@ jobs:
             src/modules/sofia/whatsapp/production/whatsapp-production.security.spec.ts \
             --runInBand \
             --detectOpenHandles
+      - name: Phase 7 production-hardening deterministic suites
+        run: |
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/config/env.spec.ts \
+            src/common/security/bounded-json-response.spec.ts \
+            src/common/security/safe-remote-asset-fetcher.spec.ts \
+            src/modules/auth/auth.controller.throttle.spec.ts \
+            src/modules/auth/auth.refresh-concurrency.integration.spec.ts \
+            src/modules/health/health.service.spec.ts \
+            src/modules/health/observability.service.spec.ts \
+            src/modules/health/operational-alert-policy.spec.ts \
+            src/modules/health/operational-backlog.service.spec.ts \
+            src/modules/notifications/notification-intent-consumer.service.spec.ts \
+            src/modules/notifications/notification-outbox.service.spec.ts \
+            src/modules/notifications/notification-outbox.worker.spec.ts \
+            src/modules/notifications/notifications.architecture.spec.ts \
+            src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
+            src/modules/order-checkout/bold-early-webhook.integration.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
+            src/modules/order-checkout/kitchen-eligibility.service.spec.ts \
+            src/modules/order-checkout/payment-orchestration.spec.ts \
+            src/modules/order-checkout/persistence/prisma-order-checkout-provider-binding.spec.ts \
+            src/modules/order-checkout/phase5-runtime-gate.service.spec.ts \
+            src/modules/secure-command/command-policy.separation.spec.ts \
+            src/modules/sofia/ai/deepseek-ai.provider.spec.ts \
+            src/modules/sofia/privacy/sofia-privacy.service.spec.ts \
+            src/modules/sofia/hardening/sofia-hardening.service.spec.ts \
+            src/modules/sofia/sofia-mock-boundary.spec.ts \
+            src/modules/sofia/sofia-abandoned-draft-recovery.spec.ts \
+            src/modules/sofia/sofia-payment-link.service.spec.ts \
+            src/modules/sofia/sofia-production-isolation.spec.ts \
+            src/modules/sofia/whatsapp/hermes-whatsapp.provider.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-distributed-rate-limit.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-outbound.gateway.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/qr-session-ownership.coordinator.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-fencing.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-reconnect.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-send-probe.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/whatsapp-authority.architecture.spec.ts \
+            src/modules/whatsapp/whatsapp-outbound-safety.spec.ts \
+            src/modules/whatsapp/whatsapp-timeout.spec.ts \
+            src/tests/phase7-load-chaos-ai-outage.spec.ts \
+            src/tests/phase7-load-chaos-event-notification-bursts.spec.ts \
+            src/tests/phase7-load-chaos-timeout-unknown-result.spec.ts \
+            src/tests/phase7-observability.contract.spec.ts \
+            --runInBand \
+            --detectOpenHandles
       - name: Phase 6 PostgreSQL persistence concurrency
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
@@ -120,14 +181,18 @@ jobs:
             src/modules/notifications/phase6-notification-pipeline.integration.spec.ts \
             src/modules/sofia/complaint-inbound.integration.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
+            src/tests/phase7-whatsapp-rate-limit-concurrency.integration.spec.ts \
+            src/tests/phase7-runtime-load.integration.spec.ts \
             src/tests/whatsapp-production.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
+      - name: Phase 5 canonical payment regression
+        run: TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest src/tests/phase5-order-payment.integration.spec.ts --runInBand --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM
         run: SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) node infra/release/generate-sbom.mjs --output .release/sbom.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: ci-evidence-${{ github.sha }}
@@ -140,9 +205,9 @@ jobs:
   artifact:
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Reject dirty release source
@@ -150,29 +215,39 @@ jobs:
       - name: Build immutable local artifacts
         env:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-artifacts
-        run: ./infra/release/build-artifacts.sh "${{ github.sha }}"
-      - uses: actions/upload-artifact@v4
+        run: |
+          RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
+          export RELEASE_REPRODUCIBILITY_SECRET
+          FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
+          compression-level: 0
           retention-days: 30
 
   ephemeral-e2e:
-    needs: quality
+    needs: [quality, artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.16.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
       - name: Install Chromium for isolated UI tests
         run: pnpm exec playwright install --with-deps chromium
       - name: Install PDF verification runtime
@@ -183,10 +258,14 @@ jobs:
       - name: Generate Prisma client for isolated core tests
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
       - name: Ephemeral contracts, RBAC, business and UI E2E
-        env:
-          EPHEMERAL_BUILD_IF_MISSING: "true"
-        run: pnpm test:e2e:core
-      - uses: actions/upload-artifact@v4
+        run: |
+          ARTIFACT_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$ARTIFACT_RECORD"
+          bash infra/release/load-artifacts.sh "$ARTIFACT_RECORD"
+          EPHEMERAL_API_IMAGE="$(node -p "require(process.argv[1]).api.tag" "$ARTIFACT_RECORD")" \
+          EPHEMERAL_WEB_IMAGE="$(node -p "require(process.argv[1]).web.tag" "$ARTIFACT_RECORD")" \
+            pnpm test:e2e:core
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: ephemeral-e2e-evidence-${{ github.sha }}
@@ -195,19 +274,67 @@ jobs:
           retention-days: 14
 
   recovery-drill:
-    needs: quality
+    needs: [quality, artifact]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
       - name: Encrypted backup, isolated restore and reconciliation
-        run: bash infra/recovery/run-ephemeral-recovery-drill.sh
-      - uses: actions/upload-artifact@v4
+        run: |
+          ARTIFACT_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$ARTIFACT_RECORD"
+          bash infra/release/load-artifacts.sh "$ARTIFACT_RECORD"
+          RECOVERY_ARTIFACT_RECORD="$ARTIFACT_RECORD" bash infra/recovery/run-ephemeral-recovery-drill.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: recovery-drill-evidence-${{ github.sha }}
           path: .engineering/evidence/phase-2-4/runs
+          if-no-files-found: error
+          retention-days: 14
+
+  canary-rollback:
+    needs: [quality, artifact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
+      - name: Exact candidate canary, rollback and candidate restoration
+        env:
+          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/canary-release-artifacts
+        run: |
+          STATE_DIR="${{ runner.temp }}/phase7-canary-state"
+          cleanup() {
+            if [[ -f "$STATE_DIR/canary.env" ]]; then
+              docker compose --env-file "$STATE_DIR/canary.env" -f infra/release/docker-compose.canary.yml \
+                down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
+          export RELEASE_REPRODUCIBILITY_SECRET
+          BASELINE_RECORD="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302 | tail -n 1)"
+          CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$CANDIDATE_RECORD"
+          bash infra/release/load-artifacts.sh "$CANDIDATE_RECORD"
+          bash infra/release/rollback-drill.sh "$BASELINE_RECORD" "$CANDIDATE_RECORD" "$STATE_DIR"
+          test -f "$STATE_DIR/rollback-drill.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: canary-rollback-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/phase7-canary-state/rollback-drill.json
           if-no-files-found: error
           retention-days: 14

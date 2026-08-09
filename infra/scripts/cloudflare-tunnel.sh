@@ -18,7 +18,7 @@ require_local_stack_ready() {
   ensure_compose_service api
   ensure_compose_service web
 
-  curl -fsS http://127.0.0.1/api/health >/dev/null || fail "Local API health check failed through nginx"
+  curl -fsS http://127.0.0.1/api/health/ready >/dev/null || fail "Local API readiness check failed through nginx"
   curl -fsS http://127.0.0.1/login >/dev/null || fail "Local web login check failed through nginx"
   curl -fsS http://127.0.0.1/waiter/login >/dev/null || fail "Local waiter login check failed through nginx"
 }

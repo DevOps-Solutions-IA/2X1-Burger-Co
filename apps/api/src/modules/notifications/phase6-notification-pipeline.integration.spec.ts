@@ -57,7 +57,7 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     runtimeSafety = app.get(SofiaRuntimeSafetyService);
     deliveryWorkflow = app.get(DeliveryWorkflowService);
     deliveryConsequences = app.get(DeliveryWorkflowConsequenceWorker);
-    commands = new SecureCommandNotificationAdapter({ get: () => secureCommands } as never);
+    commands = app.get(SecureCommandNotificationAdapter);
   });
 
   afterAll(async () => closeTestApp(app));
@@ -236,6 +236,7 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     let failOnce = true;
     const faultingOutbox = {
       claim: outbox.claim.bind(outbox),
+      renewClaim: outbox.renewClaim.bind(outbox),
       markSuppressed: outbox.markSuppressed.bind(outbox),
       markPreDispatchFailure: outbox.markPreDispatchFailure.bind(outbox),
       markCommandPending: async (input: Parameters<NotificationOutboxService['markCommandPending']>[0]) => {

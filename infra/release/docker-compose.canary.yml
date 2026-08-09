@@ -2,7 +2,7 @@ name: inventory-fastfood-canary
 
 services:
   canary-postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${CANARY_POSTGRES_DB:?required}
@@ -28,14 +28,16 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${CANARY_POSTGRES_USER}:${CANARY_POSTGRES_PASSWORD}@canary-postgres:5432/${CANARY_POSTGRES_DB}?schema=public
-      CORS_ORIGIN: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
-      APP_URL: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
-      PUBLIC_PAYMENTS_BASE_URL: http://127.0.0.1:${CANARY_WEB_PORT:-3401}
+      # TLS terminates outside this isolated compose network; public identities
+      # must still satisfy the same production transport policy as a release.
+      CORS_ORIGIN: ${CANARY_PUBLIC_WEB_ORIGIN:?required}
+      APP_URL: ${CANARY_PUBLIC_WEB_ORIGIN:?required}
+      PUBLIC_PAYMENTS_BASE_URL: ${CANARY_PUBLIC_PAYMENTS_BASE_URL:?required}
       JWT_ACCESS_SECRET: ${CANARY_JWT_ACCESS_SECRET:?required}
       JWT_REFRESH_SECRET: ${CANARY_JWT_REFRESH_SECRET:?required}
       ADMIN_EMAIL: ${CANARY_ADMIN_EMAIL:?required}
       ADMIN_PASSWORD: ${CANARY_ADMIN_PASSWORD:?required}
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: "true"
       WHATSAPP_INTERNAL_ENABLED: "false"
       WHATSAPP_MODE: receive_only
       WHATSAPP_PROVIDER: qr_gateway
@@ -87,7 +89,7 @@ services:
       NODE_ENV: production
       PORT: 3001
       RELEASE_ARTIFACT_DIGEST: ${CANARY_WEB_DIGEST:?required}
-      NEXT_PUBLIC_API_URL: http://127.0.0.1:${CANARY_API_PORT:-4400}
+      NEXT_PUBLIC_API_URL: ${CANARY_PUBLIC_API_URL:?required}
       INTERNAL_API_URL: http://api:3000
     ports:
       - "127.0.0.1:${CANARY_WEB_PORT:-3401}:3001"

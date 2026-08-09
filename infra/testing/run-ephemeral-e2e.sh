@@ -205,7 +205,7 @@ wait_url() {
   done
   return 1
 }
-wait_url "http://127.0.0.1:$API_PORT/health"
+wait_url "http://127.0.0.1:$API_PORT/health/ready"
 wait_url "http://127.0.0.1:$WEB_PORT/login"
 READY_SECONDS=$(( $(date +%s) - READY_START ))
 
@@ -224,6 +224,7 @@ export EPHEMERAL_CASHIER_EMAIL="cashier@2x1burgerco.local"
 export EPHEMERAL_CASHIER_PASSWORD="Cashier-E2E-2300!"
 export EPHEMERAL_INVENTORY_EMAIL="inventory@2x1burgerco.local"
 export EPHEMERAL_INVENTORY_PASSWORD="Inventory-E2E-2300!"
+export JWT_ACCESS_SECRET="e2e-access-$RUN_ID-strong-synthetic-value"
 
 TEST_START="$(date +%s)"
 node infra/testing/contract-tests.mjs | tee "$EVIDENCE_DIR/contracts.log"

@@ -35,11 +35,13 @@ describe('Phase 5 checkout policy', () => {
 });
 
 describe('Phase 5 payment lifecycle', () => {
-  it('allows verified progress and fails closed after unknown result', () => {
+  it('allows signed terminal provider truth to resolve an unknown result', () => {
     expect(() => assertPaymentTransition(PaymentIntentStatus.CREATED, PaymentIntentStatus.LINK_READY)).not.toThrow();
     expect(() => assertPaymentTransition(PaymentIntentStatus.LINK_READY, PaymentIntentStatus.PENDING)).not.toThrow();
     expect(() => assertPaymentTransition(PaymentIntentStatus.PENDING, PaymentIntentStatus.SUCCEEDED)).not.toThrow();
     expect(() => assertPaymentTransition(PaymentIntentStatus.PENDING, PaymentIntentStatus.UNKNOWN_RESULT)).not.toThrow();
+    expect(() => assertPaymentTransition(PaymentIntentStatus.UNKNOWN_RESULT, PaymentIntentStatus.SUCCEEDED)).not.toThrow();
+    expect(() => assertPaymentTransition(PaymentIntentStatus.UNKNOWN_RESULT, PaymentIntentStatus.FAILED)).not.toThrow();
     expect(() => assertPaymentTransition(PaymentIntentStatus.UNKNOWN_RESULT, PaymentIntentStatus.PENDING)).toThrow();
     expect(() => assertPaymentTransition(PaymentIntentStatus.SUCCEEDED, PaymentIntentStatus.PENDING)).toThrow();
   });

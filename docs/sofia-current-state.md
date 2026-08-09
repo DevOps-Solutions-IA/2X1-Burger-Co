@@ -1,16 +1,19 @@
 # Sofia - Estado actual
 
-Ultima actualizacion: 2026-08-08.
+Ultima actualizacion: 2026-08-09.
 
 Este archivo es la fuente de verdad vigente para agentes. Los reportes historicos solo son evidencia de capacidad anterior y no certifican el runtime actual.
 
 ## Decision vigente
 
-**Phases 3, 4 y 5 fusionadas. Phase 6 detenida en el gate de autorizacion de migracion 37. Produccion: NOT READY.**
+**Phases 3, 4, 5 y 6 fusionadas. Phase 7 esta implementada en Draft PR #12 y en validacion final. Produccion permanece cerrada.**
 
-El source actual en `main` es `3d70b80dcd2678357906d9856e5bca9fb29834a1` y contiene 36 migraciones. Phase 5 implementa checkout, pago y cocina bajo gates, pero este programa no desplego ni consulto produccion. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
+El source actual en `main` es `064a2706c099c75b6a4cd68eb916b037cd6dc302` y contiene 37 migraciones. El runtime artifact local validado proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD de codigo revisado es `8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75` y su delta posterior al runtime solo fija acciones CI/CD a commits inmutables. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
 
-## Controles efectivos
+## Controles previstos del candidato
+
+Estos controles describen el source candidato. El runtime productivo no fue
+consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 
 | Control | Estado | Fuente |
 | --- | --- | --- |
@@ -31,7 +34,8 @@ El source actual en `main` es `3d70b80dcd2678357906d9856e5bca9fb29834a1` y conti
 | Migracion Phase 3 | 34/34 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
-| Phase 6 | Discovery completo; migration 37 requerida | Owner gate activo; no SQL creado |
+| Migracion Phase 6 | 37/37 validada y fusionada | No aplicada por este programa |
+| Phase 7 | Hardening implementado; Draft PR #12, CI final pendiente | Sin migration 38 |
 
 ## Capacidades implementadas
 
@@ -56,16 +60,16 @@ El source actual en `main` es `3d70b80dcd2678357906d9856e5bca9fb29834a1` y conti
 | Capa | Resultado | Limite |
 | --- | --- | --- |
 | Prisma validate | PASS | Schema candidato local |
-| API/Web typecheck, build y lint | PASS | Source candidato committeado |
-| Tests Phase 3 focalizados | 47/47 PASS | Sin red externa |
-| Tests API no DB | 278/278 PASS | Sin efectos operativos |
-| Integracion Phase 3 PostgreSQL | 3/3 PASS | Base efimera aislada |
-| Suite critica/RBAC/delivery | 157/157 PASS | Base efimera aislada |
-| Playwright estandar/core | 2/2 y 3/3 PASS | Runtimes efimeros desde source |
-| Migraciones efimeras | 34/34 PASS | Produccion permanece 33/33 |
-| Phase 4 local mirror | 35/35 PASS | Remote CI bloqueado por billing; no equivale a CI remoto PASS |
-| Seguridad focalizada | Secret scan PASS; envio real OFF | Sin credenciales reales |
-| Runtime operativo | NO CERTIFICA el candidato | No desplegado por alcance |
+| API/Web typecheck, build y lint | PASS | Runtime source `60af56e` |
+| Phase 6 CI | PASS y fusionada | PR #11 |
+| Phase 6 focalizada | 219/219 PASS | PostgreSQL aislado |
+| Phase 7 focalizada | 253/253 PASS dos veces | Runtime source anterior semanticamente equivalente; CI final pendiente |
+| Concurrency/fault/load | 41/41 PASS | PostgreSQL aislado |
+| Checkout/payment Phase 5 | 15/15 PASS | PostgreSQL aislado |
+| Suite critica/RBAC | 92/92 PASS | PostgreSQL aislado |
+| Migraciones | Fresh 37/37; legacy 36->37 PASS | Produccion no migrada por este programa |
+| Seguridad | Audit y secret scan PASS; critical/high abiertos 0 | Sin credenciales reales |
+| Runtime productivo | NO CERTIFICA el candidato | No desplegado por alcance |
 
 ## Datos reales, sandbox e historico
 
@@ -85,21 +89,25 @@ El source actual en `main` es `3d70b80dcd2678357906d9856e5bca9fb29834a1` y conti
 
 ## Bloqueadores de produccion
 
-1. Revisar y autorizar o rechazar el alcance exacto de migration 37 para Phase 6 y recovery.
-2. Corregir los hallazgos critical/high de resiliencia y seguridad antes de activacion.
-3. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
-4. Cerrar secret store, rotacion, monitoreo y proteccion de sesion Baileys.
-5. Validar cuenta/sesion, QR e inbound fisico sobre el mismo artifact autorizado.
-6. Ejecutar backup/restore, canary receive-only, rollback y observacion antes de activar cualquier envio.
-7. Autorizar separadamente un destinatario de prueba y el handler outbound; actualmente permanece deshabilitado.
+1. Completar PR y CI remoto de Phase 7 sobre el SHA final.
+2. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
+3. Configurar secret store, rotacion y alert routing del entorno objetivo.
+4. Autorizar separadamente backup, restore, migraciones productivas y deployment del SHA exacto.
+5. Validar cuenta/sesion, QR e inbound fisico sobre el artifact autorizado.
+6. Ejecutar canary receive-only, rollback y observacion antes de activar cualquier envio.
+7. Autorizar separadamente Bold real, un destinatario de prueba y auto messaging; permanecen deshabilitados.
 
 ## Owner gates
 
-- QR fisico y allowlist comercial final.
-- Secret rotation/acceptance y secret store.
-- Security/privacy owner y base juridica CRM.
-- Remote, registry, branch protections, approvals y staging.
-- Autorizacion futura separada para envio real; no forma parte del estado actual.
+- Branch protections, revision independiente y CI remoto del HEAD final.
+- Security/privacy owner, base juridica CRM y retencion de PII.
+- Secret rotation/acceptance, secret store y alert routing productivo.
+- Backup cifrado fresco, validacion de restore aislado y autoridad de rollback.
+- Promocion del artifact inmutable al registry y aprobacion de sus digests.
+- Migracion productiva, deployment y smoke/readiness autorizados por separado.
+- Staging, canary receive-only, ventana de observacion y ownership de incidentes.
+- QR fisico, cuenta/sesion real y allowlist comercial final.
+- Credenciales/activacion Bold real y automatic customer messaging autorizados por separado.
 
 ## Regla Maxy Family
 

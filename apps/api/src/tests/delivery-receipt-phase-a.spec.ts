@@ -250,45 +250,22 @@ describe('Delivery receipt versioning (Phase A)', () => {
     expect(JSON.stringify(payload)).not.toContain('3009990001');
   });
 
-  it('initial send is idempotent: a second request is skipped without contacting the socket', async () => {
+  it('keeps the frozen legacy delivery send path retired without operational side effects', async () => {
     const token = await login();
     const { order } = await createDeliveryOrder(token);
+    const admin = await prisma.user.findFirstOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
+    const before = await prisma.orderTicket.findUniqueOrThrow({ where: { id: order.id } });
 
-    const service = whatsappService as unknown as {
-      assertOutboundAllowed: () => Promise<void>;
-      ensureConnectedOrThrow: (message: string) => Promise<void>;
-      socket: { sendMessage: jest.Mock } | null;
-      sendDeliveryOrderSummary: WhatsappService['sendDeliveryOrderSummary'];
-    };
-    const outboundAllowedSpy = jest.spyOn(service, 'assertOutboundAllowed').mockResolvedValue(undefined);
-    const connectedSpy = jest.spyOn(service, 'ensureConnectedOrThrow').mockResolvedValue(undefined);
-    const sendMessage = jest.fn().mockResolvedValue(undefined);
-    const previousSocket = service.socket;
-    service.socket = { sendMessage } as never;
+    await expect(whatsappService.sendDeliveryOrderSummary(order.id, admin.id))
+      .rejects.toThrow('WHATSAPP_LEGACY_TRANSPORT_RETIRED');
+    await expect(whatsappService.sendDeliveryOrderSummary(order.id, admin.id))
+      .rejects.toThrow('WHATSAPP_LEGACY_TRANSPORT_RETIRED');
 
-    try {
-      const admin = await prisma.user.findFirstOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
-      const first = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
-      expect(first.success).toBe(true);
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-
-      const second = await whatsappService.sendDeliveryOrderSummary(order.id, admin.id);
-      expect((second as { alreadySent?: boolean }).alreadySent).toBe(true);
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-
-      const sentAudits = await prisma.auditLog.findMany({
-        where: { entityId: order.id, action: 'DELIVERY_RECEIPT_INITIAL_SENT' },
-      });
-      expect(sentAudits).toHaveLength(1);
-      const payload = sentAudits[0]!.newValues as Record<string, unknown>;
-      expect(payload.phoneMasked).toBe('***0001');
-      expect(JSON.stringify(payload)).not.toContain('573009990001');
-      expect(token).toBeTruthy();
-    } finally {
-      service.socket = previousSocket;
-      outboundAllowedSpy.mockRestore();
-      connectedSpy.mockRestore();
-    }
+    expect(await prisma.auditLog.count({
+      where: { entityId: order.id, action: 'DELIVERY_RECEIPT_INITIAL_SENT' },
+    })).toBe(0);
+    await expect(prisma.orderTicket.findUniqueOrThrow({ where: { id: order.id } }))
+      .resolves.toMatchObject({ revision: before.revision, status: before.status });
   });
 
   it('current receipt endpoint serves the latest version as PDF', async () => {

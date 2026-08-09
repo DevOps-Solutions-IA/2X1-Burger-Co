@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { BoundedJsonResponseError, readBoundedJson } from '../../../common/security/bounded-json-response';
 import {
   ParsedWhatsappInbound,
   WhatsappProviderAdapter,
@@ -11,6 +12,8 @@ import {
 @Injectable()
 export class HermesWhatsappProvider extends WhatsappProviderAdapter {
   readonly provider = 'hermes' as const;
+  private static readonly MAX_PROVIDER_MESSAGE_ID_LENGTH = 256;
+  private static readonly MAX_RESPONSE_BYTES = 1_048_576;
 
   constructor(private readonly configService: ConfigService) {
     super();
@@ -108,13 +111,42 @@ export class HermesWhatsappProvider extends WhatsappProviderAdapter {
         body: JSON.stringify({ to: input.to, text: input.body, mediaUrl: input.mediaUrl ?? undefined }),
         signal: controller.signal,
       });
-      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      let body: Record<string, unknown> = {};
+      try {
+        body = await readBoundedJson<Record<string, unknown>>(
+          response,
+          HermesWhatsappProvider.MAX_RESPONSE_BYTES,
+        );
+      } catch (error) {
+        if (
+          error instanceof BoundedJsonResponseError
+          && error.code === 'PROVIDER_RESPONSE_INVALID_JSON'
+          && !response.ok
+        ) {
+          body = {};
+        } else {
+          throw new Error('HERMES_PROVIDER_RESPONSE_INVALID');
+        }
+      }
       if (!response.ok) {
         return { providerMessageId: null, status: 'FAILED', rawPayload: body, errorMessage: `Hermes HTTP ${response.status}` };
       }
-      return { providerMessageId: body.id ? String(body.id) : null, status: 'SENT', rawPayload: body };
+      const providerMessageId = this.validProviderMessageId(body.id);
+      if (!providerMessageId) {
+        // Hermes may have accepted the request even when its response is incomplete.
+        // Treat that ambiguity as terminal unknown instead of claiming a safe retry.
+        throw new Error('HERMES_PROVIDER_MESSAGE_ID_INVALID');
+      }
+      return { providerMessageId, status: 'SENT', rawPayload: body };
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private validProviderMessageId(value: unknown) {
+    if (typeof value !== 'string') return null;
+    if (!value || value.length > HermesWhatsappProvider.MAX_PROVIDER_MESSAGE_ID_LENGTH) return null;
+    if (value.trim() !== value || !/^[\x21-\x7e]+$/.test(value)) return null;
+    return value;
   }
 }

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: unless-stopped
     # Credenciales de desarrollo solamente. En produccion, usar
     # variables de entorno externas o Docker secrets.
@@ -43,7 +43,7 @@ services:
       # backups montado como solo lectura; el backup script escribe directamente desde el host
       - ./backups:/app/backups:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/ready >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -85,7 +85,7 @@ services:
       - ./infra/nginx/acme:/var/www/certbot:ro
       - ./infra/nginx/certs:/etc/letsencrypt:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/api/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/api/health/ready >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

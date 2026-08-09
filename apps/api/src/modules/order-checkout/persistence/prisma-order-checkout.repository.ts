@@ -330,6 +330,157 @@ export class PrismaOrderCheckoutRepository {
     });
   }
 
+  async beginProviderPayment(input: {
+    paymentIntentId: string;
+    expectedVersion: number;
+    providerReference: string;
+    providerAccountHash: string | null;
+    idempotencyKey: string;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "payment_intents" WHERE id = ${input.paymentIntentId} FOR UPDATE`;
+      const intent = await tx.paymentIntent.findUnique({ where: { id: input.paymentIntentId } });
+      if (!intent) checkoutNotFound();
+
+      const existing = await tx.paymentTransition.findUnique({
+        where: {
+          paymentIntentId_idempotencyKey: {
+            paymentIntentId: intent.id,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+      if (existing) {
+        if (
+          intent.providerReference !== input.providerReference ||
+          intent.providerAccountHash !== input.providerAccountHash
+        ) {
+          checkoutConflict('PAYMENT_INTENT_CONFLICT');
+        }
+        return { paymentIntent: intent, started: false } as const;
+      }
+
+      if (intent.version !== input.expectedVersion) checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      if (intent.providerReference && intent.providerReference !== input.providerReference) {
+        checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      }
+      if (intent.providerAccountHash && intent.providerAccountHash !== input.providerAccountHash) {
+        checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      }
+      const referenceCollision = await tx.paymentIntent.findFirst({
+        where: {
+          provider: intent.provider,
+          providerReference: input.providerReference,
+          id: { not: intent.id },
+        },
+        select: { id: true },
+      });
+      if (referenceCollision) checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      assertPaymentTransition(intent.status, PaymentIntentStatus.PENDING);
+
+      const paymentIntent = await tx.paymentIntent.update({
+        where: { id: intent.id },
+        data: {
+          status: PaymentIntentStatus.PENDING,
+          providerReference: input.providerReference,
+          providerAccountHash: input.providerAccountHash,
+          version: { increment: 1 },
+          transitions: {
+            create: {
+              fromStatus: intent.status,
+              toStatus: PaymentIntentStatus.PENDING,
+              reasonCode: 'PROVIDER_PAYMENT_REQUESTED',
+              idempotencyKey: input.idempotencyKey,
+              sanitizedMetadata: { provider: intent.provider, referenceBoundBeforeRequest: true },
+            },
+          },
+        },
+      });
+      return { paymentIntent, started: true } as const;
+    });
+  }
+
+  async bindProviderPaymentResult(input: {
+    paymentIntentId: string;
+    providerReference: string;
+    providerPaymentId: string;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "payment_intents" WHERE id = ${input.paymentIntentId} FOR UPDATE`;
+      const intent = await tx.paymentIntent.findUnique({ where: { id: input.paymentIntentId } });
+      if (!intent) checkoutNotFound();
+      if (
+        intent.providerReference !== input.providerReference ||
+        (intent.providerPaymentId && intent.providerPaymentId !== input.providerPaymentId)
+      ) {
+        checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      }
+      if (intent.providerPaymentId === input.providerPaymentId) return intent;
+
+      const paymentIdCollision = await tx.paymentIntent.findUnique({
+        where: {
+          provider_providerPaymentId: {
+            provider: intent.provider,
+            providerPaymentId: input.providerPaymentId,
+          },
+        },
+        select: { id: true },
+      });
+      if (paymentIdCollision && paymentIdCollision.id !== intent.id) {
+        checkoutConflict('PAYMENT_INTENT_CONFLICT');
+      }
+      return tx.paymentIntent.update({
+        where: { id: intent.id },
+        data: { providerPaymentId: input.providerPaymentId, version: { increment: 1 } },
+      });
+    });
+  }
+
+  async markProviderPaymentUnknown(input: {
+    paymentIntentId: string;
+    providerReference: string;
+    idempotencyKey: string;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "payment_intents" WHERE id = ${input.paymentIntentId} FOR UPDATE`;
+      const intent = await tx.paymentIntent.findUnique({ where: { id: input.paymentIntentId } });
+      if (!intent) checkoutNotFound();
+      if (intent.providerReference !== input.providerReference) checkoutConflict('PAYMENT_INTENT_CONFLICT');
+
+      const existing = await tx.paymentTransition.findUnique({
+        where: {
+          paymentIntentId_idempotencyKey: {
+            paymentIntentId: intent.id,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+      if (existing || intent.status !== PaymentIntentStatus.PENDING) {
+        return { paymentIntent: intent, marked: false } as const;
+      }
+      assertPaymentTransition(intent.status, PaymentIntentStatus.UNKNOWN_RESULT);
+      const paymentIntent = await tx.paymentIntent.update({
+        where: { id: intent.id },
+        data: {
+          status: PaymentIntentStatus.UNKNOWN_RESULT,
+          completedAt: new Date(),
+          failureCode: 'BOLD_CREATE_UNKNOWN_RESULT',
+          version: { increment: 1 },
+          transitions: {
+            create: {
+              fromStatus: intent.status,
+              toStatus: PaymentIntentStatus.UNKNOWN_RESULT,
+              reasonCode: 'BOLD_CREATE_UNKNOWN_RESULT',
+              idempotencyKey: input.idempotencyKey,
+              sanitizedMetadata: { retryAllowed: false, providerReferencePersisted: true },
+            },
+          },
+        },
+      });
+      return { paymentIntent, marked: true } as const;
+    });
+  }
+
   async transitionPayment(input: TransitionInput) {
     return this.prisma.$transaction(async (tx) => {
       if (input.webhookClaim) {
@@ -872,12 +1023,30 @@ export class PrismaOrderCheckoutRepository {
 
   async findIntentByProvider(input: { provider: PaymentIntentProvider; providerPaymentId?: string | null; providerReference?: string | null }) {
     if (!input.providerPaymentId && !input.providerReference) return null;
+    if (input.providerPaymentId) {
+      const paymentIdMatch = await this.prisma.paymentIntent.findUnique({
+        where: {
+          provider_providerPaymentId: {
+            provider: input.provider,
+            providerPaymentId: input.providerPaymentId,
+          },
+        },
+        include: { checkout: true },
+      });
+      if (paymentIdMatch) {
+        if (
+          input.providerReference &&
+          paymentIdMatch.providerReference &&
+          paymentIdMatch.providerReference !== input.providerReference
+        ) {
+          return null;
+        }
+        return paymentIdMatch;
+      }
+    }
+    if (!input.providerReference) return null;
     const matches = await this.prisma.paymentIntent.findMany({
-      where: {
-        provider: input.provider,
-        ...(input.providerPaymentId ? { providerPaymentId: input.providerPaymentId } : {}),
-        ...(input.providerReference ? { providerReference: input.providerReference } : {}),
-      },
+      where: { provider: input.provider, providerReference: input.providerReference },
       include: { checkout: true },
       take: 2,
     });

@@ -39,13 +39,22 @@ CANARY_ADMIN_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')
 CANARY_API_PORT=4400
 CANARY_WEB_PORT=3401
 CANARY_POSTGRES_PORT=55433
+CANARY_PUBLIC_WEB_ORIGIN=https://canary-web.local.invalid
+CANARY_PUBLIC_PAYMENTS_BASE_URL=https://canary-pay.local.invalid
+CANARY_PUBLIC_API_URL=https://canary-api.local.invalid
 CANARY_SAFETY_ALLOWED_PHONES=573000000000,573000000010,573000000020
 EOF
 fi
 
-if ! grep -q '^CANARY_SAFETY_ALLOWED_PHONES=' "$ENV_FILE"; then
-  printf '%s\n' 'CANARY_SAFETY_ALLOWED_PHONES=573000000000,573000000010,573000000020' >>"$ENV_FILE"
-fi
+ensure_default() {
+  local key="$1" value="$2"
+  grep -q "^${key}=" "$ENV_FILE" || printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"
+}
+
+ensure_default CANARY_SAFETY_ALLOWED_PHONES '573000000000,573000000010,573000000020'
+ensure_default CANARY_PUBLIC_WEB_ORIGIN 'https://canary-web.local.invalid'
+ensure_default CANARY_PUBLIC_PAYMENTS_BASE_URL 'https://canary-pay.local.invalid'
+ensure_default CANARY_PUBLIC_API_URL 'https://canary-api.local.invalid'
 
 sed -i '/^CANARY_API_IMAGE=/d;/^CANARY_WEB_IMAGE=/d;/^CANARY_API_DIGEST=/d;/^CANARY_WEB_DIGEST=/d;/^CANARY_EXPECTED_MIGRATION_COUNT=/d;/^RELEASE_BUILD_ID=/d' "$ENV_FILE"
 cat >>"$ENV_FILE" <<EOF
@@ -56,6 +65,12 @@ CANARY_WEB_DIGEST=$WEB_DIGEST
 RELEASE_BUILD_ID=$BUILD_ID
 EOF
 chmod 600 "$ENV_FILE"
+
+if [[ "${CANARY_CONFIG_ONLY:-false}" == true ]]; then
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet
+  printf '%s\n' "$ENV_FILE"
+  exit 0
+fi
 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-postgres
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \

@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   CircleDollarSign,
+  Eye,
   FileDown,
   History,
-  LoaderCircle,
-  MessageCircle,
-  QrCode,
   ScrollText,
   ShieldAlert,
   Wallet,
@@ -114,16 +111,6 @@ type DiningTable = {
   area: string | null;
   status: 'FREE' | 'OCCUPIED' | 'RESERVED' | 'PAYMENT_PENDING' | 'OUT_OF_SERVICE';
   isActive: boolean;
-};
-
-type WhatsappSessionStatus = {
-  enabled: boolean;
-  connectionState: 'DISABLED' | 'DISCONNECTED' | 'CONNECTING' | 'QR_REQUIRED' | 'CONNECTED' | 'ERROR';
-  qrDataUrl: string | null;
-  businessPhone: string | null;
-  linkedAt: string | null;
-  updatedAt: string;
-  lastError: string | null;
 };
 
 type CloseChecklist = {
@@ -253,7 +240,6 @@ export default function CashPage() {
   const [confirmedCriticalReview, setConfirmedCriticalReview] = useState(false);
   const [closingConfirmationText, setClosingConfirmationText] = useState('');
   const [selectedSale, setSelectedSale] = useState<SaleListItem | null>(null);
-  const [receiptWhatsappPhone, setReceiptWhatsappPhone] = useState('');
   const [convertOrderType, setConvertOrderType] = useState<'COUNTER' | 'DINE_IN' | 'DELIVERY'>('DINE_IN');
   const [convertTableId, setConvertTableId] = useState('');
   const [convertReason, setConvertReason] = useState('');
@@ -289,12 +275,6 @@ export default function CashPage() {
     queryFn: () => apiFetch<DiningTable[]>('/tables'),
   });
   const expectedAmount = Number(cashDailySummary.data?.expectedPhysicalCash ?? dailySummary.data?.cash?.expectedAmount ?? 0);
-  const whatsappSession = useQuery({
-    queryKey: ['whatsapp-session'],
-    queryFn: () => apiFetch<WhatsappSessionStatus>('/whatsapp/session'),
-    enabled: Boolean(selectedSale),
-    refetchInterval: selectedSale ? 2500 : false,
-  });
   const closeChecklist = useQuery({
     queryKey: [
       'cash-close-checklist',
@@ -342,57 +322,10 @@ export default function CashPage() {
     (table) => table.isActive && table.status !== 'OUT_OF_SERVICE' && table.status !== 'OCCUPIED',
   );
   // Solo la sesión de caja bloquea la operación completa.
-  // Resúmenes, bitácoras y WhatsApp degradan localmente para no tumbar la jornada.
+  // Resúmenes y bitácoras degradan localmente para no tumbar la jornada.
   const pageError = currentCash.error;
   const dailySummaryError = dailySummary.error;
   const operationalLogError = operationalLog.error;
-  const whatsappSessionError = selectedSale ? whatsappSession.error : null;
-
-  const whatsappSessionMeta = (() => {
-    const state = whatsappSession.data?.connectionState ?? 'DISCONNECTED';
-
-    if (state === 'CONNECTED') {
-      return {
-        tone: 'success' as const,
-        label: 'Conectado',
-        description: whatsappSession.data?.businessPhone
-          ? `Vinculado con ${whatsappSession.data.businessPhone}.`
-          : 'WhatsApp del negocio listo para enviar comprobantes.',
-      };
-    }
-
-    if (state === 'QR_REQUIRED') {
-      return {
-        tone: 'warning' as const,
-        label: 'Escanea el QR',
-        description: 'Vincula el WhatsApp del negocio una sola vez antes de reenviar comprobantes.',
-      };
-    }
-
-    if (state === 'CONNECTING') {
-      return {
-        tone: 'info' as const,
-        label: 'Conectando',
-        description: 'Estamos preparando la sesión interna de WhatsApp.',
-      };
-    }
-
-    if (state === 'DISABLED') {
-      return {
-        tone: 'info' as const,
-        label: 'Deshabilitado',
-        description: 'El envío interno por WhatsApp está deshabilitado en este entorno.',
-      };
-    }
-
-    return {
-      tone: 'danger' as const,
-      label: 'Sin conexión',
-      description:
-        whatsappSession.data?.lastError ??
-        'WhatsApp del negocio no está vinculado todavía. Actualiza el QR y escanéalo con el teléfono del negocio.',
-    };
-  })();
 
   const openCash = useMutation({
     mutationFn: () =>
@@ -485,45 +418,6 @@ export default function CashPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No pudimos registrar el movimiento.'),
   });
 
-  const refreshWhatsappSession = useMutation({
-    mutationFn: () =>
-      apiFetch<WhatsappSessionStatus>('/whatsapp/session/refresh', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      }),
-    onSuccess: async () => {
-      await whatsappSession.refetch();
-      toast.success('QR de WhatsApp actualizado');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos actualizar la sesión de WhatsApp.'),
-  });
-
-  const sendReceiptByWhatsapp = useMutation({
-    mutationFn: () => {
-      if (!selectedSale) {
-        throw new Error('Selecciona primero una venta.');
-      }
-
-      return apiFetch<{ success: boolean; phone: string; receiptNumber: string; sentAt: string }>(
-        `/whatsapp/sales/${selectedSale.id}/send-receipt`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            phone: receiptWhatsappPhone,
-          }),
-        },
-      );
-    },
-    onSuccess: (response) => {
-      toast.success(`Comprobante ${response.receiptNumber} enviado a ${response.phone}`);
-      setSelectedSale(null);
-      setReceiptWhatsappPhone('');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos enviar el comprobante por WhatsApp.'),
-  });
-
   const convertSaleToOrder = useMutation({
     mutationFn: () => {
       if (!selectedSale) {
@@ -548,7 +442,6 @@ export default function CashPage() {
     onSuccess: async (response) => {
       toast.success(`Pedido recuperado como ${response.orderTicket.number}`);
       setSelectedSale(null);
-      setReceiptWhatsappPhone('');
       setConvertOrderType('DINE_IN');
       setConvertTableId('');
       setConvertReason('');
@@ -584,7 +477,6 @@ export default function CashPage() {
     onSuccess: async (response) => {
       toast.success(`Comanda ${response.orderTicket.number} reabierta correctamente`);
       setSelectedSale(null);
-      setReceiptWhatsappPhone('');
       setConvertReason('');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['sales'] }),
@@ -1118,7 +1010,7 @@ export default function CashPage() {
                   <div>
                     <h2 className="text-lg font-semibold lg:text-[1.12rem]">Ventas de la jornada</h2>
                     <p className="mt-1 text-sm text-stone-500">
-                      Revisa lo vendido, abre el comprobante y reenvíalo por WhatsApp si hizo falta.
+                      Revisa lo vendido, abre el comprobante y consulta su trazabilidad.
                     </p>
                   </div>
                   <Badge tone="default">{sales.data?.length ?? 0} ventas</Badge>
@@ -1179,12 +1071,12 @@ export default function CashPage() {
                             <Button
                               type="button"
                               variant="secondary"
-                              title="Enviar o reenviar por WhatsApp"
-                              aria-label="Enviar o reenviar por WhatsApp"
+                              title="Ver detalle de la venta"
+                              aria-label="Ver detalle de la venta"
                               className="h-9 w-9 min-w-0 rounded-full p-0"
                               onClick={() => setSelectedSale(sale)}
                             >
-                              <MessageCircle className="h-4.5 w-4.5" />
+                              <Eye className="h-4.5 w-4.5" />
                             </Button>
                             <Button
                               type="button"
@@ -1468,90 +1360,22 @@ export default function CashPage() {
                   )}
                 </Card>
 
-                <div data-testid="cash-whatsapp-card">
-                  <StatusBanner
-                    tone={whatsappSessionMeta.tone}
-                    title={whatsappSessionMeta.label}
-                    description={whatsappSessionMeta.description}
-                  />
-                  {whatsappSessionError ? (
-                    <div data-testid="cash-whatsapp-warning" className="mt-3 rounded-[1rem] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] leading-5 text-amber-900">
-                      WhatsApp no respondió en este momento. La caja sigue operable y puedes reintentar el envío después.
-                    </div>
-                  ) : null}
+                <div className="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-3" data-testid="cash-whatsapp-retired">
+                  <p className="text-[12px] font-bold text-amber-900">Envío directo por WhatsApp no disponible</p>
+                  <p className="mt-1 text-[11px] leading-5 text-amber-800">
+                    El transporte legado fue retirado. El comprobante permanece disponible para consulta e impresión.
+                  </p>
                 </div>
-
-                {whatsappSession.data?.qrDataUrl ? (
-                  <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-brand-200 bg-brand-50 text-brand-700">
-                        <QrCode className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-ink">Escanea este QR con el WhatsApp del negocio</p>
-                        <p className="mt-1 text-[13px] leading-6 text-stone-500">
-                          Hazlo una sola vez. Luego podrás reenviar comprobantes desde caja sin salir del sistema.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex justify-center rounded-[1.25rem] border border-stone-200 bg-white p-4">
-                      <Image
-                        src={whatsappSession.data.qrDataUrl}
-                        alt="QR de conexión de WhatsApp"
-                        width={256}
-                        height={256}
-                        unoptimized
-                        className="h-64 w-64 max-w-full rounded-[1rem] object-contain"
-                      />
-                    </div>
-                  </div>
-                ) : null}
-
-                <Field label="Número del cliente" required hint="Ejemplo: 3001234567 o +57 3001234567">
-                  <Input
-                    value={receiptWhatsappPhone}
-                    onChange={(event) => setReceiptWhatsappPhone(event.target.value)}
-                    placeholder="3001234567"
-                  />
-                </Field>
               </div>
 
               <div className="sticky bottom-0 z-10 border-t border-stone-200 bg-white/97 px-4 py-3.5 backdrop-blur sm:px-5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Button type="button" variant="secondary" className="h-11 rounded-2xl" onClick={() => openReceiptPdf(selectedSale.id)}>
                     <FileDown className="mr-1.5 h-4 w-4" />
                     Abrir comprobante
                   </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-11 w-full rounded-2xl"
-                    onClick={() => refreshWhatsappSession.mutate()}
-                    disabled={refreshWhatsappSession.isPending}
-                  >
-                    {refreshWhatsappSession.isPending ? (
-                      <>
-                        <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
-                        Actualizando
-                      </>
-                    ) : (
-                      'Actualizar QR'
-                    )}
-                  </Button>
                   <Button type="button" variant="secondary" className="h-11 w-full rounded-2xl" onClick={() => setSelectedSale(null)}>
                     Cerrar
-                  </Button>
-                  <Button
-                    type="button"
-                    className="h-11 w-full rounded-2xl border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
-                    disabled={
-                      !receiptWhatsappPhone.trim() ||
-                      whatsappSession.data?.connectionState !== 'CONNECTED' ||
-                      sendReceiptByWhatsapp.isPending
-                    }
-                    onClick={() => sendReceiptByWhatsapp.mutate()}
-                  >
-                    {sendReceiptByWhatsapp.isPending ? 'Enviando comprobante...' : 'Enviar comprobante'}
                   </Button>
                 </div>
               </div>

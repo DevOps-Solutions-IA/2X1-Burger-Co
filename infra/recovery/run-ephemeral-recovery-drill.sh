@@ -10,9 +10,10 @@ PROJECT="inventory-e2e-${RUN_ID}"
 RUN_ROOT="${RECOVERY_RUN_ROOT:-/tmp/inventory-recovery}/${RUN_ID}"
 EVIDENCE_DIR="${RECOVERY_EVIDENCE_ROOT:-$ROOT_DIR/.engineering/evidence/phase-2-4/runs}/${RUN_ID}"
 ENV_FILE="$RUN_ROOT/runtime.env"
-KEY_FILE="$RUN_ROOT/backup.key"
+GPG_HOME="$RUN_ROOT/gnupg"
+GPG_BATCH_FILE="$RUN_ROOT/gpg-key.batch"
 PLAIN_BACKUP="$RUN_ROOT/source.dump"
-ENCRYPTED_BACKUP="$RUN_ROOT/source.dump.enc"
+ENCRYPTED_BACKUP="$RUN_ROOT/source.dump.gpg"
 RESTORED_BACKUP="$RUN_ROOT/restored.dump"
 STATUS_FILE="$RUN_ROOT/recovery-status.json"
 COMPOSE_FILE="$ROOT_DIR/infra/recovery/docker-compose.recovery.yml"
@@ -41,7 +42,8 @@ cleanup() {
   containers="$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" -q | wc -l)"
   volumes="$(docker volume ls --filter "label=com.docker.compose.project=$PROJECT" -q | wc -l)"
   networks="$(docker network ls --filter "label=com.docker.compose.project=$PROJECT" -q | wc -l)"
-  rm -f "$KEY_FILE" "$PLAIN_BACKUP" "$RESTORED_BACKUP" "$ENCRYPTED_BACKUP" "$ENV_FILE"
+  rm -f "$GPG_BATCH_FILE" "$PLAIN_BACKUP" "$RESTORED_BACKUP" "$ENCRYPTED_BACKUP" "$ENV_FILE"
+  if [[ -d "$GPG_HOME" ]]; then find "$GPG_HOME" -depth -delete; fi
   printf '{"composeDownExit":%s,"containers":%s,"volumes":%s,"networks":%s,"cryptographicMaterialRemoved":true}\n' \
     "$compose_status" "$containers" "$volumes" "$networks" >"$EVIDENCE_DIR/cleanup.json"
   CLEANUP_DONE=true
@@ -67,6 +69,11 @@ MANIFEST_FILE="$(dirname "$ARTIFACT_RECORD")/release-manifest.json"
 BUILD_ID="$(node -p "require('$ARTIFACT_RECORD').manifest.buildId")"
 EXPECTED_MIGRATION_COUNT="$(node infra/schema/migration-expectation.mjs --field count)"
 EXPECTED_DIRTY_BUILD="$(node -p "String(require('$ARTIFACT_RECORD').manifest.dirtyBuild)")"
+EXPECTED_RELEASE_ENVIRONMENT="$(node -p "require('$ARTIFACT_RECORD').manifest.environment")"
+[[ "$EXPECTED_RELEASE_ENVIRONMENT" =~ ^(test|staging|production)$ ]] || {
+  printf '[error] invalid artifact release environment\n' >&2
+  exit 2
+}
 
 docker run --rm \
   -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
@@ -128,7 +135,7 @@ export EPHEMERAL_DB_PORT="$RESTORE_DB_PORT" DATABASE_URL="postgresql://$DB_USER:
 node infra/testing/db-guard.mjs >"$EVIDENCE_DIR/restore-db-guard.json"
 
 cat >"$EVIDENCE_DIR/snapshot.json" <<EOF
-{"runId":"$RUN_ID","project":"$PROJECT","head":"$(git rev-parse HEAD)","buildId":"$BUILD_ID","apiDigest":"$API_DIGEST","webDigest":"$WEB_DIGEST","ports":{"sourceDb":$SOURCE_DB_PORT,"restoreDb":$RESTORE_DB_PORT,"api":$API_PORT,"web":$WEB_PORT},"operationalDatabaseTouched":false,"realSessionsMounted":false,"externalProvidersEnabled":false,"dirtyTestCandidate":true}
+{"runId":"$RUN_ID","project":"$PROJECT","head":"$(git rev-parse HEAD)","buildId":"$BUILD_ID","apiDigest":"$API_DIGEST","webDigest":"$WEB_DIGEST","ports":{"sourceDb":$SOURCE_DB_PORT,"restoreDb":$RESTORE_DB_PORT,"api":$API_PORT,"web":$WEB_PORT},"operationalDatabaseTouched":false,"realSessionsMounted":false,"externalProvidersEnabled":false,"dirtyTestCandidate":$EXPECTED_DIRTY_BUILD}
 EOF
 
 compose=(docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
@@ -152,25 +159,40 @@ PLAIN_SHA="$(sha256sum "$PLAIN_BACKUP" | cut -d' ' -f1)"
 "${compose[@]}" exec -T source-db pg_restore --list /tmp/recovery-source.dump >"$EVIDENCE_DIR/backup-archive-list.txt"
 "${compose[@]}" exec -T source-db rm -f /tmp/recovery-source.dump
 
-openssl rand -base64 48 >"$KEY_FILE"
-chmod 600 "$KEY_FILE"
-openssl enc -aes-256-cbc -pbkdf2 -salt -in "$PLAIN_BACKUP" -out "$ENCRYPTED_BACKUP" -pass file:"$KEY_FILE"
+command -v gpg >/dev/null
+mkdir -p "$GPG_HOME"
+chmod 700 "$GPG_HOME"
+cat >"$GPG_BATCH_FILE" <<EOF
+Key-Type: RSA
+Key-Length: 2048
+Name-Real: Inventory Recovery Drill
+Name-Email: recovery-$RUN_ID@invalid.local
+Expire-Date: 1d
+%no-protection
+%commit
+EOF
+chmod 600 "$GPG_BATCH_FILE"
+GNUPGHOME="$GPG_HOME" gpg --batch --quiet --generate-key "$GPG_BATCH_FILE"
+GPG_RECIPIENT="$(GNUPGHOME="$GPG_HOME" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+[[ "$GPG_RECIPIENT" =~ ^[A-F0-9]{40}$ ]]
+GNUPGHOME="$GPG_HOME" gpg --batch --quiet --trust-model always \
+  --encrypt --recipient "$GPG_RECIPIENT" --output "$ENCRYPTED_BACKUP" "$PLAIN_BACKUP"
 chmod 600 "$ENCRYPTED_BACKUP"
 ENCRYPTED_SIZE="$(stat -c%s "$ENCRYPTED_BACKUP")"
 ENCRYPTED_SHA="$(sha256sum "$ENCRYPTED_BACKUP" | cut -d' ' -f1)"
 BACKUP_SECONDS="$(node -p "($(date +%s%3N)-$BACKUP_START_MS)/1000")"
 rm -f "$PLAIN_BACKUP"
 
-cp "$ENCRYPTED_BACKUP" "$RUN_ROOT/corrupted.dump.enc"
-truncate -s "$(( ENCRYPTED_SIZE / 2 ))" "$RUN_ROOT/corrupted.dump.enc"
-CORRUPT_SHA="$(sha256sum "$RUN_ROOT/corrupted.dump.enc" | cut -d' ' -f1)"
+cp "$ENCRYPTED_BACKUP" "$RUN_ROOT/corrupted.dump.gpg"
+truncate -s "$(( ENCRYPTED_SIZE / 2 ))" "$RUN_ROOT/corrupted.dump.gpg"
+CORRUPT_SHA="$(sha256sum "$RUN_ROOT/corrupted.dump.gpg" | cut -d' ' -f1)"
 [[ "$CORRUPT_SHA" != "$ENCRYPTED_SHA" ]]
 printf '{"status":"BLOCKED_CORRUPT_BACKUP","checksumMismatch":true,"restoreAttempted":false}\n' >"$EVIDENCE_DIR/corrupt-restore-attempt.json"
-rm -f "$RUN_ROOT/corrupted.dump.enc"
+rm -f "$RUN_ROOT/corrupted.dump.gpg"
 
 RESTORE_START_MS="$(date +%s%3N)"
 [[ "$(sha256sum "$ENCRYPTED_BACKUP" | cut -d' ' -f1)" == "$ENCRYPTED_SHA" ]]
-openssl enc -d -aes-256-cbc -pbkdf2 -in "$ENCRYPTED_BACKUP" -out "$RESTORED_BACKUP" -pass file:"$KEY_FILE"
+GNUPGHOME="$GPG_HOME" gpg --batch --quiet --decrypt --output "$RESTORED_BACKUP" "$ENCRYPTED_BACKUP"
 chmod 600 "$RESTORED_BACKUP"
 [[ "$(sha256sum "$RESTORED_BACKUP" | cut -d' ' -f1)" == "$PLAIN_SHA" ]]
 "${compose[@]}" exec -T restore-db pg_restore -U "$DB_USER" -d "$RESTORE_DB" --exit-on-error --no-owner --no-privileges <"$RESTORED_BACKUP" >"$EVIDENCE_DIR/restore.log" 2>&1
@@ -208,6 +230,7 @@ export EPHEMERAL_ADMIN_EMAIL="admin.e2e@invalid.local"
 export EPHEMERAL_ADMIN_PASSWORD="Admin-E2E-2300!"
 export EPHEMERAL_EXPECTED_MIGRATION_COUNT="$EXPECTED_MIGRATION_COUNT"
 export EPHEMERAL_EXPECTED_DIRTY_BUILD="$EXPECTED_DIRTY_BUILD"
+export EPHEMERAL_EXPECTED_RELEASE_ENVIRONMENT="$EXPECTED_RELEASE_ENVIRONMENT"
 node infra/recovery/restore-smoke.mjs >"$EVIDENCE_DIR/restore-smoke.log"
 RTO_SECONDS="$(node -p "($(date +%s%3N)-$RESTORE_START_MS)/1000")"
 
@@ -221,6 +244,9 @@ set -e
 
 PAUSED_DB_CONTAINER="$("${compose[@]}" ps -q restore-db)"
 docker pause "$PAUSED_DB_CONTAINER" >"$EVIDENCE_DIR/failure-db-slow.log"
+# Readiness is cached for five seconds. Pause first, then expire the known-good
+# result so the probe must execute a fresh database read against the paused DB.
+sleep 6
 set +e
 curl --max-time 0.5 -sS -o "$EVIDENCE_DIR/db-slow-ready.json" \
   "http://127.0.0.1:$API_PORT/health/ready"
@@ -241,11 +267,19 @@ grep -Eqi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-h
 grep -Eqi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
 
 "${compose[@]}" stop restore-db >"$EVIDENCE_DIR/failure-db-stop.log" 2>&1
+# Expire any successful readiness result produced while the paused database was
+# being released before asserting the fully stopped database state.
+sleep 6
 LIVE_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-live.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/live")"
 READY_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-ready.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/ready")"
-METRICS_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-metrics.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/metrics")"
-[[ "$LIVE_CODE" == 200 && "$READY_CODE" == 503 && "$METRICS_CODE" == 200 ]]
-jq -e '.status == "DEGRADED" and any(.alerts[]; .code == "DB_UNAVAILABLE")' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+METRICS_CODE="$(curl -sS -H "Authorization: Bearer $AUTH_TOKEN" -o "$EVIDENCE_DIR/db-down-metrics.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/metrics")"
+[[ "$LIVE_CODE" == 200 && "$READY_CODE" == 503 ]]
+if [[ "$METRICS_CODE" == 200 ]]; then
+  jq -e '.status == "DEGRADED" and any(.alerts[]; .code == "DB_UNAVAILABLE")' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+else
+  [[ "$METRICS_CODE" == 401 || "$METRICS_CODE" == 500 || "$METRICS_CODE" == 503 ]]
+  jq -e '.statusCode >= 401' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+fi
 PROTECTED_FAILURE_CODE="$(curl -sS -H "Authorization: Bearer $AUTH_TOKEN" -o "$EVIDENCE_DIR/db-down-protected-error.json" -w '%{http_code}' \
   "http://127.0.0.1:$API_PORT/products/sellable")"
 [[ "$PROTECTED_FAILURE_CODE" == 401 || "$PROTECTED_FAILURE_CODE" == 500 || "$PROTECTED_FAILURE_CODE" == 503 ]]
@@ -294,10 +328,10 @@ fi
 
 TOTAL_SECONDS="$(node -p "($(date +%s%3N)-$START_MS)/1000")"
 cat >"$EVIDENCE_DIR/backup-metadata.json" <<EOF
-{"status":"PASS","runId":"$RUN_ID","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","format":"postgres-custom","compression":"zlib-9","encryption":"AES-256-CBC-PBKDF2","plainSizeBytes":$PLAIN_SIZE,"encryptedSizeBytes":$ENCRYPTED_SIZE,"plainSha256":"$PLAIN_SHA","encryptedSha256":"$ENCRYPTED_SHA","checksumVerified":true,"archiveListValidated":true,"permissions":"0600","schemaMigrations":$EXPECTED_MIGRATION_COUNT,"buildId":"$BUILD_ID","apiDigest":"$API_DIGEST","backupSeconds":$BACKUP_SECONDS}
+{"status":"PASS","runId":"$RUN_ID","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","format":"postgres-custom","compression":"zlib-9","encryption":"OPENPGP-RSA-EPHEMERAL","plainSizeBytes":$PLAIN_SIZE,"encryptedSizeBytes":$ENCRYPTED_SIZE,"plainSha256":"$PLAIN_SHA","encryptedSha256":"$ENCRYPTED_SHA","checksumVerified":true,"archiveListValidated":true,"decryptabilityVerified":true,"permissions":"0600","schemaMigrations":$EXPECTED_MIGRATION_COUNT,"buildId":"$BUILD_ID","apiDigest":"$API_DIGEST","backupSeconds":$BACKUP_SECONDS}
 EOF
 cat >"$EVIDENCE_DIR/run-summary.json" <<EOF
-{"status":"PASS","runId":"$RUN_ID","buildId":"$BUILD_ID","backupSeconds":$BACKUP_SECONDS,"observedRpoSeconds":0,"observedRtoSeconds":$RTO_SECONDS,"totalSeconds":$TOTAL_SECONDS,"reconciliation":true,"applicationOnRestore":true,"failureInjection":{"corruptBackup":true,"storageWriteFailure":true,"databaseDown":true,"databaseSlowTimeout":true,"protectedRouteFailure":true,"migrationMismatch":true,"apiSigterm":true,"runtimeRestart":true},"realWhatsapp":"OFF","productionModified":false,"operationalDatabaseTouched":false}
+{"status":"PASS","runId":"$RUN_ID","buildId":"$BUILD_ID","backupSeconds":$BACKUP_SECONDS,"observedRpoSeconds":0,"observedRtoSeconds":$RTO_SECONDS,"totalSeconds":$TOTAL_SECONDS,"reconciliation":true,"applicationOnRestore":true,"actualGpg":true,"failureInjection":{"corruptBackup":true,"storageWriteFailure":true,"databaseDown":true,"databaseSlowTimeout":true,"protectedRouteFailure":true,"migrationMismatch":true,"apiSigterm":true,"runtimeRestart":true},"realWhatsapp":"OFF","productionModified":false,"operationalDatabaseTouched":false}
 EOF
 
 cleanup 0

@@ -16,6 +16,10 @@ import { SofiaWhatsappService } from '../../sofia-whatsapp.service';
 import { redactSensitiveText } from '../../privacy/sofia-pii-redaction';
 import { SofiaWhatsappQrGatewayProvider } from './sofia-whatsapp-qr-gateway.provider';
 import {
+  QrSessionLease,
+  QrSessionOwnershipCoordinator,
+} from './qr-session-ownership.coordinator';
+import {
   SofiaWhatsappQrConnectionStatus,
   SofiaWhatsappQrStatusResponse,
 } from './sofia-whatsapp-qr-gateway.types';
@@ -25,6 +29,8 @@ import {
 /* ------------------------------------------------------------------ */
 
 const QR_SESSION_SETTING_KEY = 'SOFIA_WHATSAPP_QR_SESSION_STATE';
+const QR_SESSION_LEASE_MS = 30_000;
+const QR_SESSION_HEARTBEAT_MS = 10_000;
 const QR_RUNTIME_GATE_SETTING_KEYS = {
   globalPaused: 'SOFIA_GLOBAL_PAUSED',
   killSwitch: 'SOFIA_KILL_SWITCH',
@@ -65,6 +71,13 @@ type RealSocketState = {
 @Injectable()
 export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   private readonly logger = new Logger(SofiaWhatsappQrGatewayService.name);
+  private readonly ownership: QrSessionOwnershipCoordinator;
+  private activeLease: QrSessionLease | null = null;
+  private leaseHeartbeat: NodeJS.Timeout | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private intentionalShutdown = false;
+  private fencedEffects = 0;
 
   /* Real Baileys socket state */
   private real: RealSocketState = {
@@ -88,10 +101,16 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly sofiaWhatsappService: SofiaWhatsappService,
     private readonly qrProvider: SofiaWhatsappQrGatewayProvider,
-  ) {}
+  ) {
+    this.ownership = new QrSessionOwnershipCoordinator(this.prisma, QR_SESSION_LEASE_MS);
+  }
 
   async onModuleDestroy() {
+    this.intentionalShutdown = true;
+    this.cancelReconnect();
+    this.stopLeaseHeartbeat();
     await this.teardownRealSocket(false);
+    await this.releaseSessionOwnership();
   }
 
   /* ================================================================ */
@@ -204,6 +223,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   async connect(actorId: string) {
+    this.intentionalShutdown = false;
     const runtimeGate = await this.getQrRuntimeGate();
     if (!runtimeGate.allowed) {
       await this.audit('SOFIA_QR_CONNECT_BLOCKED', actorId, {
@@ -242,6 +262,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     /* Bootstrap the REAL Baileys socket */
     try {
+      this.activeLease = await this.ownership.acquire(sessionName);
+      this.startLeaseHeartbeat();
       await this.bootstrapRealSocket(sessionName);
       await this.waitForRealQrOrConnection(15_000);
     } catch (error) {
@@ -250,6 +272,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       this.real.lastError = message;
       this.real.lastErrorCode = 'REAL_ADAPTER_BOOTSTRAP_FAILED';
       this.logger.error(`Real QR bootstrap failed: ${message}`);
+      await this.teardownRealSocket(false);
+      await this.releaseSessionOwnership();
       await this.saveSessionState(
         {
           status: 'FAILED',
@@ -307,11 +331,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   async disconnect(actorId: string) {
+    this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
 
     /* Tear down real socket */
+    this.cancelReconnect();
     await this.teardownRealSocket(true);
+    await this.releaseSessionOwnership();
 
     await this.saveSessionState(
       {
@@ -329,19 +356,28 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   async logout(actorId: string) {
+    this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
 
-    /* Logout real socket */
-    if (this.real.socket) {
-      try {
-        await this.real.socket.logout();
-      } catch {
-        // ignore transport errors
-      }
+    this.cancelReconnect();
+    if (!this.activeLease) {
+      this.activeLease = await this.ownership.acquire(this.sessionName(state));
     }
-    await this.teardownRealSocket(true);
-    await this.clearAuthDir();
+
+    const socket = this.real.socket;
+    await this.runFencedLeaseEffect(async () => {
+      if (socket) {
+        try {
+          await socket.logout();
+        } catch {
+          // A local cleanup remains necessary after a transport failure.
+        }
+      }
+      await this.teardownRealSocket(true);
+      await this.clearAuthDir();
+    });
+    await this.releaseSessionOwnership();
 
     await this.saveSessionState(
       {
@@ -472,14 +508,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         'phone/text o to/body son requeridos para validar bloqueo de envío QR.',
       );
 
-    const result = await this.qrProvider.sendTextMessage({
-      to,
-      body,
-      idempotencyKey: `qr-test-send:${createHash('sha256').update(`${to}:${body}`).digest('hex')}`,
-    });
-
     await this.audit('SOFIA_QR_REAL_SEND_BLOCKED', 'system', {
-      reason: result.errorMessage ?? 'BLOCKED_REAL_SEND_DISABLED',
+      reason: 'BLOCKED_REAL_SEND_DISABLED',
     });
 
     return {
@@ -487,7 +517,6 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       status: 'BLOCKED_REAL_SEND_DISABLED' as const,
       sent: false,
       realSendingEnabled: false,
-      result,
     };
   }
 
@@ -507,6 +536,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       return;
     }
 
+    await this.assertSessionOwnership();
     this.real.bootstrapPromise = this.createRealSocket(sessionName);
     try {
       await this.real.bootstrapPromise;
@@ -531,6 +561,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   }
 
   private async createRealSocket(_sessionName: string) {
+    await this.assertSessionOwnership();
     const sessionStorage = await this.ensureSessionStorageReady(true);
     if (!sessionStorage.ok) {
       throw new Error(sessionStorage.error ?? 'QR session storage is not writable.');
@@ -558,24 +589,39 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     this.real.socket = socket;
     this.real.connectionStatus = 'WAITING_QR';
+    const fencingToken = this.activeLease!.fencingToken;
 
     /* ---- Event handlers ---- */
-    socket.ev.on('creds.update', saveCreds);
+    socket.ev.on('creds.update', () => {
+      void this.runFencedOwnerEffect(socket, fencingToken, saveCreds).catch((error) => {
+        this.logger.warn(
+          `QR credential write blocked: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+        );
+      });
+    });
 
     socket.ev.on('connection.update', (update) => {
-      void this.onRealConnectionUpdate(update);
+      void this.runIfCurrentOwner(socket, fencingToken, () =>
+        this.onRealConnectionUpdate(update, socket, fencingToken),
+      );
     });
 
     socket.ev.on('messages.upsert', (payload) => {
-      void this.onRealMessagesUpsert(payload);
+      void this.runIfCurrentOwner(socket, fencingToken, () =>
+        this.onRealMessagesUpsert(payload, socket, fencingToken),
+      );
     });
     socket.ev.on('messages.update', (updates) => {
-      void this.onRealMessageUpdates(updates);
+      void this.runIfCurrentOwner(socket, fencingToken, () =>
+        this.onRealMessageUpdates(updates, socket, fencingToken),
+      );
     });
   }
 
   private async onRealConnectionUpdate(
     update: BaileysEventMap['connection.update'],
+    socket: WASocket,
+    fencingToken: number,
   ) {
     this.real.lastConnectionUpdateAt = new Date().toISOString();
 
@@ -609,6 +655,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       this.real.phoneNumber = phoneNumber;
       this.real.lastError = null;
       this.real.lastErrorCode = null;
+      this.reconnectAttempts = 0;
       this.logger.log(
         `WhatsApp QR Gateway CONNECTED${phoneNumber ? ` (${this.maskPhone(phoneNumber)})` : ''}`,
       );
@@ -620,22 +667,31 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       const loggedOut = statusCode !== null && statusCode === this.real.loggedOutCode;
 
       if (loggedOut) {
-        await this.clearAuthDir();
+        await this.runFencedOwnerEffect(socket, fencingToken, () => this.clearAuthDir());
       }
 
       await this.teardownRealSocket(false);
 
-      this.real.connectionStatus = loggedOut ? 'LOGGED_OUT' : 'FAILED';
+      this.real.connectionStatus = loggedOut ? 'LOGGED_OUT' : 'RECONNECTING';
       this.real.qrString = null;
       this.real.qrImageDataUrl = null;
       this.real.lastError = loggedOut
         ? 'La sesión de WhatsApp se cerró. Genera un nuevo QR.'
-        : 'WhatsApp perdió la conexión. Vuelve a preparar el QR.';
+        : 'WhatsApp perdió la conexión. Se aplicará reconexión acotada.';
       this.real.lastErrorCode = loggedOut ? 'LOGGED_OUT' : 'CONNECTION_CLOSED';
+      if (loggedOut || this.intentionalShutdown) {
+        await this.releaseSessionOwnership();
+      } else {
+        await this.scheduleReconnect();
+      }
     }
   }
 
-  private async onRealMessagesUpsert(payload: BaileysEventMap['messages.upsert']) {
+  private async onRealMessagesUpsert(
+    payload: BaileysEventMap['messages.upsert'],
+    socket: WASocket,
+    fencingToken: number,
+  ) {
     if (!payload?.messages?.length) return;
 
     for (const msg of payload.messages) {
@@ -706,14 +762,16 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       };
 
       try {
-        await this.sofiaWhatsappService.processInboundWebhook(
-          'qr_gateway',
-          rawPayload,
-          {
-            'x-sofia-whatsapp-mode': 'receive_only',
-            'x-sofia-whatsapp-provider': 'qr_gateway',
-          },
-          { trustedBaileysTransport: true },
+        await this.runFencedOwnerEffect(socket, fencingToken, () =>
+          this.sofiaWhatsappService.processInboundWebhook(
+            'qr_gateway',
+            rawPayload,
+            {
+              'x-sofia-whatsapp-mode': 'receive_only',
+              'x-sofia-whatsapp-provider': 'qr_gateway',
+            },
+            { trustedBaileysTransport: true },
+          ),
         );
         this.logger.log(`Real inbound processed from ${this.maskPhone(phone)}`);
       } catch (error) {
@@ -724,7 +782,11 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
   }
 
-  private async onRealMessageUpdates(updates: BaileysEventMap['messages.update']) {
+  private async onRealMessageUpdates(
+    updates: BaileysEventMap['messages.update'],
+    socket: WASocket,
+    fencingToken: number,
+  ) {
     for (const item of updates) {
       const messageId = item.key.id;
       const remoteJid = item.key.remoteJid ?? '';
@@ -732,22 +794,24 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       if (!messageId || !remoteJid.endsWith('@s.whatsapp.net') || !status) continue;
       const recipient = remoteJid.replace(/@s\.whatsapp\.net$/, '').replace(/:\d+$/, '');
       try {
-        await this.sofiaWhatsappService.processInboundWebhook(
-          'qr_gateway',
-          {
-            provider: 'qr_gateway',
-            providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
-            businessIdentity: this.real.phoneNumber ?? '',
-            sessionOwner: this.safeSessionName(),
-            providerEventId: `wa-status-${messageId}-${status}`,
-            providerMessageId: messageId,
-            recipient,
-            status,
-            eventType: 'status',
-            receivedAt: new Date().toISOString(),
-          },
-          { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
-          { trustedBaileysTransport: true },
+        await this.runFencedOwnerEffect(socket, fencingToken, () =>
+          this.sofiaWhatsappService.processInboundWebhook(
+            'qr_gateway',
+            {
+              provider: 'qr_gateway',
+              providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
+              businessIdentity: this.real.phoneNumber ?? '',
+              sessionOwner: this.safeSessionName(),
+              providerEventId: `wa-status-${messageId}-${status}`,
+              providerMessageId: messageId,
+              recipient,
+              status,
+              eventType: 'status',
+              receivedAt: new Date().toISOString(),
+            },
+            { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+            { trustedBaileysTransport: true },
+          ),
         );
       } catch (error) {
         this.logger.warn(
@@ -767,6 +831,205 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       5: 'READ',
     };
     return status == null ? null : values[status] ?? null;
+  }
+
+  private async runIfCurrentOwner(
+    socket: WASocket,
+    fencingToken: number,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> {
+    if (
+      this.intentionalShutdown ||
+      this.real.socket !== socket ||
+      this.activeLease?.fencingToken !== fencingToken
+    ) {
+      return;
+    }
+    try {
+      await this.assertSessionOwnership();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'QR_SESSION_FENCE_LOST';
+      this.logger.warn(`QR owner operation blocked: ${this.sanitizeErrorMessage(code)}`);
+      if (this.real.socket === socket) {
+        await this.handleOwnershipLoss();
+      }
+      return;
+    }
+    try {
+      if (
+        this.intentionalShutdown ||
+        this.real.socket !== socket ||
+        this.activeLease?.fencingToken !== fencingToken
+      ) {
+        return;
+      }
+      await operation();
+    } catch (error) {
+      this.logger.warn(
+        `QR owner callback failed: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+  }
+
+  private async runFencedOwnerEffect<T>(
+    socket: WASocket,
+    fencingToken: number,
+    operation: () => Promise<T> | T,
+  ): Promise<T | undefined> {
+    if (
+      this.intentionalShutdown ||
+      this.real.socket !== socket ||
+      this.activeLease?.fencingToken !== fencingToken
+    ) {
+      return undefined;
+    }
+
+    return this.runFencedLeaseEffect(() => {
+      if (
+        this.intentionalShutdown ||
+        this.real.socket !== socket ||
+        this.activeLease?.fencingToken !== fencingToken
+      ) {
+        return undefined;
+      }
+      return operation();
+    });
+  }
+
+  private async runFencedLeaseEffect<T>(
+    operation: () => Promise<T> | T,
+  ): Promise<T> {
+    if (!this.activeLease) {
+      throw new Error('QR_SESSION_OWNER_REQUIRED');
+    }
+    const lease = this.activeLease;
+    this.fencedEffects += 1;
+    try {
+      const fenced = await this.ownership.runFenced(lease, operation);
+      if (this.activeLease?.fencingToken === lease.fencingToken) {
+        this.activeLease = fenced.lease;
+      }
+      return fenced.result;
+    } catch (error) {
+      try {
+        await this.ownership.assertCurrent(lease);
+      } catch {
+        await this.handleOwnershipLoss();
+      }
+      throw error;
+    } finally {
+      this.fencedEffects = Math.max(0, this.fencedEffects - 1);
+    }
+  }
+
+  private async assertSessionOwnership(): Promise<void> {
+    if (!this.activeLease) {
+      throw new Error('QR_SESSION_OWNER_REQUIRED');
+    }
+    await this.ownership.assertCurrent(this.activeLease);
+  }
+
+  private startLeaseHeartbeat(): void {
+    this.stopLeaseHeartbeat();
+    this.leaseHeartbeat = setInterval(() => {
+      void this.renewSessionOwnership();
+    }, QR_SESSION_HEARTBEAT_MS);
+    this.leaseHeartbeat.unref();
+  }
+
+  private stopLeaseHeartbeat(): void {
+    if (this.leaseHeartbeat) {
+      clearInterval(this.leaseHeartbeat);
+      this.leaseHeartbeat = null;
+    }
+  }
+
+  private async renewSessionOwnership(): Promise<void> {
+    if (!this.activeLease || this.fencedEffects > 0) return;
+    try {
+      this.activeLease = await this.ownership.renew(this.activeLease);
+    } catch {
+      await this.handleOwnershipLoss();
+    }
+  }
+
+  private async handleOwnershipLoss(): Promise<void> {
+    this.stopLeaseHeartbeat();
+    this.cancelReconnect();
+    this.activeLease = null;
+    this.real.connectionStatus = 'FAILED';
+    this.real.lastError = 'La propiedad exclusiva de la sesión WhatsApp se perdió.';
+    this.real.lastErrorCode = 'QR_SESSION_FENCE_LOST';
+    await this.teardownRealSocket(false);
+  }
+
+  private async releaseSessionOwnership(): Promise<void> {
+    this.stopLeaseHeartbeat();
+    const lease = this.activeLease;
+    this.activeLease = null;
+    if (!lease) return;
+    try {
+      await this.ownership.release(lease);
+    } catch (error) {
+      this.logger.warn(
+        `QR owner release failed: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+  }
+
+  private async scheduleReconnect(): Promise<void> {
+    this.cancelReconnect();
+    const enabled = this.configService.get<boolean>('WHATSAPP_QR_RECONNECT_ENABLED') === true;
+    const configuredMax = this.configService.get<number>('WHATSAPP_QR_MAX_RECONNECT_ATTEMPTS') ?? 5;
+    const maxAttempts = Math.max(1, Math.min(10, configuredMax));
+    if (!enabled || this.reconnectAttempts >= maxAttempts) {
+      this.real.connectionStatus = 'FAILED';
+      this.real.lastErrorCode = enabled ? 'RECONNECT_ATTEMPTS_EXHAUSTED' : 'RECONNECT_DISABLED';
+      await this.releaseSessionOwnership();
+      return;
+    }
+
+    this.reconnectAttempts += 1;
+    const delayMs = Math.min(30_000, 1_000 * 2 ** (this.reconnectAttempts - 1));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.performReconnect();
+    }, delayMs);
+    this.reconnectTimer.unref();
+  }
+
+  private async performReconnect(): Promise<void> {
+    try {
+      const gate = await this.getQrRuntimeGate();
+      if (!gate.allowed) {
+        this.real.connectionStatus = 'FAILED';
+        this.real.lastErrorCode = gate.reason;
+        await this.releaseSessionOwnership();
+        return;
+      }
+      await this.renewSessionOwnership();
+      await this.assertSessionOwnership();
+      await this.bootstrapRealSocket(this.safeSessionName());
+    } catch (error) {
+      if (!this.activeLease) {
+        this.real.connectionStatus = 'FAILED';
+        this.real.lastErrorCode = 'QR_SESSION_FENCE_LOST';
+        return;
+      }
+      this.real.connectionStatus = 'RECONNECTING';
+      this.real.lastError = 'La reconexión acotada de WhatsApp falló.';
+      this.real.lastErrorCode = this.sanitizeErrorMessage(
+        error instanceof Error ? error.message : 'RECONNECT_FAILED',
+      );
+      await this.scheduleReconnect();
+    }
+  }
+
+  private cancelReconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private async teardownRealSocket(resetPhone: boolean) {
@@ -853,7 +1116,11 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         providerMessageId: parsed.providerMessageId,
         phone: parsed.phone,
         eventHash,
-        rawPayload: parsed.rawPayload as Prisma.InputJsonValue,
+        rawPayload: {
+          redacted: true,
+          source: 'qr_gateway',
+          fromMe: true,
+        },
         processingStatus: 'FROM_ME_IGNORED',
         processedAt: new Date(),
       },

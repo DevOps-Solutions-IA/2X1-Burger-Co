@@ -3,10 +3,9 @@ import { CashRegisterController } from './cash-register.controller';
 import { CashReconciliationService } from './cash-reconciliation.service';
 import { CashRegisterService } from './cash-register.service';
 import { ReportsModule } from '../reports/reports.module';
-import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
-  imports: [ReportsModule, WhatsappModule],
+  imports: [ReportsModule],
   controllers: [CashRegisterController],
   providers: [CashRegisterService, CashReconciliationService],
   exports: [CashRegisterService, CashReconciliationService],

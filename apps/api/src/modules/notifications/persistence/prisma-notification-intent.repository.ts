@@ -16,6 +16,7 @@ import {
   type NotificationReconciliationCandidate,
   NotificationIntentRepository,
   type ReconcileNotificationIntentInput,
+  type RenewNotificationIntentClaimInput,
   type SettleNotificationMaintenanceInput,
   type NotificationIntentVersionInput,
 } from './notification-intent.repository';
@@ -264,6 +265,20 @@ export class PrismaNotificationIntentRepository extends NotificationIntentReposi
     if (intent.status === NotificationIntentStatus.EXPIRED) return { state: 'EXPIRED', intent };
     if (intent.status === NotificationIntentStatus.CLAIMED) return { state: 'ACTIVE', intent };
     return { state: 'NOT_CLAIMABLE', intent };
+  }
+
+  async renewClaim(input: RenewNotificationIntentClaimInput): Promise<boolean> {
+    const renewed = await this.prisma.notificationIntent.updateMany({
+      where: {
+        id: input.notificationIntentId,
+        version: input.expectedVersion,
+        status: NotificationIntentStatus.CLAIMED,
+        claimOwnerHash: input.claimOwnerHash,
+        leaseExpiresAt: { gt: input.now },
+      },
+      data: { leaseExpiresAt: input.leaseExpiresAt },
+    });
+    return renewed.count === 1;
   }
 
   async markCommandPending(input: MarkNotificationCommandPendingInput) {

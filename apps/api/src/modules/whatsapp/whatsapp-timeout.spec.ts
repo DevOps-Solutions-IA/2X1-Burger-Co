@@ -1,43 +1,29 @@
-import { ConflictException } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { WhatsappService } from './whatsapp.service';
 
-type TimeoutInvoker = {
-  withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T>;
-};
+describe('legacy WhatsApp transport retirement', () => {
+  it('contains no Baileys socket, send, reconnect, or timeout authority', () => {
+    const source = readFileSync(path.join(__dirname, 'whatsapp.service.ts'), 'utf8');
 
-const invokeWithTimeout = <T>(operation: Promise<T>, timeoutMs: number) =>
-  (WhatsappService.prototype as unknown as TimeoutInvoker).withTimeout.call({}, operation, timeoutMs);
-
-describe('WhatsappService timeout lifecycle', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
+    expect(source).not.toMatch(/@whiskeysockets\/baileys|makeWASocket|sendMessage\s*\(/);
+    expect(source).not.toMatch(/Promise\.race|setTimeout|bootstrapSocket|ensureSocket/);
   });
 
-  afterEach(() => {
-    jest.clearAllTimers();
-    jest.useRealTimers();
-    jest.restoreAllMocks();
-  });
+  it('exposes only a safe read-only status and retires every mutation', async () => {
+    const service = new WhatsappService();
 
-  it('cancels the losing timeout after a successful operation', async () => {
-    await expect(invokeWithTimeout(Promise.resolve('sent'), 45_000)).resolves.toBe('sent');
-    expect(jest.getTimerCount()).toBe(0);
-  });
-
-  it('rejects with the controlled timeout and leaves no timer handle', async () => {
-    const pending = invokeWithTimeout(new Promise<never>(() => undefined), 500);
-    const rejection = expect(pending).rejects.toBeInstanceOf(ConflictException);
-
-    await jest.advanceTimersByTimeAsync(500);
-
-    await rejection;
-    expect(jest.getTimerCount()).toBe(0);
-  });
-
-  it('preserves operation errors and cancels the timeout', async () => {
-    const error = new Error('transport failed');
-
-    await expect(invokeWithTimeout(Promise.reject(error), 45_000)).rejects.toBe(error);
-    expect(jest.getTimerCount()).toBe(0);
+    expect(service.getSessionStatus()).toEqual(
+      expect.objectContaining({
+        enabled: false,
+        connectionState: 'DISABLED',
+        authority: 'SOFIA_QR_GATEWAY',
+        readOnly: true,
+      }),
+    );
+    await expect(service.refreshSession()).rejects.toThrow('WHATSAPP_LEGACY_TRANSPORT_RETIRED');
+    await expect(service.sendClosingSummary('snapshot', 'actor')).rejects.toThrow(
+      'WHATSAPP_LEGACY_TRANSPORT_RETIRED',
+    );
   });
 });

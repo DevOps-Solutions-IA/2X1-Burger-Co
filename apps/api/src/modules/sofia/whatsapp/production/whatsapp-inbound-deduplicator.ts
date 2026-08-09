@@ -58,6 +58,10 @@ export class WhatsappInboundDeduplicator {
     );
   }
 
+  consumeRateLimit(input: Parameters<WhatsappProductionRepository['consumeInboundRateLimit']>[0]) {
+    return this.repository.consumeInboundRateLimit(input);
+  }
+
   complete(claim: WhatsappInboundClaimContext, processingStatus: string, result: unknown, errorCode?: string | null) {
     return this.repository.completeInbound(
       claim.inboundEventId,

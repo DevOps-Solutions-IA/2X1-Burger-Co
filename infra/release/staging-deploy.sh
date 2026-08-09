@@ -14,8 +14,13 @@ WEB_DIGEST="${WEB_IMAGE##*@}"
 
 cd "$STAGING_PATH"
 test -x ./infra/scripts/backup.sh
+test -x ./infra/scripts/restore.sh
 test -x ./infra/scripts/smoke.sh
-./infra/scripts/backup.sh
+BACKUP_OUTPUT="$(./infra/scripts/backup.sh)"
+printf '%s\n' "$BACKUP_OUTPUT"
+BACKUP_FILE="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^\[info\] Backup stored at //p' | tail -n 1)"
+[[ -n "$BACKUP_FILE" && "$BACKUP_FILE" == *.dump.gpg && -f "$BACKUP_FILE" ]]
+./infra/scripts/restore.sh "$BACKUP_FILE" --validate-only
 
 STATE_DIR="${STAGING_RELEASE_STATE_DIR:-$STAGING_PATH/.release-state}"
 mkdir -p "$STATE_DIR"

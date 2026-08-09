@@ -125,6 +125,16 @@ export class NotificationOutboxService {
     });
   }
 
+  renewClaim(notificationIntentId: string, expectedVersion: number, workerIdentity: string, now = new Date()) {
+    return this.repository.renewClaim({
+      notificationIntentId,
+      expectedVersion,
+      claimOwnerHash: this.workerHash(workerIdentity),
+      leaseExpiresAt: new Date(now.getTime() + NotificationOutboxService.OPTIONS.leaseMs),
+      now,
+    });
+  }
+
   markCommandPending(input: Readonly<{
     notificationIntentId: string;
     expectedVersion: number;

@@ -55,7 +55,7 @@ describe('CanonicalPaymentWebhookService', () => {
       verifyWebhookSignature: jest.fn().mockReturnValue(input.signature ?? true),
     };
     const gate = { assertEnabled: jest.fn().mockResolvedValue(undefined) };
-    const kitchen = { evaluateAndMark: jest.fn().mockResolvedValue(undefined) };
+    const kitchen = { continueAfterVerifiedPayment: jest.fn().mockResolvedValue({ state: 'APPLIED' }) };
     return { service: new CanonicalPaymentWebhookService(repository as never, bold as never, gate as never, kitchen as never), repository, kitchen };
   }
 
@@ -64,7 +64,27 @@ describe('CanonicalPaymentWebhookService', () => {
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'PROCESSED', paymentStatus: 'SUCCEEDED' });
     expect(repository.transitionPayment).toHaveBeenCalledWith(expect.objectContaining({ toStatus: PaymentIntentStatus.SUCCEEDED, reasonCode: 'BOLD_PAYMENT_VERIFIED' }));
     expect(repository.markCheckoutPaymentVerified).toHaveBeenCalledWith('checkout-1');
-    expect(kitchen.evaluateAndMark).toHaveBeenCalledWith('checkout-1', null);
+    expect(kitchen.continueAfterVerifiedPayment).toHaveBeenCalledWith('checkout-1', null);
+  });
+
+  it('completes financial truth without retrying when kitchen is independently disabled', async () => {
+    const { service, repository, kitchen } = harness();
+    kitchen.continueAfterVerifiedPayment.mockResolvedValue({
+      state: 'DEFERRED_DISABLED',
+      reasonCode: 'KITCHEN_GATE_DISABLED',
+      blockers: ['CAPABILITY_DISABLED'],
+    });
+
+    await expect(service.processBold({
+      rawPayload: {},
+      rawBody,
+      headers: { 'x-bold-merchant-id': 'merchant-1' },
+    })).resolves.toMatchObject({ processedStatus: 'PROCESSED', paymentStatus: 'SUCCEEDED' });
+
+    expect(repository.transitionPayment).toHaveBeenCalledTimes(1);
+    expect(repository.markCheckoutPaymentVerified).toHaveBeenCalledWith('checkout-1');
+    expect(repository.completeWebhookClaim).toHaveBeenCalledTimes(1);
+    expect(repository.failWebhookClaim).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -123,14 +143,14 @@ describe('CanonicalPaymentWebhookService', () => {
     }));
     expect(repository.failWebhookClaim).not.toHaveBeenCalled();
     expect(repository.transitionPayment).not.toHaveBeenCalled();
-    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+    expect(kitchen.continueAfterVerifiedPayment).not.toHaveBeenCalled();
   });
 
   it('records provider failure without enabling kitchen', async () => {
     const { service, repository, kitchen } = harness({ parsed: parsed({ status: 'FAILED' }) });
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ paymentStatus: 'FAILED' });
     expect(repository.transitionPayment).toHaveBeenCalledWith(expect.objectContaining({ toStatus: PaymentIntentStatus.FAILED }));
-    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+    expect(kitchen.continueAfterVerifiedPayment).not.toHaveBeenCalled();
   });
 
   it('requires financial review when success arrives after checkout cancellation', async () => {
@@ -150,6 +170,6 @@ describe('CanonicalPaymentWebhookService', () => {
       toStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
       reasonCode: 'PAYMENT_AFTER_CHECKOUT_TERMINAL',
     }));
-    expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
+    expect(kitchen.continueAfterVerifiedPayment).not.toHaveBeenCalled();
   });
 });

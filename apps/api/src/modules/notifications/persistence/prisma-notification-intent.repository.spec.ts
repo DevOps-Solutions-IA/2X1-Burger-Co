@@ -139,6 +139,32 @@ describe('PrismaNotificationIntentRepository', () => {
     });
   });
 
+  it('renews only a live claim owned by the expected fenced worker', async () => {
+    const { repository, notificationIntent } = harness();
+    notificationIntent.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    const input = {
+      notificationIntentId: 'notification-1',
+      expectedVersion: 1,
+      claimOwnerHash: 'c'.repeat(64),
+      leaseExpiresAt: new Date('2026-08-08T12:01:00.000Z'),
+      now,
+    };
+
+    await expect(repository.renewClaim(input)).resolves.toBe(true);
+    await expect(repository.renewClaim(input)).resolves.toBe(false);
+
+    expect(notificationIntent.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'notification-1',
+        version: 1,
+        status: NotificationIntentStatus.CLAIMED,
+        claimOwnerHash: 'c'.repeat(64),
+        leaseExpiresAt: { gt: now },
+      },
+      data: { leaseExpiresAt: new Date('2026-08-08T12:01:00.000Z') },
+    });
+  });
+
   it('reclaims only a pre-dispatch CLAIMED lease', async () => {
     const { repository, notificationIntent } = harness();
     notificationIntent.findMany.mockResolvedValue([]);

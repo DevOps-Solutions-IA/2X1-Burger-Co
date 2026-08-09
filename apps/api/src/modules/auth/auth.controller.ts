@@ -15,10 +15,15 @@ import { WaiterLoginDto } from './dto/waiter-login.dto';
 
 const REFRESH_COOKIE = process.env.REFRESH_TOKEN_COOKIE_NAME || 'refresh_token';
 
-const isAutomatedTestEnvironment =
-  process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID) || Boolean(process.env.TEST_DATABASE_URL);
-const loginThrottleLimit = isAutomatedTestEnvironment ? 500 : 5;
-const accessCodeThrottleLimit = isAutomatedTestEnvironment ? 500 : 10;
+export function resolveAuthThrottleLimits(nodeEnv: string | undefined) {
+  const isTestEnvironment = nodeEnv === 'test';
+  return {
+    login: isTestEnvironment ? 500 : 5,
+    accessCode: isTestEnvironment ? 500 : 10,
+  } as const;
+}
+
+const authThrottleLimits = resolveAuthThrottleLimits(process.env.NODE_ENV);
 
 @Controller('auth')
 export class AuthController {
@@ -33,7 +38,7 @@ export class AuthController {
     default: {
       ttl: 60_000,
       // In test we relax only the login window to avoid false negatives from repeated E2E authentication.
-      limit: loginThrottleLimit,
+      limit: authThrottleLimits.login,
     },
   })
   @Post('login')
@@ -55,7 +60,7 @@ export class AuthController {
   @Throttle({
     default: {
       ttl: 60_000,
-      limit: accessCodeThrottleLimit,
+      limit: authThrottleLimits.accessCode,
     },
   })
   @Post('waiter-login')
@@ -77,7 +82,7 @@ export class AuthController {
   @Throttle({
     default: {
       ttl: 60_000,
-      limit: accessCodeThrottleLimit,
+      limit: authThrottleLimits.accessCode,
     },
   })
   @Post('delivery-login')
@@ -99,7 +104,7 @@ export class AuthController {
   @Throttle({
     default: {
       ttl: 60_000,
-      limit: accessCodeThrottleLimit,
+      limit: authThrottleLimits.accessCode,
     },
   })
   @Post('rider-login')

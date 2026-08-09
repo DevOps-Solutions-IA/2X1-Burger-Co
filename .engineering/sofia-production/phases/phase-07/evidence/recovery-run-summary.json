@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "runId": "run-20260809132631-4cecf476",
+  "sourceSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+  "buildId": "0.1.0-60af56e0eb96-1786280275",
+  "actualGpg": true,
+  "encryptedBackupSha256": "87912ca9da409f6d869e30eed4e7342daa854fe0ec6bf486fa784d769bf6af52",
+  "checksumVerified": true,
+  "decryptabilityVerified": true,
+  "isolatedRestore": true,
+  "reconciliation": true,
+  "migrationCount": 37,
+  "rpoSeconds": 0,
+  "rtoSeconds": 13.335,
+  "failureInjection": {
+    "corruptBackupBlocked": true,
+    "storageWriteFailure": true,
+    "databaseSlowTimeout": true,
+    "databaseDown": true,
+    "migrationMismatch": true,
+    "runtimeRestart": true,
+    "apiSigterm": true
+  },
+  "cleanup": {
+    "composeDownExit": 0,
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0,
+    "cryptographicMaterialRemoved": true
+  },
+  "productionModified": false,
+  "realWhatsapp": false,
+  "artifactBinding": {
+    "artifactSourceSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+    "artifactBuildId": "0.1.0-60af56e0eb96-1786280275",
+    "apiImageId": "sha256:375b4f58d7a9025d04e9b8a8ad1467cecb4fdd7028b534c8876fd70b287e6692"
+  },
+  "completedAt": "2026-08-09T13:28:06Z"
+}

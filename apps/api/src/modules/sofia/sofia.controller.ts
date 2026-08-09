@@ -23,7 +23,6 @@ import {
   TestSofiaAiProviderDto,
   UpdateSofiaGovernanceSettingsDto,
   UpdateSofiaOrderDraftDto,
-  UpdateSofiaPaymentSettingsDto,
   UpdateWhatsappDeliveryOrderStatusDto,
 } from './dto/sofia.dto';
 import { SofiaGovernanceService } from './governance/sofia-governance.service';
@@ -39,7 +38,6 @@ import { SofiaRetentionService } from './retention/sofia-retention.service';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 import { SofiaAgentService } from './sofia-agent.service';
-import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaService } from './sofia.service';
 import { SofiaWhatsappService } from './sofia-whatsapp.service';
 
@@ -50,7 +48,6 @@ import { SofiaWhatsappService } from './sofia-whatsapp.service';
 export class SofiaController {
   constructor(
     private readonly sofiaService: SofiaService,
-    private readonly paymentLinkService: SofiaPaymentLinkService,
     private readonly sofiaAgentService: SofiaAgentService,
     private readonly sofiaWhatsappService: SofiaWhatsappService,
     private readonly aiProviderFactory: SofiaAIProviderFactory,
@@ -225,17 +222,6 @@ export class SofiaController {
     return this.sofiaWhatsappService.getStatus();
   }
 
-  @Get('payment-settings')
-  getPaymentSettings() {
-    return this.paymentLinkService.getPaymentSettings();
-  }
-
-  @Patch('payment-settings')
-  @Roles('admin')
-  updatePaymentSettings(@Body() dto: UpdateSofiaPaymentSettingsDto, @CurrentUser() actor: AuthUser) {
-    return this.paymentLinkService.updatePaymentSettings(dto, actor.sub);
-  }
-
   @Post('agent/process')
   @UseGuards(SofiaTestOnlyGuard)
   processAgentMessage(
@@ -247,6 +233,7 @@ export class SofiaController {
   }
 
   @Post('agent/recover-abandoned')
+  @UseGuards(SofiaTestOnlyGuard)
   recoverAbandonedDraft(@Body() dto: RecoverSofiaAbandonedDraftDto) {
     return this.sofiaAgentService.recoverAbandonedDraft(dto);
   }

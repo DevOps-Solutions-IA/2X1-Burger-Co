@@ -39,9 +39,25 @@ export type WhatsappInboundClaimInput = {
   normalizedPayloadHash: string;
 };
 
+export type WhatsappInboundRateLimitInput = Readonly<{
+  accountId: string;
+  sender: string | null;
+  accountLimit: number;
+  senderLimit: number;
+  windowStartedAt: Date;
+}>;
+
+export type WhatsappInboundRateLimitResult = Readonly<{
+  allowed: boolean;
+  accountCount: number;
+  senderCount: number | null;
+  reasonCode: 'WHATSAPP_RATE_LIMIT_ALLOWED' | 'WHATSAPP_ACCOUNT_RATE_LIMITED' | 'WHATSAPP_SENDER_RATE_LIMITED';
+}>;
+
 export interface WhatsappProductionRepository {
   resolveAccount(observation: ProviderAccountObservation): Promise<{ id: string; status: string }>;
   claimInbound(input: WhatsappInboundClaimInput): Promise<ClaimedInbound>;
+  consumeInboundRateLimit(input: WhatsappInboundRateLimitInput): Promise<WhatsappInboundRateLimitResult>;
   renewInboundLease(id: string, claimToken: string): Promise<Date>;
   checkpointInbound(id: string, checkpoint: unknown, claimToken: string): Promise<void>;
   completeInbound(

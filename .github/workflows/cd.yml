@@ -27,7 +27,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Validate immutable inputs
         env:
           API_IMAGE: ${{ inputs.api_image }}
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Configure SSH
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { readBoundedJson } from '../../../common/security/bounded-json-response';
 import {
   CreatePaymentInput,
   CreatePaymentResult,
@@ -12,6 +13,7 @@ import {
 @Injectable()
 export class BoldPaymentProvider implements PaymentProviderAdapter {
   readonly provider = 'BOLD' as const;
+  private static readonly MAX_RESPONSE_BYTES = 1_048_576;
 
   private isConfigured() {
     return Boolean(process.env.BOLD_API_KEY && process.env.BOLD_WEBHOOK_SECRET);
@@ -52,10 +54,10 @@ export class BoldPaymentProvider implements PaymentProviderAdapter {
           payment_methods: ['CREDIT_CARD', 'PSE', 'BOTON_BANCOLOMBIA', 'NEQUI'],
         }),
       });
-      const payload = (await response.json().catch(() => null)) as {
+      const payload = await readBoundedJson<{
         payload?: { payment_link?: string; url?: string };
         errors?: unknown[];
-      } | null;
+      }>(response, BoldPaymentProvider.MAX_RESPONSE_BYTES);
       const paymentLink = payload?.payload?.payment_link;
       const checkoutUrl = payload?.payload?.url;
       if (!response.ok || !paymentLink || !checkoutUrl) {
@@ -89,7 +91,10 @@ export class BoldPaymentProvider implements PaymentProviderAdapter {
         headers: { Authorization: `x-api-key ${process.env.BOLD_API_KEY}` },
       });
       if (!response.ok) throw new BadRequestException(`No se pudo consultar Bold (${response.status}).`);
-      const payload = (await response.json()) as { status?: string };
+      const payload = await readBoundedJson<{ status?: string }>(
+        response,
+        BoldPaymentProvider.MAX_RESPONSE_BYTES,
+      );
       const status = String(payload.status ?? '').toUpperCase();
       if (status === 'PAID') return 'APPROVED';
       if (['REJECTED', 'CANCELLED', 'EXPIRED'].includes(status)) return 'FAILED';

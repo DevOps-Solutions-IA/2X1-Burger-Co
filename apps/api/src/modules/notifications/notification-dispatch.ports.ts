@@ -1,5 +1,4 @@
 import { HttpException, Injectable } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import type { CustomerConsentPurpose, NotificationIntent } from '@prisma/client';
 import { SecureCommandService } from '../secure-command/secure-command.service';
 import { WhatsappMessagePolicyService } from '../sofia/whatsapp/production/whatsapp-message-policy.service';
@@ -40,7 +39,7 @@ export abstract class NotificationSecureCommandPort {
 
 @Injectable()
 export class WhatsappNotificationDispatchPolicyAdapter extends NotificationDispatchPolicyPort {
-  constructor(private readonly modules: ModuleRef) {
+  constructor(private readonly policy: WhatsappMessagePolicyService) {
     super();
   }
 
@@ -52,9 +51,8 @@ export class WhatsappNotificationDispatchPolicyAdapter extends NotificationDispa
       return this.blocked('NOTIFICATION_CONVERSATION_REQUIRED');
     }
 
-    const policy = this.modules.get(WhatsappMessagePolicyService, { strict: false });
     try {
-      const decision = await policy.outbound(
+      const decision = await this.policy.outbound(
         intent.conversationId,
         intent.customerId,
         intent.purpose === 'MARKETING' ? 'MARKETING' : 'SERVICE',
@@ -82,13 +80,12 @@ export class WhatsappNotificationDispatchPolicyAdapter extends NotificationDispa
 
 @Injectable()
 export class SecureCommandNotificationAdapter extends NotificationSecureCommandPort {
-  constructor(private readonly modules: ModuleRef) {
+  constructor(private readonly commands: SecureCommandService) {
     super();
   }
 
   async receive(input: ReceiveNotificationCommandInput) {
-    const commands = this.modules.get(SecureCommandService, { strict: false });
-    const view = await commands.receive({
+    const view = await this.commands.receive({
       commandType: 'SOFIA_SEND_WHATSAPP',
       idempotencyKey: `notification:${input.notificationIntentId}`,
       target: {

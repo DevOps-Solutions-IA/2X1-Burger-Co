@@ -1,0 +1,24 @@
+{
+  "sourceSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+  "buildId": "0.1.0-60af56e0eb96-1786280275",
+  "migrationCount": 37,
+  "provenance": "retained-local-image-runtime-equivalence",
+  "registryPushAuthorized": false,
+  "api": {
+    "imageId": "sha256:375b4f58d7a9025d04e9b8a8ad1467cecb4fdd7028b534c8876fd70b287e6692",
+    "contentDigest": "sha256:d406cf946e7f18fa852d3f5f666003d61f9337b7d2db62bc9fa719969ea204f3",
+    "configDigest": "sha256:bef2264f01057987554bba328c7c7b4fd76707aead9f05347edf68f328d0929b",
+    "runtimeRootfsDigest": "sha256:f7dd0b12ebb342b1c9860b153fee5a2f725294323e84a94e6522eb92f56f21a3",
+    "sbomDigest": "sha256:26f1511505a24a0597e42336f59788d24730dfcf072b57b182a0f89e3feb5aba",
+    "archiveDigest": "sha256:79b27e3b418b0fc8862ece99afeaaa44ce939d4c9aed2be4e6e306c3a5b6a6ac"
+  },
+  "web": {
+    "imageId": "sha256:91a881f280dd99b9d5e51f3f9a2b5210bfa94419deaee112153cd3687a73effa",
+    "contentDigest": "sha256:21ac9e4869896096500bb6492f8e56b8b62b2e3450962b0c6d913906930f5fa6",
+    "configDigest": "sha256:5d49a9834117bb4a9aa9d19ec87d450cef862af9ce3f9d8cb78ecd31846f6016",
+    "runtimeRootfsDigest": "sha256:9af09d9c812f1deaecfc02d581ebe8f21a5d24b36d4b0ea907e1a419f6e6e381",
+    "sbomDigest": "sha256:8a8adac108cd954bae04c57689d9315740071172ab77bad5572979766ec99b0e",
+    "archiveDigest": "sha256:5c741bd0bde39f5f5b2a613e8f5f6fc3edb9223363a4970efe7d25d6016d4696"
+  },
+  "recordedAt": "2026-08-09T13:12:00Z"
+}

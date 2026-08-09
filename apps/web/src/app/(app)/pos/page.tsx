@@ -25,7 +25,6 @@ import { PosOrderReadinessBanner } from '@/features/pos/PosOrderReadinessBanner'
 import { PosPageHeader } from '@/features/pos/PosPageHeader';
 import { PosPaymentPanel } from '@/features/pos/PosPaymentPanel';
 import { PosProductBrowser } from '@/features/pos/PosProductBrowser';
-import { PosWhatsappReceiptModal } from '@/features/pos/PosWhatsappReceiptModal';
 import { usePosCheckoutOrchestrator } from '@/features/pos/hooks/usePosCheckoutOrchestrator';
 import {
   buildPriceInput,
@@ -46,7 +45,6 @@ import type {
   DeliveryLocationSearchResponse,
   DeliveryPricingEstimate,
   DeliveryResolvedLocation,
-  DeliverySummaryResponse,
   DiningTable,
   OrderStatus,
   OrderType,
@@ -54,8 +52,6 @@ import type {
   PaymentRow,
   Product,
   SettingRecord,
-  WhatsappReceiptResponse,
-  WhatsappSessionStatus,
 } from '@/features/pos/pos.types';
 
 type CustomerSearchResult = {
@@ -131,8 +127,6 @@ export default function PosPage() {
   const customerLookup = { data: (customerSearch.data ?? [])[0] ?? null, isFetched: customerSearch.isFetched };
   const [orderNotes, setOrderNotes] = useState('');
   const [lastReceipt, setLastReceipt] = useState<ThermalReceiptData | null>(null);
-  const [isWhatsappModalOpen, setIsWhatsappModalOpen] = useState(false);
-  const [receiptWhatsappPhone, setReceiptWhatsappPhone] = useState('');
   const [manualSaleTotal, setManualSaleTotal] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryPricingEstimate, setDeliveryPricingEstimate] = useState<DeliveryPricingEstimate | null>(null);
@@ -180,12 +174,6 @@ export default function PosPage() {
   const settings = useQuery({
     queryKey: ['settings'],
     queryFn: () => apiFetch<SettingRecord[]>('/settings'),
-  });
-  const whatsappSession = useQuery({
-    queryKey: ['whatsapp-session'],
-    queryFn: () => apiFetch<WhatsappSessionStatus>('/whatsapp/session'),
-    enabled: isWhatsappModalOpen,
-    refetchInterval: isWhatsappModalOpen ? 2500 : false,
   });
   const deliveryLocationSearch = useQuery({
     queryKey: ['delivery-location-search', deliverySearchQuery],
@@ -263,14 +251,6 @@ export default function PosPage() {
   }, [settings.data]);
 
   useEffect(() => {
-    if (isWhatsappModalOpen) {
-      return;
-    }
-
-    setReceiptWhatsappPhone('');
-  }, [isWhatsappModalOpen]);
-
-  useEffect(() => {
     if (orderType !== 'DELIVERY') {
       setDeliverySearchQuery('');
       return;
@@ -345,52 +325,6 @@ export default function PosPage() {
         }),
     [products.data, categoryFilter, search, bestSellerScores],
   );
-
-  const whatsappSessionMeta = useMemo(() => {
-    const state = whatsappSession.data?.connectionState ?? 'DISCONNECTED';
-
-    if (state === 'CONNECTED') {
-      return {
-        tone: 'success' as const,
-        label: 'Conectado',
-        description: whatsappSession.data?.businessPhone
-          ? `Vinculado con ${whatsappSession.data.businessPhone}.`
-          : 'WhatsApp del negocio listo para enviar comprobantes.',
-      };
-    }
-
-    if (state === 'QR_REQUIRED') {
-      return {
-        tone: 'warning' as const,
-        label: 'Escanea el QR',
-        description: 'Vincula el WhatsApp del negocio una sola vez antes de enviar comprobantes.',
-      };
-    }
-
-    if (state === 'CONNECTING') {
-      return {
-        tone: 'info' as const,
-        label: 'Conectando',
-        description: 'Estamos preparando la sesión interna de WhatsApp.',
-      };
-    }
-
-    if (state === 'DISABLED') {
-      return {
-        tone: 'info' as const,
-        label: 'Deshabilitado',
-        description: 'El envío interno por WhatsApp está deshabilitado en este entorno.',
-      };
-    }
-
-    return {
-      tone: 'danger' as const,
-      label: 'Sin conexión',
-      description:
-        whatsappSession.data?.lastError ??
-        'WhatsApp del negocio no está vinculado todavía. Actualiza el QR y escanéalo con el teléfono del negocio.',
-    };
-  }, [whatsappSession.data]);
 
   const productSaleSubtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const deliveryFeeValue =
@@ -1002,71 +936,6 @@ export default function PosPage() {
     total: Number(sale.total),
   });
 
-  const refreshWhatsappSession = useMutation({
-    mutationFn: () =>
-      apiFetch<WhatsappSessionStatus>('/whatsapp/session/refresh', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      }),
-    onSuccess: async () => {
-      await whatsappSession.refetch();
-      toast.success('QR de WhatsApp actualizado');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos actualizar la sesión de WhatsApp.'),
-  });
-
-  const disconnectWhatsappSession = useMutation({
-    mutationFn: () =>
-      apiFetch<WhatsappSessionStatus>('/whatsapp/session/disconnect', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      }),
-    onSuccess: async () => {
-      await whatsappSession.refetch();
-      toast.success('Sesión de WhatsApp desconectada');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos desconectar WhatsApp.'),
-  });
-
-  const sendReceiptByWhatsapp = useMutation({
-    mutationFn: ({
-      saleId,
-      phone,
-      closeModal = false,
-    }: {
-      saleId: string;
-      phone: string;
-      closeModal?: boolean;
-    }) =>
-      apiFetch<WhatsappReceiptResponse>(`/whatsapp/sales/${saleId}/send-receipt`, {
-        method: 'POST',
-        body: JSON.stringify({
-          phone,
-        }),
-      }).then((response) => ({
-        ...response,
-        closeModal,
-      })),
-    onSuccess: (response: WhatsappReceiptResponse & { closeModal?: boolean }) => {
-      toast.success(`Comprobante ${response.receiptNumber} enviado a ${response.phone}`);
-      if (response.closeModal) {
-        setIsWhatsappModalOpen(false);
-        setReceiptWhatsappPhone('');
-      }
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos enviar el comprobante por WhatsApp.'),
-  });
-
-  const sendDeliverySummaryByWhatsapp = useMutation({
-    mutationFn: (orderId: string) =>
-      apiFetch<DeliverySummaryResponse>(`/whatsapp/orders/${orderId}/send-delivery-summary`, {
-        method: 'POST',
-      }),
-  });
-
   const { mutate: estimateDeliveryPricingMutate } = useMutation({
     mutationFn: (payload: {
       requestKey: string;
@@ -1214,7 +1083,6 @@ export default function PosPage() {
         throw new Error('Calcula un domicilio válido antes de guardar.');
       }
 
-      const isCreating = !activeOrderId;
       const orderPayload = {
         type: orderType,
         tableId: orderType === 'DINE_IN' ? selectedTableId : undefined,
@@ -1269,40 +1137,20 @@ export default function PosPage() {
             items: orderPayload.items,
           }),
         });
-        return {
-          order,
-          shouldAutoSendDeliverySummary: false,
-        };
+        return order;
       }
 
       const order = await apiFetch<ActiveOrder>('/orders', {
         method: 'POST',
         body: JSON.stringify(orderPayload),
       });
-      return {
-        order,
-        shouldAutoSendDeliverySummary:
-          isCreating && orderPayload.type === 'DELIVERY' && Boolean(orderPayload.customerPhone),
-      };
+      return order;
     },
-    onSuccess: async (result: { order: ActiveOrder; shouldAutoSendDeliverySummary: boolean }) => {
+    onSuccess: async () => {
       toast.success(activeOrderId ? 'Pedido guardado' : 'Pedido abierto — listo para el siguiente');
       // Limpiar workspace para agilidad: nuevo pedido sin clicks extra
       resetWorkspace();
       clearWorkspaceContext();
-
-      if (result.shouldAutoSendDeliverySummary && result.order?.id) {
-        try {
-          const response = await sendDeliverySummaryByWhatsapp.mutateAsync(result.order.id);
-          toast.success(`Cuenta ${response.orderNumber} enviada a ${response.phone}`);
-        } catch (error) {
-          toast.warning(
-            error instanceof Error
-              ? `La comanda quedó abierta, pero no pudimos enviar la cuenta: ${error.message}`
-              : 'La comanda quedó abierta, pero no pudimos enviar la cuenta por WhatsApp.',
-          );
-        }
-      }
       await invalidateOperationalQueries();
     },
     onError: (error) =>
@@ -1343,7 +1191,6 @@ export default function PosPage() {
     orderNotes,
     payments,
     paymentMethodMap,
-    sendReceiptByWhatsapp,
     createReceiptData,
     onReceiptReady: setLastReceipt,
     resetWorkspace,
@@ -1434,7 +1281,6 @@ export default function PosPage() {
                 toast.error(error instanceof Error ? error.message : 'No fue posible abrir la impresión del ticket.');
               }
             }}
-            onOpenWhatsapp={() => setIsWhatsappModalOpen(true)}
             onClose={() => setLastReceipt(null)}
           />
 
@@ -1559,23 +1405,6 @@ export default function PosPage() {
           />
         </Card>
       </div>
-
-      {isWhatsappModalOpen && lastReceipt ? (
-        <PosWhatsappReceiptModal
-          lastReceipt={lastReceipt}
-          receiptWhatsappPhone={receiptWhatsappPhone}
-          whatsappSession={whatsappSession.data}
-          whatsappSessionMeta={whatsappSessionMeta}
-          refreshPending={refreshWhatsappSession.isPending}
-          disconnectPending={disconnectWhatsappSession.isPending}
-          sendPending={sendReceiptByWhatsapp.isPending}
-          onReceiptWhatsappPhoneChange={setReceiptWhatsappPhone}
-          onRefreshWhatsappSession={() => refreshWhatsappSession.mutate()}
-          onDisconnectWhatsappSession={() => disconnectWhatsappSession.mutate()}
-          onSendReceipt={(payload) => sendReceiptByWhatsapp.mutate(payload)}
-          onClose={() => setIsWhatsappModalOpen(false)}
-        />
-      ) : null}
 
     </div>
   );

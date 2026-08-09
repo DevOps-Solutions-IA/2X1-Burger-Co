@@ -296,7 +296,7 @@ describe('Phase 5 canonical checkout integration', () => {
     jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
       provider: 'BOLD',
       providerPaymentId: 'provider-payment-verified',
-      providerReference: `checkout_${created.id}`,
+      providerReference: `checkout_${prepared.paymentIntent.id}`,
       checkoutUrl: 'https://checkout.bold.co/test-only',
       status: 'PENDING',
       rawPayload: { sanitized: true },
@@ -308,8 +308,8 @@ describe('Phase 5 canonical checkout integration', () => {
       data: {
         status: 'APPROVED',
         payment_id: 'provider-payment-verified',
-        reference: `checkout_${created.id}`,
-        metadata: { reference: `checkout_${created.id}` },
+        reference: `checkout_${prepared.paymentIntent.id}`,
+        metadata: { reference: `checkout_${prepared.paymentIntent.id}` },
         amount: { total: created.total, currency: 'COP' },
       },
     };
@@ -332,7 +332,7 @@ describe('Phase 5 canonical checkout integration', () => {
     jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
       provider: 'BOLD',
       providerPaymentId: 'provider-payment-sale-binding',
-      providerReference: `checkout_${created.id}`,
+      providerReference: `checkout_${prepared.paymentIntent.id}`,
       checkoutUrl: 'https://checkout.bold.co/test-only',
       status: 'PENDING',
       rawPayload: { sanitized: true },
@@ -344,8 +344,8 @@ describe('Phase 5 canonical checkout integration', () => {
       data: {
         status: 'APPROVED',
         payment_id: 'provider-payment-sale-binding',
-        reference: `checkout_${created.id}`,
-        metadata: { reference: `checkout_${created.id}` },
+        reference: `checkout_${prepared.paymentIntent.id}`,
+        metadata: { reference: `checkout_${prepared.paymentIntent.id}` },
         amount: { total: created.total, currency: 'COP' },
       },
     };

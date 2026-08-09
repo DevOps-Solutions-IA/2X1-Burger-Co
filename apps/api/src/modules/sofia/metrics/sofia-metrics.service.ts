@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OperationalAlertSeverity, OperationalAlertStatus, WhatsappConversationStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SofiaGovernanceService } from '../governance/sofia-governance.service';
+import { SofiaHardeningService } from '../hardening/sofia-hardening.service';
 import { SofiaPrivacyService } from '../privacy/sofia-privacy.service';
 import { SofiaMetricsRange, SofiaMetricsResponse } from './sofia-metrics.types';
 
@@ -11,6 +12,7 @@ export class SofiaMetricsService {
     private readonly prisma: PrismaService,
     private readonly governanceService: SofiaGovernanceService,
     private readonly privacyService: SofiaPrivacyService,
+    private readonly hardeningService: SofiaHardeningService,
   ) {}
 
   async getSummary(range: SofiaMetricsRange = 'today'): Promise<SofiaMetricsResponse> {
@@ -49,6 +51,7 @@ export class SofiaMetricsService {
     const reasonCodes = this.flattenReasonCodes(autoSafeEvents.map((event) => event.reasonCodesJson));
     const ruleBuckets = this.bucket(ruleEvents.map((event) => event.ruleCode));
     const paidClaimsBlocked = reasonCodes.find((item) => item.key === 'PAID_CLAIM_BLOCKED')?.count ?? 0;
+    const hardening = this.hardeningService.status();
 
     return this.privacyService.sanitizeJson({
       generatedAt: new Date().toISOString(),
@@ -89,12 +92,12 @@ export class SofiaMetricsService {
         qrReceiveOnlyStatus: governance.whatsapp.qrReceiveOnlyReady ? 'PASS' : 'WARNING',
       },
       system: {
-        health: 'ok',
+        health: criticalAlerts > 0 ? 'CRITICAL_ALERTS_OPEN' : 'AGGREGATE_METRICS_ONLY',
         lastBackupAt:
           backupSetting?.value && typeof backupSetting.value === 'object' && !Array.isArray(backupSetting.value)
             ? String((backupSetting.value as { generatedAt?: unknown }).generatedAt ?? '')
             : null,
-        logSanitizationStatus: 'PASS',
+        logSanitizationStatus: hardening.logSanitizationStatus,
         retentionStatus: 'DRY_RUN_READY',
         alertsOpen: openAlerts,
         alertsCritical: criticalAlerts,

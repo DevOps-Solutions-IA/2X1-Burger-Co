@@ -15,21 +15,39 @@ DB_NAME="phase6_legacy_${RUN_SUFFIX//[^a-zA-Z0-9_]/_}_test"
 DB_NAME="${DB_NAME:0:63}"
 ADMIN_URL="$(node -e "const u=new URL(process.argv[1]);u.searchParams.delete('schema');process.stdout.write(u.toString())" "$DATABASE_URL")"
 TARGET_URL="$(node -e "const u=new URL(process.argv[1]);u.searchParams.delete('schema');u.pathname='/' + process.argv[2];process.stdout.write(u.toString())" "$DATABASE_URL" "$DB_NAME")"
+LEGACY_SCHEMA_DIR="$(mktemp -d /tmp/inventory-prisma-frontier.XXXXXX)"
 
 cleanup() {
   dropdb --if-exists --maintenance-db="$ADMIN_URL" "$DB_NAME" >/dev/null 2>&1 || true
+  rm -rf "$LEGACY_SCHEMA_DIR"
 }
 trap cleanup EXIT INT TERM
 
 cleanup
+LEGACY_SCHEMA_DIR="$(mktemp -d /tmp/inventory-prisma-frontier.XXXXXX)"
 createdb --maintenance-db="$ADMIN_URL" "$DB_NAME"
 
-for migration in prisma/migrations/*/migration.sql; do
-  if [[ "$migration" == *"/20260809030000_sofia_live_operations_recovery_core/"* ]]; then
-    break
-  fi
-  psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 -f "$migration"
-done
+deploy_frontier() {
+  local frontier="$1"
+  local schema_root="$LEGACY_SCHEMA_DIR/frontier-$frontier"
+  mkdir -p "$schema_root/migrations"
+  cp prisma/schema.prisma "$schema_root/schema.prisma"
+  cp prisma/migrations/migration_lock.toml "$schema_root/migrations/migration_lock.toml"
+  find prisma/migrations -mindepth 1 -maxdepth 1 -type d | sort | head -n "$frontier" | while IFS= read -r migration; do
+    cp -a "$migration" "$schema_root/migrations/"
+  done
+  DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema "$schema_root/schema.prisma" >/dev/null
+  local applied
+  applied="$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"
+  [[ "$applied" == "$frontier" ]] || {
+    printf '[error] expected Prisma frontier %s, found %s\n' "$frontier" "$applied" >&2
+    exit 3
+  }
+}
+
+# Rehearse the actual production frontier with rows that really predate the
+# Sofia commercial and payment schemas.
+deploy_frontier 33
 
 psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO users (id, email, "passwordHash", "fullName", "updatedAt")
@@ -46,6 +64,58 @@ INSERT INTO order_tickets (
   'legacy-user-1', 30000, CURRENT_TIMESTAMP, 'ASSIGNED'
 );
 
+INSERT INTO delivery_issues (
+  id, order_ticket_id, issue_type, status, summary, reported_by_id, "updatedAt"
+) VALUES (
+  'legacy-delivery-issue-1', 'legacy-ticket-1', 'ROUTE_INCIDENT', 'OPEN',
+  'Legacy route issue', 'legacy-user-1', CURRENT_TIMESTAMP
+);
+
+INSERT INTO sales (
+  id, number, status, subtotal, total, "createdById", "cashSessionId",
+  "orderTicketId", channel, "updatedAt"
+) VALUES (
+  'legacy-sale-1', 'LEGACY-SALE-001', 'PAID', 30000, 30000,
+  'legacy-user-1', 'legacy-cash-1', 'legacy-ticket-1', 'DOMICILIO', CURRENT_TIMESTAMP
+);
+
+INSERT INTO payment_methods (id, name, code, "updatedAt")
+VALUES ('legacy-payment-method-1', 'Legacy online', 'LEGACY_ONLINE', CURRENT_TIMESTAMP);
+
+INSERT INTO whatsapp_conversations (
+  id, phone, status, source, provider, mode, sofia_enabled, human_status,
+  unread_count, created_at, updated_at
+) VALUES (
+  'legacy-conversation-1', '0000000000', 'ACTIVE', 'WHATSAPP', 'mock', 'disabled',
+  FALSE, 'SOFIA_PAUSED', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+
+INSERT INTO whatsapp_messages (
+  id, conversation_id, direction, type, provider, body, status, created_at
+) VALUES (
+  'legacy-message-row-1', 'legacy-conversation-1', 'INBOUND', 'TEXT', 'mock',
+  'legacy sanitized message', 'RECEIVED', CURRENT_TIMESTAMP
+);
+
+INSERT INTO delivery_location_inbox (
+  id, latitude, longitude, match_status, received_at, "createdAt", "updatedAt"
+) VALUES (
+  'legacy-location-1', 4.6000000, -74.0800000, 'PENDING',
+  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+
+INSERT INTO sofia_order_drafts (
+  id, status, items_snapshot, subtotal, delivery_fee, total, updated_at
+) VALUES (
+  'legacy-draft-1', 'DRAFT', '[]'::jsonb, 0, 0, 0, CURRENT_TIMESTAMP
+);
+SQL
+
+# Cross Phase 4 and Phase 5 before creating records that depend on those
+# schemas. The original frontier-33 rows remain in place throughout.
+deploy_frontier 36
+
+psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO order_checkouts (
   id, source, source_reference, idempotency_key, items_snapshot,
   subtotal, delivery_fee, total, fulfillment, payment_preference,
@@ -93,24 +163,6 @@ INSERT INTO payment_transitions (
   'legacy-transition-idempotency-1', '{"legacy":true}'::jsonb
 );
 
-INSERT INTO delivery_issues (
-  id, order_ticket_id, issue_type, status, summary, reported_by_id, "updatedAt"
-) VALUES (
-  'legacy-delivery-issue-1', 'legacy-ticket-1', 'ROUTE_INCIDENT', 'OPEN',
-  'Legacy route issue', 'legacy-user-1', CURRENT_TIMESTAMP
-);
-
-INSERT INTO sales (
-  id, number, status, subtotal, total, "createdById", "cashSessionId",
-  "orderTicketId", channel, "updatedAt"
-) VALUES (
-  'legacy-sale-1', 'LEGACY-SALE-001', 'PAID', 30000, 30000,
-  'legacy-user-1', 'legacy-cash-1', 'legacy-ticket-1', 'DOMICILIO', CURRENT_TIMESTAMP
-);
-
-INSERT INTO payment_methods (id, name, code, "updatedAt")
-VALUES ('legacy-payment-method-1', 'Legacy online', 'LEGACY_ONLINE', CURRENT_TIMESTAMP);
-
 INSERT INTO sale_payments (
   id, "saleId", "paymentMethodId", amount, payment_intent_id
 ) VALUES (
@@ -124,32 +176,10 @@ INSERT INTO whatsapp_inbound_events (
   'legacy-inbound-1', 'qr_gateway', 'legacy-provider-event-1', 'legacy-message-1',
   '0000000000', 'legacy-event-hash', '{"redacted":true}'::jsonb, 'RECEIVED', 'legacy-normalized-hash'
 );
-
-INSERT INTO whatsapp_conversations (
-  id, phone, status, source, provider, mode, sofia_enabled, human_status,
-  unread_count, handoff_version, created_at, updated_at
-) VALUES (
-  'legacy-conversation-1', '0000000000', 'ACTIVE', 'WHATSAPP', 'mock', 'disabled',
-  FALSE, 'SOFIA_PAUSED', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-);
-
-INSERT INTO whatsapp_messages (
-  id, conversation_id, direction, type, provider, body, status, created_at
-) VALUES (
-  'legacy-message-row-1', 'legacy-conversation-1', 'INBOUND', 'TEXT', 'mock',
-  'legacy sanitized message', 'RECEIVED', CURRENT_TIMESTAMP
-);
-
-INSERT INTO delivery_location_inbox (
-  id, latitude, longitude, match_status, received_at, "createdAt", "updatedAt"
-) VALUES (
-  'legacy-location-1', 4.6000000, -74.0800000, 'PENDING',
-  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-);
 SQL
 
-psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 \
-  -f prisma/migrations/20260809030000_sofia_live_operations_recovery_core/migration.sql
+DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema prisma/schema.prisma >/dev/null
+[[ "$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')" == 37 ]]
 
 psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
@@ -160,6 +190,13 @@ BEGIN
   IF (SELECT COUNT(*) FROM order_tickets WHERE id = 'legacy-ticket-1') <> 1
      OR (SELECT delivery_workflow_version FROM order_tickets WHERE id = 'legacy-ticket-1') <> 0 THEN
     RAISE EXCEPTION 'legacy order ticket was not preserved safely';
+  END IF;
+  IF (SELECT COUNT(*) FROM sofia_order_drafts WHERE id = 'legacy-draft-1') <> 1
+     OR (SELECT version FROM sofia_order_drafts WHERE id = 'legacy-draft-1') <> 1
+     OR (SELECT payment_preference FROM sofia_order_drafts WHERE id = 'legacy-draft-1') <> 'UNKNOWN'
+     OR (SELECT draft_hash FROM sofia_order_drafts WHERE id = 'legacy-draft-1') IS NOT NULL
+     OR (SELECT confirmation_hash FROM sofia_order_drafts WHERE id = 'legacy-draft-1') IS NOT NULL THEN
+    RAISE EXCEPTION 'frontier-33 Sofia draft compatibility was not preserved';
   END IF;
   IF (SELECT COUNT(*) FROM order_checkouts WHERE id = 'legacy-checkout-1') <> 1
      OR (SELECT order_ticket_id FROM order_checkouts WHERE id = 'legacy-checkout-1') <> 'legacy-ticket-1' THEN
@@ -212,4 +249,4 @@ BEGIN
 END $$;
 SQL
 
-printf '{"status":"PASS","from":36,"to":37,"legacyAuthoritiesPreserved":12,"historicalProviderValuesRewritten":0}\n'
+printf '{"status":"PASS","productionFrontier":33,"representativeFrontier":36,"to":37,"frontier33RowsInserted":true,"legacyAuthoritiesPreserved":13,"historicalProviderValuesRewritten":0}\n'

@@ -34,6 +34,14 @@ export type ClaimNotificationIntentInput = Readonly<{
   now: Date;
 }>;
 
+export type RenewNotificationIntentClaimInput = Readonly<{
+  notificationIntentId: string;
+  expectedVersion: number;
+  claimOwnerHash: string;
+  leaseExpiresAt: Date;
+  now: Date;
+}>;
+
 export type NotificationClaimResult =
   | Readonly<{ state: 'CLAIMED'; intent: NotificationIntent }>
   | Readonly<{
@@ -142,6 +150,7 @@ export abstract class NotificationIntentRepository {
     maxAttempts: number,
   ): Promise<readonly NotificationMaintenanceCandidate[]>;
   abstract claim(input: ClaimNotificationIntentInput): Promise<NotificationClaimResult>;
+  abstract renewClaim(input: RenewNotificationIntentClaimInput): Promise<boolean>;
   abstract markSuppressed(input: MarkNotificationSuppressedInput): Promise<NotificationIntent>;
   abstract markCommandPending(input: MarkNotificationCommandPendingInput): Promise<NotificationIntent>;
   abstract markDispatched(input: MarkNotificationDispatchedInput): Promise<NotificationIntent>;

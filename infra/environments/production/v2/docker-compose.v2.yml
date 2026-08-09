@@ -2,7 +2,7 @@ name: 2x1burger-v2
 
 services:
   postgres-v2:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -34,7 +34,7 @@ services:
       - whatsapp_v2_auth:/app/data/whatsapp-auth
       - ./backups-v2:/app/backups
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/ready >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

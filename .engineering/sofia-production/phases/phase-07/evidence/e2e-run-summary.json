@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "runId": "run-20260809131057-1b667d8b",
+  "sourceSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+  "buildId": "0.1.0-60af56e0eb96-1786280275",
+  "contracts": 12,
+  "rbacEndpoints": 10,
+  "rbacRoleChecks": 70,
+  "playwright": {
+    "passed": 19,
+    "failed": 0
+  },
+  "core": {
+    "cashConcurrency": "PASS",
+    "posExactlyOnce": "PASS",
+    "deliveryConcurrency": "PASS",
+    "locationLogisticsOnly": true,
+    "inventoryConcurrency": "PASS",
+    "unexpectedSideEffects": 0
+  },
+  "cleanup": {
+    "composeDownExit": 0,
+    "containers": 0,
+    "volumes": 0,
+    "networks": 0
+  },
+  "productionModified": false,
+  "realWhatsapp": false,
+  "completedAt": "2026-08-09T13:12:00Z"
+}

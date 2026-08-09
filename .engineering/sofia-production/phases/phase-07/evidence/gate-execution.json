@@ -1,0 +1,224 @@
+{
+  "status": "PASS",
+  "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
+  "runtimeArtifactSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+  "requiredEnvironment": {
+    "PHASE7_ISOLATED_DATABASE_URL": "isolated PostgreSQL test database URL; value intentionally not retained"
+  },
+  "commands": [
+    {
+      "gate": "frozen-install",
+      "command": "pnpm install --frozen-lockfile",
+      "exitCode": 0
+    },
+    {
+      "gate": "dependency-audit",
+      "command": "pnpm audit --prod --audit-level=low",
+      "exitCode": 0,
+      "result": "0 known vulnerabilities"
+    },
+    {
+      "gate": "secret-scan",
+      "command": "./infra/release/secret-scan.sh",
+      "exitCode": 0
+    },
+    {
+      "gate": "lint-typecheck-build",
+      "commands": [
+        "pnpm --filter @inventory-fastfood/api lint",
+        "pnpm --filter @inventory-fastfood/web lint",
+        "pnpm test:e2e:lint",
+        "pnpm test:e2e:typecheck",
+        "pnpm --filter @inventory-fastfood/api typecheck",
+        "pnpm --filter @inventory-fastfood/api build",
+        "pnpm --filter @inventory-fastfood/web typecheck",
+        "pnpm --filter @inventory-fastfood/web build"
+      ],
+      "exitCodes": [0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    {
+      "gate": "prisma-validate",
+      "command": "pnpm exec prisma validate --schema prisma/schema.prisma",
+      "exitCode": 0
+    },
+    {
+      "gate": "fresh-migrations",
+      "environment": {
+        "DATABASE_URL": "$PHASE7_ISOLATED_DATABASE_URL"
+      },
+      "command": "pnpm exec prisma migrate deploy --schema prisma/schema.prisma",
+      "exitCode": 0,
+      "result": "37/37"
+    },
+    {
+      "gate": "legacy-migration",
+      "environment": {
+        "DATABASE_URL": "$PHASE7_ISOLATED_DATABASE_URL"
+      },
+      "command": "bash infra/testing/phase6-legacy-migration.sh",
+      "exitCode": 0,
+      "result": "13 authorities preserved; 0 provider rewrites"
+    },
+    {
+      "gate": "phase6-focused",
+      "command": "pnpm --dir apps/api exec jest",
+      "testFiles": [
+        "src/modules/customer-service/complaint-recovery.spec.ts",
+        "src/modules/customer-service/customer-service-case.service.spec.ts",
+        "src/modules/customer-service/persistence/prisma-customer-service-case.repository.spec.ts",
+        "src/modules/delivery-operations/delivery-location.policy.spec.ts",
+        "src/modules/delivery-operations/delivery-operation.dto.spec.ts",
+        "src/modules/delivery-operations/delivery-workflow.policy.spec.ts",
+        "src/modules/delivery-operations/delivery-workflow.service.spec.ts",
+        "src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts",
+        "src/modules/notifications/domain/notification-domain.spec.ts",
+        "src/modules/notifications/notification-intent-consumer.service.spec.ts",
+        "src/modules/notifications/notification-outbound-materializer.spec.ts",
+        "src/modules/notifications/notification-outbox.service.spec.ts",
+        "src/modules/notifications/notification-outbox.worker.spec.ts",
+        "src/modules/orders/delivery-workflow-consequence.worker.spec.ts",
+        "src/modules/notifications/notification-reconciliation-observer.spec.ts",
+        "src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts",
+        "src/modules/order-checkout/canonical-payment-webhook.spec.ts",
+        "src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts",
+        "src/modules/order-checkout/order-checkout.architecture.spec.ts",
+        "src/modules/order-checkout/payment-webhook-recovery.worker.spec.ts",
+        "src/modules/order-checkout/persistence/prisma-order-checkout-webhook-recovery.spec.ts",
+        "src/application/domain-contracts.architecture.spec.ts",
+        "src/modules/secure-command/secure-command.architecture.spec.ts",
+        "src/modules/sofia/complaint-source-reference.spec.ts",
+        "src/modules/sofia/commercial/commercial.architecture.spec.ts",
+        "src/modules/sofia/whatsapp/production/persistence/prisma-whatsapp-handoff.repository.spec.ts",
+        "src/modules/sofia/whatsapp/production/sofia-whatsapp-inbound-fault-recovery.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-inbound-rate-limit-policy.service.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-inbound-recovery.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-production.architecture.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-production.policy.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-production.security.spec.ts"
+      ],
+      "options": ["--runInBand", "--detectOpenHandles"],
+      "exitCode": 0,
+      "result": "219/219"
+    },
+    {
+      "gate": "phase7-focused",
+      "environment": {
+        "TEST_DATABASE_URL": "$PHASE7_ISOLATED_DATABASE_URL"
+      },
+      "command": "pnpm --dir apps/api exec jest",
+      "testFiles": [
+        "src/config/env.spec.ts",
+        "src/common/security/bounded-json-response.spec.ts",
+        "src/common/security/safe-remote-asset-fetcher.spec.ts",
+        "src/modules/auth/auth.controller.throttle.spec.ts",
+        "src/modules/auth/auth.refresh-concurrency.integration.spec.ts",
+        "src/modules/health/health.service.spec.ts",
+        "src/modules/health/observability.service.spec.ts",
+        "src/modules/health/operational-alert-policy.spec.ts",
+        "src/modules/health/operational-backlog.service.spec.ts",
+        "src/modules/notifications/notification-intent-consumer.service.spec.ts",
+        "src/modules/notifications/notification-outbox.service.spec.ts",
+        "src/modules/notifications/notification-outbox.worker.spec.ts",
+        "src/modules/notifications/notifications.architecture.spec.ts",
+        "src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts",
+        "src/modules/order-checkout/bold-early-webhook.integration.spec.ts",
+        "src/modules/order-checkout/canonical-payment-webhook.spec.ts",
+        "src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts",
+        "src/modules/order-checkout/kitchen-eligibility.service.spec.ts",
+        "src/modules/order-checkout/payment-orchestration.spec.ts",
+        "src/modules/order-checkout/persistence/prisma-order-checkout-provider-binding.spec.ts",
+        "src/modules/order-checkout/phase5-runtime-gate.service.spec.ts",
+        "src/modules/secure-command/command-policy.separation.spec.ts",
+        "src/modules/sofia/ai/deepseek-ai.provider.spec.ts",
+        "src/modules/sofia/privacy/sofia-privacy.service.spec.ts",
+        "src/modules/sofia/hardening/sofia-hardening.service.spec.ts",
+        "src/modules/sofia/sofia-mock-boundary.spec.ts",
+        "src/modules/sofia/sofia-abandoned-draft-recovery.spec.ts",
+        "src/modules/sofia/sofia-payment-link.service.spec.ts",
+        "src/modules/sofia/sofia-production-isolation.spec.ts",
+        "src/modules/sofia/whatsapp/hermes-whatsapp.provider.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-inbound-distributed-rate-limit.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-outbound.gateway.spec.ts",
+        "src/modules/sofia/whatsapp/qr-gateway/qr-session-ownership.coordinator.spec.ts",
+        "src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-fencing.spec.ts",
+        "src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-reconnect.spec.ts",
+        "src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-send-probe.spec.ts",
+        "src/modules/sofia/whatsapp/qr-gateway/whatsapp-authority.architecture.spec.ts",
+        "src/modules/whatsapp/whatsapp-outbound-safety.spec.ts",
+        "src/modules/whatsapp/whatsapp-timeout.spec.ts",
+        "src/tests/phase7-load-chaos-ai-outage.spec.ts",
+        "src/tests/phase7-load-chaos-event-notification-bursts.spec.ts",
+        "src/tests/phase7-load-chaos-timeout-unknown-result.spec.ts",
+        "src/tests/phase7-observability.contract.spec.ts"
+      ],
+      "options": ["--runInBand", "--detectOpenHandles"],
+      "invocations": [
+        { "exitCode": 0, "result": "253/253" },
+        { "exitCode": 0, "result": "253/253" }
+      ]
+    },
+    {
+      "gate": "postgres-concurrency-fault-load",
+      "environment": {
+        "TEST_DATABASE_URL": "$PHASE7_ISOLATED_DATABASE_URL"
+      },
+      "command": "pnpm --dir apps/api exec jest",
+      "testFiles": [
+        "src/tests/phase6-persistence-concurrency.integration.spec.ts",
+        "src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts",
+        "src/modules/orders/orders.phase6-atomicity.integration.spec.ts",
+        "src/modules/notifications/phase6-notification-pipeline.integration.spec.ts",
+        "src/modules/sofia/complaint-inbound.integration.spec.ts",
+        "src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts",
+        "src/tests/phase7-whatsapp-rate-limit-concurrency.integration.spec.ts",
+        "src/tests/phase7-runtime-load.integration.spec.ts",
+        "src/tests/whatsapp-production.integration.spec.ts"
+      ],
+      "options": ["--runInBand", "--detectOpenHandles"],
+      "exitCode": 0,
+      "result": "41/41"
+    },
+    {
+      "gate": "phase5-regression",
+      "command": "pnpm --dir apps/api exec jest src/tests/phase5-order-payment.integration.spec.ts --runInBand --detectOpenHandles",
+      "exitCode": 0,
+      "result": "15/15"
+    },
+    {
+      "gate": "critical-rbac",
+      "command": "pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles",
+      "exitCode": 0,
+      "result": "92/92"
+    },
+    {
+      "gate": "release-safety-and-workflow-pins",
+      "command": "node --test infra/release/release-safety.test.mjs infra/release/generate-image-sbom.test.mjs infra/release/normalize-next-build.test.mjs infra/release/canary-deploy-config.test.mjs",
+      "exitCode": 0,
+      "result": "14/14; 19/19 workflow action references pinned"
+    },
+    {
+      "gate": "exact-artifact-e2e",
+      "environment": {
+        "EPHEMERAL_API_IMAGE": "inventory-fastfood-api:0.1.0-60af56e0eb96-1786280275",
+        "EPHEMERAL_WEB_IMAGE": "inventory-fastfood-web:0.1.0-60af56e0eb96-1786280275",
+        "EPHEMERAL_INCLUDE_CORE_OPERATIONAL": "true"
+      },
+      "command": "bash infra/testing/run-ephemeral-e2e.sh",
+      "exitCode": 0,
+      "result": "run-20260809131057-1b667d8b"
+    },
+    {
+      "gate": "encrypted-recovery",
+      "environment": {
+        "RECOVERY_ARTIFACT_RECORD": "/tmp/sofia-phase7-final-60af56e/0.1.0-60af56e0eb96-1786280275/artifact-record.json"
+      },
+      "command": "bash infra/recovery/run-ephemeral-recovery-drill.sh",
+      "exitCode": 0,
+      "result": "run-20260809132631-4cecf476"
+    }
+  ],
+  "pullRequest": 12,
+  "remoteCi": "PENDING_PR_12_FINAL_HEAD",
+  "productionModified": false,
+  "recordedAt": "2026-08-09T13:37:48Z"
+}

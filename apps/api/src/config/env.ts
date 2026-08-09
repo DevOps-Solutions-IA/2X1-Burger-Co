@@ -11,6 +11,8 @@ const envBoolean = z.preprocess((value) => {
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    TEST_DATABASE_URL: z.string().min(1).optional(),
+    JEST_WORKER_ID: z.string().min(1).optional(),
     PORT: z.coerce.number().int().positive().default(3000),
     DATABASE_URL: z.string().min(1),
     CORS_ORIGIN: z.string().default('http://localhost:3001'),
@@ -84,6 +86,7 @@ const envSchema = z
     PHASE5_ORDER_CREATION_ENABLED: envBoolean.default(false),
     PHASE5_PAYMENT_ORCHESTRATION_ENABLED: envBoolean.default(false),
     PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED: envBoolean.default(false),
+    NOTIFICATION_OUTBOX_WORKER_ENABLED: envBoolean.default(false),
     PHASE5_KITCHEN_ENABLED: envBoolean.default(false),
     PHASE5_TEST_OPERATIONAL_ENABLED: envBoolean.default(false),
     CRM_IDENTITY_HASH_SECRET: z.preprocess(
@@ -155,6 +158,12 @@ const envSchema = z
       const reject = (path: keyof typeof data, reasonCode: string) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: reasonCode, path: [path] });
       };
+      if (data.TEST_DATABASE_URL) {
+        reject('TEST_DATABASE_URL', 'PROD_TEST_DATABASE_URL_FORBIDDEN');
+      }
+      if (data.JEST_WORKER_ID) {
+        reject('JEST_WORKER_ID', 'PROD_JEST_WORKER_ID_FORBIDDEN');
+      }
       if (data.WHATSAPP_PROVIDER === 'mock') {
         reject('WHATSAPP_PROVIDER', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN');
       }
@@ -188,6 +197,46 @@ const envSchema = z
       if (data.PHASE5_TEST_OPERATIONAL_ENABLED) {
         reject('PHASE5_TEST_OPERATIONAL_ENABLED', 'PHASE5_PROD_TEST_GATE_FORBIDDEN');
       }
+      if (!data.SOFIA_AI_REDACT_PERSONAL_DATA) {
+        reject('SOFIA_AI_REDACT_PERSONAL_DATA', 'SOFIA_PROD_AI_REDACTION_REQUIRED');
+      }
+      if (!data.COOKIE_SECURE) {
+        reject('COOKIE_SECURE', 'PROD_SECURE_COOKIE_REQUIRED');
+      }
+      const publicUrls = [
+        ['APP_URL', new URL(data.APP_URL)],
+        ['PUBLIC_PAYMENTS_BASE_URL', new URL(data.PUBLIC_PAYMENTS_BASE_URL)],
+      ] as const;
+      for (const [path, url] of publicUrls) {
+        if (
+          url.protocol !== 'https:' ||
+          url.username ||
+          url.password ||
+          ['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase())
+        ) {
+          reject(path, 'PROD_PUBLIC_URL_HTTPS_REQUIRED');
+        }
+      }
+      for (const originValue of data.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)) {
+        let origin: URL;
+        try {
+          origin = new URL(originValue);
+        } catch {
+          reject('CORS_ORIGIN', 'PROD_CORS_ORIGIN_INVALID');
+          continue;
+        }
+        if (
+          origin.protocol !== 'https:' ||
+          origin.username ||
+          origin.password ||
+          origin.pathname !== '/' ||
+          origin.search ||
+          origin.hash ||
+          ['localhost', '127.0.0.1', '::1'].includes(origin.hostname.toLowerCase())
+        ) {
+          reject('CORS_ORIGIN', 'PROD_CORS_ORIGIN_HTTPS_REQUIRED');
+        }
+      }
       const boldBaseUrl = new URL(data.BOLD_BASE_URL);
       if (
         boldBaseUrl.protocol !== 'https:' ||
@@ -197,6 +246,21 @@ const envSchema = z
         boldBaseUrl.port
       ) {
         reject('BOLD_BASE_URL', 'PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+      }
+      if (data.DEEPSEEK_BASE_URL) {
+        const deepseekBaseUrl = new URL(data.DEEPSEEK_BASE_URL);
+        if (
+          deepseekBaseUrl.protocol !== 'https:'
+          || deepseekBaseUrl.hostname !== 'api.deepseek.com'
+          || deepseekBaseUrl.username
+          || deepseekBaseUrl.password
+          || deepseekBaseUrl.port
+          || !['', '/'].includes(deepseekBaseUrl.pathname)
+          || deepseekBaseUrl.search
+          || deepseekBaseUrl.hash
+        ) {
+          reject('DEEPSEEK_BASE_URL', 'SOFIA_PROD_DEEPSEEK_ENDPOINT_FORBIDDEN');
+        }
       }
       if (data.WHATSAPP_QR_ENABLED && data.WHATSAPP_PROVIDER === 'qr_gateway') {
         if (!data.WHATSAPP_EXPECTED_ACCOUNT_ID || !data.WHATSAPP_EXPECTED_BUSINESS_IDENTITY || !data.WHATSAPP_EXPECTED_SESSION_OWNER) {

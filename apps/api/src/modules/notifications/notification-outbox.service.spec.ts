@@ -48,6 +48,7 @@ function harness() {
     findReconciliationCandidates: jest.fn(),
     findMaintenanceCandidates: jest.fn(),
     claim: jest.fn(),
+    renewClaim: jest.fn(),
     markSuppressed: jest.fn(),
     markCommandPending: jest.fn(),
     markDispatched: jest.fn(),
@@ -142,6 +143,21 @@ describe('NotificationOutboxService', () => {
     });
     expect(claim.claimOwnerHash).toMatch(/^[a-f0-9]{64}$/);
     expect(claim.claimOwnerHash).not.toContain('worker-replica-1');
+  });
+
+  it('renews only the fenced claim using the same bounded owner hash', async () => {
+    const { service, repository } = harness();
+    repository.renewClaim.mockResolvedValue(true);
+
+    await expect(service.renewClaim('notification-1', 4, 'worker-replica-1', now)).resolves.toBe(true);
+
+    expect(repository.renewClaim).toHaveBeenCalledWith({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 4,
+      claimOwnerHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      leaseExpiresAt: new Date('2026-08-08T12:00:30.000Z'),
+      now,
+    });
   });
 
   it('does not expose a retry operation for UNKNOWN_RESULT', async () => {

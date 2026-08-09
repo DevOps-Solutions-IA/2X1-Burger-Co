@@ -35,7 +35,12 @@ describe('HealthService', () => {
   });
 
   it('keeps liveness independent from the database', () => {
-    const service = new HealthService({} as PrismaService, observability, releaseMetadata, config);
+    const service = new HealthService(
+      {} as PrismaService,
+      observability,
+      releaseMetadata,
+      config,
+    );
     expect(service.liveness()).toMatchObject({ status: 'ALIVE' });
   });
 
@@ -89,7 +94,12 @@ describe('HealthService', () => {
     const prisma = {
       $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)),
     } as unknown as PrismaService;
-    const service = new HealthService(prisma, observability, releaseWithoutSchema, config);
+    const service = new HealthService(
+      prisma,
+      observability,
+      releaseWithoutSchema,
+      config,
+    );
 
     await expect(service.readiness()).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
@@ -103,13 +113,14 @@ describe('HealthService', () => {
     await expect(service.readiness()).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('reports the environment from the release manifest', async () => {
+  it('keeps the public aggregate health check cheap and independent from the database', () => {
     const prisma = {
       $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)),
     } as unknown as PrismaService;
     const service = new HealthService(prisma, observability, releaseMetadata, config);
 
-    await expect(service.check()).resolves.toMatchObject({ environment: 'test' });
+    expect(service.check()).toMatchObject({ status: 'ok', environment: 'test' });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('fails closed in a release environment when a migration checksum differs', async () => {
@@ -124,7 +135,9 @@ describe('HealthService', () => {
     rows[29]!.checksum = 'f'.repeat(64);
     const prisma = { $queryRaw: jest.fn().mockResolvedValue(rows) } as unknown as PrismaService;
 
-    await expect(new HealthService(prisma, observability, release, config).readiness()).rejects.toBeInstanceOf(
+    await expect(
+      new HealthService(prisma, observability, release, config).readiness(),
+    ).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
   });
@@ -139,7 +152,9 @@ describe('HealthService', () => {
     } as unknown as ReleaseMetadataService;
     const prisma = { $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)) } as unknown as PrismaService;
 
-    await expect(new HealthService(prisma, observability, release, config).readiness()).resolves.toMatchObject({
+    await expect(
+      new HealthService(prisma, observability, release, config).readiness(),
+    ).resolves.toMatchObject({
       status: 'READY',
       checks: { migrationCompatible: true, migrationIdentityVerified: true },
     });
@@ -158,9 +173,52 @@ describe('HealthService', () => {
     } as unknown as ConfigService;
     const prisma = { $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)) } as unknown as PrismaService;
 
-    await expect(new HealthService(prisma, observability, release, unsafeConfig).readiness()).rejects.toBeInstanceOf(
+    await expect(
+      new HealthService(prisma, observability, release, unsafeConfig).readiness(),
+    ).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
+  });
+
+  it('reports intentionally disabled providers without claiming they are healthy', async () => {
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)) } as unknown as PrismaService;
+    const disabledConfig = {
+      get: jest.fn((key: string) => ({
+        WHATSAPP_MODE: 'disabled',
+        SOFIA_AI_MODE: 'disabled',
+        WHATSAPP_QR_ALLOW_REAL_SEND: false,
+        SOFIA_PRODUCTION_ENABLED: false,
+        PHASE5_ORDER_CREATION_ENABLED: false,
+      })[key]),
+    } as unknown as ConfigService;
+
+    await expect(
+      new HealthService(
+        prisma,
+        observability,
+        releaseMetadata,
+        disabledConfig,
+      ).readiness(),
+    ).resolves.toMatchObject({
+      status: 'READY',
+      services: {
+        providers: {
+          whatsappInbound: 'DISABLED_BY_POLICY',
+          whatsappOutbound: 'DISABLED_BY_POLICY',
+          aiGeneration: 'DISABLED_BY_POLICY',
+          boldMutation: 'DISABLED_BY_POLICY',
+        },
+      },
+    });
+  });
+
+  it('coalesces and caches concurrent readiness checks', async () => {
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue(appliedRows(inventory)) } as unknown as PrismaService;
+    const service = new HealthService(prisma, observability, releaseMetadata, config);
+
+    await Promise.all(Array.from({ length: 20 }, () => service.readiness()));
+    await service.readiness();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
