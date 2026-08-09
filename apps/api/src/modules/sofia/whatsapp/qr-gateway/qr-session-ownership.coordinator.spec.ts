@@ -106,7 +106,8 @@ describe('QrSessionOwnershipCoordinator', () => {
     const { prisma } = databaseHarness();
     const first = new QrSessionOwnershipCoordinator(prisma, 30_000);
     const second = new QrSessionOwnershipCoordinator(prisma, 30_000);
-    const lease = await first.acquire('sofia-main', now);
+    const startedAt = new Date();
+    const lease = await first.acquire('sofia-main', startedAt);
     let finishEffect!: () => void;
     let markEffectStarted!: () => void;
     const effectBlocked = new Promise<void>((resolve) => {
@@ -125,11 +126,11 @@ describe('QrSessionOwnershipCoordinator', () => {
         await effectBlocked;
         ordering.push('effect-end');
       },
-      now,
+      startedAt,
     );
     await effectStarted;
     const takeover = second
-      .acquire('sofia-main', new Date(now.getTime() + 31_000))
+      .acquire('sofia-main', new Date(startedAt.getTime() + 31_000))
       .then(() => ordering.push('takeover'));
 
     await Promise.resolve();
