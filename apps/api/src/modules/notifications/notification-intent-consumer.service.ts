@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import type { NotificationIntent, Prisma } from '@prisma/client';
+import type { NotificationIntent } from '@prisma/client';
 import {
   NotificationDispatchPolicyPort,
-  type NotificationCommandBinding,
   NotificationSecureCommandPort,
 } from './notification-dispatch.ports';
+import { NotificationOutboundMaterializer } from './notification-outbound-materializer';
 import { NotificationOutboxService, type ReconcileNotificationInput } from './notification-outbox.service';
 
-const HASH = /^[a-f0-9]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const COMMAND_TTL_MS = 5 * 60_000;
 
@@ -23,6 +22,7 @@ export class NotificationIntentConsumerService {
   constructor(
     private readonly outbox: NotificationOutboxService,
     private readonly policy: NotificationDispatchPolicyPort,
+    private readonly materializer: NotificationOutboundMaterializer,
     private readonly commands: NotificationSecureCommandPort,
   ) {}
 
@@ -53,7 +53,8 @@ export class NotificationIntentConsumerService {
         return this.result(intent.id, 'SUPPRESSED', 'NOTIFICATION_POLICY_VERSION_STALE', null);
       }
 
-      const binding = this.commandBinding(intent);
+      const materialized = await this.materializer.materialize(intent);
+      const binding = materialized.binding;
       const command = await this.commands.receive({
         notificationIntentId: intent.id,
         binding,
@@ -119,55 +120,9 @@ export class NotificationIntentConsumerService {
       || (intent.handoffVersion !== null && intent.handoffVersion !== decision.handoffVersion);
   }
 
-  private commandBinding(intent: NotificationIntent): NotificationCommandBinding {
-    const facts = this.factObject(intent.factEnvelope);
-    const outboundMessageId = this.safeId(facts.outboundMessageId);
-    const conversationId = this.safeId(facts.conversationId);
-    const recipientIdentityHash = this.hash(facts.recipientIdentityHash);
-    const bodyHash = this.hash(facts.bodyHash);
-    const accountId = this.safeId(facts.accountId);
-    const expectedConversationVersion = facts.expectedConversationVersion;
-    if (
-      !outboundMessageId
-      || !conversationId
-      || conversationId !== intent.conversationId
-      || !recipientIdentityHash
-      || !bodyHash
-      || !accountId
-      || !Number.isInteger(expectedConversationVersion)
-      || Number(expectedConversationVersion) < 0
-    ) {
-      throw new Error('NOTIFICATION_COMMAND_BINDING_INVALID');
-    }
-    return Object.freeze({
-      outboundMessageId,
-      conversationId,
-      recipientIdentityHash,
-      purpose: intent.purpose,
-      bodyHash,
-      accountId,
-      expectedConversationVersion: Number(expectedConversationVersion),
-    });
-  }
-
   private commandExpiry(intent: NotificationIntent, now: Date) {
     const bounded = new Date(now.getTime() + COMMAND_TTL_MS);
     return intent.expiresAt && intent.expiresAt < bounded ? intent.expiresAt : bounded;
-  }
-
-  private factObject(value: Prisma.JsonValue): Record<string, Prisma.JsonValue> {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error('NOTIFICATION_COMMAND_BINDING_INVALID');
-    }
-    return value as Record<string, Prisma.JsonValue>;
-  }
-
-  private safeId(value: Prisma.JsonValue | undefined): string | null {
-    return typeof value === 'string' && SAFE_ID.test(value) ? value : null;
-  }
-
-  private hash(value: Prisma.JsonValue | undefined): string | null {
-    return typeof value === 'string' && HASH.test(value) ? value : null;
   }
 
   private errorCode(error: unknown) {

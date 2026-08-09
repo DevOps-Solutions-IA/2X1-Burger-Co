@@ -12,9 +12,9 @@ import { NotificationIntentConsumerService } from './notification-intent-consume
 
 const now = new Date('2026-08-08T12:00:00.000Z');
 const commandFacts = Object.freeze({
-  outboundMessageId: 'outbound-1',
   conversationId: 'conversation-1',
   recipientIdentityHash: 'a'.repeat(64),
+  body: 'Tu pedido esta listo para recoger.',
   bodyHash: 'b'.repeat(64),
   accountId: 'account-1',
   expectedConversationVersion: 3,
@@ -72,20 +72,36 @@ function harness(overrides: { claim?: unknown; policy?: unknown; command?: unkno
       handoffVersion: 3,
     }),
   };
+  const materializer = {
+    materialize: jest.fn().mockResolvedValue({
+      outbound: { id: 'outbound-1' },
+      replayed: false,
+      binding: {
+        outboundMessageId: 'outbound-1',
+        conversationId: 'conversation-1',
+        recipientIdentityHash: 'a'.repeat(64),
+        bodyHash: 'b'.repeat(64),
+        accountId: 'account-1',
+        expectedConversationVersion: 3,
+        purpose: CustomerConsentPurpose.SERVICE,
+      },
+    }),
+  };
   const commands = {
     receive: jest.fn().mockResolvedValue(overrides.command ?? { commandId: 'command-1', replayed: false }),
   };
   return {
-    service: new NotificationIntentConsumerService(outbox as never, policy as never, commands as never),
+    service: new NotificationIntentConsumerService(outbox as never, policy as never, materializer as never, commands as never),
     outbox,
     policy,
+    materializer,
     commands,
   };
 }
 
 describe('NotificationIntentConsumerService', () => {
   it('claims, revalidates policy, creates one bound SecureCommand and never executes it', async () => {
-    const { service, outbox, policy, commands } = harness();
+    const { service, outbox, policy, materializer, commands } = harness();
 
     await expect(service.consume('notification-1', 'worker-1', now)).resolves.toEqual({
       notificationIntentId: 'notification-1',
@@ -96,10 +112,18 @@ describe('NotificationIntentConsumerService', () => {
 
     expect(outbox.claim).toHaveBeenCalledWith('notification-1', 'worker-1', now);
     expect(policy.evaluate).toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-1' }));
+    expect(materializer.materialize).toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-1' }));
+    expect(materializer.materialize.mock.invocationCallOrder[0])
+      .toBeLessThan(commands.receive.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
     expect(commands.receive).toHaveBeenCalledWith({
       notificationIntentId: 'notification-1',
       binding: {
-        ...commandFacts,
+        outboundMessageId: 'outbound-1',
+        conversationId: 'conversation-1',
+        recipientIdentityHash: 'a'.repeat(64),
+        bodyHash: 'b'.repeat(64),
+        accountId: 'account-1',
+        expectedConversationVersion: 3,
         purpose: CustomerConsentPurpose.SERVICE,
       },
       expiresAt: new Date('2026-08-08T12:04:00.000Z'),
@@ -116,7 +140,7 @@ describe('NotificationIntentConsumerService', () => {
   });
 
   it('durably suppresses when consent, handoff or governance denies automation', async () => {
-    const { service, outbox, commands } = harness({
+    const { service, outbox, materializer, commands } = harness({
       policy: { allowed: false, reasonCode: 'HUMAN_TAKEN', consentVersion: 4, handoffVersion: 8 },
     });
 
@@ -129,6 +153,7 @@ describe('NotificationIntentConsumerService', () => {
       consentVersion: 4,
       handoffVersion: 8,
     }));
+    expect(materializer.materialize).not.toHaveBeenCalled();
     expect(commands.receive).not.toHaveBeenCalled();
   });
 
@@ -143,6 +168,37 @@ describe('NotificationIntentConsumerService', () => {
     });
     expect(outbox.markSuppressed).toHaveBeenCalled();
     expect(commands.receive).not.toHaveBeenCalled();
+  });
+
+  it('reuses the materialized outbound and secure command after a lost response', async () => {
+    const { service, outbox, materializer, commands } = harness({
+      command: { commandId: 'command-1', replayed: true },
+    });
+    materializer.materialize.mockResolvedValue({
+      outbound: { id: 'outbound-1' },
+      replayed: true,
+      binding: {
+        outboundMessageId: 'outbound-1',
+        conversationId: 'conversation-1',
+        recipientIdentityHash: 'a'.repeat(64),
+        bodyHash: 'b'.repeat(64),
+        accountId: 'account-1',
+        expectedConversationVersion: 3,
+        purpose: CustomerConsentPurpose.SERVICE,
+      },
+    });
+
+    await expect(service.consume('notification-1', 'worker-2', now)).resolves.toMatchObject({
+      state: 'COMMAND_PENDING',
+      reasonCode: 'SECURE_COMMAND_REPLAYED',
+      secureCommandId: 'command-1',
+    });
+    expect(materializer.materialize).toHaveBeenCalledTimes(1);
+    expect(commands.receive).toHaveBeenCalledTimes(1);
+    expect(outbox.markCommandPending).toHaveBeenCalledWith(expect.objectContaining({
+      outboundMessageId: 'outbound-1',
+      secureCommandId: 'command-1',
+    }));
   });
 
   it('keeps SOFIA_SEND_WHATSAPP disabled as a terminal suppression without provider access', async () => {
@@ -203,7 +259,15 @@ describe('SecureCommandNotificationAdapter', () => {
 
     await expect(adapter.receive({
       notificationIntentId: 'notification-1',
-      binding: { ...commandFacts, purpose: CustomerConsentPurpose.SERVICE },
+      binding: {
+        outboundMessageId: 'outbound-1',
+        conversationId: 'conversation-1',
+        recipientIdentityHash: 'a'.repeat(64),
+        bodyHash: 'b'.repeat(64),
+        accountId: 'account-1',
+        expectedConversationVersion: 3,
+        purpose: CustomerConsentPurpose.SERVICE,
+      },
       expiresAt: new Date('2026-08-08T12:04:00.000Z'),
     })).resolves.toEqual({ commandId: 'command-1', replayed: true });
 
