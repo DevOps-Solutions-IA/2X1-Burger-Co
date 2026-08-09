@@ -43,3 +43,11 @@ test('canary deployment renders a complete fail-closed environment before Docker
     assert.match(rendered, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
 });
+
+test('canary deployment waits for bounded service health before smoke', () => {
+  const deploy = readFileSync('infra/release/canary-deploy.sh', 'utf8');
+  assert.match(
+    deploy,
+    /docker compose[^\n]*up -d --wait --wait-timeout 120 \\\n\s+canary-api canary-web/,
+  );
+});

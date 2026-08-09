@@ -75,7 +75,8 @@ fi
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-postgres
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
   sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma && apps/api/node_modules/.bin/tsx prisma/seed.ts'
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-api canary-web
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 120 \
+  canary-api canary-web
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
 cp "$ARTIFACT_RECORD" "$STATE_DIR/current-artifact.json"
 printf '%s\n' "$ENV_FILE"
