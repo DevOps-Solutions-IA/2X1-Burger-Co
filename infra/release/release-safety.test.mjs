@@ -9,6 +9,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const common = path.join(root, 'infra/scripts/common.sh');
 const verifier = path.join(root, 'infra/release/verify-runtime-identity.mjs');
 const artifactBuilder = path.join(root, 'infra/release/build-artifacts.sh');
+const artifactLoader = path.join(root, 'infra/release/load-artifacts.sh');
 const apiDockerfile = path.join(root, 'infra/docker/Dockerfile.api');
 const webDockerfile = path.join(root, 'infra/docker/Dockerfile.web');
 const commit = 'a'.repeat(40);
@@ -70,6 +71,8 @@ test('runtime identity requires clean matching commits, build IDs and non-null d
 test('release builds bind BuildKit layer timestamps to the source commit epoch', () => {
   const source = readFileSync(artifactBuilder, 'utf8');
   assert.match(source, /--build-arg "SOURCE_DATE_EPOCH=\$EPOCH"/);
+  assert.match(source, /COMMON_ARGS=\(\s*--no-cache/);
+  assert.match(source, /RELEASE_REPRODUCIBILITY_SECRET="\$\{RELEASE_REPRODUCIBILITY_SECRET:-\}"/);
   assert.match(source, /EPOCH="\$\(git -C "\$ROOT_DIR" show -s --format=%ct "\$COMMIT"\)"/);
   assert.match(source, /find "\$TEMP_DIR\/\.release" -exec touch -h -d "@\$EPOCH"/);
   for (const dockerfile of [apiDockerfile, webDockerfile]) {
@@ -83,4 +86,7 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
   assert.match(webSource, /node infra\/release\/normalize-next-build\.mjs apps\/web\/\.next\/standalone\/apps\/web\/\.next/);
   assert.doesNotMatch(webSource, /ARG (?:NEXT_SERVER_ACTIONS_ENCRYPTION_KEY|RELEASE_REPRODUCIBILITY_SECRET)/);
   assert.match(readFileSync(artifactBuilder, 'utf8'), /--secret id=release_reproducibility_secret,env=RELEASE_REPRODUCIBILITY_SECRET/);
+  const loaderSource = readFileSync(artifactLoader, 'utf8');
+  assert.match(loaderSource, /archive checksum mismatch/);
+  assert.match(loaderSource, /loaded image identity mismatch/);
 });

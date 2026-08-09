@@ -205,7 +205,7 @@ jobs:
   artifact:
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -218,17 +218,18 @@ jobs:
         run: |
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          FIRST_RECORD="$(RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
-          SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
       - uses: actions/upload-artifact@v4
         with:
           name: release-metadata-${{ github.sha }}
           path: ${{ runner.temp }}/release-artifacts
+          compression-level: 0
           retention-days: 30
 
   ephemeral-e2e:
-    needs: quality
+    needs: [quality, artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -243,6 +244,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
       - name: Install Chromium for isolated UI tests
         run: pnpm exec playwright install --with-deps chromium
       - name: Install PDF verification runtime
@@ -253,9 +258,13 @@ jobs:
       - name: Generate Prisma client for isolated core tests
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
       - name: Ephemeral contracts, RBAC, business and UI E2E
-        env:
-          EPHEMERAL_BUILD_IF_MISSING: "true"
-        run: pnpm test:e2e:core
+        run: |
+          ARTIFACT_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$ARTIFACT_RECORD"
+          bash infra/release/load-artifacts.sh "$ARTIFACT_RECORD"
+          EPHEMERAL_API_IMAGE="$(node -p "require(process.argv[1]).api.tag" "$ARTIFACT_RECORD")" \
+          EPHEMERAL_WEB_IMAGE="$(node -p "require(process.argv[1]).web.tag" "$ARTIFACT_RECORD")" \
+            pnpm test:e2e:core
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -265,18 +274,22 @@ jobs:
           retention-days: 14
 
   recovery-drill:
-    needs: quality
+    needs: [quality, artifact]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
       - name: Encrypted backup, isolated restore and reconciliation
-        env:
-          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/recovery-release-artifacts
         run: |
-          ARTIFACT_RECORD="$(RELEASE_TAG_SUFFIX=-recovery RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          ARTIFACT_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$ARTIFACT_RECORD"
+          bash infra/release/load-artifacts.sh "$ARTIFACT_RECORD"
           RECOVERY_ARTIFACT_RECORD="$ARTIFACT_RECORD" bash infra/recovery/run-ephemeral-recovery-drill.sh
       - uses: actions/upload-artifact@v4
         if: always()
@@ -294,6 +307,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-metadata-${{ github.sha }}
+          path: ${{ runner.temp }}/release-artifacts
       - name: Exact candidate canary, rollback and candidate restoration
         env:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/canary-release-artifacts
@@ -306,8 +323,12 @@ jobs:
             fi
           }
           trap cleanup EXIT
-          BASELINE_RECORD="$(RELEASE_TAG_SUFFIX=-baseline RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302 | tail -n 1)"
-          CANDIDATE_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/canary-candidate-artifacts" RELEASE_TAG_SUFFIX=-canary RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
+          export RELEASE_REPRODUCIBILITY_SECRET
+          BASELINE_RECORD="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302 | tail -n 1)"
+          CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
+          test -n "$CANDIDATE_RECORD"
+          bash infra/release/load-artifacts.sh "$CANDIDATE_RECORD"
           bash infra/release/rollback-drill.sh "$BASELINE_RECORD" "$CANDIDATE_RECORD" "$STATE_DIR"
           test -f "$STATE_DIR/rollback-drill.json"
       - uses: actions/upload-artifact@v4

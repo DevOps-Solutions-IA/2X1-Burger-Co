@@ -21,6 +21,8 @@ const prerenderPath = path.join(root, 'prerender-manifest.json');
 const fontJsonPath = path.join(root, 'server/next-font-manifest.json');
 const fontJsPath = path.join(root, 'server/next-font-manifest.js');
 const referencesPath = path.join(root, 'server/server-reference-manifest.json');
+const middlewarePath = path.join(root, 'server/middleware-manifest.json');
+const functionsPath = path.join(root, 'server/functions-config-manifest.json');
 
 const prerender = parse(prerenderPath);
 prerender.preview = {
@@ -40,6 +42,17 @@ if (Object.keys(references.node ?? {}).length || Object.keys(references.edge ?? 
   throw new Error('Deterministic public build key is forbidden when Server Actions exist.');
 }
 writeFileSync(referencesPath, JSON.stringify(stable(references, false)));
+
+const middleware = parse(middlewarePath);
+if (Object.keys(middleware.middleware ?? {}).length || Object.keys(middleware.functions ?? {}).length) {
+  throw new Error('Preview manifest normalization is forbidden when Edge middleware or functions exist.');
+}
+const functions = parse(functionsPath);
+if (Object.keys(functions.functions ?? {}).length) {
+  throw new Error('Preview manifest normalization is forbidden when configured runtime functions exist.');
+}
+writeFileSync(middlewarePath, JSON.stringify(stable(middleware, false)));
+writeFileSync(functionsPath, JSON.stringify(stable(functions, false)));
 
 for (const file of walk(path.join(root, 'server/app'))) {
   if (!file.endsWith('_client-reference-manifest.js')) continue;

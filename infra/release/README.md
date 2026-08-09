@@ -1,16 +1,20 @@
 # Release Foundation
 
-La cadena local construye API y web desde un commit mediante `git archive`; nunca usa silenciosamente el working tree. Ambos artifacts reciben el mismo `release-manifest.json`, labels OCI y un SBOM CycloneDX generado desde `pnpm-lock.yaml`.
+La cadena local construye API y web desde un commit mediante `git archive`; nunca usa silenciosamente el working tree. Ambos artifacts reciben el mismo `release-manifest.json`, labels OCI, un SBOM de fuente y un SBOM CycloneDX de cada runtime instalado.
 
 ## Build
 
 ```bash
+export RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
 RELEASE_OUTPUT_DIR=/tmp/release-artifacts ./infra/release/build-artifacts.sh HEAD
 ```
+
+El secreto es entropia efimera por release, debe venir del secret store aprobado y compartirse solo entre builds de verificacion del mismo release. No se persiste en artifacts, logs ni metadata. Cada build usa `--no-cache`; las imagenes exportadas se verifican por checksum antes de cargarse. El digest publicable de registry se obtiene solo en el futuro push autorizado y no se infiere del image ID local.
 
 ## Canary local
 
 ```bash
+./infra/release/load-artifacts.sh /tmp/release-artifacts/<build-id>/artifact-record.json
 ./infra/release/canary-deploy.sh /tmp/release-artifacts/<build-id>/artifact-record.json
 ./infra/release/canary-smoke.sh /tmp/release-artifacts/<build-id>/artifact-record.json
 ```

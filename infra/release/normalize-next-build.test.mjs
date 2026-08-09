@@ -26,6 +26,13 @@ test('rejects deterministic release-key normalization when Server Actions exist'
   assert.notEqual(result.status, 0);
 });
 
+test('rejects preview normalization when Edge middleware or functions exist', () => {
+  const { root } = fixture({ node: {}, edge: {} });
+  writeFileSync(path.join(root, 'server/middleware-manifest.json'), JSON.stringify({ middleware: { '/': {} }, functions: {} }));
+  const result = spawnSync('node', [normalizer, root], { env: releaseEnv });
+  assert.notEqual(result.status, 0);
+});
+
 test('rejects a missing or weak reproducibility secret', () => {
   const { root } = fixture({ node: {}, edge: {} });
   const result = spawnSync('node', [normalizer, root], { env: { ...process.env, RELEASE_REPRODUCIBILITY_SECRET: 'public-build-id' } });
@@ -54,6 +61,8 @@ function fixture(references) {
   writeFileSync(path.join(root, 'server/next-font-manifest.json'), JSON.stringify({ pages: {}, app: { '/layout': ['z.woff2', 'a.woff2'] } }));
   writeFileSync(path.join(root, 'server/next-font-manifest.js'), 'variable');
   writeFileSync(path.join(root, 'server/server-reference-manifest.json'), JSON.stringify(references));
+  writeFileSync(path.join(root, 'server/middleware-manifest.json'), JSON.stringify({ middleware: {}, functions: {} }));
+  writeFileSync(path.join(root, 'server/functions-config-manifest.json'), JSON.stringify({ functions: {} }));
   writeFileSync(path.join(root, 'server/app/demo/page_client-reference-manifest.js'), 'globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/demo/page"]={"z":{"value":2},"a":{"value":1}}');
   return { root };
 }
