@@ -1,5 +1,5 @@
 {
-  "currentPhase": "PHASE-06_PR_PREPARATION",
+  "currentPhase": "PHASE-06_FINAL_CI_REVIEW",
   "mainSha": "3d70b80dcd2678357906d9856e5bca9fb29834a1",
   "productionSha": "NOT_VERIFIED_IN_THIS_PROGRAM",
   "migrationFrontier": 37,
@@ -17,8 +17,8 @@
     "P7-RESILIENCE",
     "P7-OBSERVABILITY"
   ],
-  "openPRs": [],
-  "ciStatus": "PHASE_6_LOCAL_CI_PASS_REMOTE_PR_PENDING",
+  "openPRs": [11],
+  "ciStatus": "PHASE_6_LOCAL_CI_PASS_REMOTE_FINAL_HEAD_PENDING",
   "securityStatus": "PREACTIVATION_CRITICAL_HIGH_FIXES_REQUIRED",
   "mockCount": 9,
   "sandboxCount": 1,
@@ -26,5 +26,5 @@
   "realBold": false,
   "autoWhatsapp": false,
   "ownerGates": [],
-  "lastUpdated": "2026-08-09T04:47:00Z"
+  "lastUpdated": "2026-08-09T05:32:39Z"
 }
