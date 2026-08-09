@@ -1,8 +1,8 @@
 {
-  "currentPhase": "PHASE-06_OWNER_GATE",
+  "currentPhase": "PHASE-06_VALIDATION",
   "mainSha": "3d70b80dcd2678357906d9856e5bca9fb29834a1",
   "productionSha": "NOT_VERIFIED_IN_THIS_PROGRAM",
-  "migrationFrontier": 36,
+  "migrationFrontier": 37,
   "activeAgents": [],
   "completedAgents": [
     "P5",
@@ -18,15 +18,13 @@
     "P7-OBSERVABILITY"
   ],
   "openPRs": [],
-  "ciStatus": "PHASE_5_PASS_PHASE_6_BLOCKED_BEFORE_IMPLEMENTATION",
+  "ciStatus": "PHASE_6_LOCAL_GATES_RUNNING_REMOTE_PENDING",
   "securityStatus": "PREACTIVATION_CRITICAL_HIGH_FIXES_REQUIRED",
   "mockCount": 9,
   "sandboxCount": 1,
   "productionDeployed": false,
   "realBold": false,
   "autoWhatsapp": false,
-  "ownerGates": [
-    "MIGRATION_37_AUTHORIZATION_REQUIRED"
-  ],
-  "lastUpdated": "2026-08-09T02:56:00Z"
+  "ownerGates": [],
+  "lastUpdated": "2026-08-09T04:20:00Z"
 }

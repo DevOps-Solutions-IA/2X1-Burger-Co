@@ -1,0 +1,15 @@
+{
+  "phase": "PHASE-06",
+  "name": "Live Operations Delivery Notifications and Recovery",
+  "status": "IMPLEMENTED_LOCAL_VALIDATION_IN_PROGRESS",
+  "baseSha": "3d70b80dcd2678357906d9856e5bca9fb29834a1",
+  "migrationFrontier": "37/37",
+  "migrationCount": 1,
+  "migrationName": "20260809030000_sofia_live_operations_recovery_core",
+  "financialIncidentGate": "PASS_NO_INCIDENT_IDENTIFIED",
+  "productionDeployed": false,
+  "realBold": false,
+  "autoWhatsapp": false,
+  "remoteCi": "PENDING",
+  "mergeAuthorizedOnlyAfterCiAndReview": true
+}
