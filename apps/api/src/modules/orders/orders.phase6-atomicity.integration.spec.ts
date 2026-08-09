@@ -69,7 +69,10 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
         status: options?.status ?? OrderTicketStatus.SERVED,
         cashSessionId: cashSession.id,
         createdById: seed.adminUser.id,
-        assignedRiderId: options?.assignedRiderId ?? seed.deliveryUser.id,
+        assignedRiderId:
+          options && 'assignedRiderId' in options
+            ? options.assignedRiderId
+            : seed.deliveryUser.id,
         deliveryWorkflowStatus: options?.workflowStatus ?? DeliveryWorkflowStatus.ASSIGNED,
         deliveryWorkflowVersion: options?.workflowVersion ?? 0,
         customerName: 'Cliente Atomicidad',
@@ -85,6 +88,185 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
     });
     return { seed, order, actor: actor(seed.adminUser) };
   }
+
+  it('rejects delivery fulfillment changes before mutating workflow or commercial truth', async () => {
+    const fixture = await createDeliveryOrder({
+      workflowStatus: DeliveryWorkflowStatus.ASSIGNED,
+      workflowVersion: 4,
+      deliveryFee: 5_000,
+      subtotal: 30_000,
+    });
+
+    await expect(orders.update(
+      fixture.order.id,
+      { type: 'TAKEAWAY', notes: 'No debe persistirse.' },
+      fixture.actor,
+    )).rejects.toMatchObject({
+      response: { code: 'DELIVERY_FULFILLMENT_CHANGE_REQUIRES_GOVERNED_TRANSITION' },
+    });
+
+    const unchanged = await prisma.orderTicket.findUniqueOrThrow({
+      where: { id: fixture.order.id },
+    });
+    expect(unchanged).toMatchObject({
+      type: OrderTicketType.DELIVERY,
+      deliveryWorkflowStatus: DeliveryWorkflowStatus.ASSIGNED,
+      deliveryWorkflowVersion: 4,
+      revision: 0,
+      notes: null,
+    });
+    expect(Number(unchanged.deliveryFee)).toBe(5_000);
+    expect(Number(unchanged.subtotal)).toBe(30_000);
+    expect(await prisma.deliveryWorkflowEvent.count({
+      where: { orderTicketId: fixture.order.id },
+    })).toBe(0);
+  });
+
+  it('rejects conversion into delivery before creating unversioned workflow state', async () => {
+    const fixture = await createDeliveryOrder();
+    const takeaway = await prisma.orderTicket.create({
+      data: {
+        number: `P6-TAKEAWAY-${Date.now()}`,
+        type: OrderTicketType.TAKEAWAY,
+        status: OrderTicketStatus.SERVED,
+        cashSessionId: fixture.order.cashSessionId,
+        createdById: fixture.seed.adminUser.id,
+        subtotal: 25_000,
+      },
+    });
+
+    await expect(orders.update(
+      takeaway.id,
+      { type: 'DELIVERY', deliveryReference: 'No debe persistirse.' },
+      fixture.actor,
+    )).rejects.toMatchObject({
+      response: { code: 'DELIVERY_FULFILLMENT_CHANGE_REQUIRES_GOVERNED_TRANSITION' },
+    });
+
+    expect(await prisma.orderTicket.findUniqueOrThrow({ where: { id: takeaway.id } })).toMatchObject({
+      type: OrderTicketType.TAKEAWAY,
+      deliveryWorkflowStatus: null,
+      deliveryWorkflowVersion: 0,
+      deliveryReference: null,
+      revision: 0,
+    });
+    expect(await prisma.deliveryWorkflowEvent.count({ where: { orderTicketId: takeaway.id } })).toBe(0);
+  });
+
+  it('recovers rider assignment audit and alert after a persisted transition', async () => {
+    const fixture = await createDeliveryOrder({
+      workflowStatus: DeliveryWorkflowStatus.PENDING_ASSIGNMENT,
+      assignedRiderId: null,
+    });
+    await workflow.transition({
+      orderTicketId: fixture.order.id,
+      expectedVersion: 0,
+      toStatus: DeliveryWorkflowStatus.ASSIGNED,
+      assignedRiderId: fixture.seed.deliveryUser.id,
+      actorId: fixture.seed.adminUser.id,
+      reasonCode: 'FAULT_AFTER_RIDER_ASSIGNMENT_EVENT',
+      idempotencyKey: `delivery:assign:${fixture.order.id}:0:${fixture.seed.deliveryUser.id}`,
+      sanitizedMetadata: {
+        previousAssignedRiderId: null,
+        assignedRiderId: fixture.seed.deliveryUser.id,
+        notesPresent: false,
+      },
+    });
+
+    expect(await prisma.auditLog.count({
+      where: { entityId: fixture.order.id, action: 'ASSIGN_DELIVERY_RIDER' },
+    })).toBe(0);
+    expect(await prisma.operationalAlert.count({
+      where: { entityId: fixture.order.id, type: 'DELIVERY_ASSIGNED' },
+    })).toBe(0);
+
+    await orders.assignDeliveryRider(
+      fixture.order.id,
+      { riderId: fixture.seed.deliveryUser.id },
+      fixture.actor,
+    );
+    await orders.assignDeliveryRider(
+      fixture.order.id,
+      { riderId: fixture.seed.deliveryUser.id },
+      fixture.actor,
+    );
+
+    expect(await prisma.auditLog.count({
+      where: { entityId: fixture.order.id, action: 'ASSIGN_DELIVERY_RIDER' },
+    })).toBe(1);
+    expect(await prisma.operationalAlert.count({
+      where: { entityId: fixture.order.id, type: 'DELIVERY_ASSIGNED' },
+    })).toBe(1);
+    expect(await prisma.deliveryWorkflowEvent.count({
+      where: { orderTicketId: fixture.order.id },
+    })).toBe(1);
+  });
+
+  it('rolls back assignment consequences on fault and resumes them on replay', async () => {
+    const fixture = await createDeliveryOrder({
+      workflowStatus: DeliveryWorkflowStatus.PENDING_ASSIGNMENT,
+      assignedRiderId: null,
+    });
+    await workflow.transition({
+      orderTicketId: fixture.order.id,
+      expectedVersion: 0,
+      toStatus: DeliveryWorkflowStatus.ASSIGNED,
+      assignedRiderId: fixture.seed.deliveryUser.id,
+      actorId: fixture.seed.adminUser.id,
+      reasonCode: 'FAULT_BEFORE_ASSIGNMENT_CONSEQUENCES',
+      idempotencyKey: `delivery:assign:${fixture.order.id}:0:${fixture.seed.deliveryUser.id}`,
+    });
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION phase6_reject_assignment_alert() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.type = 'DELIVERY_ASSIGNED' THEN
+          RAISE EXCEPTION 'PHASE6_ASSIGNMENT_ALERT_FAULT';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER phase6_reject_assignment_alert_trigger
+      BEFORE INSERT ON operational_alerts
+      FOR EACH ROW EXECUTE FUNCTION phase6_reject_assignment_alert()
+    `);
+
+    try {
+      await expect(orders.assignDeliveryRider(
+        fixture.order.id,
+        { riderId: fixture.seed.deliveryUser.id },
+        fixture.actor,
+      )).rejects.toThrow();
+      expect(await prisma.auditLog.count({
+        where: { entityId: fixture.order.id, action: 'ASSIGN_DELIVERY_RIDER' },
+      })).toBe(0);
+      expect(await prisma.operationalAlert.count({
+        where: { entityId: fixture.order.id, type: 'DELIVERY_ASSIGNED' },
+      })).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER IF EXISTS phase6_reject_assignment_alert_trigger ON operational_alerts',
+      );
+      await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS phase6_reject_assignment_alert()');
+    }
+
+    await orders.assignDeliveryRider(
+      fixture.order.id,
+      { riderId: fixture.seed.deliveryUser.id },
+      fixture.actor,
+    );
+
+    expect(await prisma.auditLog.count({
+      where: { entityId: fixture.order.id, action: 'ASSIGN_DELIVERY_RIDER' },
+    })).toBe(1);
+    expect(await prisma.operationalAlert.count({
+      where: { entityId: fixture.order.id, type: 'DELIVERY_ASSIGNED' },
+    })).toBe(1);
+    expect(await prisma.deliveryWorkflowEvent.count({
+      where: { orderTicketId: fixture.order.id },
+    })).toBe(1);
+  });
 
   it('resumes ISSUE consequences after a persisted transition and deduplicates replay', async () => {
     const fixture = await createDeliveryOrder();

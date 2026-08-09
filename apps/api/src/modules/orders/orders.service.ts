@@ -1610,6 +1610,16 @@ export class OrdersService {
     }
 
     const access = this.assertWaiterOrderWriteAccess(current, actor);
+    const requestedType = dto.type as OrderTicketType | undefined;
+    if (
+      requestedType !== undefined &&
+      requestedType !== current.type &&
+      (requestedType === OrderTicketType.DELIVERY || current.type === OrderTicketType.DELIVERY)
+    ) {
+      throw new ConflictException({
+        code: 'DELIVERY_FULFILLMENT_CHANGE_REQUIRES_GOVERNED_TRANSITION',
+      });
+    }
     if (actor.roles.includes('waiter') && !this.isPrivilegedOrderOperator(actor)) {
       if (current.type !== OrderTicketType.DINE_IN) {
         throw new BadRequestException('Meseros solo pueden guardar comandas de mesa.');
@@ -2491,45 +2501,20 @@ export class OrdersService {
       actorId: actor.sub,
       reasonCode: 'DELIVERY_RIDER_ASSIGNED',
       idempotencyKey: `delivery:assign:${id}:${current.deliveryWorkflowVersion}:${rider.id}`,
-      sanitizedMetadata: { notesPresent: Boolean(dto.notes?.trim()) },
-    });
-    const assigned = await this.prisma.orderTicket.findUniqueOrThrow({
-      where: { id },
-      include: orderInclude,
-    });
-    if (transition.state !== 'APPLIED') return assigned;
-
-    await this.auditService.log({
-      userId: actor.sub,
-      action: 'ASSIGN_DELIVERY_RIDER',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      oldValues: {
-        assignedRiderId: current.assignedRiderId,
-        assignedRiderName: current.assignedRider?.fullName ?? null,
-      },
-      newValues: {
+      sanitizedMetadata: {
+        previousAssignedRiderId: current.assignedRiderId,
         assignedRiderId: rider.id,
-        assignedRiderName: rider.fullName,
-        notes: dto.notes?.trim() || null,
+        notesPresent: Boolean(dto.notes?.trim()),
       },
     });
-
-    await this.createOperationalAlert({
-      type: 'DELIVERY_ASSIGNED',
-      module: 'deliveries',
-      severity: OperationalAlertSeverity.INFO,
-      title: 'Domicilio asignado',
-      message: `${assigned.number} fue asignado a ${assigned.assignedRider?.fullName ?? 'un domiciliario'}.`,
-      entityType: 'order_ticket',
-      entityId: assigned.id,
-      actorId: actor.sub,
-      metadata: {
-        riderId: assigned.assignedRiderId,
-        riderName: assigned.assignedRider?.fullName ?? null,
-      },
+    const reconciled = await this.reconcileDeliveryWorkflowConsequences({
+      orderTicketId: id,
+      workflowVersion: transition.version,
+      notes: dto.notes,
     });
+    const assigned =
+      reconciled?.order ??
+      (await this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude }));
     this.realtimeService.publishDeliveryWorkflowUpdated({
       entityId: assigned.id,
       workflowStatus: assigned.deliveryWorkflowStatus ?? DeliveryWorkflowStatus.ASSIGNED,
@@ -2662,23 +2647,43 @@ export class OrdersService {
       }
 
       const consequenceKey = `delivery:workflow:event:${event.id}`;
+      const isRiderAssignment = event.toStatus === DeliveryWorkflowStatus.ASSIGNED;
+      const auditAction = isRiderAssignment
+        ? 'ASSIGN_DELIVERY_RIDER'
+        : 'UPDATE_DELIVERY_WORKFLOW';
       const existingAudit = await tx.auditLog.findFirst({
-        where: { idempotencyKey: consequenceKey, action: 'UPDATE_DELIVERY_WORKFLOW' },
+        where: { idempotencyKey: consequenceKey, action: auditAction },
       });
       if (!existingAudit) {
         await this.auditService.log(
           {
             userId: event.actorId ?? undefined,
-            action: 'UPDATE_DELIVERY_WORKFLOW',
+            action: auditAction,
             module: 'orders',
             entity: 'order_ticket',
             entityId: order.id,
             idempotencyKey: consequenceKey,
-            oldValues: { deliveryWorkflowStatus: event.fromStatus },
+            oldValues: {
+              deliveryWorkflowStatus: event.fromStatus,
+              ...(isRiderAssignment
+                ? {
+                    assignedRiderId:
+                      event.sanitizedMetadata &&
+                      typeof event.sanitizedMetadata === 'object' &&
+                      !Array.isArray(event.sanitizedMetadata) &&
+                      'previousAssignedRiderId' in event.sanitizedMetadata
+                        ? event.sanitizedMetadata.previousAssignedRiderId
+                        : null,
+                  }
+                : {}),
+            },
             newValues: {
               status: effectiveOrder.status,
               deliveryWorkflowStatus: event.toStatus,
               assignedRiderId: effectiveOrder.assignedRiderId,
+              ...(isRiderAssignment
+                ? { assignedRiderName: effectiveOrder.assignedRider?.fullName ?? null }
+                : {}),
               notes,
               workflowVersion: event.version,
             },
@@ -2688,7 +2693,9 @@ export class OrdersService {
       }
 
       const alertType =
-        event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+        event.toStatus === DeliveryWorkflowStatus.ASSIGNED
+          ? 'DELIVERY_ASSIGNED'
+          : event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
           ? 'DELIVERY_IN_TRANSIT'
           : event.toStatus === DeliveryWorkflowStatus.DELIVERED
             ? 'DELIVERY_DELIVERED'
@@ -2714,7 +2721,9 @@ export class OrdersService {
                 ? OperationalAlertSeverity.CRITICAL
                 : OperationalAlertSeverity.INFO,
             title:
-              event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+              event.toStatus === DeliveryWorkflowStatus.ASSIGNED
+                ? 'Domicilio asignado'
+                : event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
                 ? 'Domicilio en camino'
                 : event.toStatus === DeliveryWorkflowStatus.DELIVERED
                   ? 'Domicilio entregado'
@@ -2722,7 +2731,9 @@ export class OrdersService {
                     ? 'Domicilio con novedad'
                     : 'Flujo de delivery actualizado',
             message:
-              event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+              event.toStatus === DeliveryWorkflowStatus.ASSIGNED
+                ? `${effectiveOrder.number} fue asignado a ${effectiveOrder.assignedRider?.fullName ?? 'un domiciliario'}.`
+                : event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
                 ? `${effectiveOrder.number} salió a entrega.`
                 : event.toStatus === DeliveryWorkflowStatus.DELIVERED
                   ? `${effectiveOrder.number} fue marcado como entregado.`
@@ -2737,6 +2748,12 @@ export class OrdersService {
               deliveryWorkflowEventId: event.id,
               workflowVersion: event.version,
               workflowStatus: event.toStatus,
+              ...(isRiderAssignment
+                ? {
+                    riderId: effectiveOrder.assignedRiderId,
+                    riderName: effectiveOrder.assignedRider?.fullName ?? null,
+                  }
+                : {}),
               notesPresent: Boolean(notes),
               issueType: input.issueType ?? null,
             },
