@@ -72,6 +72,31 @@ jobs:
         run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
       - name: Delivery Phase A
         run: pnpm --dir apps/api exec jest src/tests/delivery-receipt-phase-a.spec.ts --runInBand --detectOpenHandles
+      - name: Phase 6 focused live-operations suites
+        run: |
+          pnpm --dir apps/api exec jest \
+            src/modules/customer-service/complaint-recovery.spec.ts \
+            src/modules/customer-service/customer-service-case.service.spec.ts \
+            src/modules/customer-service/persistence/prisma-customer-service-case.repository.spec.ts \
+            src/modules/delivery-operations/delivery-location.policy.spec.ts \
+            src/modules/delivery-operations/delivery-operation.dto.spec.ts \
+            src/modules/delivery-operations/delivery-workflow.policy.spec.ts \
+            src/modules/delivery-operations/delivery-workflow.service.spec.ts \
+            src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts \
+            src/modules/notifications/domain/notification-domain.spec.ts \
+            src/modules/notifications/notification-outbox.service.spec.ts \
+            src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
+            src/modules/order-checkout/persistence/prisma-order-checkout-webhook-recovery.spec.ts \
+            src/modules/sofia/whatsapp/production/persistence/prisma-whatsapp-handoff.repository.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-rate-limit-policy.service.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-recovery.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-production.policy.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-production.security.spec.ts \
+            --runInBand \
+            --detectOpenHandles
+      - name: Phase 6 PostgreSQL persistence concurrency
+        run: TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest src/tests/phase6-persistence-concurrency.integration.spec.ts --runInBand --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM
