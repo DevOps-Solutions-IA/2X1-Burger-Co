@@ -5,7 +5,15 @@ const outputDir = process.env.EPHEMERAL_PLAYWRIGHT_OUTPUT;
 if (!baseURL || !outputDir) throw new Error('Ephemeral Playwright URLs/output are required.');
 
 export default defineConfig({
-  testDir: '../../tests/e2e/ephemeral',
+  testDir: '../../tests/e2e',
+  testMatch: [
+    'ephemeral/**/*.spec.ts',
+    'phase7-payment-production-reachability.spec.ts',
+    'sofia-manual-payments-phase-3.spec.ts',
+    'sofia-online-payments-phase-5-6.spec.ts',
+    'sofia-payment-link-page-phase-2.spec.ts',
+    'sofia-pos-delivery-operations-phase-4.spec.ts',
+  ],
   outputDir,
   fullyParallel: false,
   workers: 1,

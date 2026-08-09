@@ -1,11 +1,7 @@
+/* eslint-disable no-empty-pattern, react-hooks/rules-of-hooks, security/detect-non-literal-fs-filename */
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { PrismaClient } from '@prisma/client';
-import { hash } from 'bcryptjs';
 import { expect, request as playwrightRequest, test as base } from '@playwright/test';
-
-const workerPassword = 'E2eWorker12345*';
-const prisma = new PrismaClient();
 
 type WorkerAuthState = {
   file: string;
@@ -14,40 +10,20 @@ type WorkerAuthState = {
 
 const authPromises = new Map<number, Promise<WorkerAuthState>>();
 
-async function ensureWorkerAdmin(workerIndex: number) {
-  const email = `e2e-admin-worker-${workerIndex}@2x1burgerco.local`;
-  const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'admin' } });
-  await prisma.user.upsert({
-    where: { email },
-    update: {
-      fullName: `E2E Admin Worker ${workerIndex}`,
-      isActive: true,
-      roles: {
-        deleteMany: {},
-        create: [{ roleId: adminRole.id }],
-      },
-    },
-    create: {
-      email,
-      fullName: `E2E Admin Worker ${workerIndex}`,
-      passwordHash: await hash(workerPassword, 12),
-      isActive: true,
-      roles: {
-        create: [{ roleId: adminRole.id }],
-      },
-    },
-  });
-  return { email, password: workerPassword };
-}
-
 async function createWorkerAuth(workerIndex: number): Promise<WorkerAuthState> {
   const authDir = process.env.PLAYWRIGHT_AUTH_DIR ?? path.join('/tmp', 'playwright-auth', `${Date.now()}-${process.pid}`);
   const file = path.join(authDir, `e2e-worker-${workerIndex}.json`);
   mkdirSync(authDir, { recursive: true });
-  const credentials = await ensureWorkerAdmin(workerIndex);
+  const credentials = {
+    email: process.env.EPHEMERAL_ADMIN_EMAIL,
+    password: process.env.EPHEMERAL_ADMIN_PASSWORD,
+  };
+  if (!credentials.email || !credentials.password) {
+    throw new Error('Ephemeral admin credentials are required for worker authentication.');
+  }
 
   const request = await playwrightRequest.newContext({
-    baseURL: process.env.BASE_URL ?? 'http://localhost',
+    baseURL: process.env.EPHEMERAL_WEB_BASE_URL,
     storageState: existsSync(file) ? file : undefined,
   });
 

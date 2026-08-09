@@ -9,8 +9,8 @@ MANIFEST_URL="${MANIFEST_URL:-${WEB_BASE_URL}/manifest.webmanifest}"
 API_VERSION_URL="${API_VERSION_URL:-${API_BASE_URL}/version}"
 WEB_VERSION_URL="${WEB_VERSION_URL:-${WEB_BASE_URL}/version}"
 
-echo "Checking API health at ${API_BASE_URL}/health"
-curl --fail --silent --show-error "${API_BASE_URL}/health" >/dev/null
+echo "Checking API readiness at ${API_BASE_URL}/health/ready"
+curl --fail --silent --show-error "${API_BASE_URL}/health/ready" >/dev/null
 
 echo "Checking web login at ${WEB_BASE_URL}/login"
 curl --fail --silent --show-error "${WEB_BASE_URL}/login" >/dev/null

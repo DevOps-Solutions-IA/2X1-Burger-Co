@@ -120,6 +120,7 @@ describe('production Sofia safety validation', () => {
     ['PHASE5_PAYMENT_ORCHESTRATION_ENABLED', 'true', 'PHASE5_PROD_PAYMENT_MUTATION_FORBIDDEN'],
     ['PHASE5_KITCHEN_ENABLED', 'true', 'PHASE5_PROD_KITCHEN_MUTATION_FORBIDDEN'],
     ['PHASE5_TEST_OPERATIONAL_ENABLED', 'true', 'PHASE5_PROD_TEST_GATE_FORBIDDEN'],
+    ['SOFIA_AI_REDACT_PERSONAL_DATA', 'false', 'SOFIA_PROD_AI_REDACTION_REQUIRED'],
   ])('rejects %s=%s with a sanitized reason code', (key, value, reasonCode) => {
     const sensitiveMarker = 'must-not-appear-in-validation-errors';
     expect(() =>
@@ -168,6 +169,25 @@ describe('production Sofia safety validation', () => {
       ...productionEnv,
       BOLD_BASE_URL: 'https://integrations.api.bold.co',
     }).BOLD_BASE_URL).toBe('https://integrations.api.bold.co');
+  });
+
+  it('allows only the credential-free official DeepSeek endpoint in production', () => {
+    for (const endpoint of [
+      'http://api.deepseek.com',
+      'https://user:password@api.deepseek.com',
+      'https://127.0.0.1',
+      'https://deepseek.internal',
+      'https://api.deepseek.com:8443',
+      'https://api.deepseek.com/private',
+    ]) {
+      expect(() => validateEnv({ ...productionEnv, DEEPSEEK_BASE_URL: endpoint }))
+        .toThrow('SOFIA_PROD_DEEPSEEK_ENDPOINT_FORBIDDEN');
+    }
+
+    expect(validateEnv({
+      ...productionEnv,
+      DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+    }).DEEPSEEK_BASE_URL).toBe('https://api.deepseek.com');
   });
 
   it.each([

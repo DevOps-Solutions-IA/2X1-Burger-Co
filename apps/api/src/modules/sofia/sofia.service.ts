@@ -639,6 +639,7 @@ export class SofiaService {
   }
 
   async registerMockInbound(dto: CreateMockConversationDto, actorId: string) {
+    this.assertTestOnlyMockRuntime();
     const conversation = await this.getOrCreateConversation(dto);
     const message = await this.prisma.whatsappMessage.create({
       data: {
@@ -669,6 +670,7 @@ export class SofiaService {
   }
 
   async registerMockOutbound(conversationId: string, body: string, rawPayload: Record<string, unknown> | undefined, actorId: string) {
+    this.assertTestOnlyMockRuntime();
     await this.findConversation(conversationId);
     const message = await this.prisma.whatsappMessage.create({
       data: {
@@ -695,6 +697,12 @@ export class SofiaService {
     });
 
     return this.findConversation(conversationId);
+  }
+
+  private assertTestOnlyMockRuntime() {
+    if (this.configService.get<string>('NODE_ENV') !== 'test') {
+      throw new ForbiddenException({ code: 'SOFIA_MOCK_RUNTIME_FORBIDDEN' });
+    }
   }
 
   async handoffConversation(conversationId: string, assignedToUserId: string | undefined, actorId: string) {

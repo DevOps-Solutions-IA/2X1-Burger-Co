@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RELEASE_REF="${1:-HEAD}"
 OUTPUT_ROOT="${RELEASE_OUTPUT_DIR:-$ROOT_DIR/.release/artifacts}"
+TAG_SUFFIX="${RELEASE_TAG_SUFFIX:-}"
+[[ "$TAG_SUFFIX" =~ ^(-[a-z0-9]{1,24})?$ ]] || { printf '[error] invalid release tag suffix\n' >&2; exit 2; }
 COMMIT="$(git -C "$ROOT_DIR" rev-parse "${RELEASE_REF}^{commit}")"
 EPOCH="$(git -C "$ROOT_DIR" show -s --format=%ct "$COMMIT")"
 TEMP_DIR="$(mktemp -d /tmp/inventory-release-build.XXXXXX)"
@@ -34,9 +36,12 @@ COMMON_ARGS=(
   --build-arg "OCI_VERSION=$(node -p "require('$TEMP_DIR/.release/release-manifest.json').releaseVersion")"
   --build-arg "RELEASE_BUILD_ID=$BUILD_ID"
 )
+if [[ "${RELEASE_NO_CACHE:-false}" == true ]]; then
+  COMMON_ARGS+=(--no-cache)
+fi
 
-API_TAG="inventory-fastfood-api:$BUILD_ID"
-WEB_TAG="inventory-fastfood-web:$BUILD_ID"
+API_TAG="inventory-fastfood-api:${BUILD_ID}${TAG_SUFFIX}"
+WEB_TAG="inventory-fastfood-web:${BUILD_ID}${TAG_SUFFIX}"
 if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.api" -t "$API_TAG" "$TEMP_DIR" \
   >"$OUTPUT_DIR/api-build.log" 2>&1; then
   cat "$OUTPUT_DIR/api-build.log" >&2

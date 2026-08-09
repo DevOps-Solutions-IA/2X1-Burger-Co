@@ -197,6 +197,9 @@ const envSchema = z
       if (data.PHASE5_TEST_OPERATIONAL_ENABLED) {
         reject('PHASE5_TEST_OPERATIONAL_ENABLED', 'PHASE5_PROD_TEST_GATE_FORBIDDEN');
       }
+      if (!data.SOFIA_AI_REDACT_PERSONAL_DATA) {
+        reject('SOFIA_AI_REDACT_PERSONAL_DATA', 'SOFIA_PROD_AI_REDACTION_REQUIRED');
+      }
       if (!data.COOKIE_SECURE) {
         reject('COOKIE_SECURE', 'PROD_SECURE_COOKIE_REQUIRED');
       }
@@ -243,6 +246,21 @@ const envSchema = z
         boldBaseUrl.port
       ) {
         reject('BOLD_BASE_URL', 'PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+      }
+      if (data.DEEPSEEK_BASE_URL) {
+        const deepseekBaseUrl = new URL(data.DEEPSEEK_BASE_URL);
+        if (
+          deepseekBaseUrl.protocol !== 'https:'
+          || deepseekBaseUrl.hostname !== 'api.deepseek.com'
+          || deepseekBaseUrl.username
+          || deepseekBaseUrl.password
+          || deepseekBaseUrl.port
+          || !['', '/'].includes(deepseekBaseUrl.pathname)
+          || deepseekBaseUrl.search
+          || deepseekBaseUrl.hash
+        ) {
+          reject('DEEPSEEK_BASE_URL', 'SOFIA_PROD_DEEPSEEK_ENDPOINT_FORBIDDEN');
+        }
       }
       if (data.WHATSAPP_QR_ENABLED && data.WHATSAPP_PROVIDER === 'qr_gateway') {
         if (!data.WHATSAPP_EXPECTED_ACCOUNT_ID || !data.WHATSAPP_EXPECTED_BUSINESS_IDENTITY || !data.WHATSAPP_EXPECTED_SESSION_OWNER) {

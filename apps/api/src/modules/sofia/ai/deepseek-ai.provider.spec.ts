@@ -311,6 +311,20 @@ describe('DeepSeekAIProvider resilience', () => {
     expect(output.diagnostics).toContain('AI_PROVIDER_FALLBACK:DEEPSEEK_INVALID_JSON');
   });
 
+  it('rejects an oversized provider response without retrying or exposing it', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(new Response(
+      JSON.stringify({ payload: 'x'.repeat(1_048_576) }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const output = await provider({ DEEPSEEK_MAX_RETRIES: 3 }).service.analyzeMessage(input);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(output.fallbackUsed).toBe(true);
+    expect(output.diagnostics).toContain('AI_PROVIDER_FALLBACK:DEEPSEEK_RESPONSE_TOO_LARGE');
+  });
+
   it('bounds timeout retries and falls back without an operational claim', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0);
     const fetchMock = jest.fn((_url: string, init?: RequestInit) => {

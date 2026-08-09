@@ -4,5 +4,14 @@
     "noEmit": true,
     "types": ["node", "@playwright/test"]
   },
-  "include": ["./ephemeral/**/*.ts", "../../infra/testing/playwright.ephemeral.config.ts"]
+  "include": [
+    "./ephemeral/**/*.ts",
+    "./fixtures/**/*.ts",
+    "./phase7-payment-production-reachability.spec.ts",
+    "./sofia-manual-payments-phase-3.spec.ts",
+    "./sofia-online-payments-phase-5-6.spec.ts",
+    "./sofia-payment-link-page-phase-2.spec.ts",
+    "./sofia-pos-delivery-operations-phase-4.spec.ts",
+    "../../infra/testing/playwright.ephemeral.config.ts"
+  ]
 }

@@ -14,7 +14,7 @@ export default defineConfig({
     {
       command:
         'bash -lc "bash infra/scripts/prepare-test-db.sh && source infra/scripts/load-env.sh && NODE_ENV=test PORT=4301 CORS_ORIGIN=http://127.0.0.1:3302 APP_URL=http://127.0.0.1:3302 pnpm --filter @inventory-fastfood/api start:dev"',
-      url: 'http://127.0.0.1:4301/health',
+      url: 'http://127.0.0.1:4301/health/ready',
       timeout: 120000,
       reuseExistingServer: true,
     },

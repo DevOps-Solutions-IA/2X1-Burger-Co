@@ -27,7 +27,7 @@
     "e2e": "playwright test",
     "test:e2e:ephemeral": "bash infra/testing/run-ephemeral-e2e.sh",
     "test:e2e:core": "EPHEMERAL_INCLUDE_CORE_OPERATIONAL=true bash infra/testing/run-ephemeral-e2e.sh",
-    "test:e2e:lint": "eslint tests/e2e/ephemeral --max-warnings=0",
+    "test:e2e:lint": "eslint tests/e2e/ephemeral tests/e2e/fixtures tests/e2e/phase7-payment-production-reachability.spec.ts tests/e2e/sofia-manual-payments-phase-3.spec.ts tests/e2e/sofia-online-payments-phase-5-6.spec.ts tests/e2e/sofia-payment-link-page-phase-2.spec.ts tests/e2e/sofia-pos-delivery-operations-phase-4.spec.ts --max-warnings=0",
     "test:e2e:typecheck": "tsc -p tests/e2e/tsconfig.json --noEmit",
     "test:e2e:ephemeral:guard": "node --test infra/testing/db-guard.test.mjs",
     "test:e2e:ephemeral:rbac-source": "node infra/testing/rbac-source-audit.mjs",

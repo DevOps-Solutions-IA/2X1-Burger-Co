@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BoundedJsonResponseError, readBoundedJson } from '../../../common/security/bounded-json-response';
 import {
   SofiaAIAnalysisInput,
   SofiaAIAnalysisOutput,
@@ -36,6 +37,7 @@ const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 100;
 const RETRY_MAX_DELAY_MS = 1_000;
 const MAX_CATALOG_ITEMS = 50;
+const MAX_RESPONSE_BYTES = 1_048_576;
 
 type DeepSeekPayload = { choices?: Array<{ message?: { content?: string } }> };
 
@@ -253,11 +255,7 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
             response.status === 408 || response.status === 429 || response.status >= 500,
           );
         }
-        try {
-          return (await response.json()) as T;
-        } catch {
-          throw new DeepSeekRequestError('DEEPSEEK_INVALID_JSON', false);
-        }
+        return this.readBoundedJson<T>(response);
       } catch (error) {
         lastError = this.normalizeRequestError(error);
       } finally {
@@ -269,6 +267,20 @@ export class DeepSeekAIProvider extends SofiaAIProviderAdapter {
     }
 
     throw lastError;
+  }
+
+  private async readBoundedJson<T>(response: Response): Promise<T> {
+    try {
+      return await readBoundedJson<T>(response, MAX_RESPONSE_BYTES);
+    } catch (error) {
+      if (
+        error instanceof BoundedJsonResponseError
+        && error.code === 'PROVIDER_RESPONSE_TOO_LARGE'
+      ) {
+        throw new DeepSeekRequestError('DEEPSEEK_RESPONSE_TOO_LARGE', false);
+      }
+      throw new DeepSeekRequestError('DEEPSEEK_INVALID_JSON', false);
+    }
   }
 
   private normalizeRequestError(error: unknown): DeepSeekRequestError {

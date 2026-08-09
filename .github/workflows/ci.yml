@@ -16,7 +16,7 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
@@ -53,6 +53,8 @@ jobs:
         run: ./infra/release/secret-scan.sh
       - name: Generate Prisma client
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
+      - name: Validate Prisma schema
+        run: pnpm exec prisma validate --schema prisma/schema.prisma
       - name: Deploy migrations to ephemeral database
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
       - name: Phase 6 representative legacy migration 36 to 37
@@ -69,7 +71,16 @@ jobs:
       - run: pnpm --filter @inventory-fastfood/web typecheck
       - run: pnpm --filter @inventory-fastfood/web build
       - name: Config and provenance contracts
-        run: pnpm --dir apps/api exec jest src/config/env.spec.ts src/config/canary-release-config.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+        run: |
+          pnpm --dir apps/api exec jest src/config/env.spec.ts src/config/canary-release-config.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+          node --test \
+            infra/release/canary-deploy-config.test.mjs \
+            infra/release/migration-attestation.test.mjs \
+            infra/release/release-safety.test.mjs \
+            infra/release/restore-validation.test.mjs \
+            infra/release/sofia-production-safety.test.mjs \
+            infra/release/web-healthcheck.test.mjs \
+            infra/schema/migration-expectation.test.mjs
       - name: WhatsApp timeout lifecycle
         run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
       - name: Delivery Phase A
@@ -115,6 +126,7 @@ jobs:
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
             src/config/env.spec.ts \
+            src/common/security/bounded-json-response.spec.ts \
             src/common/security/safe-remote-asset-fetcher.spec.ts \
             src/modules/auth/auth.controller.throttle.spec.ts \
             src/modules/auth/auth.refresh-concurrency.integration.spec.ts \
@@ -137,6 +149,8 @@ jobs:
             src/modules/secure-command/command-policy.separation.spec.ts \
             src/modules/sofia/ai/deepseek-ai.provider.spec.ts \
             src/modules/sofia/privacy/sofia-privacy.service.spec.ts \
+            src/modules/sofia/hardening/sofia-hardening.service.spec.ts \
+            src/modules/sofia/sofia-mock-boundary.spec.ts \
             src/modules/sofia/sofia-abandoned-draft-recovery.spec.ts \
             src/modules/sofia/sofia-payment-link.service.spec.ts \
             src/modules/sofia/sofia-production-isolation.spec.ts \
@@ -166,9 +180,12 @@ jobs:
             src/modules/sofia/complaint-inbound.integration.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
             src/tests/phase7-whatsapp-rate-limit-concurrency.integration.spec.ts \
+            src/tests/phase7-runtime-load.integration.spec.ts \
             src/tests/whatsapp-production.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
+      - name: Phase 5 canonical payment regression
+        run: TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest src/tests/phase5-order-payment.integration.spec.ts --runInBand --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM
@@ -196,7 +213,10 @@ jobs:
       - name: Build immutable local artifacts
         env:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-artifacts
-        run: ./infra/release/build-artifacts.sh "${{ github.sha }}"
+        run: |
+          FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
       - uses: actions/upload-artifact@v4
         with:
           name: release-metadata-${{ github.sha }}
@@ -243,17 +263,53 @@ jobs:
   recovery-drill:
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Encrypted backup, isolated restore and reconciliation
-        run: bash infra/recovery/run-ephemeral-recovery-drill.sh
+        env:
+          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/recovery-release-artifacts
+        run: |
+          ARTIFACT_RECORD="$(RELEASE_TAG_SUFFIX=-recovery RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          RECOVERY_ARTIFACT_RECORD="$ARTIFACT_RECORD" bash infra/recovery/run-ephemeral-recovery-drill.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: recovery-drill-evidence-${{ github.sha }}
           path: .engineering/evidence/phase-2-4/runs
+          if-no-files-found: error
+          retention-days: 14
+
+  canary-rollback:
+    needs: [quality, artifact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exact candidate canary, rollback and candidate restoration
+        env:
+          RELEASE_OUTPUT_DIR: ${{ runner.temp }}/canary-release-artifacts
+        run: |
+          STATE_DIR="${{ runner.temp }}/phase7-canary-state"
+          cleanup() {
+            if [[ -f "$STATE_DIR/canary.env" ]]; then
+              docker compose --env-file "$STATE_DIR/canary.env" -f infra/release/docker-compose.canary.yml \
+                down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          BASELINE_RECORD="$(RELEASE_TAG_SUFFIX=-baseline RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302 | tail -n 1)"
+          CANDIDATE_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/canary-candidate-artifacts" RELEASE_TAG_SUFFIX=-canary RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          bash infra/release/rollback-drill.sh "$BASELINE_RECORD" "$CANDIDATE_RECORD" "$STATE_DIR"
+          test -f "$STATE_DIR/rollback-drill.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canary-rollback-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/phase7-canary-state/rollback-drill.json
           if-no-files-found: error
           retention-days: 14

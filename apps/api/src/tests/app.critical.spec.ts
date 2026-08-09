@@ -4957,7 +4957,8 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(metrics.body.payments.whatsappCanMarkPaid).toBe(false);
-    expect(metrics.body.system.logSanitizationStatus).toBe('PASS');
+    expect(metrics.body.system.health).toBe('AGGREGATE_METRICS_ONLY');
+    expect(metrics.body.system.logSanitizationStatus).toBe('VERIFIED_EXECUTABLE');
     expect(JSON.stringify(metrics.body)).not.toContain('DEEPSEEK_API_KEY');
     expect(JSON.stringify(metrics.body)).not.toContain('HERMES_API_TOKEN');
 
@@ -5053,7 +5054,8 @@ describe('Critical business flows', () => {
       .get('/admin/sofia/hardening/status')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(hardening.body.logSanitizationStatus).toBe('PASS');
+    expect(hardening.body.logSanitizationStatus).toBe('VERIFIED_EXECUTABLE');
+    expect(Object.values(hardening.body.checks)).toEqual([true, true, true, true]);
     expect(JSON.stringify(hardening.body.sample)).not.toContain('/home/');
     expect(JSON.stringify(hardening.body.sample)).not.toContain('qr-secret');
 

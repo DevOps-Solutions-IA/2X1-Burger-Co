@@ -72,6 +72,68 @@ describe('Phase 7 PostgreSQL WhatsApp rate-limit concurrency', () => {
     expect(await prisma.whatsappInboundEvent.count({ where: { accountId: account.id } })).toBe(31);
   });
 
+  it('admits the final configured sender slot and deterministically blocks the next event', async () => {
+    const account = await repository.resolveAccount({
+      provider: 'qr_gateway',
+      externalAccountId: 'phase7-liveness-account',
+      businessIdentity: 'phase7-liveness-business',
+      sessionOwner: 'phase7-liveness-session-owner',
+    });
+    const sender = '573009876543';
+    const windowStartedAt = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+
+    for (let index = 0; index < 19; index += 1) {
+      await repository.claimInbound({
+        accountId: account.id,
+        provider: 'qr_gateway',
+        eventId: `phase7-liveness-pre-${index}`,
+        messageId: `phase7-liveness-pre-message-${index}`,
+        phone: sender,
+        eventHash: `phase7-liveness-pre-hash-${index}`,
+        normalizedPayloadHash: `phase7-liveness-pre-hash-${index}`,
+        eventKind: WhatsappInboundEventKind.INBOUND_MESSAGE,
+      });
+    }
+
+    await repository.claimInbound({
+      accountId: account.id,
+      provider: 'qr_gateway',
+      eventId: 'phase7-liveness-final-slot',
+      messageId: 'phase7-liveness-final-slot-message',
+      phone: sender,
+      eventHash: 'phase7-liveness-final-slot-hash',
+      normalizedPayloadHash: 'phase7-liveness-final-slot-hash',
+      eventKind: WhatsappInboundEventKind.INBOUND_MESSAGE,
+    });
+    const finalSlot = await repository.consumeInboundRateLimit({
+      accountId: account.id,
+      sender,
+      accountLimit: 300,
+      senderLimit: 20,
+      windowStartedAt,
+    });
+    expect(finalSlot.allowed).toBe(true);
+
+    await repository.claimInbound({
+      accountId: account.id,
+      provider: 'qr_gateway',
+      eventId: 'phase7-liveness-over-limit',
+      messageId: 'phase7-liveness-over-limit-message',
+      phone: sender,
+      eventHash: 'phase7-liveness-over-limit-hash',
+      normalizedPayloadHash: 'phase7-liveness-over-limit-hash',
+      eventKind: WhatsappInboundEventKind.INBOUND_MESSAGE,
+    });
+    const blocked = await repository.consumeInboundRateLimit({
+      accountId: account.id,
+      sender,
+      accountLimit: 300,
+      senderLimit: 20,
+      windowStartedAt,
+    });
+    expect(blocked).toMatchObject({ allowed: false, reasonCode: 'WHATSAPP_SENDER_RATE_LIMITED' });
+  });
+
   it('grants one QR session lease and fences the competing replica', async () => {
     const first = new QrSessionOwnershipCoordinator(prisma, 30_000);
     const second = new QrSessionOwnershipCoordinator(prisma, 30_000);

@@ -1,6 +1,6 @@
 services:
   ephemeral-postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     environment:
       POSTGRES_DB: ${EPHEMERAL_POSTGRES_DB:?required}
       POSTGRES_USER: ${EPHEMERAL_POSTGRES_USER:?required}
@@ -86,7 +86,7 @@ services:
       default:
         aliases: [api]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/ready >/dev/null || exit 1"]
       interval: 2s
       timeout: 3s
       retries: 40

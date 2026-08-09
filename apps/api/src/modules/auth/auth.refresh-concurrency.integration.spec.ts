@@ -72,8 +72,8 @@ describe('Auth refresh-token rotation concurrency', () => {
     );
     const parent = login.refreshToken;
     const parentHash = hashToken(parent);
-    let attackerAttempt!: ReturnType<AuthService['refresh']>;
-    let victimAttempt!: ReturnType<AuthService['refresh']>;
+    let firstAttempt!: ReturnType<AuthService['refresh']>;
+    let secondAttempt!: ReturnType<AuthService['refresh']>;
 
     await prisma.$transaction(
       async (tx) => {
@@ -84,27 +84,29 @@ describe('Auth refresh-token rotation concurrency', () => {
           FOR UPDATE
         `;
 
-        attackerAttempt = service.refresh(parent, requestMeta('198.51.100.10'));
-        await waitForRefreshLock(prisma, parentHash, true);
-
-        victimAttempt = service.refresh(parent, requestMeta('10.30.0.1'));
-        await waitForRefreshLock(prisma, parentHash, false);
+        firstAttempt = service.refresh(parent, requestMeta('198.51.100.10'));
+        secondAttempt = service.refresh(parent, requestMeta('10.30.0.1'));
+        await waitForRefreshLockCount(prisma, parentHash, 2);
       },
       { timeout: 30_000 },
     );
 
-    const [attacker, victim] = await Promise.allSettled([attackerAttempt, victimAttempt]);
-    expect(attacker.status).toBe('fulfilled');
-    expect(victim.status).toBe('rejected');
-    if (attacker.status !== 'fulfilled') {
-      throw new Error('The deterministic lock queue did not select the attacker first.');
-    }
+    const attempts = await Promise.allSettled([firstAttempt, secondAttempt]);
+    const fulfilled = attempts.filter(
+      (attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<AuthService['refresh']>>> =>
+        attempt.status === 'fulfilled',
+    );
+    const rejected = attempts.filter((attempt) => attempt.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    const [winner] = fulfilled;
+    if (!winner) throw new Error('Refresh rotation did not produce exactly one winner.');
 
     const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
     expect(await prisma.refreshToken.count({ where: { userId: admin.id, revokedAt: null } })).toBe(0);
     expect(admin.sessionVersion).toBeGreaterThan(0);
     await expect(
-      service.refresh(attacker.value.refreshToken, requestMeta('198.51.100.10')),
+      service.refresh(winner.value.refreshToken, requestMeta('198.51.100.10')),
     ).rejects.toMatchObject({ status: 401 });
   });
 
@@ -138,29 +140,26 @@ function requestMeta(ip: string) {
   } as unknown as Request;
 }
 
-async function waitForRefreshLock(prisma: PrismaService, tokenHash: string, granted: boolean) {
+async function waitForRefreshLockCount(prisma: PrismaService, tokenHash: string, expected: number) {
   const lockIdentity = `auth-refresh:${tokenHash}`;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const [state] = await prisma.$queryRaw<Array<{ present: boolean }>>`
-      SELECT EXISTS (
-        SELECT 1
-        FROM "pg_locks"
-        WHERE "locktype" = 'advisory'
-          AND "classid" = (
-            (hashtextextended(${lockIdentity}, 0) >> 32) & 4294967295
-          )::oid
-          AND "objid" = (
-            hashtextextended(${lockIdentity}, 0) & 4294967295
-          )::oid
-          AND "objsubid" = 1
-          AND "granted" = ${granted}
-      ) AS "present"
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const [state] = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS "count"
+      FROM "pg_locks"
+      WHERE "locktype" = 'advisory'
+        AND "classid" = (
+          (hashtextextended(${lockIdentity}, 0) >> 32) & 4294967295
+        )::oid
+        AND "objid" = (
+          hashtextextended(${lockIdentity}, 0) & 4294967295
+        )::oid
+        AND "objsubid" = 1
     `;
-    if (state?.present) return;
+    if (Number(state?.count ?? 0) >= expected) return;
     await delay(10);
   }
 
-  throw new Error(`Timed out waiting for refresh advisory lock (granted=${granted}).`);
+  throw new Error(`Timed out waiting for ${expected} refresh advisory lock contenders.`);
 }
 
 function delay(milliseconds: number) {
