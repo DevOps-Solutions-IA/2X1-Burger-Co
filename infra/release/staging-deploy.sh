@@ -25,6 +25,72 @@ validate_image_reference "${WEB_IMAGE:-}"
 [[ "${API_IMAGE%@sha256:*}" == "$ALLOWED_API_IMAGE_REPOSITORY" ]]
 [[ "${WEB_IMAGE%@sha256:*}" == "$ALLOWED_WEB_IMAGE_REPOSITORY" ]]
 
+validate_root_owned_config_file() {
+  local file_path="$1"
+  local description="$2"
+  local mode
+
+  [[ "$file_path" =~ ^/[A-Za-z0-9._/-]+$ && "$file_path" != *".."* ]] \
+    || fail "$description path is invalid."
+  [[ -f "$file_path" && ! -L "$file_path" ]] || fail "$description must be a regular non-symlink file."
+  [[ "$(stat -c '%u' "$file_path")" == "0" ]] || fail "$description must be owned by root."
+  mode="$(stat -c '%a' "$file_path")"
+  (( (8#$mode & 8#022) == 0 )) || fail "$description must not be writable by group or other users."
+}
+
+STAGING_PROTECTED_CONFIG_PATH="${STAGING_PROTECTED_CONFIG_PATH:-}"
+COSIGN_VERIFICATION_KEY_PATH="${COSIGN_VERIFICATION_KEY_PATH:-}"
+ARTIFACT_SIGNING_KEY_FINGERPRINT="${ARTIFACT_SIGNING_KEY_FINGERPRINT:-}"
+EXPECTED_SLSA_BUILDER_ID="${EXPECTED_SLSA_BUILDER_ID:-}"
+EXPECTED_SOURCE_REPOSITORY="${EXPECTED_SOURCE_REPOSITORY:-}"
+BACKUP_GPG_RECIPIENT="${BACKUP_GPG_RECIPIENT:-}"
+BACKUP_GPG_SIGNING_FINGERPRINT="${BACKUP_GPG_SIGNING_FINGERPRINT:-}"
+BACKUP_GNUPGHOME="${BACKUP_GNUPGHOME:-}"
+BACKUP_DATABASE_IDENTITY_HASH="${BACKUP_DATABASE_IDENTITY_HASH:-}"
+
+validate_root_owned_config_file "$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"
+validate_root_owned_config_file "$COSIGN_VERIFICATION_KEY_PATH" "Cosign verification key"
+[[ "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")" && \
+   "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")/"* ]] \
+  || fail "Protected staging runtime configuration must remain outside the checkout."
+[[ "$(realpath "$COSIGN_VERIFICATION_KEY_PATH")" != "$(realpath "$STAGING_PATH")" && \
+   "$(realpath "$COSIGN_VERIFICATION_KEY_PATH")" != "$(realpath "$STAGING_PATH")/"* ]] \
+  || fail "Cosign verification key must remain outside the checkout."
+[[ "$ARTIFACT_SIGNING_KEY_FINGERPRINT" =~ ^sha256:[a-f0-9]{64}$ ]] \
+  || fail "Artifact signing key fingerprint is required."
+[[ "sha256:$(sha256sum "$COSIGN_VERIFICATION_KEY_PATH" | awk '{print $1}')" == "$ARTIFACT_SIGNING_KEY_FINGERPRINT" ]] \
+  || fail "Cosign verification key does not match the protected fingerprint."
+[[ "$EXPECTED_SLSA_BUILDER_ID" =~ ^[A-Za-z0-9:/@._+-]{3,512}$ ]] \
+  || fail "Expected SLSA builder identity is invalid."
+[[ "$EXPECTED_SOURCE_REPOSITORY" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] \
+  || fail "Expected source repository is invalid."
+[[ "$BACKUP_GPG_RECIPIENT" =~ ^[A-F0-9]{40}$ ]] || fail "Backup GPG recipient fingerprint is invalid."
+[[ "$BACKUP_GPG_SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]] \
+  || fail "Backup GPG signing fingerprint is invalid."
+[[ "$BACKUP_DATABASE_IDENTITY_HASH" =~ ^sha256:[a-f0-9]{64}$ ]] \
+  || fail "Independent backup database identity hash is invalid."
+[[ "$BACKUP_GNUPGHOME" =~ ^/[A-Za-z0-9._/-]+$ && "$BACKUP_GNUPGHOME" != *".."* && \
+   -d "$BACKUP_GNUPGHOME" && ! -L "$BACKUP_GNUPGHOME" ]] \
+  || fail "Backup GNUPGHOME must be an absolute protected directory."
+[[ "$(stat -c '%a' "$BACKUP_GNUPGHOME")" == "700" ]] || fail "Backup GNUPGHOME must have mode 700."
+[[ "$(stat -c '%u' "$BACKUP_GNUPGHOME")" == "$(id -u)" ]] \
+  || fail "Backup GNUPGHOME must be owned by the staging deployment user."
+if grep -Eq '^[[:space:]]*(BACKUP_SOURCE_SHA|BACKUP_ENVIRONMENT|BACKUP_GPG_RECIPIENT|BACKUP_GPG_SIGNING_FINGERPRINT|GNUPGHOME|REQUIRE_BACKUP_METADATA_V2|EXPECTED_SOURCE_SHA|EXPECTED_BACKUP_[A-Z0-9_]+)[[:space:]]*=' \
+  "$STAGING_PROTECTED_CONFIG_PATH"; then
+  fail "Protected release controls must not be overridden by the runtime environment file."
+fi
+
+command -v cosign >/dev/null 2>&1 || fail "cosign is required for artifact trust verification."
+command -v gpg >/dev/null 2>&1 || fail "gpg is required for backup authenticity verification."
+RESOLVED_BACKUP_RECIPIENT="$(GNUPGHOME="$BACKUP_GNUPGHOME" gpg --batch --with-colons \
+  --list-keys -- "$BACKUP_GPG_RECIPIENT" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')"
+[[ "$RESOLVED_BACKUP_RECIPIENT" == "$BACKUP_GPG_RECIPIENT" ]] \
+  || fail "Backup GNUPGHOME does not contain the configured recipient."
+RESOLVED_BACKUP_SIGNER="$(GNUPGHOME="$BACKUP_GNUPGHOME" gpg --batch --with-colons \
+  --list-secret-keys -- "$BACKUP_GPG_SIGNING_FINGERPRINT" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')"
+[[ "$RESOLVED_BACKUP_SIGNER" == "$BACKUP_GPG_SIGNING_FINGERPRINT" ]] \
+  || fail "Backup GNUPGHOME does not contain the configured signing secret key."
+
 API_DIGEST="${API_IMAGE##*@}"
 WEB_DIGEST="${WEB_IMAGE##*@}"
 
@@ -93,6 +159,101 @@ cleanup_artifact_verification() {
 }
 trap cleanup_artifact_verification EXIT
 
+verify_attestation_contract() {
+  local statement_file="$1"
+  local expected_digest="$2"
+  local expected_type="$3"
+  local expected_commit="$4"
+
+  node - "$statement_file" "$expected_digest" "$expected_type" "$expected_commit" \
+    "$EXPECTED_SLSA_BUILDER_ID" "$EXPECTED_SOURCE_REPOSITORY" <<'NODE'
+const fs = require('node:fs');
+const [file, expectedDigest, expectedType, expectedCommit, expectedBuilder, expectedSource] = process.argv.slice(2);
+const raw = fs.readFileSync(file, 'utf8').trim();
+if (!raw || raw.length > 4 * 1024 * 1024) throw new Error('Attestation output is empty or unbounded');
+const parseDocuments = (input) => {
+  try {
+    const parsed = JSON.parse(input);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    const documents = [];
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = 0; index < input.length; index += 1) {
+      const character = input[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{') {
+        if (depth === 0) start = index;
+        depth += 1;
+      } else if (character === '}') {
+        depth -= 1;
+        if (depth < 0) throw new Error('Malformed attestation JSON stream');
+        if (depth === 0 && start >= 0) {
+          documents.push(JSON.parse(input.slice(start, index + 1)));
+          start = -1;
+        }
+      }
+    }
+    if (depth !== 0 || inString || documents.length === 0) throw new Error('Malformed attestation JSON stream');
+    return documents;
+  }
+};
+const records = parseDocuments(raw);
+const strings = (value, output = []) => {
+  if (typeof value === 'string') output.push(value);
+  else if (Array.isArray(value)) value.forEach((entry) => strings(entry, output));
+  else if (value && typeof value === 'object') Object.values(value).forEach((entry) => strings(entry, output));
+  return output;
+};
+const statements = records.map((record) => JSON.parse(Buffer.from(record.payload, 'base64').toString('utf8')));
+const subjectMatches = (statement) => statement.subject?.some((subject) => subject.digest?.sha256 === expectedDigest);
+const sourceMatches = (value) => {
+  const normalized = value.replace(/^git\+/u, '').replace(/\.git(?=@|#|$)/u, '');
+  return normalized === expectedSource || normalized.startsWith(`${expectedSource}@`) || normalized.startsWith(`${expectedSource}#`);
+};
+const valid = statements.some((statement) => {
+  if (!subjectMatches(statement)) return false;
+  if (expectedType === 'cyclonedx') {
+    return statement.predicateType === 'https://cyclonedx.org/bom' &&
+      statement.predicate?.bomFormat === 'CycloneDX' &&
+      Array.isArray(statement.predicate?.components);
+  }
+  const predicate = statement.predicate ?? {};
+  const builderId = predicate.runDetails?.builder?.id ?? predicate.builder?.id;
+  const values = strings(predicate);
+  return /^https:\/\/slsa\.dev\/provenance\/v(?:0\.2|1)$/u.test(statement.predicateType ?? '') &&
+    builderId === expectedBuilder && values.includes(expectedCommit) && values.some(sourceMatches);
+});
+if (!valid) throw new Error(`No ${expectedType} attestation satisfied the protected release contract`);
+NODE
+}
+
+verify_external_artifact() {
+  local image="$1"
+  local expected_commit="$2"
+  local slot="$3"
+  local digest="${image##*@sha256:}"
+  local signature_output="$ARTIFACT_VERIFY_DIR/${slot}-signature.json"
+  local sbom_output="$ARTIFACT_VERIFY_DIR/${slot}-sbom-attestation.json"
+  local provenance_output="$ARTIFACT_VERIFY_DIR/${slot}-provenance-attestation.json"
+
+  cosign verify --key "$COSIGN_VERIFICATION_KEY_PATH" "$image" >"$signature_output"
+  cosign verify-attestation --key "$COSIGN_VERIFICATION_KEY_PATH" --type cyclonedx \
+    "$image" >"$sbom_output"
+  cosign verify-attestation --key "$COSIGN_VERIFICATION_KEY_PATH" --type slsaprovenance \
+    "$image" >"$provenance_output"
+  verify_attestation_contract "$sbom_output" "$digest" cyclonedx "$expected_commit"
+  verify_attestation_contract "$provenance_output" "$digest" slsaprovenance "$expected_commit"
+}
+
 verify_release_image() {
   local image="$1"
   local role="$2"
@@ -156,7 +317,11 @@ NODE
 
 read_release_state "$STATE_DIR/current.env" "$STATE_DIR/current.validated"
 
-# Pulling and metadata extraction occur before DB credentials are exposed to either image.
+# External signatures and attestations are verified before pulling or exposing backup/DB access.
+verify_external_artifact "$API_IMAGE" "$RELEASE_COMMIT" candidate-api
+verify_external_artifact "$WEB_IMAGE" "$RELEASE_COMMIT" candidate-web
+verify_external_artifact "$BASELINE_API_IMAGE" "$BASELINE_RELEASE_COMMIT" baseline-api
+verify_external_artifact "$BASELINE_WEB_IMAGE" "$BASELINE_RELEASE_COMMIT" baseline-web
 docker pull "$API_IMAGE" >/dev/null
 docker pull "$WEB_IMAGE" >/dev/null
 docker pull "$BASELINE_API_IMAGE" >/dev/null
@@ -181,9 +346,14 @@ mkdir -p "$STAGING_BACKUP_DIR"
    "$(realpath "$STAGING_BACKUP_DIR")" != "$(realpath "$STAGING_PATH")/"* ]] \
   || fail "Staging backup directory resolves inside the clean checkout."
 BACKUP_OUTPUT="$(
+  RUNTIME_ENV_FILE="$STAGING_PROTECTED_CONFIG_PATH" \
   BACKUP_DIR="$STAGING_BACKUP_DIR" \
   BACKUP_SOURCE_SHA="$BASELINE_RELEASE_COMMIT" \
   BACKUP_ENVIRONMENT=staging \
+  BACKUP_GPG_RECIPIENT="$BACKUP_GPG_RECIPIENT" \
+  BACKUP_GPG_SIGNING_FINGERPRINT="$BACKUP_GPG_SIGNING_FINGERPRINT" \
+  BACKUP_SIGNING_GNUPGHOME="$BACKUP_GNUPGHOME" \
+  GNUPGHOME="$BACKUP_GNUPGHOME" \
     ./infra/scripts/backup.sh
 )"
 printf '%s\n' "$BACKUP_OUTPUT"
@@ -191,17 +361,28 @@ BACKUP_FILE="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^\[info\] Backup store
 [[ -n "$BACKUP_FILE" && "$BACKUP_FILE" == *.dump.gpg && -f "$BACKUP_FILE" ]]
 [[ "$(realpath "$BACKUP_FILE")" == "$(realpath "$STAGING_BACKUP_DIR")/"* ]] \
   || fail "Backup script did not use the isolated staging backup directory."
+for backup_evidence in "$BACKUP_FILE" "${BACKUP_FILE}.sha256" \
+  "${BACKUP_FILE}.sig" "${BACKUP_FILE}.metadata.json" \
+  "${BACKUP_FILE}.metadata.json.sha256" "${BACKUP_FILE}.metadata.json.sig"; do
+  [[ -f "$backup_evidence" && ! -L "$backup_evidence" ]] || fail "Backup evidence is incomplete."
+done
 REQUIRE_BACKUP_METADATA_V2=true \
 EXPECTED_BACKUP_SOURCE_SHA="$BASELINE_RELEASE_COMMIT" \
-EXPECTED_BACKUP_RECIPIENT_FINGERPRINT="${BACKUP_GPG_RECIPIENT:?}" \
+EXPECTED_BACKUP_RECIPIENT_FINGERPRINT="$BACKUP_GPG_RECIPIENT" \
+EXPECTED_BACKUP_SIGNING_FINGERPRINT="$BACKUP_GPG_SIGNING_FINGERPRINT" \
 EXPECTED_BACKUP_ENVIRONMENT=staging \
+EXPECTED_BACKUP_DATABASE_IDENTITY_HASH="$BACKUP_DATABASE_IDENTITY_HASH" \
+BACKUP_SIGNING_GNUPGHOME="$BACKUP_GNUPGHOME" \
+GNUPGHOME="$BACKUP_GNUPGHOME" \
+RUNTIME_ENV_FILE="$STAGING_PROTECTED_CONFIG_PATH" \
   ./infra/scripts/restore.sh "$BACKUP_FILE" --validate-only
 
 write_release_state "$STATE_DIR/candidate.env" "$STATE_DIR/candidate.validated" \
   "$API_IMAGE" "$WEB_IMAGE" "$RELEASE_COMMIT"
 
 API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" API_DIGEST="$API_DIGEST" WEB_DIGEST="$WEB_DIGEST" \
-  docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml run --rm --no-deps api \
+  docker compose --env-file "$STAGING_PROTECTED_CONFIG_PATH" \
+  -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml run --rm --no-deps api \
   sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma'
 
 rollback_to_baseline() {
@@ -211,14 +392,16 @@ rollback_to_baseline() {
   rm -f "$STATE_DIR/candidate.env" "$STATE_DIR/candidate.validated"
   API_IMAGE="$BASELINE_API_IMAGE" WEB_IMAGE="$BASELINE_WEB_IMAGE" \
     API_DIGEST="$baseline_api_digest" WEB_DIGEST="$baseline_web_digest" \
-    docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
+    docker compose --env-file "$STAGING_PROTECTED_CONFIG_PATH" \
+    -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx
   EXPECTED_RELEASE_COMMIT="$BASELINE_RELEASE_COMMIT" \
     EXPECTED_API_DIGEST="$baseline_api_digest" EXPECTED_WEB_DIGEST="$baseline_web_digest" \
     ./infra/scripts/smoke.sh
 }
 
 if ! API_IMAGE="$API_IMAGE" WEB_IMAGE="$WEB_IMAGE" API_DIGEST="$API_DIGEST" WEB_DIGEST="$WEB_DIGEST" \
-  docker compose -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx; then
+  docker compose --env-file "$STAGING_PROTECTED_CONFIG_PATH" \
+  -f docker-compose.yml -f infra/release/docker-compose.staging-images.yml up -d api web nginx; then
   rollback_to_baseline
   fail "Candidate startup failed; the validated baseline was restored."
 fi
