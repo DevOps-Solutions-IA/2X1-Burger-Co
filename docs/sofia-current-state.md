@@ -6,9 +6,9 @@ Este archivo es la fuente de verdad vigente para agentes. Los reportes historico
 
 ## Decision vigente
 
-**Phases 3, 4, 5 y 6 fusionadas. Phase 7 esta implementada en Draft PR #12 y en validacion final. Produccion permanece cerrada.**
+**Phases 3, 4, 5, 6 y 7 fusionadas. El backend esta listo para una activacion controlada futura. Produccion permanece cerrada.**
 
-El source actual en `main` es `064a2706c099c75b6a4cd68eb916b037cd6dc302` y contiene 37 migraciones. El runtime artifact local validado proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD de codigo revisado es `8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75` y su delta posterior al runtime solo fija acciones CI/CD a commits inmutables. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
+Phase 7 fue fusionada en `main` mediante `60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4` y el repositorio contiene 37 migraciones. El runtime artifact local validado proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD final de PR fue `b16a08aefd447ce680fdbdacd5614ea06763163d`. El CI remoto `31316328069` paso completo sobre ese HEAD. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
 
 ## Controles previstos del candidato
 
@@ -35,7 +35,7 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
 | Migracion Phase 6 | 37/37 validada y fusionada | No aplicada por este programa |
-| Phase 7 | Hardening implementado; Draft PR #12, CI final pendiente | Sin migration 38 |
+| Phase 7 | PR #12 fusionado; CI `31316328069` PASS | Sin migration 38 |
 
 ## Capacidades implementadas
 
@@ -63,7 +63,7 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | API/Web typecheck, build y lint | PASS | Runtime source `60af56e` |
 | Phase 6 CI | PASS y fusionada | PR #11 |
 | Phase 6 focalizada | 219/219 PASS | PostgreSQL aislado |
-| Phase 7 focalizada | 253/253 PASS dos veces | Runtime source anterior semanticamente equivalente; CI final pendiente |
+| Phase 7 focalizada | 253/253 PASS dos veces; CI remoto PASS | PR #12, run `31316328069` |
 | Concurrency/fault/load | 41/41 PASS | PostgreSQL aislado |
 | Checkout/payment Phase 5 | 15/15 PASS | PostgreSQL aislado |
 | Suite critica/RBAC | 92/92 PASS | PostgreSQL aislado |
@@ -89,17 +89,15 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 
 ## Bloqueadores de produccion
 
-1. Completar PR y CI remoto de Phase 7 sobre el SHA final.
-2. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
-3. Configurar secret store, rotacion y alert routing del entorno objetivo.
-4. Autorizar separadamente backup, restore, migraciones productivas y deployment del SHA exacto.
-5. Validar cuenta/sesion, QR e inbound fisico sobre el artifact autorizado.
-6. Ejecutar canary receive-only, rollback y observacion antes de activar cualquier envio.
-7. Autorizar separadamente Bold real, un destinatario de prueba y auto messaging; permanecen deshabilitados.
+1. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
+2. Configurar secret store, rotacion y alert routing del entorno objetivo.
+3. Autorizar separadamente backup, restore, migraciones productivas y deployment del SHA exacto.
+4. Validar cuenta/sesion, QR e inbound fisico sobre el artifact autorizado.
+5. Ejecutar canary receive-only, rollback y observacion antes de activar cualquier envio.
+6. Autorizar separadamente Bold real, un destinatario de prueba y auto messaging; permanecen deshabilitados.
 
 ## Owner gates
 
-- Branch protections, revision independiente y CI remoto del HEAD final.
 - Security/privacy owner, base juridica CRM y retencion de PII.
 - Secret rotation/acceptance, secret store y alert routing productivo.
 - Backup cifrado fresco, validacion de restore aislado y autoridad de rollback.

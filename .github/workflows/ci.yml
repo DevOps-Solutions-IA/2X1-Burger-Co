@@ -218,8 +218,12 @@ jobs:
         run: |
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
-          SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          FIRST_OUTPUT="$(./infra/release/build-artifacts.sh "${{ github.sha }}")"
+          FIRST_RECORD="${FIRST_OUTPUT##*$'\n'}"
+          SECOND_OUTPUT="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "${{ github.sha }}")"
+          SECOND_RECORD="${SECOND_OUTPUT##*$'\n'}"
+          test -f "$FIRST_RECORD"
+          test -f "$SECOND_RECORD"
           node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -325,7 +329,9 @@ jobs:
           trap cleanup EXIT
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          BASELINE_RECORD="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302 | tail -n 1)"
+          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302)"
+          BASELINE_RECORD="${BASELINE_OUTPUT##*$'\n'}"
+          test -f "$BASELINE_RECORD"
           CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"
           test -n "$CANDIDATE_RECORD"
           bash infra/release/load-artifacts.sh "$CANDIDATE_RECORD"
