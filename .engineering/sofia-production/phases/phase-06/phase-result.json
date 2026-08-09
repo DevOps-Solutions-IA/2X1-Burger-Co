@@ -1,15 +1,21 @@
 {
   "phase": "PHASE-06",
   "name": "Live Operations Delivery Notifications and Recovery",
-  "status": "IMPLEMENTED_LOCAL_VALIDATION_IN_PROGRESS",
+  "status": "IMPLEMENTED_LOCAL_CI_PASS_REMOTE_PENDING",
   "baseSha": "3d70b80dcd2678357906d9856e5bca9fb29834a1",
   "migrationFrontier": "37/37",
   "migrationCount": 1,
   "migrationName": "20260809030000_sofia_live_operations_recovery_core",
   "financialIncidentGate": "PASS_NO_INCIDENT_IDENTIFIED",
+  "validatedRuntimeSha": "eeb2ee6d9a57153eaa27bd01617afa5ea028b2ee",
+  "localCiMirror": "PASS",
+  "focusedTests": "133/133_TWICE",
+  "criticalIntegration": "92/92",
+  "ephemeralE2e": "PASS",
+  "recoveryDrill": "PASS",
   "productionDeployed": false,
   "realBold": false,
   "autoWhatsapp": false,
-  "remoteCi": "PENDING",
+  "remoteCi": "PENDING_PR",
   "mergeAuthorizedOnlyAfterCiAndReview": true
 }
