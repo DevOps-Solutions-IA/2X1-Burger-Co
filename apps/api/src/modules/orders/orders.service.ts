@@ -3361,6 +3361,23 @@ export class OrdersService {
   }
 
   private async applyDeliveryLocationForLogisticsOnly(
+    order: Parameters<OrdersService['applyDeliveryLocationForLogisticsOnlyInTransaction']>[1],
+    latitude: number,
+    longitude: number,
+    actorId?: string,
+  ) {
+    return this.prisma.$transaction((tx) =>
+      this.applyDeliveryLocationForLogisticsOnlyInTransaction(
+        tx,
+        order,
+        latitude,
+        longitude,
+        actorId,
+      ),
+    );
+  }
+
+  private async applyDeliveryLocationForLogisticsOnlyInTransaction(
     tx: Prisma.TransactionClient,
     order: {
       id: string;
@@ -3693,7 +3710,7 @@ export class OrdersService {
         if (claimed.count !== 1) throw new ConflictException('DELIVERY_LOCATION_EVENT_ALREADY_PROCESSING');
 
         const order = matched.order!;
-        const updated = await this.applyDeliveryLocationForLogisticsOnly(
+        const updated = await this.applyDeliveryLocationForLogisticsOnlyInTransaction(
           tx,
           order,
           input.latitude,
@@ -3972,7 +3989,7 @@ export class OrdersService {
       });
       if (claimed.count !== 1) throw new ConflictException('STALE_DELIVERY_LOCATION_INBOX_VERSION');
 
-      const updatedOrder = await this.applyDeliveryLocationForLogisticsOnly(
+      const updatedOrder = await this.applyDeliveryLocationForLogisticsOnlyInTransaction(
         tx,
         order,
         Number(inbox.latitude),
