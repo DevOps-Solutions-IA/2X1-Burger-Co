@@ -8,7 +8,7 @@ Este archivo es la fuente de verdad vigente para agentes. Los reportes historico
 
 **Phases 3, 4, 5, 6 y 7 fusionadas. El backend esta listo para una activacion controlada futura. Produccion permanece cerrada.**
 
-Phase 7 fue fusionada en `main` mediante `60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4` y el repositorio contiene 37 migraciones. El runtime artifact local validado proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD final de PR fue `b16a08aefd447ce680fdbdacd5614ea06763163d`. El CI remoto `31316328069` paso completo sobre ese HEAD. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
+Phase 7 fue fusionada mediante `60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4`. El PR final de cierre #13 fue fusionado como `d9f73c01b4f3619091a77ad77dc04f48c626734b`, actual `main`, y el CI remoto final `31321031798` paso completo sobre ese SHA exacto. El repositorio contiene 37 migraciones. El runtime artifact local validado de Phase 7 proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD final del PR #12 fue `b16a08aefd447ce680fdbdacd5614ea06763163d`. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
 
 ## Controles previstos del candidato
 
@@ -35,7 +35,7 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
 | Migracion Phase 6 | 37/37 validada y fusionada | No aplicada por este programa |
-| Phase 7 | PR #12 fusionado; CI `31316328069` PASS | Sin migration 38 |
+| Phase 7 | PR #12 fusionado en `60ccd47a`; cierre #13 en `d9f73c01`; CI final `31321031798` PASS | Sin migration 38 |
 
 ## Capacidades implementadas
 
@@ -64,6 +64,7 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Phase 6 CI | PASS y fusionada | PR #11 |
 | Phase 6 focalizada | 219/219 PASS | PostgreSQL aislado |
 | Phase 7 focalizada | 253/253 PASS dos veces; CI remoto PASS | PR #12, run `31316328069` |
+| Cierre final de `main` | PASS | PR #13, run `31321031798`, SHA `d9f73c01` |
 | Concurrency/fault/load | 41/41 PASS | PostgreSQL aislado |
 | Checkout/payment Phase 5 | 15/15 PASS | PostgreSQL aislado |
 | Suite critica/RBAC | 92/92 PASS | PostgreSQL aislado |
