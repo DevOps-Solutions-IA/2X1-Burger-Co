@@ -124,12 +124,15 @@ BEGIN
     'delivery_issues',
     'delivery_location_inbox',
     'notification_intents',
+    'crm_customer_consents',
+    'whatsapp_conversations',
     'sofia_commands',
     'whatsapp_messages',
     'whatsapp_inbound_events',
     'whatsapp_outbound_messages',
     'whatsapp_message_status_events',
     'whatsapp_delivery_orders',
+    'whatsapp_handoff_events',
     'customer_service_cases',
     'customer_service_case_events'
   ] LOOP
@@ -165,12 +168,15 @@ SELECT jsonb_build_object(
   'deliveryIssues', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM delivery_issues t),
   'deliveryLocations', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM delivery_location_inbox t),
   'notificationIntents', (SELECT jsonb_build_object('count', count(*), 'attempts', coalesce(sum(attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM notification_intents t),
+  'customerConsents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM crm_customer_consents t),
+  'whatsappConversations', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_conversations t),
   'secureCommands', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM sofia_commands t),
   'whatsappMessages', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_messages t),
   'whatsappInboundEvents', (SELECT jsonb_build_object('count', count(*), 'processingAttempts', coalesce(sum(processing_attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_inbound_events t),
   'whatsappOutboundMessages', (SELECT jsonb_build_object('count', count(*), 'attempts', coalesce(sum(attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_outbound_messages t),
   'whatsappStatusEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_message_status_events t),
   'whatsappDeliveryOrders', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_delivery_orders t),
+  'whatsappHandoffEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_handoff_events t),
   'customerServiceCases', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM customer_service_cases t),
   'customerServiceCaseEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM customer_service_case_events t)
 )::text;

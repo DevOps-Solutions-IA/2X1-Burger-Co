@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -410,8 +410,12 @@ test('explicit target restore consumes a fresh decrypt stream without container 
   execFileSync('bash', [restore, harness.backup, '--database', 'staging_restore'], {
     cwd: root,
     env: harnessEnvironment(harness, {
+      EXPECTED_BACKUP_ENVIRONMENT: 'production',
+      EXPECTED_BACKUP_RECIPIENT_FINGERPRINT: recipientFingerprint,
+      EXPECTED_BACKUP_SOURCE_SHA: sourceSha,
       FORCE_RESTORE: 'true',
       NODE_ENV: 'test',
+      REQUIRE_BACKUP_METADATA_V2: 'true',
       SKIP_BACKUP_BEFORE_RESTORE: 'true',
     }),
     stdio: 'pipe',
@@ -420,4 +424,30 @@ test('explicit target restore consumes a fresh decrypt stream without container 
   assert.match(dockerCalls, /dropdb .* staging_restore/u);
   assert.match(dockerCalls, /createdb .* staging_restore/u);
   assert.doesNotMatch(dockerCalls, / compose cp /u);
+});
+
+test('target restore rejects unsigned historical metadata before destructive database commands', () => {
+  const harness = createHarness();
+  rmSync(`${harness.backup}.metadata.json`);
+  createBackupMetadata({
+    backupPath: harness.backup,
+    migrationListPath: harness.migrations,
+    databaseName: 'production_db',
+    createdAt: '2026-08-01T00:00:00Z',
+    formatVersion: 1,
+  });
+  execFileSync('bash', ['-c', 'source "$1"; write_portable_sha256 "$2"', '_', common, `${harness.backup}.metadata.json`]);
+  const result = spawnSync('bash', [restore, harness.backup, '--database', 'staging_restore'], {
+    cwd: root,
+    env: harnessEnvironment(harness, {
+      FORCE_RESTORE: 'true',
+      NODE_ENV: 'test',
+      SKIP_BACKUP_BEFORE_RESTORE: 'true',
+    }),
+    stdio: 'pipe',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr.toString(), /Every target restore requires signed metadata v2|metadata v1 cannot satisfy release identity expectations/u);
+  assert.doesNotMatch(readFileSync(harness.log, 'utf8'), /dropdb .* staging_restore/u);
+  assert.match(readFileSync(restore, 'utf8'), /Every target restore requires signed metadata v2/u);
 });

@@ -38,6 +38,14 @@ validate_root_owned_config_file() {
   (( (8#$mode & 8#022) == 0 )) || fail "$description must not be writable by group or other users."
 }
 
+validate_root_owned_secret_file() {
+  local file_path="$1"
+  local description="$2"
+  validate_root_owned_config_file "$file_path" "$description"
+  [[ "$(stat -c '%a' "$file_path")" == "600" ]] \
+    || fail "$description must have mode 600."
+}
+
 STAGING_PROTECTED_CONFIG_PATH="${STAGING_PROTECTED_CONFIG_PATH:-}"
 COSIGN_VERIFICATION_KEY_PATH="${COSIGN_VERIFICATION_KEY_PATH:-}"
 ARTIFACT_SIGNING_KEY_FINGERPRINT="${ARTIFACT_SIGNING_KEY_FINGERPRINT:-}"
@@ -48,7 +56,7 @@ BACKUP_GPG_SIGNING_FINGERPRINT="${BACKUP_GPG_SIGNING_FINGERPRINT:-}"
 BACKUP_GNUPGHOME="${BACKUP_GNUPGHOME:-}"
 BACKUP_DATABASE_IDENTITY_HASH="${BACKUP_DATABASE_IDENTITY_HASH:-}"
 
-validate_root_owned_config_file "$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"
+validate_root_owned_secret_file "$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"
 validate_root_owned_config_file "$COSIGN_VERIFICATION_KEY_PATH" "Cosign verification key"
 [[ "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")" && \
    "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")/"* ]] \
@@ -207,17 +215,19 @@ const parseDocuments = (input) => {
   }
 };
 const records = parseDocuments(raw);
-const strings = (value, output = []) => {
-  if (typeof value === 'string') output.push(value);
-  else if (Array.isArray(value)) value.forEach((entry) => strings(entry, output));
-  else if (value && typeof value === 'object') Object.values(value).forEach((entry) => strings(entry, output));
-  return output;
-};
 const statements = records.map((record) => JSON.parse(Buffer.from(record.payload, 'base64').toString('utf8')));
 const subjectMatches = (statement) => statement.subject?.some((subject) => subject.digest?.sha256 === expectedDigest);
 const sourceMatches = (value) => {
   const normalized = value.replace(/^git\+/u, '').replace(/\.git(?=@|#|$)/u, '');
   return normalized === expectedSource || normalized.startsWith(`${expectedSource}@`) || normalized.startsWith(`${expectedSource}#`);
+};
+const hasBoundSource = (value) => {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof value.uri === 'string' && sourceMatches(value.uri) && value.digest &&
+      Object.values(value.digest).some((digest) => digest === expectedCommit)) return true;
+  return Object.values(value).some((entry) => Array.isArray(entry)
+    ? entry.some(hasBoundSource)
+    : hasBoundSource(entry));
 };
 const valid = statements.some((statement) => {
   if (!subjectMatches(statement)) return false;
@@ -228,9 +238,8 @@ const valid = statements.some((statement) => {
   }
   const predicate = statement.predicate ?? {};
   const builderId = predicate.runDetails?.builder?.id ?? predicate.builder?.id;
-  const values = strings(predicate);
   return /^https:\/\/slsa\.dev\/provenance\/v(?:0\.2|1)$/u.test(statement.predicateType ?? '') &&
-    builderId === expectedBuilder && values.includes(expectedCommit) && values.some(sourceMatches);
+    builderId === expectedBuilder && hasBoundSource(predicate);
 });
 if (!valid) throw new Error(`No ${expectedType} attestation satisfied the protected release contract`);
 NODE

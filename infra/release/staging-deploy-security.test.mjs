@@ -61,14 +61,15 @@ test('external artifact trust requires a protected cosign key, digest signature,
   assert.match(deploy, /validate_root_owned_config_file "\$COSIGN_VERIFICATION_KEY_PATH" "Cosign verification key"/);
   assert.match(deploy, /must be owned by root/);
   assert.match(deploy, /must not be writable by group or other users/);
+  assert.match(deploy, /fail "\$description must have mode 600\."/);
   assert.match(deploy, /sha256sum "\$COSIGN_VERIFICATION_KEY_PATH"/);
   assert.match(deploy, /cosign verify --key "\$COSIGN_VERIFICATION_KEY_PATH" "\$image"/);
   assert.match(deploy, /cosign verify-attestation --key "\$COSIGN_VERIFICATION_KEY_PATH" --type cyclonedx/);
   assert.match(deploy, /cosign verify-attestation --key "\$COSIGN_VERIFICATION_KEY_PATH" --type slsaprovenance/);
   assert.match(deploy, /subject\.digest\?\.sha256 === expectedDigest/);
   assert.match(deploy, /builderId === expectedBuilder/);
-  assert.match(deploy, /values\.includes\(expectedCommit\)/);
-  assert.match(deploy, /values\.some\(sourceMatches\)/);
+  assert.match(deploy, /Object\.values\(value\.digest\).*digest === expectedCommit/s);
+  assert.match(deploy, /hasBoundSource\(predicate\)/);
 });
 
 test('protected staging config and backup custody values are wired explicitly and fail closed', () => {
@@ -81,7 +82,7 @@ test('protected staging config and backup custody values are wired explicitly an
   ]) {
     assert.match(workflow, new RegExp(`vars\\.${variable}`));
   }
-  assert.match(deploy, /validate_root_owned_config_file "\$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"/);
+  assert.match(deploy, /validate_root_owned_secret_file "\$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"/);
   assert.match(deploy, /Protected release controls must not be overridden by the runtime environment file/);
   assert.match(deploy, /Backup GNUPGHOME must have mode 700/);
   assert.match(deploy, /--list-keys -- "\$BACKUP_GPG_RECIPIENT"/);

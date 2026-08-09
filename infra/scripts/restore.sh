@@ -281,6 +281,8 @@ if [[ "$VALIDATE_ONLY" == "true" ]]; then
   exit 0
 fi
 
+[[ "$REQUIRE_BACKUP_METADATA_V2" == "true" && "$METADATA_FORMAT_VERSION" == "2" ]] \
+  || fail "Every target restore requires signed metadata v2 and explicit expected identities."
 [[ "${FORCE_RESTORE:-false}" == "true" ]] || fail "FORCE_RESTORE=true is required for a target restore."
 
 if [[ "${NODE_ENV:-}" == "production" && "${SKIP_BACKUP_BEFORE_RESTORE:-false}" == "true" ]]; then
