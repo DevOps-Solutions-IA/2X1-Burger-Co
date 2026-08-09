@@ -101,6 +101,7 @@ jobs:
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
             src/tests/phase6-persistence-concurrency.integration.spec.ts \
             src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts \
+            src/modules/orders/orders.phase6-atomicity.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
       - name: Critical integration
