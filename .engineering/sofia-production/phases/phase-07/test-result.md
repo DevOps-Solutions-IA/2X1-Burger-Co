@@ -22,7 +22,7 @@ Runtime source SHA under final artifact validation:
 | Architecture and production reachability | PASS |
 | Exact retained artifact E2E | PASS, `run-20260809131057-1b667d8b`, 19/19 Playwright, cleanup 0 |
 | Encrypted backup/restore drill | PASS, `run-20260809132631-4cecf476`, RPO 0s/RTO 13.335s, cleanup 0 |
-| Remote GitHub CI | PENDING |
+| Remote GitHub CI | PASS, run `31316328069`, exact head `b16a08aefd447ce680fdbdacd5614ea06763163d` |
 
 ## Executed command groups
 

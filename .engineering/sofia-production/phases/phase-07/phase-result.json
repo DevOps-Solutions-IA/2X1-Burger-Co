@@ -1,11 +1,12 @@
 {
   "phase": "PHASE-07",
   "name": "Production Hardening",
-  "status": "LOCAL_VALIDATION_PASS_REMOTE_CI_PENDING",
+  "status": "MERGED_BACKEND_PRODUCTION_READY_PENDING_CONTROLLED_ACTIVATION",
   "baseSha": "064a2706c099c75b6a4cd68eb916b037cd6dc302",
   "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
   "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
-  "finalSha": "SEE_PR_12_HEAD",
+  "finalSha": "b16a08aefd447ce680fdbdacd5614ea06763163d",
+  "mergeSha": "60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4",
   "migrationFrontier": 37,
   "phase07MigrationCount": 0,
   "freshMigrationValidation": "PASS_37_OF_37",
@@ -17,7 +18,7 @@
   "postgresConcurrencyFaultLoad": "PASS_41_OF_41",
   "criticalRbacRegression": "PASS_92_OF_92",
   "localCi": "PASS_EXACT_ARTIFACT_E2E_AND_RECOVERY",
-  "remoteCi": "PENDING_PR_12_FINAL_HEAD",
+  "remoteCi": "PASS_RUN_31316328069",
   "securityReview": "PASS_0_CRITICAL_0_HIGH",
   "architectureReview": "PASS_NO_DUPLICATE_AUTHORITIES",
   "acceptedMediumRisks": 2,
@@ -26,5 +27,5 @@
   "observabilityValidation": "PASS_LOCAL_OWNER_ROUTING_PENDING_ACTIVATION",
   "pullRequest": 12,
   "productionActivationAuthorized": false,
-  "lastUpdated": "2026-08-09T13:37:48Z"
+  "lastUpdated": "2026-08-09T14:12:19Z"
 }

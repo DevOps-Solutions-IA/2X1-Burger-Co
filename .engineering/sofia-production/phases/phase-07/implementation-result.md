@@ -1,6 +1,6 @@
 # Phase 7 implementation result
 
-Status: LOCAL_VALIDATION_PASS_REMOTE_CI_PENDING
+Status: MERGED_BACKEND_PRODUCTION_READY_PENDING_CONTROLLED_ACTIVATION
 
 ## Verified repository baseline
 
@@ -12,7 +12,8 @@ Status: LOCAL_VALIDATION_PASS_REMOTE_CI_PENDING
 - Automatic WhatsApp active: false.
 - Runtime source SHA under final artifact validation: `60af56e0eb9635152c99437e301a38a76b4f1007`.
 - Reviewed code HEAD before this evidence-only commit: `8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75`.
-- Draft PR: #12. Its final SHA is the documentation-only metadata commit that records this PR.
+- PR #12 final head: `b16a08aefd447ce680fdbdacd5614ea06763163d`.
+- Merge SHA: `60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4`.
 
 ## Source-level implementation observed
 
@@ -46,7 +47,7 @@ Status: LOCAL_VALIDATION_PASS_REMOTE_CI_PENDING
   `run-20260809132631-4cecf476`, RPO 0s/RTO 13.335s.
 - API image ID: `sha256:375b4f58d7a9025d04e9b8a8ad1467cecb4fdd7028b534c8876fd70b287e6692`.
 - Web image ID: `sha256:91a881f280dd99b9d5e51f3f9a2b5210bfa94419deaee112153cd3687a73effa`.
-- Remote CI remains pending on the final PR #12 documentation commit.
+- Remote CI run `31316328069`: PASS on the exact PR #12 head. Jobs `quality`, `artifact`, `ephemeral-e2e`, `recovery-drill` and `canary-rollback` all completed successfully.
 
 No production action is authorized. Real Bold, real WhatsApp send and automatic
 reply remain disabled.

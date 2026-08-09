@@ -218,7 +218,8 @@
     }
   ],
   "pullRequest": 12,
-  "remoteCi": "PENDING_PR_12_FINAL_HEAD",
+  "remoteCi": "PASS_RUN_31316328069",
+  "remoteCiHeadSha": "b16a08aefd447ce680fdbdacd5614ea06763163d",
   "productionModified": false,
-  "recordedAt": "2026-08-09T13:37:48Z"
+  "recordedAt": "2026-08-09T14:12:19Z"
 }
