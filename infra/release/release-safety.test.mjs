@@ -94,6 +94,24 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
   assert.match(loaderSource, /loaded image identity mismatch/);
 });
 
+test('artifact builds fail closed and dependency fetch retries are bounded', () => {
+  const workflow = readFileSync(ciWorkflow, 'utf8');
+  assert.doesNotMatch(workflow, /build-artifacts\.sh[^\n]*\|\s*tail/);
+  assert.match(workflow, /FIRST_OUTPUT="\$\(\.\/infra\/release\/build-artifacts\.sh/);
+  assert.match(workflow, /SECOND_OUTPUT="\$\(RELEASE_OUTPUT_DIR=/);
+  assert.match(workflow, /BASELINE_OUTPUT="\$\(RELEASE_TAG_SUFFIX=-baseline/);
+  assert.match(workflow, /test -f "\$FIRST_RECORD"/);
+  assert.match(workflow, /test -f "\$SECOND_RECORD"/);
+  assert.match(workflow, /test -f "\$BASELINE_RECORD"/);
+
+  for (const dockerfile of [apiDockerfile, webDockerfile]) {
+    const source = readFileSync(dockerfile, 'utf8');
+    assert.match(source, /for attempt in 1 2 3/);
+    assert.match(source, /test "\$attempt" -lt 3 \|\| exit 1/);
+    assert.match(source, /sleep "\$\(\(attempt \* 2\)\)"/);
+  }
+});
+
 test('complete runtime digest includes packaged tmp and run content', () => {
   const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'inventory-runtime-rootfs-'));
   for (const directory of ['tmp', 'run', 'proc', 'etc']) {

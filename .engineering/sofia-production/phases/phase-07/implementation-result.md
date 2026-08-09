@@ -49,5 +49,13 @@ Status: MERGED_BACKEND_PRODUCTION_READY_PENDING_CONTROLLED_ACTIVATION
 - Web image ID: `sha256:91a881f280dd99b9d5e51f3f9a2b5210bfa94419deaee112153cd3687a73effa`.
 - Remote CI run `31316328069`: PASS on the exact PR #12 head. Jobs `quality`, `artifact`, `ephemeral-e2e`, `recovery-drill` and `canary-rollback` all completed successfully.
 
+## Post-merge release gate hardening
+
+- Closure CI run `31317907394` exposed a transient Corepack dependency-fetch failure while rebuilding the rollback baseline.
+- The workflow previously piped artifact-builder output through `tail`, which could mask the builder exit status and continue with an invalid artifact record.
+- Artifact record capture now preserves the builder exit status, verifies each emitted record exists and fails closed before reproducibility or rollback work.
+- API and Web image dependency installation now uses three bounded attempts with bounded backoff; exhaustion remains a hard build failure.
+- Release safety tests enforce both properties. This changes release reliability only; it does not alter application, financial, messaging, schema or production activation semantics.
+
 No production action is authorized. Real Bold, real WhatsApp send and automatic
 reply remain disabled.

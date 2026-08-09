@@ -11,7 +11,12 @@ COPY apps/web/next.config.ts apps/web/next.config.ts
 COPY apps/web/postcss.config.mjs apps/web/postcss.config.mjs
 COPY apps/web/tailwind.config.ts apps/web/tailwind.config.ts
 COPY apps/web/next-env.d.ts apps/web/next-env.d.ts
-RUN pnpm install --frozen-lockfile
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      pnpm install --frozen-lockfile && exit 0; \
+      test "$attempt" -lt 3 || exit 1; \
+      sleep "$((attempt * 2))"; \
+    done
 RUN find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
 FROM deps AS build

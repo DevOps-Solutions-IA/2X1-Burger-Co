@@ -10,7 +10,12 @@ COPY apps/api/tsconfig.json apps/api/tsconfig.json
 COPY apps/api/tsconfig.build.json apps/api/tsconfig.build.json
 COPY apps/api/nest-cli.json apps/api/nest-cli.json
 COPY prisma prisma
-RUN pnpm install --frozen-lockfile
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      pnpm install --frozen-lockfile && exit 0; \
+      test "$attempt" -lt 3 || exit 1; \
+      sleep "$((attempt * 2))"; \
+    done
 RUN PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
 RUN find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
