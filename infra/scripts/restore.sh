@@ -47,7 +47,45 @@ load_runtime_env "${RUNTIME_ENV_FILE:-$ROOT_DIR/.env}"
 
 POSTGRES_SERVICE="${POSTGRES_SERVICE:-postgres}"
 DATABASE_URL_RUNTIME="${DATABASE_URL:-}"
+REQUIRE_BACKUP_METADATA_V2="${REQUIRE_BACKUP_METADATA_V2:-false}"
+EXPECTED_BACKUP_SOURCE_SHA="${EXPECTED_BACKUP_SOURCE_SHA:-${EXPECTED_SOURCE_SHA:-}}"
+EXPECTED_BACKUP_RECIPIENT_FINGERPRINT="${EXPECTED_BACKUP_RECIPIENT_FINGERPRINT:-}"
+EXPECTED_BACKUP_ENVIRONMENT="${EXPECTED_BACKUP_ENVIRONMENT:-}"
+EXPECTED_BACKUP_DATABASE_IDENTITY_HASH="${EXPECTED_BACKUP_DATABASE_IDENTITY_HASH:-}"
+RESTORE_GNUPGHOME="${GNUPGHOME:-}"
 [[ -n "$DATABASE_URL_RUNTIME" ]] || fail "DATABASE_URL is required."
+[[ "$REQUIRE_BACKUP_METADATA_V2" == "true" || "$REQUIRE_BACKUP_METADATA_V2" == "false" ]] \
+  || fail "REQUIRE_BACKUP_METADATA_V2 must be true or false."
+
+if [[ -n "$EXPECTED_BACKUP_SOURCE_SHA" && ! "$EXPECTED_BACKUP_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+  fail "EXPECTED_BACKUP_SOURCE_SHA must be a full 40-character source SHA."
+fi
+if [[ -n "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" && ! "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]; then
+  fail "EXPECTED_BACKUP_RECIPIENT_FINGERPRINT must be a full uppercase fingerprint."
+fi
+if [[ -n "$EXPECTED_BACKUP_ENVIRONMENT" && ! "$EXPECTED_BACKUP_ENVIRONMENT" =~ ^[a-z][a-z0-9_-]{1,31}$ ]]; then
+  fail "EXPECTED_BACKUP_ENVIRONMENT has an invalid format."
+fi
+if [[ -n "$EXPECTED_BACKUP_DATABASE_IDENTITY_HASH" && ! "$EXPECTED_BACKUP_DATABASE_IDENTITY_HASH" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  fail "EXPECTED_BACKUP_DATABASE_IDENTITY_HASH has an invalid format."
+fi
+
+REQUIRED_METADATA_VERSION=""
+if [[ "$REQUIRE_BACKUP_METADATA_V2" == "true" ]]; then
+  [[ -n "$EXPECTED_BACKUP_SOURCE_SHA" ]] || fail "EXPECTED_BACKUP_SOURCE_SHA is required for metadata v2 release validation."
+  [[ -n "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" ]] \
+    || fail "EXPECTED_BACKUP_RECIPIENT_FINGERPRINT is required for metadata v2 release validation."
+  [[ -n "$EXPECTED_BACKUP_ENVIRONMENT" ]] || fail "EXPECTED_BACKUP_ENVIRONMENT is required for metadata v2 release validation."
+  [[ -n "$RESTORE_GNUPGHOME" && "$RESTORE_GNUPGHOME" == /* && -d "$RESTORE_GNUPGHOME" ]] \
+    || fail "GNUPGHOME must explicitly reference an existing absolute directory for metadata v2 release validation."
+  [[ "$(stat -c '%a' "$RESTORE_GNUPGHOME")" == "700" ]] || fail "GNUPGHOME must have mode 700."
+  RESOLVED_SECRET_FINGERPRINT="$(GNUPGHOME="$RESTORE_GNUPGHOME" gpg --batch --with-colons \
+    --list-secret-keys -- "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" 2>/dev/null \
+    | awk -F: '$1 == "fpr" { print $10; exit }')"
+  [[ "$RESOLVED_SECRET_FINGERPRINT" == "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" ]] \
+    || fail "The configured GPG keyring does not contain the exact expected backup secret key."
+  REQUIRED_METADATA_VERSION="2"
+fi
 
 PRODUCTION_DB="$(parse_database_url_field database "$DATABASE_URL_RUNTIME")"
 DB_USER="$(parse_database_url_field username "$DATABASE_URL_RUNTIME")"
@@ -103,12 +141,26 @@ trap 'exit 130' INT TERM HUP
 info "Validating encrypted backup and metadata checksums"
 verify_sha256_file "$BACKUP_FILE" "$CHECKSUM_FILE"
 verify_sha256_file "$METADATA_FILE" "$METADATA_CHECKSUM_FILE"
-IFS=$'\t' read -r EXPECTED_MIGRATION_COUNT EXPECTED_MIGRATION_DIGEST \
-  < <(node infra/scripts/backup-metadata.mjs verify "$BACKUP_FILE" "$METADATA_FILE")
+IFS=$'\t' read -r EXPECTED_MIGRATION_COUNT EXPECTED_MIGRATION_DIGEST METADATA_FORMAT_VERSION \
+  METADATA_SOURCE_SHA METADATA_RECIPIENT_FINGERPRINT METADATA_ENVIRONMENT METADATA_DATABASE_IDENTITY_HASH \
+  < <(node infra/scripts/backup-metadata.mjs verify \
+    "$BACKUP_FILE" \
+    "$METADATA_FILE" \
+    "$EXPECTED_BACKUP_SOURCE_SHA" \
+    "$EXPECTED_BACKUP_RECIPIENT_FINGERPRINT" \
+    "$EXPECTED_BACKUP_ENVIRONMENT" \
+    "$EXPECTED_BACKUP_DATABASE_IDENTITY_HASH" \
+    "$REQUIRED_METADATA_VERSION")
+[[ "$METADATA_FORMAT_VERSION" == "1" || "$METADATA_FORMAT_VERSION" == "2" ]] \
+  || fail "Backup metadata format is invalid."
 
 [[ ! -e "$DECRYPTED_BACKUP_FILE" ]] || fail "Temporary decrypted output already exists."
 info "Decrypting backup into a unique protected temporary path"
-gpg --batch --quiet --decrypt --output "$DECRYPTED_BACKUP_FILE" "$BACKUP_FILE"
+if [[ -n "$RESTORE_GNUPGHOME" ]]; then
+  GNUPGHOME="$RESTORE_GNUPGHOME" gpg --batch --quiet --decrypt --output "$DECRYPTED_BACKUP_FILE" "$BACKUP_FILE"
+else
+  gpg --batch --quiet --decrypt --output "$DECRYPTED_BACKUP_FILE" "$BACKUP_FILE"
+fi
 chmod 600 "$DECRYPTED_BACKUP_FILE"
 docker compose cp "$DECRYPTED_BACKUP_FILE" "${POSTGRES_SERVICE}:${CONTAINER_BACKUP_PATH}" >/dev/null
 

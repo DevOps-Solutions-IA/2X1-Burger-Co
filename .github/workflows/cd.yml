@@ -26,18 +26,34 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    environment: staging
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
       - name: Validate immutable inputs
         env:
           API_IMAGE: ${{ inputs.api_image }}
           WEB_IMAGE: ${{ inputs.web_image }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          ALLOWED_API_IMAGE_REPOSITORY: ${{ vars.STAGING_API_IMAGE_REPOSITORY }}
+          ALLOWED_WEB_IMAGE_REPOSITORY: ${{ vars.STAGING_WEB_IMAGE_REPOSITORY }}
         run: |
+          set -euo pipefail
           image_pattern='^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$'
+          repository_pattern='^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+$'
           [[ "$API_IMAGE" =~ $image_pattern ]]
           [[ "$WEB_IMAGE" =~ $image_pattern ]]
           [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$ALLOWED_API_IMAGE_REPOSITORY" =~ $repository_pattern ]]
+          [[ "$ALLOWED_WEB_IMAGE_REPOSITORY" =~ $repository_pattern ]]
+          test "$ALLOWED_API_IMAGE_REPOSITORY" != "$ALLOWED_WEB_IMAGE_REPOSITORY"
+          test "${API_IMAGE%@sha256:*}" = "$ALLOWED_API_IMAGE_REPOSITORY"
+          test "${WEB_IMAGE%@sha256:*}" = "$ALLOWED_WEB_IMAGE_REPOSITORY"
+          test "$WORKFLOW_SHA" = "$RELEASE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Validate owner gates
         env:
           STAGING_HOST: ${{ vars.STAGING_HOST }}
@@ -46,6 +62,7 @@ jobs:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
         run: |
+          set -euo pipefail
           test -n "$STAGING_HOST"
           test -n "$STAGING_USER"
           test -n "$STAGING_PATH"
@@ -61,6 +78,8 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
       - name: Configure SSH
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
@@ -80,8 +99,11 @@ jobs:
           STAGING_HOST: ${{ vars.STAGING_HOST }}
           STAGING_USER: ${{ vars.STAGING_USER }}
           STAGING_PATH: ${{ vars.STAGING_PATH }}
+          ALLOWED_API_IMAGE_REPOSITORY: ${{ vars.STAGING_API_IMAGE_REPOSITORY }}
+          ALLOWED_WEB_IMAGE_REPOSITORY: ${{ vars.STAGING_WEB_IMAGE_REPOSITORY }}
         run: |
-          scp infra/release/staging-deploy.sh "$STAGING_USER@$STAGING_HOST:/tmp/inventory-staging-deploy.sh"
-          printf -v remote_command 'API_IMAGE=%q WEB_IMAGE=%q RELEASE_COMMIT=%q STAGING_PATH=%q bash /tmp/inventory-staging-deploy.sh' \
-            "$API_IMAGE" "$WEB_IMAGE" "$RELEASE_COMMIT" "$STAGING_PATH"
+          set -euo pipefail
+          printf -v remote_command 'cd %q && test "$(git rev-parse HEAD)" = %q && git diff --quiet && git diff --cached --quiet && test -z "$(git status --porcelain --untracked-files=all)" && API_IMAGE=%q WEB_IMAGE=%q RELEASE_COMMIT=%q STAGING_PATH=%q ALLOWED_API_IMAGE_REPOSITORY=%q ALLOWED_WEB_IMAGE_REPOSITORY=%q bash ./infra/release/staging-deploy.sh' \
+            "$STAGING_PATH" "$RELEASE_COMMIT" "$API_IMAGE" "$WEB_IMAGE" "$RELEASE_COMMIT" \
+            "$STAGING_PATH" "$ALLOWED_API_IMAGE_REPOSITORY" "$ALLOWED_WEB_IMAGE_REPOSITORY"
           ssh "$STAGING_USER@$STAGING_HOST" "$remote_command"

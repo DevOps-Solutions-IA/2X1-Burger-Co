@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,11 @@ import { createBackupMetadata, readAndVerifyBackupMetadata } from '../scripts/ba
 
 const root = path.resolve(import.meta.dirname, '../..');
 const common = path.join(root, 'infra/scripts/common.sh');
+const backupScript = path.join(root, 'infra/scripts/backup.sh');
 const restore = path.join(root, 'infra/scripts/restore.sh');
+const sourceSha = '373876c018f56ced87fc56295e727ed0d2ef19ab';
+const recipientFingerprint = 'AC279CC063D34EA46E59D96CC3B71C3A1908DC85';
+const databaseIdentity = 'host=db.internal\nport=5432\ndatabase=production_db\ncluster=7341234567890123456\n';
 
 function executable(filePath, content) {
   writeFileSync(filePath, content, { mode: 0o700 });
@@ -24,25 +28,40 @@ function createHarness() {
   const migrations = path.join(directory, 'migrations.txt');
   const envFile = path.join(directory, 'runtime.env');
   const log = path.join(directory, 'docker.log');
+  const gpgLog = path.join(directory, 'gpg.log');
+  const gpgHome = path.join(directory, 'gnupg');
+  const databaseIdentityPath = path.join(directory, 'database-identity.txt');
+  mkdirSync(gpgHome, { mode: 0o700 });
+  chmodSync(gpgHome, 0o700);
   writeFileSync(backup, 'synthetic-encrypted-archive');
   writeFileSync(migrations, '0001_initial\n0002_users\n');
+  writeFileSync(databaseIdentityPath, databaseIdentity, { mode: 0o600 });
   writeFileSync(envFile, 'DATABASE_URL=postgresql://test_user:test_password@localhost:5432/production_db\nPOSTGRES_SERVICE=postgres\n');
   createBackupMetadata({
     backupPath: backup,
     migrationListPath: migrations,
-    databaseName: 'production_db',
+    databaseIdentityPath,
     createdAt: '2026-08-01T00:00:00Z',
+    sourceSha,
+    recipientFingerprint,
+    environment: 'production',
   });
   execFileSync('bash', ['-c', 'source "$1"; write_portable_sha256 "$2"; write_portable_sha256 "$3"', '_', common, backup, `${backup}.metadata.json`]);
 
   executable(path.join(bin, 'gpg'), `#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >>"$MOCK_GPG_LOG"
+if [[ " $* " == *" --list-keys "* || " $* " == *" --list-secret-keys "* ]]; then
+  printf 'fpr:::::::::%s:\n' "$MOCK_GPG_FINGERPRINT"
+  exit 0
+fi
 output=""
 input=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output="$2"; shift 2 ;;
-    --batch|--quiet|--decrypt) shift ;;
+    --recipient) shift 2 ;;
+    --batch|--quiet|--decrypt|--encrypt|--with-colons|--list-keys|--list-secret-keys|--) shift ;;
     *) input="$1"; shift ;;
   esac
 done
@@ -80,13 +99,15 @@ case "$command" in
     if [[ " $* " == *"pg_database"* ]]; then printf '0\\n'; fi
     if [[ " $* " == *"migration_name"* ]]; then printf '0001_initial\\n0002_users\\n'; fi
     if [[ " $* " == *"required_table"* ]]; then printf '6\\n'; fi
+    if [[ " $* " == *"pg_control_system"* ]]; then printf '7341234567890123456\\n'; fi
     ;;
+  pg_dump) printf 'synthetic-postgresql-dump' ;;
   createdb|dropdb|rm) ;;
   *) exit 2 ;;
 esac
 `);
 
-  return { backup, bin, directory, envFile, log };
+  return { backup, bin, databaseIdentityPath, directory, envFile, gpgHome, gpgLog, log, migrations };
 }
 
 function harnessEnvironment(harness, overrides = {}) {
@@ -95,6 +116,8 @@ function harnessEnvironment(harness, overrides = {}) {
     PATH: `${harness.bin}:${process.env.PATH}`,
     RUNTIME_ENV_FILE: harness.envFile,
     MOCK_DOCKER_LOG: harness.log,
+    MOCK_GPG_LOG: harness.gpgLog,
+    MOCK_GPG_FINGERPRINT: recipientFingerprint,
     ...overrides,
   };
 }
@@ -103,8 +126,101 @@ test('backup metadata binds encrypted bytes to the migration identity at creatio
   const harness = createHarness();
   const metadata = readAndVerifyBackupMetadata({ backupPath: harness.backup });
   assert.equal(metadata.migrationCount, 2);
+  assert.equal(metadata.formatVersion, 2);
+  assert.equal(metadata.sourceSha, sourceSha);
+  assert.equal(metadata.recipientFingerprint, recipientFingerprint);
+  assert.equal(metadata.environment, 'production');
+  assert.match(metadata.databaseIdentityHash, /^sha256:[a-f0-9]{64}$/u);
+  assert.doesNotMatch(JSON.stringify(metadata), /db\.internal|production_db|7341234567890123456/u);
   writeFileSync(harness.backup, 'tampered');
   assert.throws(() => readAndVerifyBackupMetadata({ backupPath: harness.backup }), /verification failed/u);
+});
+
+test('metadata v2 fails closed on release identity mismatch', () => {
+  const harness = createHarness();
+  assert.throws(() => readAndVerifyBackupMetadata({
+    backupPath: harness.backup,
+    expectedSourceSha: '0000000000000000000000000000000000000000',
+    requireFormatVersion: 2,
+  }), /identity verification failed/u);
+  assert.throws(() => readAndVerifyBackupMetadata({
+    backupPath: harness.backup,
+    expectedRecipientFingerprint: '0000000000000000000000000000000000000000',
+    requireFormatVersion: 2,
+  }), /identity verification failed/u);
+});
+
+test('historical metadata v1 remains readable but cannot satisfy v2 release expectations', () => {
+  const harness = createHarness();
+  const legacyBackup = path.join(harness.directory, 'legacy.dump.gpg');
+  writeFileSync(legacyBackup, 'legacy-encrypted-archive');
+  createBackupMetadata({
+    backupPath: legacyBackup,
+    migrationListPath: harness.migrations,
+    databaseName: 'production_db',
+    createdAt: '2026-07-01T00:00:00Z',
+    formatVersion: 1,
+  });
+  assert.equal(readAndVerifyBackupMetadata({ backupPath: legacyBackup }).formatVersion, 1);
+  assert.throws(() => readAndVerifyBackupMetadata({
+    backupPath: legacyBackup,
+    requireFormatVersion: 2,
+  }), /format version/u);
+});
+
+test('backup requires explicit custody inputs and emits verified metadata v2', () => {
+  const harness = createHarness();
+  const backupDirectory = path.join(harness.directory, 'backups');
+  const baseEnvironment = harnessEnvironment(harness, {
+    BACKUP_DIR: backupDirectory,
+    BACKUP_ENVIRONMENT: 'production',
+    BACKUP_GPG_RECIPIENT: recipientFingerprint,
+    BACKUP_KEEP_COUNT: '2',
+    BACKUP_RETENTION_DAYS: '365',
+    BACKUP_SOURCE_SHA: sourceSha,
+  });
+  const missingKeyring = spawnSync('bash', [backupScript], {
+    cwd: root,
+    env: { ...baseEnvironment, GNUPGHOME: '' },
+    stdio: 'pipe',
+  });
+  assert.notEqual(missingKeyring.status, 0);
+  assert.match(missingKeyring.stderr.toString(), /GNUPGHOME/u);
+
+  execFileSync('bash', [backupScript], {
+    cwd: root,
+    env: { ...baseEnvironment, GNUPGHOME: harness.gpgHome },
+    stdio: 'pipe',
+  });
+  const encryptedBackup = readdirSync(backupDirectory)
+    .find((entry) => entry.endsWith('.dump.gpg'));
+  assert.ok(encryptedBackup);
+  const backupPath = path.join(backupDirectory, encryptedBackup);
+  const metadata = readAndVerifyBackupMetadata({
+    backupPath,
+    expectedSourceSha: sourceSha,
+    expectedRecipientFingerprint: recipientFingerprint,
+    expectedEnvironment: 'production',
+    requireFormatVersion: 2,
+  });
+  assert.equal(metadata.formatVersion, 2);
+  assert.doesNotMatch(JSON.stringify(metadata), /localhost|production_db|7341234567890123456/u);
+});
+
+test('strict restore verifies metadata v2, expected source and explicit secret-key custody', () => {
+  const harness = createHarness();
+  execFileSync('bash', [restore, harness.backup, '--validate-only'], {
+    cwd: root,
+    env: harnessEnvironment(harness, {
+      EXPECTED_BACKUP_ENVIRONMENT: 'production',
+      EXPECTED_BACKUP_RECIPIENT_FINGERPRINT: recipientFingerprint,
+      EXPECTED_BACKUP_SOURCE_SHA: sourceSha,
+      GNUPGHOME: harness.gpgHome,
+      REQUIRE_BACKUP_METADATA_V2: 'true',
+    }),
+    stdio: 'pipe',
+  });
+  assert.match(readFileSync(harness.gpgLog, 'utf8'), /--list-secret-keys/u);
 });
 
 test('validation database guard rejects production and unprotected names', () => {
