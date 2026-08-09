@@ -84,6 +84,7 @@ jobs:
             src/modules/delivery-operations/delivery-workflow.service.spec.ts \
             src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts \
             src/modules/notifications/domain/notification-domain.spec.ts \
+            src/modules/notifications/notification-intent-consumer.service.spec.ts \
             src/modules/notifications/notification-outbox.service.spec.ts \
             src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
             src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
@@ -96,7 +97,12 @@ jobs:
             --runInBand \
             --detectOpenHandles
       - name: Phase 6 PostgreSQL persistence concurrency
-        run: TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest src/tests/phase6-persistence-concurrency.integration.spec.ts --runInBand --detectOpenHandles
+        run: |
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/tests/phase6-persistence-concurrency.integration.spec.ts \
+            src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts \
+            --runInBand \
+            --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM
