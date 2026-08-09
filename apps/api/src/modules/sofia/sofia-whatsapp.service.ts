@@ -50,7 +50,6 @@ const PAUSED_STATUSES: WhatsappConversationStatus[] = [
   WhatsappConversationStatus.SOFIA_PAUSED,
 ];
 const INBOUND_AGENT_HEARTBEAT_MS = 30_000;
-const INBOUND_AGENT_MAX_RUNTIME_MS = 90_000;
 
 @Injectable()
 export class SofiaWhatsappService {
@@ -337,6 +336,14 @@ export class SofiaWhatsappService {
       eventHash,
       claim,
     } = input;
+    if (this.isAbandonedInboundRecovery(claim.recoveryCheckpoint)) {
+      return {
+        processingStatus: 'HUMAN_REQUIRED',
+        outbound: null,
+        sofiaResult: null,
+        errorMessage: 'WHATSAPP_INBOUND_WORKER_DIED',
+      };
+    }
     const recoveredCheckpoint = parseWhatsappInboundDurableCheckpoint(
       claim.recoveryCheckpoint,
       { eventHash, conversationId, inboundMessageId, mode, provider: providerName },
@@ -546,6 +553,16 @@ export class SofiaWhatsappService {
     });
   }
 
+  private isAbandonedInboundRecovery(value: unknown): boolean {
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && 'kind' in value
+      && value.kind === 'WHATSAPP_INBOUND_ABANDONED_V1',
+    );
+  }
+
   private async failClosedRecoveredConversation(input: {
     claim: WhatsappInboundClaimContext;
     checkpoint: Readonly<{
@@ -599,24 +616,16 @@ export class SofiaWhatsappService {
     }, INBOUND_AGENT_HEARTBEAT_MS);
     heartbeat.unref();
 
-    let timeout: NodeJS.Timeout | undefined;
-    const boundedTimeout = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(
-        () => reject(new Error('WHATSAPP_INBOUND_AGENT_TIMEOUT')),
-        INBOUND_AGENT_MAX_RUNTIME_MS,
-      );
-      timeout.unref();
-    });
-
     try {
-      const result = await Promise.race([operation(), boundedTimeout]);
+      // The agent's external boundaries own their cancellable timeouts. Releasing this
+      // lease while an uncancellable promise still runs would permit late mutations.
+      const result = await operation();
       if (heartbeatInFlight) await heartbeatInFlight;
       if (leaseFailure) throw leaseFailure;
       await this.inboundGateway.renew(claim);
       return result;
     } finally {
       clearInterval(heartbeat);
-      if (timeout) clearTimeout(timeout);
     }
   }
 

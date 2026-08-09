@@ -818,6 +818,21 @@ export class PrismaOrderCheckoutRepository {
     if (rows.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
+  async renewWebhookClaim(webhookId: string, leaseOwnerHash: string): Promise<Date> {
+    const leaseExpiresAt = new Date(Date.now() + 30_000);
+    const updated = await this.prisma.$executeRaw`
+      UPDATE payment_webhook_events
+      SET processing_lease_expires_at = ${leaseExpiresAt}
+      WHERE id = ${webhookId}
+        AND processed_at IS NULL
+        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+        AND processing_lease_owner_hash = ${leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    return leaseExpiresAt;
+  }
+
   async failWebhookClaim(input: {
     webhookId: string;
     leaseOwnerHash: string;

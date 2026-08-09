@@ -107,6 +107,7 @@ export class CommandIdempotencyService {
   private initialAudit(record: NewCommandRecord): CommandAuditEvidence {
     return {
       actorId: record.actorId,
+      actorType: record.actorType === 'SYSTEM' ? 'SYSTEM' : 'USER',
       actorRole: record.actorRoles[0] ?? null,
       action: 'SOFIA_COMMAND_RECEIVED',
       entityId: record.id,

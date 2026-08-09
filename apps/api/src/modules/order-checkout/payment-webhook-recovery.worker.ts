@@ -60,7 +60,8 @@ export class PaymentWebhookRecoveryWorker implements OnModuleInit, OnApplication
   }
 
   private enabled(): boolean {
-    return process.env.PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED?.trim().toLowerCase() === 'true';
+    const configured = process.env.PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED?.trim().toLowerCase();
+    return configured === 'true' || configured === '1';
   }
 
   private errorCode(error: unknown): string {

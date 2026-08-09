@@ -144,6 +144,14 @@ export class PrismaWhatsappConversationRepository {
     return this.prisma.whatsappConversation.findUnique({ where: { id: conversationId } });
   }
 
+  findLatestConversationByProviderPhone(provider: string, phone: string) {
+    return this.prisma.whatsappConversation.findFirst({
+      where: { provider, phone },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, handoffVersion: true },
+    });
+  }
+
   loadConversation(conversationId: string) {
     return this.prisma.whatsappConversation.findUniqueOrThrow({
       where: { id: conversationId },
@@ -166,6 +174,27 @@ export class PrismaWhatsappConversationRepository {
       select: { id: true },
     });
     return user?.id ?? null;
+  }
+
+  async inboundRecoveryActorId() {
+    const id = 'sofia-whatsapp-inbound-recovery';
+    const email = 'sofia-whatsapp-inbound-recovery@system.invalid';
+    const actor = await this.prisma.user.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        email,
+        passwordHash: '!disabled-system-principal!',
+        fullName: 'SOFIA WhatsApp Inbound Recovery',
+        isActive: false,
+      },
+      select: { id: true, email: true, isActive: true },
+    });
+    if (actor.email !== email || actor.isActive) {
+      throw new Error('WHATSAPP_INBOUND_RECOVERY_ACTOR_CONFLICT');
+    }
+    return actor.id;
   }
 
   private unique(error: unknown) {

@@ -26,6 +26,7 @@ import {
   SaleStatus,
 } from '@prisma/client';
 import QRCode from 'qrcode';
+import { createHash } from 'node:crypto';
 import {
   normalizeReceiptBusinessAddress,
   normalizeReceiptBusinessPhone,
@@ -1697,19 +1698,6 @@ export class OrdersService {
           deliveryLocationReceivedAt:
             nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLocationReceivedAt ?? null : null,
           deliveryCustomerId: nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryCustomerId ?? null : null,
-          deliveryWorkflowStatus:
-            nextType === OrderTicketType.DELIVERY
-              ? current.type === OrderTicketType.DELIVERY
-                ? current.deliveryWorkflowStatus
-                : DeliveryWorkflowStatus.PENDING_ASSIGNMENT
-              : null,
-          deliveryStatusUpdatedAt:
-            nextType === OrderTicketType.DELIVERY ? new Date() : null,
-          assignedRiderId: nextType === OrderTicketType.DELIVERY ? current.assignedRiderId ?? null : null,
-          assignedRiderAt: nextType === OrderTicketType.DELIVERY ? current.assignedRiderAt ?? null : null,
-          deliveryDispatchedAt: nextType === OrderTicketType.DELIVERY ? current.deliveryDispatchedAt ?? null : null,
-          deliveryDeliveredAt: nextType === OrderTicketType.DELIVERY ? current.deliveryDeliveredAt ?? null : null,
-          deliveryIssueAt: nextType === OrderTicketType.DELIVERY ? current.deliveryIssueAt ?? null : null,
           notes: dto.notes === undefined ? undefined : dto.notes.trim() || null,
           subtotal,
           servedAt:
@@ -2504,13 +2492,12 @@ export class OrdersService {
       sanitizedMetadata: {
         previousAssignedRiderId: current.assignedRiderId,
         assignedRiderId: rider.id,
-        notesPresent: Boolean(dto.notes?.trim()),
+        notes: this.sanitizeDeliveryWorkflowNote(dto.notes),
       },
     });
     const reconciled = await this.reconcileDeliveryWorkflowConsequences({
       orderTicketId: id,
       workflowVersion: transition.version,
-      notes: dto.notes,
     });
     const assigned =
       reconciled?.order ??
@@ -2579,8 +2566,6 @@ export class OrdersService {
   private async reconcileDeliveryWorkflowConsequences(input: {
     orderTicketId: string;
     workflowVersion: number;
-    notes?: string;
-    issueType?: DeliveryIssueType;
   }) {
     const result = await this.prisma.$transaction(async (tx) => {
       const event = await tx.deliveryWorkflowEvent.findUnique({
@@ -2601,7 +2586,8 @@ export class OrdersService {
         where: { id: input.orderTicketId },
         include: orderInclude,
       });
-      const notes = input.notes?.trim() || null;
+      const metadata = this.readDeliveryWorkflowMetadata(event.sanitizedMetadata);
+      const notes = metadata.notes;
       let effectiveOrder = order;
       if (notes && !String(order.notes ?? '').split('\n').includes(notes)) {
         effectiveOrder = await tx.orderTicket.update({
@@ -2613,7 +2599,7 @@ export class OrdersService {
 
       let deliveryIssueId: string | null = null;
       if (event.toStatus === DeliveryWorkflowStatus.ISSUE) {
-        const issueType = input.issueType ?? DeliveryIssueType.OTHER;
+        const issueType = metadata.issueType;
         const issue = await tx.deliveryIssue.upsert({
           where: {
             orderTicketId_idempotencyKey: {
@@ -2755,7 +2741,7 @@ export class OrdersService {
                   }
                 : {}),
               notesPresent: Boolean(notes),
-              issueType: input.issueType ?? null,
+              issueType: metadata.issueType,
             },
           },
         });
@@ -2776,11 +2762,183 @@ export class OrdersService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
     if (!result) return null;
+    await this.enqueueDeliveryWorkflowNotification(result);
     this.publishOperationalAlert(result.alert);
     for (const alert of result.resolvedAlerts) {
       this.publishOperationalAlert({ ...alert, status: OperationalAlertStatus.RESOLVED });
     }
     return result;
+  }
+
+  async reconcilePendingDeliveryWorkflowConsequences(limit = 25): Promise<number> {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const candidates = await this.prisma.$queryRaw<Array<{
+      orderTicketId: string;
+      version: number;
+    }>>`
+      SELECT
+        event.order_ticket_id AS "orderTicketId",
+        event.version
+      FROM delivery_workflow_events event
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM audit_logs audit
+        WHERE audit.idempotency_key = CONCAT('delivery:workflow:event:', event.id)
+      ) OR (
+        event.to_status::text IN ('ASSIGNED', 'IN_TRANSIT', 'DELIVERED', 'ISSUE')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM notification_intents notification
+          WHERE notification.aggregate_type = 'DELIVERY_WORKFLOW_EVENT'
+            AND notification.source_event_id = event.id
+            AND notification.channel = 'WHATSAPP'
+            AND notification.purpose = 'SERVICE'
+        )
+      )
+      ORDER BY event.created_at ASC
+      LIMIT ${boundedLimit}
+    `;
+
+    let completed = 0;
+    for (const candidate of candidates) {
+      const reconciled = await this.reconcileDeliveryWorkflowConsequences({
+        orderTicketId: candidate.orderTicketId,
+        workflowVersion: candidate.version,
+      });
+      if (reconciled) completed += 1;
+    }
+    return completed;
+  }
+
+  private async enqueueDeliveryWorkflowNotification(result: {
+    event: {
+      id: string;
+      toStatus: DeliveryWorkflowStatus;
+      version: number;
+      createdAt: Date;
+    };
+    order: {
+      id: string;
+      number: string;
+    };
+  }): Promise<void> {
+    const message = this.deliveryWorkflowCustomerMessage(result.event.toStatus, result.order.number);
+    if (!message) return;
+    const binding = await this.prisma.orderTicket.findUnique({
+      where: { id: result.order.id },
+      select: {
+        whatsappDeliveryOrder: { select: { conversationId: true } },
+        orderCheckout: {
+          select: {
+            customerId: true,
+            sofiaDraft: { select: { conversationId: true } },
+          },
+        },
+      },
+    });
+    const conversationId = binding?.whatsappDeliveryOrder?.conversationId
+      ?? binding?.orderCheckout?.sofiaDraft?.conversationId
+      ?? null;
+    const conversation = conversationId
+      ? await this.prisma.whatsappConversation.findUnique({
+          where: { id: conversationId },
+          select: { id: true, customerId: true, phone: true, provider: true, handoffVersion: true },
+        })
+      : null;
+    const account = conversation
+      ? await this.prisma.whatsappProviderAccount.findFirst({
+          where: { provider: conversation.provider, status: 'VERIFIED_RECEIVE_ONLY' },
+          orderBy: [{ lastVerifiedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true },
+        })
+      : null;
+    const canMaterialize = Boolean(conversation && account);
+    const bodyHash = createHash('sha256').update(message.body).digest('hex');
+    await this.notificationOutbox.enqueue({
+      eventType: message.eventType,
+      sourceEventId: result.event.id,
+      aggregateType: 'DELIVERY_WORKFLOW_EVENT',
+      aggregateId: result.order.id,
+      aggregateVersion: result.event.version,
+      customerId: conversation?.customerId ?? binding?.orderCheckout?.customerId ?? null,
+      conversationId: conversation?.id ?? null,
+      channel: CustomerConsentChannel.WHATSAPP,
+      purpose: CustomerConsentPurpose.SERVICE,
+      factEnvelope: canMaterialize
+        ? {
+            orderNumber: result.order.number,
+            workflowStatus: result.event.toStatus,
+            conversationId: conversation!.id,
+            accountId: account!.id,
+            recipientIdentityHash: createHash('sha256').update(conversation!.phone).digest('hex'),
+            expectedConversationVersion: conversation!.handoffVersion,
+            body: message.body,
+            bodyHash,
+          }
+        : {
+            orderNumber: result.order.number,
+            workflowStatus: result.event.toStatus,
+            notificationBindingAvailable: false,
+          },
+      policyOutcome: canMaterialize ? 'ALLOWED' : 'SUPPRESSED',
+      policyReason: canMaterialize ? null : 'WHATSAPP_NOTIFICATION_BINDING_UNAVAILABLE',
+      expiresAt: new Date(result.event.createdAt.getTime() + 24 * 60 * 60 * 1_000),
+    });
+  }
+
+  private deliveryWorkflowCustomerMessage(
+    status: DeliveryWorkflowStatus,
+    orderNumber: string,
+  ): { eventType: string; body: string } | null {
+    if (status === DeliveryWorkflowStatus.ASSIGNED) {
+      return { eventType: 'DELIVERY_ASSIGNED', body: `Tu pedido ${orderNumber} fue asignado para entrega.` };
+    }
+    if (status === DeliveryWorkflowStatus.IN_TRANSIT) {
+      return { eventType: 'IN_TRANSIT', body: `Tu pedido ${orderNumber} va en camino.` };
+    }
+    if (status === DeliveryWorkflowStatus.DELIVERED) {
+      return { eventType: 'DELIVERED', body: `Tu pedido ${orderNumber} fue marcado como entregado.` };
+    }
+    if (status === DeliveryWorkflowStatus.ISSUE) {
+      return {
+        eventType: 'DELIVERY_PROBLEM',
+        body: `Tu pedido ${orderNumber} requiere revisión del equipo de entrega.`,
+      };
+    }
+    return null;
+  }
+
+  private sanitizeDeliveryWorkflowNote(value: string | undefined): string | null {
+    if (value === undefined) return null;
+    const note = value.trim();
+    if (!note) return null;
+    const hasControlCharacters = Array.from(note).some((character) => {
+      const code = character.charCodeAt(0);
+      return (code < 32 && character !== '\n' && character !== '\r' && character !== '\t') || code === 127;
+    });
+    if (note.length > 1_000 || hasControlCharacters) {
+      throw new BadRequestException({ code: 'INVALID_DELIVERY_WORKFLOW_NOTE' });
+    }
+    return note;
+  }
+
+  private readDeliveryWorkflowMetadata(value: Prisma.JsonValue | null): {
+    notes: string | null;
+    issueType: DeliveryIssueType;
+  } {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { notes: null, issueType: DeliveryIssueType.OTHER };
+    }
+    const noteValue = 'notes' in value ? value.notes : null;
+    const issueValue = 'issueType' in value ? value.issueType : null;
+    const notes = typeof noteValue === 'string'
+      ? this.sanitizeDeliveryWorkflowNote(noteValue)
+      : null;
+    const issueType = typeof issueValue === 'string'
+      && Object.values(DeliveryIssueType).includes(issueValue as DeliveryIssueType)
+      ? issueValue as DeliveryIssueType
+      : DeliveryIssueType.OTHER;
+    return { notes, issueType };
   }
 
   async updateDeliveryWorkflow(id: string, dto: UpdateDeliveryWorkflowDto, actor: AuthUser) {
@@ -2825,15 +2983,13 @@ export class OrdersService {
       reasonCode: `DELIVERY_WORKFLOW_${nextStatus}`,
       idempotencyKey: `delivery:status:${id}:${current.deliveryWorkflowVersion}:${nextStatus}`,
       sanitizedMetadata: {
-        notesPresent: Boolean(dto.notes?.trim()),
+        notes: this.sanitizeDeliveryWorkflowNote(dto.notes),
         issueType: dto.issueType ?? null,
       },
     });
     const reconciled = await this.reconcileDeliveryWorkflowConsequences({
       orderTicketId: id,
       workflowVersion: transition.version,
-      notes: dto.notes,
-      issueType: dto.issueType as DeliveryIssueType | undefined,
     });
     const updated =
       reconciled?.order ??

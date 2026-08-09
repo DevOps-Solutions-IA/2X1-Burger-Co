@@ -30,6 +30,18 @@ export class CommandHandlerRegistry {
 
   definition(commandType: string): CommandPolicyDefinition {
     if (commandType === INTERNAL_POLICY.commandType) return INTERNAL_POLICY;
+    if (commandType === 'SOFIA_SEND_WHATSAPP') {
+      return {
+        commandType,
+        enabled: false,
+        operational: true,
+        approvalRequired: true,
+        allowedSources: ['notification_outbox'],
+        allowedRoles: ['system'],
+        requiredPermission: 'sofia.command.operational.disabled',
+        receiveWhileDisabled: true,
+      };
+    }
     if (BLOCKED_TYPES.has(commandType as SecureCommandType)) {
       return {
         commandType: commandType as SecureCommandType,

@@ -48,4 +48,18 @@ describe('PaymentWebhookRecoveryWorker', () => {
     await worker.onApplicationShutdown();
     jest.useRealTimers();
   });
+
+  it('uses the same numeric boolean representation accepted by startup validation', async () => {
+    jest.useFakeTimers();
+    process.env.NODE_ENV = 'production';
+    process.env.PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED = '1';
+    const webhooks = { recoverPendingBatch: jest.fn().mockResolvedValue({ completed: 0 }) };
+    const worker = new PaymentWebhookRecoveryWorker(webhooks as never);
+
+    worker.onModuleInit();
+    await jest.runOnlyPendingTimersAsync();
+    expect(webhooks.recoverPendingBatch).toHaveBeenCalledTimes(1);
+    await worker.onApplicationShutdown();
+    jest.useRealTimers();
+  });
 });

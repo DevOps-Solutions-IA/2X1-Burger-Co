@@ -29,6 +29,7 @@ type WebhookDecision = {
 @Injectable()
 export class CanonicalPaymentWebhookService {
   static readonly CLAIM_LEASE_MS = 30_000;
+  static readonly CLAIM_HEARTBEAT_MS = 10_000;
   static readonly MAX_PROCESSING_ATTEMPTS = 5;
 
   constructor(
@@ -160,6 +161,7 @@ export class CanonicalPaymentWebhookService {
     leaseOwnerHash: string,
     fallback?: ClaimedWebhookEvidence,
   ): Promise<CanonicalWebhookResult> {
+    const heartbeat = this.startClaimHeartbeat(webhookId, leaseOwnerHash);
     try {
       const persisted = await this.loadClaimedEvidence(webhookId, leaseOwnerHash, fallback);
       if (!persisted || !persisted.signatureValid || persisted.provider !== PaymentIntentProvider.BOLD) {
@@ -227,12 +229,55 @@ export class CanonicalPaymentWebhookService {
         paymentIntentId: intent.id,
         paymentStatus: updatedStatus,
       };
+      await heartbeat.stopAndAssert();
       await this.completeClaim(webhookId, leaseOwnerHash, result);
       return result;
     } catch (error) {
+      heartbeat.stop();
       await this.failClaim(webhookId, leaseOwnerHash, error);
       throw error;
+    } finally {
+      heartbeat.stop();
     }
+  }
+
+  private startClaimHeartbeat(webhookId: string, leaseOwnerHash: string) {
+    const recovery = this.repository as Partial<Pick<PrismaOrderCheckoutRepository, 'renewWebhookClaim'>>;
+    let timer: NodeJS.Timeout | null = null;
+    let inFlight: Promise<void> | null = null;
+    let failure: unknown = null;
+    let stopped = false;
+
+    const renew = () => {
+      if (stopped || inFlight || failure || typeof recovery.renewWebhookClaim !== 'function') return;
+      inFlight = recovery.renewWebhookClaim(webhookId, leaseOwnerHash)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          failure = error;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    };
+    if (typeof recovery.renewWebhookClaim === 'function') {
+      timer = setInterval(renew, CanonicalPaymentWebhookService.CLAIM_HEARTBEAT_MS);
+      timer.unref();
+    }
+
+    const stop = () => {
+      stopped = true;
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    return {
+      stop,
+      stopAndAssert: async () => {
+        stop();
+        if (inFlight) await inFlight;
+        if (failure) throw failure;
+        await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
+      },
+    };
   }
 
   private decide(evidence: ClaimedWebhookEvidence): WebhookDecision {

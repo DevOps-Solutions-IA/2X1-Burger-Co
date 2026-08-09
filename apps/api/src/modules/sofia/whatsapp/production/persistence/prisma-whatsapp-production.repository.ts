@@ -52,55 +52,91 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
     const normalized = normalizeWhatsappInboundClaimInput(input);
     const now = new Date();
     const initialClaim = this.claimMetadata(1, now);
-    try {
-      const created = await this.prisma.whatsappInboundEvent.create({
-        data: {
-          accountId: normalized.accountId,
-          provider: normalized.provider,
-          providerEventId: normalized.eventId,
-          providerMessageId: normalized.messageId,
-          phone: normalized.phone,
-          eventHash: normalized.eventHash,
-          normalizedPayloadHash: normalized.normalizedPayloadHash,
-          eventKind: normalized.eventKind,
-          rawPayload: { redacted: true },
-          processingStatus: 'CLAIMED',
-          processingAttempts: 1,
-          processingLeaseOwnerHash: this.hash(initialClaim.claimToken),
-          processingLeaseExpiresAt: initialClaim.leaseExpiresAt,
-          retryable: true,
-        },
-        select: { id: true, processingStatus: true },
-      });
-      return this.acquiredClaim(created.id, created.processingStatus, initialClaim, true);
-    } catch (error) {
-      if (!this.unique(error)) throw error;
+    const scopedEventId = this.scopedProviderEventId(normalized);
+    const scopedEventHash = this.scopedEventIdentityHash(normalized);
+    let observed = await this.prisma.whatsappInboundEvent.findFirst({
+      where: {
+        accountId: normalized.accountId,
+        provider: normalized.provider,
+        OR: [
+          { providerEventId: { in: [scopedEventId, normalized.eventId] } },
+          { eventHash: { in: [scopedEventHash, normalized.eventHash] } },
+        ],
+      },
+      select: {
+        id: true,
+        accountId: true,
+        provider: true,
+        providerEventId: true,
+        eventHash: true,
+        processingStatus: true,
+        processingAttempts: true,
+        processingLeaseExpiresAt: true,
+        nextRetryAt: true,
+        retryable: true,
+        deterministicResult: true,
+      },
+    });
+    if (!observed) {
+      try {
+        const created = await this.prisma.whatsappInboundEvent.create({
+          data: {
+            accountId: normalized.accountId,
+            provider: normalized.provider,
+            providerEventId: scopedEventId,
+            providerMessageId: normalized.messageId,
+            phone: normalized.phone,
+            eventHash: scopedEventHash,
+            normalizedPayloadHash: normalized.normalizedPayloadHash,
+            eventKind: normalized.eventKind,
+            rawPayload: { redacted: true },
+            processingStatus: 'CLAIMED',
+            processingAttempts: 1,
+            processingLeaseOwnerHash: this.hash(initialClaim.claimToken),
+            processingLeaseExpiresAt: initialClaim.leaseExpiresAt,
+            retryable: true,
+          },
+          select: { id: true, processingStatus: true },
+        });
+        return this.acquiredClaim(created.id, created.processingStatus, initialClaim, true);
+      } catch (error) {
+        if (!this.unique(error)) throw error;
+      }
     }
 
     for (let contentionAttempt = 0; contentionAttempt < 4; contentionAttempt += 1) {
-      const existing = await this.prisma.whatsappInboundEvent.findFirst({
-        where: {
-          OR: [
-            { providerEventId: normalized.eventId },
-            { provider: normalized.provider, eventHash: normalized.eventHash },
-          ],
-        },
-        select: {
-          id: true,
-          accountId: true,
-          provider: true,
-          providerEventId: true,
-          eventHash: true,
-          processingStatus: true,
-          processingAttempts: true,
-          processingLeaseExpiresAt: true,
-          nextRetryAt: true,
-          retryable: true,
-          deterministicResult: true,
-        },
-      });
+      const existing = observed ?? await this.prisma.whatsappInboundEvent.findFirst({
+          where: {
+            OR: [
+              {
+                accountId: normalized.accountId,
+                provider: normalized.provider,
+                providerEventId: { in: [scopedEventId, normalized.eventId] },
+              },
+              {
+                accountId: normalized.accountId,
+                provider: normalized.provider,
+                eventHash: { in: [scopedEventHash, normalized.eventHash] },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            accountId: true,
+            provider: true,
+            providerEventId: true,
+            eventHash: true,
+            processingStatus: true,
+            processingAttempts: true,
+            processingLeaseExpiresAt: true,
+            nextRetryAt: true,
+            retryable: true,
+            deterministicResult: true,
+          },
+        });
+      observed = null;
       if (!existing) continue;
-      this.assertSameInbound(existing, normalized);
+      this.assertSameInbound(existing, normalized, scopedEventId, scopedEventHash);
 
       const failedReadyForRetry = existing.processingStatus === 'FAILED'
         && existing.retryable
@@ -209,6 +245,100 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
     }
 
     throw new Error('WHATSAPP_INBOUND_CLAIM_CONTENTION');
+  }
+
+  async recoverAbandonedInboundBatch(now = new Date(), limit = 25) {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const candidates = await this.prisma.whatsappInboundEvent.findMany({
+      where: {
+        OR: [
+          {
+            processingStatus: 'CLAIMED',
+            processingLeaseExpiresAt: { lte: now },
+          },
+          {
+            processingStatus: 'FAILED',
+            deterministicResult: { path: ['kind'], equals: 'WHATSAPP_INBOUND_ABANDONED_V1' },
+            NOT: {
+              deterministicResult: { path: ['handoffApplied'], equals: true },
+            },
+          },
+        ],
+      },
+      orderBy: { receivedAt: 'asc' },
+      take: boundedLimit,
+      select: {
+        id: true,
+        provider: true,
+        phone: true,
+        processingStatus: true,
+        processingLeaseExpiresAt: true,
+        processingAttempts: true,
+      },
+    });
+    const recovered: Array<{
+      id: string;
+      provider: string;
+      phone: string;
+      attempts: number;
+    }> = [];
+    for (const candidate of candidates) {
+      if (candidate.processingStatus === 'CLAIMED') {
+        const fenced = await this.prisma.whatsappInboundEvent.updateMany({
+          where: {
+            id: candidate.id,
+            processingStatus: 'CLAIMED',
+            processingLeaseExpiresAt: candidate.processingLeaseExpiresAt,
+          },
+          data: {
+            processingStatus: 'FAILED',
+            processingLeaseOwnerHash: null,
+            processingLeaseExpiresAt: null,
+            nextRetryAt: now,
+            lastErrorCode: 'WHATSAPP_INBOUND_WORKER_DIED',
+            errorMessage: 'WHATSAPP_INBOUND_WORKER_DIED',
+            retryable: true,
+            deterministicResult: {
+              kind: 'WHATSAPP_INBOUND_ABANDONED_V1',
+              reasonCode: 'WHATSAPP_INBOUND_WORKER_DIED',
+              handoffRequired: true,
+              handoffApplied: false,
+            },
+          },
+        });
+        if (fenced.count !== 1) continue;
+      }
+      recovered.push({
+        id: candidate.id,
+        provider: candidate.provider,
+        phone: candidate.phone,
+        attempts: candidate.processingAttempts,
+      });
+    }
+    return recovered;
+  }
+
+  async completeAbandonedInboundHandoff(
+    inboundEventId: string,
+    outcome: 'HUMAN_REQUIRED' | 'CONVERSATION_NOT_FOUND',
+  ) {
+    const updated = await this.prisma.whatsappInboundEvent.updateMany({
+      where: {
+        id: inboundEventId,
+        processingStatus: 'FAILED',
+        deterministicResult: { path: ['kind'], equals: 'WHATSAPP_INBOUND_ABANDONED_V1' },
+      },
+      data: {
+        deterministicResult: {
+          kind: 'WHATSAPP_INBOUND_ABANDONED_V1',
+          reasonCode: 'WHATSAPP_INBOUND_WORKER_DIED',
+          handoffRequired: true,
+          handoffApplied: true,
+          handoffOutcome: outcome,
+        },
+      },
+    });
+    if (updated.count !== 1) throw new Error('WHATSAPP_INBOUND_RECOVERY_FENCED');
   }
 
   async checkpointInbound(id: string, checkpoint: unknown, claimToken: string) {
@@ -398,7 +528,9 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
         },
       });
       await this.audit.log({
-        userId: input.actorId,
+        userId: input.actorType === 'SYSTEM' ? null : input.actorId,
+        actorId: input.actorId,
+        actorType: input.actorType,
         action: 'WHATSAPP_HANDOFF_TRANSITION',
         module: 'SofiaWhatsapp',
         entity: 'WhatsappConversation',
@@ -546,12 +678,14 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
       eventHash: string;
     },
     input: Parameters<WhatsappProductionRepository['claimInbound']>[0],
+    scopedEventId: string,
+    scopedEventHash: string,
   ) {
     if (
       existing.accountId !== input.accountId
       || existing.provider !== input.provider
-      || existing.providerEventId !== input.eventId
-      || existing.eventHash !== input.eventHash
+      || (existing.providerEventId !== input.eventId && existing.providerEventId !== scopedEventId)
+      || (existing.eventHash !== input.eventHash && existing.eventHash !== scopedEventHash)
     ) {
       throw new Error('WHATSAPP_INBOUND_IDEMPOTENCY_CONFLICT');
     }
@@ -570,6 +704,18 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
 
   private hash(value: string) {
     return createHash('sha256').update(value).digest('hex');
+  }
+
+  private scopedProviderEventId(
+    input: Pick<Parameters<WhatsappProductionRepository['claimInbound']>[0], 'accountId' | 'provider' | 'eventId'>,
+  ) {
+    return `v2:${this.hash(`${input.provider}:${input.accountId}:${input.eventId}`)}`;
+  }
+
+  private scopedEventIdentityHash(
+    input: Pick<Parameters<WhatsappProductionRepository['claimInbound']>[0], 'accountId' | 'provider' | 'eventHash'>,
+  ) {
+    return `v2:${this.hash(`${input.provider}:${input.accountId}:${input.eventHash}`)}`;
   }
 
   private mask(value: string) {

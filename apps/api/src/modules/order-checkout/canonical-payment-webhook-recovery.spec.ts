@@ -47,6 +47,7 @@ describe('CanonicalPaymentWebhookService recovery lifecycle', () => {
       markFinancialReview: jest.fn().mockResolvedValue(undefined),
       markCheckoutPaymentVerified: jest.fn().mockResolvedValue(undefined),
       assertWebhookClaimOwned: jest.fn().mockResolvedValue(undefined),
+      renewWebhookClaim: jest.fn().mockResolvedValue(new Date(Date.now() + 30_000)),
       completeWebhookClaim: jest.fn().mockResolvedValue(undefined),
       failWebhookClaim: jest.fn().mockResolvedValue(undefined),
       createWebhookEvidence: jest.fn(),
@@ -169,5 +170,58 @@ describe('CanonicalPaymentWebhookService recovery lifecycle', () => {
       response: expect.objectContaining({ code: 'PAYMENT_WEBHOOK_IDENTITY_CONFLICT' }),
     });
     expect(repository.transitionPayment).not.toHaveBeenCalled();
+  });
+
+  it('renews the owned lease while financial downstream processing is still active', async () => {
+    jest.useFakeTimers();
+    const { service, repository, kitchen, command } = harness();
+    let finishKitchen!: () => void;
+    kitchen.evaluateAndMark.mockImplementation(() => new Promise<void>((resolve) => {
+      finishKitchen = resolve;
+    }));
+
+    try {
+      const processing = service.processBold(command);
+      for (let index = 0; index < 20 && kitchen.evaluateAndMark.mock.calls.length === 0; index += 1) {
+        await Promise.resolve();
+      }
+      expect(kitchen.evaluateAndMark).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(CanonicalPaymentWebhookService.CLAIM_HEARTBEAT_MS);
+      expect(repository.renewWebhookClaim).toHaveBeenCalledWith('webhook-1', expect.any(String));
+
+      finishKitchen();
+      await expect(processing).resolves.toMatchObject({ paymentStatus: PaymentIntentStatus.SUCCEEDED });
+      expect(repository.completeWebhookClaim).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('fences completion when lease renewal fails during downstream processing', async () => {
+    jest.useFakeTimers();
+    const { service, repository, kitchen, command } = harness();
+    let finishKitchen!: () => void;
+    repository.renewWebhookClaim.mockRejectedValueOnce(new Error('PAYMENT_WEBHOOK_LEASE_LOST'));
+    kitchen.evaluateAndMark.mockImplementation(() => new Promise<void>((resolve) => {
+      finishKitchen = resolve;
+    }));
+
+    try {
+      const processing = service.processBold(command);
+      for (let index = 0; index < 20 && kitchen.evaluateAndMark.mock.calls.length === 0; index += 1) {
+        await Promise.resolve();
+      }
+      await jest.advanceTimersByTimeAsync(CanonicalPaymentWebhookService.CLAIM_HEARTBEAT_MS);
+      finishKitchen();
+
+      await expect(processing).rejects.toThrow('PAYMENT_WEBHOOK_LEASE_LOST');
+      expect(repository.transitionPayment).toHaveBeenCalledTimes(1);
+      expect(kitchen.evaluateAndMark).toHaveBeenCalledTimes(1);
+      expect(repository.completeWebhookClaim).not.toHaveBeenCalled();
+      expect(repository.failWebhookClaim).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

@@ -162,10 +162,12 @@ export type CommandPolicyDefinition = {
   allowedSources: readonly string[];
   allowedRoles: readonly string[];
   requiredPermission: string;
+  receiveWhileDisabled?: boolean;
 };
 
 export type CommandAuditEvidence = {
   actorId: string;
+  actorType: 'USER' | 'SYSTEM';
   actorRole: string | null;
   action: string;
   entityId: string | null;

@@ -83,6 +83,7 @@ const envSchema = z
     BOLD_EXPECTED_ACCOUNT_ID: z.string().min(1).optional(),
     PHASE5_ORDER_CREATION_ENABLED: envBoolean.default(false),
     PHASE5_PAYMENT_ORCHESTRATION_ENABLED: envBoolean.default(false),
+    PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED: envBoolean.default(false),
     PHASE5_KITCHEN_ENABLED: envBoolean.default(false),
     PHASE5_TEST_OPERATIONAL_ENABLED: envBoolean.default(false),
     CRM_IDENTITY_HASH_SECRET: z.preprocess(
@@ -138,6 +139,16 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         message: 'JWT_ACCESS_SECRET y JWT_REFRESH_SECRET deben ser diferentes entre si',
         path: ['JWT_REFRESH_SECRET'],
+      });
+    }
+    if (
+      data.PHASE5_PAYMENT_ORCHESTRATION_ENABLED
+      && !data.PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'PAYMENT_WEBHOOK_RECOVERY_REQUIRED',
+        path: ['PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED'],
       });
     }
     if (data.NODE_ENV === 'production') {

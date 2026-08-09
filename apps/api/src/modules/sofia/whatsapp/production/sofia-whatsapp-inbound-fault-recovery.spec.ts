@@ -237,4 +237,63 @@ describe('Sofia WhatsApp conversational checkpoint recovery', () => {
       jest.useRealTimers();
     }
   });
+
+  it('keeps renewing the lease instead of timing out an uncancellable agent mutation', async () => {
+    jest.useFakeTimers();
+    let resolveAgent!: (value: Record<string, unknown>) => void;
+    const agentResult = new Promise<Record<string, unknown>>((resolve) => {
+      resolveAgent = resolve;
+    });
+    const conversations = {
+      findConversation: jest.fn().mockResolvedValue({
+        id: 'conversation-1', customerId: null, sofiaEnabled: true,
+        status: 'ACTIVE', humanStatus: 'SOFIA_ACTIVE', phone: '573001234567',
+      }),
+      findSystemActorId: jest.fn().mockResolvedValue('system-actor'),
+      findOutboundByIdempotency: jest.fn().mockResolvedValue(null),
+      createOutbound: jest.fn().mockResolvedValue({ id: 'outbound-1', status: 'SUGGESTED' }),
+    };
+    const inboundGateway = {
+      checkpoint: jest.fn().mockResolvedValue(undefined),
+      renew: jest.fn().mockResolvedValue(new Date(Date.now() + 120_000)),
+    };
+    const service = new SofiaWhatsappService(
+      conversations as never,
+      { isAutoReplyAllowed: jest.fn().mockReturnValue(false) } as never,
+      { processInboundMessage: jest.fn().mockReturnValue(agentResult) } as never,
+      { evaluate: jest.fn().mockResolvedValue({ allowed: true }) } as never,
+      {} as never,
+      inboundGateway as never,
+      { identityHash: jest.fn().mockReturnValue('recipient-hash') } as never,
+      { inbound: jest.fn().mockResolvedValue({ allowed: true }) } as never,
+      { decision: jest.fn().mockResolvedValue({ state: 'SOFIA_ACTIVE' }), transition: jest.fn() } as never,
+      {} as never,
+    );
+    const privateService = service as unknown as {
+      handleInboundMode(input: Record<string, unknown>): Promise<unknown>;
+    };
+
+    try {
+      const processing = privateService.handleInboundMode({
+        mode: 'receive_only', providerName: 'qr_gateway', parsed,
+        conversationId: 'conversation-1', inboundMessageId: 'inbound-message-1',
+        accountId: 'account-1', headers: {}, eventHash: 'event-hash-1', claim: claim(null),
+      });
+      for (let index = 0; index < 20 && inboundGateway.renew.mock.calls.length === 0; index += 1) {
+        await Promise.resolve();
+      }
+
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(inboundGateway.renew.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+      resolveAgent({
+        responseText: 'Respuesta cercada.', confidence: 0.9, shouldHandoff: false,
+        mediaSuggestion: null, businessStatus: { isOpen: true },
+      });
+      await expect(processing).resolves.toMatchObject({ processingStatus: 'SUGGESTED' });
+      expect(conversations.createOutbound).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

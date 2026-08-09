@@ -83,6 +83,7 @@ import { WhatsappOutboundGateway } from './whatsapp/production/whatsapp-outbound
 import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
 import { WHATSAPP_PRODUCTION_REPOSITORY } from './whatsapp/production/whatsapp-production.repository';
 import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-verifier';
+import { WhatsappInboundRecoveryWorker } from './whatsapp/production/whatsapp-inbound-recovery.worker';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CustomerServiceModule } from '../customer-service/customer-service.module';
 
@@ -154,6 +155,7 @@ import { CustomerServiceModule } from '../customer-service/customer-service.modu
     WhatsappEventNormalizer,
     WhatsappInboundDeduplicator,
     WhatsappInboundGateway,
+    WhatsappInboundRecoveryWorker,
     WhatsappConsentService,
     WhatsappHandoffService,
     WhatsappMessagePolicyService,

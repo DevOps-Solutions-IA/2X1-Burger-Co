@@ -14,12 +14,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { closeTestApp, createTestApp } from '../../tests/helpers/test-app';
 import { resetDatabase, seedTestData } from '../../tests/helpers/test-data';
 import { OrdersService } from './orders.service';
+import { DeliveryWorkflowConsequenceWorker } from './delivery-workflow-consequence.worker';
 
 describe('OrdersService Phase 6 delivery/location atomicity', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let orders: OrdersService;
   let workflow: DeliveryWorkflowService;
+  let consequenceWorker: DeliveryWorkflowConsequenceWorker;
 
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -31,6 +33,7 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
     prisma = testApp.prisma;
     orders = app.get(OrdersService);
     workflow = app.get(DeliveryWorkflowService);
+    consequenceWorker = app.get(DeliveryWorkflowConsequenceWorker);
   });
 
   afterAll(async () => closeTestApp(app));
@@ -153,6 +156,31 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
     expect(await prisma.deliveryWorkflowEvent.count({ where: { orderTicketId: takeaway.id } })).toBe(0);
   });
 
+  it('keeps delivery workflow authority untouched during a generic order edit', async () => {
+    const fixture = await createDeliveryOrder({
+      workflowStatus: DeliveryWorkflowStatus.IN_TRANSIT,
+      workflowVersion: 7,
+    });
+    const statusUpdatedAt = new Date('2026-08-09T03:00:00.000Z');
+    const dispatchedAt = new Date('2026-08-09T03:01:00.000Z');
+    await prisma.orderTicket.update({
+      where: { id: fixture.order.id },
+      data: { deliveryStatusUpdatedAt: statusUpdatedAt, deliveryDispatchedAt: dispatchedAt },
+    });
+
+    await orders.update(fixture.order.id, { notes: 'Nota comercial sin transición.' }, fixture.actor);
+
+    expect(await prisma.orderTicket.findUniqueOrThrow({ where: { id: fixture.order.id } })).toMatchObject({
+      deliveryWorkflowStatus: DeliveryWorkflowStatus.IN_TRANSIT,
+      deliveryWorkflowVersion: 7,
+      deliveryStatusUpdatedAt: statusUpdatedAt,
+      deliveryDispatchedAt: dispatchedAt,
+      assignedRiderId: fixture.seed.deliveryUser.id,
+      notes: 'Nota comercial sin transición.',
+    });
+    expect(await prisma.deliveryWorkflowEvent.count({ where: { orderTicketId: fixture.order.id } })).toBe(0);
+  });
+
   it('recovers rider assignment audit and alert after a persisted transition', async () => {
     const fixture = await createDeliveryOrder({
       workflowStatus: DeliveryWorkflowStatus.PENDING_ASSIGNMENT,
@@ -169,7 +197,7 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
       sanitizedMetadata: {
         previousAssignedRiderId: null,
         assignedRiderId: fixture.seed.deliveryUser.id,
-        notesPresent: false,
+        notes: null,
       },
     });
 
@@ -268,7 +296,7 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
     })).toBe(1);
   });
 
-  it('resumes ISSUE consequences after a persisted transition and deduplicates replay', async () => {
+  it('recovers ISSUE consequences from persisted event facts without request replay', async () => {
     const fixture = await createDeliveryOrder();
     await workflow.transition({
       orderTicketId: fixture.order.id,
@@ -277,19 +305,17 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
       actorId: fixture.seed.adminUser.id,
       reasonCode: 'FAULT_AFTER_DELIVERY_EVENT',
       idempotencyKey: `delivery:fault:${fixture.order.id}:issue`,
-      sanitizedMetadata: { issueType: DeliveryIssueType.ROUTE_INCIDENT },
+      sanitizedMetadata: {
+        issueType: DeliveryIssueType.ROUTE_INCIDENT,
+        notes: 'Novedad de ruta verificada.',
+      },
     });
 
     expect(await prisma.deliveryIssue.count({ where: { orderTicketId: fixture.order.id } })).toBe(0);
     expect(await prisma.operationalAlert.count({ where: { entityId: fixture.order.id } })).toBe(0);
 
-    const dto = {
-      workflowStatus: 'ISSUE' as const,
-      issueType: 'ROUTE_INCIDENT' as const,
-      notes: 'Novedad de ruta verificada.',
-    };
-    await orders.updateDeliveryWorkflow(fixture.order.id, dto, fixture.actor);
-    await orders.updateDeliveryWorkflow(fixture.order.id, dto, fixture.actor);
+    await consequenceWorker.runOnce();
+    expect(await orders.reconcilePendingDeliveryWorkflowConsequences()).toBe(0);
 
     expect(await prisma.deliveryIssue.count({ where: { orderTicketId: fixture.order.id } })).toBe(1);
     expect(await prisma.operationalAlert.count({

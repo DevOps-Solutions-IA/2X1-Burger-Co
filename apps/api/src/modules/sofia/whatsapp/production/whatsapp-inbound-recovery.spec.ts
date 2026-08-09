@@ -59,6 +59,29 @@ describe('WhatsApp inbound leased recovery', () => {
     );
   });
 
+  it('namespaces new provider identities by provider and account without exposing raw ids', async () => {
+    const inbound = {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: 'row-scoped', processingStatus: 'CLAIMED' }),
+    };
+    const repository = repositoryWith(inbound);
+
+    await expect(repository.claimInbound(input)).resolves.toMatchObject({
+      id: 'row-scoped',
+      disposition: 'ACQUIRED',
+    });
+    expect(inbound.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        provider: 'qr_gateway',
+        accountId: 'account-1',
+        providerEventId: expect.stringMatching(/^v2:[a-f0-9]{64}$/),
+        eventHash: expect.stringMatching(/^v2:[a-f0-9]{64}$/),
+      }),
+    }));
+    expect(inbound.create.mock.calls[0]?.[0].data.providerEventId).not.toBe('event-1');
+    expect(inbound.create.mock.calls[0]?.[0].data.eventHash).not.toBe('event-hash');
+  });
+
   it('returns in-progress without granting a second active lease', async () => {
     const inbound = {
       create: jest.fn().mockRejectedValue(duplicateError()),

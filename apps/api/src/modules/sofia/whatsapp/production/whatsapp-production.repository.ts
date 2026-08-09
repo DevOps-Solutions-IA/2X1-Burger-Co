@@ -55,6 +55,7 @@ export interface WhatsappProductionRepository {
   transitionHandoff(input: {
     conversationId: string;
     actorId: string;
+    actorType?: 'USER' | 'SYSTEM';
     expectedVersion: number;
     previousState: string;
     nextState: string;
