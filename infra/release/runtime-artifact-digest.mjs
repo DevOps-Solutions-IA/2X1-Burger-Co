@@ -6,21 +6,24 @@ import path from 'node:path';
 const [mode, input] = process.argv.slice(2);
 if (mode === 'filesystem') {
   process.stdout.write(`${await filesystemDigest(path.resolve(input ?? '/app'))}\n`);
+} else if (mode === 'runtime-rootfs') {
+  process.stdout.write(`${await filesystemDigest(path.resolve(input ?? '/'), true)}\n`);
 } else if (mode === 'config') {
   process.stdout.write(`${configDigest(input)}\n`);
 } else if (mode === 'rootfs') {
   process.stdout.write(`${rootfsDigest(input)}\n`);
 } else {
-  throw new Error('Usage: runtime-artifact-digest.mjs <filesystem ROOT|config INSPECT_JSON|rootfs INSPECT_JSON>');
+  throw new Error('Usage: runtime-artifact-digest.mjs <filesystem ROOT|runtime-rootfs ROOT|config INSPECT_JSON|rootfs INSPECT_JSON>');
 }
 
-async function filesystemDigest(root) {
+async function filesystemDigest(root, runtimeRoot = false) {
   const digest = createHash('sha256');
-  await visit(root, '.', digest);
+  await visit(root, '.', digest, runtimeRoot);
   return `sha256:${digest.digest('hex')}`;
 }
 
-async function visit(absolute, relative, digest) {
+async function visit(absolute, relative, digest, runtimeRoot) {
+  if (runtimeRoot && isRuntimeMount(relative)) return;
   const stat = await lstat(absolute);
   const type = stat.isDirectory() ? 'directory' : stat.isSymbolicLink() ? 'symlink' : stat.isFile() ? 'file' : 'other';
   digest.update(`${JSON.stringify({ path: relative, type, mode: stat.mode & 0o7777, uid: stat.uid, gid: stat.gid })}\n`);
@@ -42,25 +45,26 @@ async function visit(absolute, relative, digest) {
   const entries = await readdir(absolute);
   entries.sort((left, right) => left.localeCompare(right, 'en'));
   for (const entry of entries) {
-    await visit(path.join(absolute, entry), relative === '.' ? entry : `${relative}/${entry}`, digest);
+    await visit(path.join(absolute, entry), relative === '.' ? entry : `${relative}/${entry}`, digest, runtimeRoot);
   }
 }
 
 function configDigest(inspectPath) {
   const inspected = JSON.parse(readFileSync(inspectPath, 'utf8'));
-  const config = inspected[0]?.Config;
+  const image = inspected[0];
+  const config = image?.Config;
   if (!config) throw new Error('Docker image Config is missing.');
-  const normalized = {
-    User: config.User ?? '',
-    Env: [...(config.Env ?? [])].sort(),
-    Entrypoint: config.Entrypoint ?? null,
-    Cmd: config.Cmd ?? null,
-    WorkingDir: config.WorkingDir ?? '',
-    ExposedPorts: stable(config.ExposedPorts ?? {}),
-    Labels: stable(config.Labels ?? {}),
-    Healthcheck: stable(config.Healthcheck ?? null),
-  };
+  const normalized = { os: image.Os, architecture: image.Architecture, variant: image.Variant ?? null, config: stable(config) };
   return `sha256:${createHash('sha256').update(JSON.stringify(normalized)).digest('hex')}`;
+}
+
+function isRuntimeMount(relative) {
+  return relative === 'proc' || relative.startsWith('proc/')
+    || relative === 'sys' || relative.startsWith('sys/')
+    || relative === 'dev' || relative.startsWith('dev/')
+    || relative === 'tmp' || relative.startsWith('tmp/')
+    || relative === 'run' || relative.startsWith('run/')
+    || ['etc/hosts', 'etc/hostname', 'etc/resolv.conf'].includes(relative);
 }
 
 function rootfsDigest(inspectPath) {

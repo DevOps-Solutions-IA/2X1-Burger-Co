@@ -9,7 +9,7 @@ export RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
 RELEASE_OUTPUT_DIR=/tmp/release-artifacts ./infra/release/build-artifacts.sh HEAD
 ```
 
-El secreto es entropia efimera por release, debe venir del secret store aprobado y compartirse solo entre builds de verificacion del mismo release. No se persiste en artifacts, logs ni metadata. Cada build usa `--no-cache`; las imagenes exportadas se verifican por checksum antes de cargarse. El digest publicable de registry se obtiene solo en el futuro push autorizado y no se infiere del image ID local.
+El secreto es entropia efimera por release, debe venir del secret store aprobado y compartirse solo entre builds de verificacion del mismo release. No se persiste en artifacts, logs ni metadata. Cada build usa `--no-cache`; el gate compara configuracion y filesystem ejecutable completo, no exige que BuildKit serialice las capas en el mismo orden. Las primeras imagenes exportadas se conservan y verifican por checksum antes de cada carga. El digest publicable de registry se obtiene solo en el futuro push autorizado y no se infiere del image ID local.
 
 ## Canary local
 

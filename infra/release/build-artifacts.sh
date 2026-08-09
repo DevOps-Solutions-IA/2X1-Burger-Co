@@ -73,6 +73,12 @@ API_CONTENT_DIGEST="$(docker run --rm --network none --entrypoint node \
 WEB_CONTENT_DIGEST="$(docker run --rm --network none --entrypoint node \
   -v "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
   "$WEB_TAG" /tmp/runtime-artifact-digest.mjs filesystem /app)"
+API_RUNTIME_ROOTFS_DIGEST="$(docker run --rm --network none --user root --entrypoint node \
+  -v "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
+  "$API_TAG" /tmp/runtime-artifact-digest.mjs runtime-rootfs /)"
+WEB_RUNTIME_ROOTFS_DIGEST="$(docker run --rm --network none --user root --entrypoint node \
+  -v "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
+  "$WEB_TAG" /tmp/runtime-artifact-digest.mjs runtime-rootfs /)"
 API_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/api-image-inspect.json")"
 WEB_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/web-image-inspect.json")"
 API_ROOTFS_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" rootfs "$OUTPUT_DIR/api-image-inspect.json")"
@@ -103,17 +109,17 @@ docker run --rm --network none --entrypoint sh "$WEB_TAG" -lc 'test ! -e /app/.g
 
 node - "$OUTPUT_DIR/artifact-record.json" "$OUTPUT_DIR/release-manifest.json" \
   "$API_TAG" "$API_DIGEST" "$API_CONTENT_DIGEST" "$API_CONFIG_DIGEST" \
-  "$API_ROOTFS_DIGEST" "$API_SBOM_DIGEST" "$API_ARCHIVE_DIGEST" \
+  "$API_ROOTFS_DIGEST" "$API_RUNTIME_ROOTFS_DIGEST" "$API_SBOM_DIGEST" "$API_ARCHIVE_DIGEST" \
   "$WEB_TAG" "$WEB_DIGEST" "$WEB_CONTENT_DIGEST" "$WEB_CONFIG_DIGEST" \
-  "$WEB_ROOTFS_DIGEST" "$WEB_SBOM_DIGEST" "$WEB_ARCHIVE_DIGEST" <<'NODE'
+  "$WEB_ROOTFS_DIGEST" "$WEB_RUNTIME_ROOTFS_DIGEST" "$WEB_SBOM_DIGEST" "$WEB_ARCHIVE_DIGEST" <<'NODE'
 const fs = require('fs');
-const [output, manifestPath, apiTag, apiDigest, apiContentDigest, apiConfigDigest, apiRootfsDigest, apiSbomDigest, apiArchiveDigest, webTag, webDigest, webContentDigest, webConfigDigest, webRootfsDigest, webSbomDigest, webArchiveDigest] = process.argv.slice(2);
+const [output, manifestPath, apiTag, apiDigest, apiContentDigest, apiConfigDigest, apiLayerSetDigest, apiRuntimeRootfsDigest, apiSbomDigest, apiArchiveDigest, webTag, webDigest, webContentDigest, webConfigDigest, webLayerSetDigest, webRuntimeRootfsDigest, webSbomDigest, webArchiveDigest] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 fs.writeFileSync(output, JSON.stringify({
   manifest,
-  provenance: { type: 'local-image-config-rootfs', registryManifestDigest: null, registryPushAuthorized: false },
-  api: { tag: apiTag, digest: apiDigest, localImageConfigDigest: apiDigest, contentDigest: apiContentDigest, configDigest: apiConfigDigest, rootfsDigest: apiRootfsDigest, sbomDigest: apiSbomDigest, archiveDigest: apiArchiveDigest, archive: 'api-image.tar.gz', migrationCount: manifest.schemaMigrationCount },
-  web: { tag: webTag, digest: webDigest, localImageConfigDigest: webDigest, contentDigest: webContentDigest, configDigest: webConfigDigest, rootfsDigest: webRootfsDigest, sbomDigest: webSbomDigest, archiveDigest: webArchiveDigest, archive: 'web-image.tar.gz' },
+  provenance: { type: 'retained-local-image-runtime-equivalence', registryManifestDigest: null, registryPushAuthorized: false },
+  api: { tag: apiTag, digest: apiDigest, localImageConfigDigest: apiDigest, contentDigest: apiContentDigest, configDigest: apiConfigDigest, layerSetDigest: apiLayerSetDigest, runtimeRootfsDigest: apiRuntimeRootfsDigest, sbomDigest: apiSbomDigest, archiveDigest: apiArchiveDigest, archive: 'api-image.tar.gz', migrationCount: manifest.schemaMigrationCount },
+  web: { tag: webTag, digest: webDigest, localImageConfigDigest: webDigest, contentDigest: webContentDigest, configDigest: webConfigDigest, layerSetDigest: webLayerSetDigest, runtimeRootfsDigest: webRuntimeRootfsDigest, sbomDigest: webSbomDigest, archiveDigest: webArchiveDigest, archive: 'web-image.tar.gz' },
 }, null, 2) + '\n');
 NODE
 
