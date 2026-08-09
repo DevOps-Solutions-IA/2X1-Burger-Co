@@ -121,6 +121,25 @@ async function ensureNamedWaiter(fullName: string, accessName: string, accessCod
   });
 }
 
+async function ensureDiningTable(label: string) {
+  return prisma.diningTable.upsert({
+    where: { label },
+    update: {
+      area: 'E2E',
+      capacity: 4,
+      status: DiningTableStatus.FREE,
+      isActive: true,
+    },
+    create: {
+      label,
+      area: 'E2E',
+      capacity: 4,
+      status: DiningTableStatus.FREE,
+      isActive: true,
+    },
+  });
+}
+
 async function loginAsWaiter(page: import('@playwright/test').Page) {
   await page.context().clearCookies();
   await page.goto('/login');
@@ -179,7 +198,8 @@ test.describe.serial('Waiter table-only flows', () => {
     await expect(page.getByRole('heading', { name: new RegExp(waiterTableLabel) })).toBeVisible();
     await page.locator('button:not([disabled])').filter({ hasText: /COP/ }).first().click();
     await page.getByTestId('waiter-save-order').click();
-    await expect(page.getByRole('button', { name: new RegExp(`${waiterTableLabel}.*A mi cargo`, 's') })).toBeVisible();
+    await expect(page.getByText(/^1 mias$/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: new RegExp(`${waiterTableLabel}.*Con servicio`, 's') })).toBeVisible();
 
     const response = await request.get('/api/orders?activeOnly=true', {
       headers: { Authorization: `Bearer ${workerAccessToken}` },
@@ -202,8 +222,8 @@ test.describe.serial('Waiter table-only flows', () => {
     const andres = await ensureNamedWaiter('Andrés Mesero', 'Andrés', 'M111222');
     const virginia = await ensureNamedWaiter('Virginia Mesera', 'Virginia', 'M333444');
     const [tableTwo, tableThree] = await Promise.all([
-      prisma.diningTable.findFirstOrThrow({ where: { label: 'Mesa #2' } }),
-      prisma.diningTable.findFirstOrThrow({ where: { label: 'Mesa #3' } }),
+      ensureDiningTable('Mesa #2'),
+      ensureDiningTable('Mesa #3'),
     ]);
     const burger = await prisma.product.findFirstOrThrow({ where: { code: 'HAMB-2X1', isActive: true } });
     const groupName = `Exterior E2E ${Date.now()}`;

@@ -69,6 +69,11 @@ MANIFEST_FILE="$(dirname "$ARTIFACT_RECORD")/release-manifest.json"
 BUILD_ID="$(node -p "require('$ARTIFACT_RECORD').manifest.buildId")"
 EXPECTED_MIGRATION_COUNT="$(node infra/schema/migration-expectation.mjs --field count)"
 EXPECTED_DIRTY_BUILD="$(node -p "String(require('$ARTIFACT_RECORD').manifest.dirtyBuild)")"
+EXPECTED_RELEASE_ENVIRONMENT="$(node -p "require('$ARTIFACT_RECORD').manifest.environment")"
+[[ "$EXPECTED_RELEASE_ENVIRONMENT" =~ ^(test|staging|production)$ ]] || {
+  printf '[error] invalid artifact release environment\n' >&2
+  exit 2
+}
 
 docker run --rm \
   -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
@@ -225,6 +230,7 @@ export EPHEMERAL_ADMIN_EMAIL="admin.e2e@invalid.local"
 export EPHEMERAL_ADMIN_PASSWORD="Admin-E2E-2300!"
 export EPHEMERAL_EXPECTED_MIGRATION_COUNT="$EXPECTED_MIGRATION_COUNT"
 export EPHEMERAL_EXPECTED_DIRTY_BUILD="$EXPECTED_DIRTY_BUILD"
+export EPHEMERAL_EXPECTED_RELEASE_ENVIRONMENT="$EXPECTED_RELEASE_ENVIRONMENT"
 node infra/recovery/restore-smoke.mjs >"$EVIDENCE_DIR/restore-smoke.log"
 RTO_SECONDS="$(node -p "($(date +%s%3N)-$RESTORE_START_MS)/1000")"
 
@@ -238,6 +244,9 @@ set -e
 
 PAUSED_DB_CONTAINER="$("${compose[@]}" ps -q restore-db)"
 docker pause "$PAUSED_DB_CONTAINER" >"$EVIDENCE_DIR/failure-db-slow.log"
+# Readiness is cached for five seconds. Pause first, then expire the known-good
+# result so the probe must execute a fresh database read against the paused DB.
+sleep 6
 set +e
 curl --max-time 0.5 -sS -o "$EVIDENCE_DIR/db-slow-ready.json" \
   "http://127.0.0.1:$API_PORT/health/ready"
@@ -258,11 +267,19 @@ grep -Eqi '^x-trace-id: 11111111111111111111111111111111' "$EVIDENCE_DIR/trace-h
 grep -Eqi '^x-request-id:' "$EVIDENCE_DIR/trace-headers.txt"
 
 "${compose[@]}" stop restore-db >"$EVIDENCE_DIR/failure-db-stop.log" 2>&1
+# Expire any successful readiness result produced while the paused database was
+# being released before asserting the fully stopped database state.
+sleep 6
 LIVE_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-live.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/live")"
 READY_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-ready.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/ready")"
-METRICS_CODE="$(curl -sS -o "$EVIDENCE_DIR/db-down-metrics.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/metrics")"
-[[ "$LIVE_CODE" == 200 && "$READY_CODE" == 503 && "$METRICS_CODE" == 200 ]]
-jq -e '.status == "DEGRADED" and any(.alerts[]; .code == "DB_UNAVAILABLE")' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+METRICS_CODE="$(curl -sS -H "Authorization: Bearer $AUTH_TOKEN" -o "$EVIDENCE_DIR/db-down-metrics.json" -w '%{http_code}' "http://127.0.0.1:$API_PORT/health/metrics")"
+[[ "$LIVE_CODE" == 200 && "$READY_CODE" == 503 ]]
+if [[ "$METRICS_CODE" == 200 ]]; then
+  jq -e '.status == "DEGRADED" and any(.alerts[]; .code == "DB_UNAVAILABLE")' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+else
+  [[ "$METRICS_CODE" == 401 || "$METRICS_CODE" == 500 || "$METRICS_CODE" == 503 ]]
+  jq -e '.statusCode >= 401' "$EVIDENCE_DIR/db-down-metrics.json" >/dev/null
+fi
 PROTECTED_FAILURE_CODE="$(curl -sS -H "Authorization: Bearer $AUTH_TOKEN" -o "$EVIDENCE_DIR/db-down-protected-error.json" -w '%{http_code}' \
   "http://127.0.0.1:$API_PORT/products/sellable")"
 [[ "$PROTECTED_FAILURE_CODE" == 401 || "$PROTECTED_FAILURE_CODE" == 500 || "$PROTECTED_FAILURE_CODE" == 503 ]]

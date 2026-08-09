@@ -62,8 +62,7 @@ function isRuntimeMount(relative) {
   return relative === 'proc' || relative.startsWith('proc/')
     || relative === 'sys' || relative.startsWith('sys/')
     || relative === 'dev' || relative.startsWith('dev/')
-    || relative === 'tmp' || relative.startsWith('tmp/')
-    || relative === 'run' || relative.startsWith('run/')
+    || relative === 'tmp/runtime-artifact-digest.mjs'
     || ['etc/hosts', 'etc/hostname', 'etc/resolv.conf'].includes(relative);
 }
 

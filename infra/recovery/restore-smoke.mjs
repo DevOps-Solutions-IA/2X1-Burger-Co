@@ -12,7 +12,9 @@ assert.equal(ready.body.checks.expectedMigrations, expectedMigrationCount);
 assert.equal(ready.body.checks.appliedMigrations, expectedMigrationCount);
 
 const version = await apiRequest('/version');
-assert.equal(version.body.environment, 'test');
+const expectedEnvironment = requiredEnv('EPHEMERAL_EXPECTED_RELEASE_ENVIRONMENT');
+assert.ok(['test', 'staging', 'production'].includes(expectedEnvironment));
+assert.equal(version.body.environment, expectedEnvironment);
 const expectedDirtyBuild = requiredEnv('EPHEMERAL_EXPECTED_DIRTY_BUILD');
 assert.ok(expectedDirtyBuild === 'true' || expectedDirtyBuild === 'false');
 
@@ -27,7 +29,7 @@ const paths = [
 ];
 for (const path of paths) await apiRequest(path, { headers });
 
-const metrics = await apiRequest('/health/metrics');
+const metrics = await apiRequest('/health/metrics', { headers });
 assert.equal(metrics.body.status, 'READY');
 assert.equal(metrics.body.metrics.database.available, true);
 assert.equal(metrics.body.metrics.recovery.status, 'PASS');
@@ -47,7 +49,11 @@ await writeJson('restore-smoke.json', {
   status: 'PASS',
   live: true,
   ready: true,
-  version: { buildId: version.body.buildId, dirtyBuild: expectedDirtyBuild === 'true' },
+  version: {
+    buildId: version.body.buildId,
+    environment: expectedEnvironment,
+    dirtyBuild: expectedDirtyBuild === 'true',
+  },
   readOnlyRoutes: paths.length,
   metrics: true,
   protectedObservability: true,

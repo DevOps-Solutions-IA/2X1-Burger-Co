@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,6 +10,7 @@ const common = path.join(root, 'infra/scripts/common.sh');
 const verifier = path.join(root, 'infra/release/verify-runtime-identity.mjs');
 const artifactBuilder = path.join(root, 'infra/release/build-artifacts.sh');
 const artifactLoader = path.join(root, 'infra/release/load-artifacts.sh');
+const runtimeDigest = path.join(root, 'infra/release/runtime-artifact-digest.mjs');
 const apiDockerfile = path.join(root, 'infra/docker/Dockerfile.api');
 const webDockerfile = path.join(root, 'infra/docker/Dockerfile.web');
 const commit = 'a'.repeat(40);
@@ -89,4 +90,27 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
   const loaderSource = readFileSync(artifactLoader, 'utf8');
   assert.match(loaderSource, /archive checksum mismatch/);
   assert.match(loaderSource, /loaded image identity mismatch/);
+});
+
+test('complete runtime digest includes packaged tmp and run content', () => {
+  const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'inventory-runtime-rootfs-'));
+  for (const directory of ['tmp', 'run', 'proc', 'etc']) {
+    mkdirSync(path.join(runtimeRoot, directory), { recursive: true });
+  }
+  writeFileSync(path.join(runtimeRoot, 'tmp', 'packaged.txt'), 'tmp-v1');
+  writeFileSync(path.join(runtimeRoot, 'run', 'packaged.txt'), 'run-v1');
+  writeFileSync(path.join(runtimeRoot, 'tmp', 'runtime-artifact-digest.mjs'), 'mounted-helper-v1');
+  writeFileSync(path.join(runtimeRoot, 'proc', 'runtime-value'), 'injected-v1');
+
+  const digest = () => execFileSync('node', [runtimeDigest, 'runtime-rootfs', runtimeRoot], { encoding: 'utf8' }).trim();
+  const initial = digest();
+  writeFileSync(path.join(runtimeRoot, 'tmp', 'packaged.txt'), 'tmp-v2');
+  const changedTmp = digest();
+  assert.notEqual(changedTmp, initial);
+  writeFileSync(path.join(runtimeRoot, 'run', 'packaged.txt'), 'run-v2');
+  const changedRun = digest();
+  assert.notEqual(changedRun, changedTmp);
+  writeFileSync(path.join(runtimeRoot, 'tmp', 'runtime-artifact-digest.mjs'), 'mounted-helper-v2');
+  writeFileSync(path.join(runtimeRoot, 'proc', 'runtime-value'), 'injected-v2');
+  assert.equal(digest(), changedRun);
 });
