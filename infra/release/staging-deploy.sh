@@ -180,13 +180,22 @@ mkdir -p "$STAGING_BACKUP_DIR"
 [[ "$(realpath "$STAGING_BACKUP_DIR")" != "$(realpath "$STAGING_PATH")" && \
    "$(realpath "$STAGING_BACKUP_DIR")" != "$(realpath "$STAGING_PATH")/"* ]] \
   || fail "Staging backup directory resolves inside the clean checkout."
-BACKUP_OUTPUT="$(BACKUP_DIR="$STAGING_BACKUP_DIR" ./infra/scripts/backup.sh)"
+BACKUP_OUTPUT="$(
+  BACKUP_DIR="$STAGING_BACKUP_DIR" \
+  BACKUP_SOURCE_SHA="$BASELINE_RELEASE_COMMIT" \
+  BACKUP_ENVIRONMENT=staging \
+    ./infra/scripts/backup.sh
+)"
 printf '%s\n' "$BACKUP_OUTPUT"
 BACKUP_FILE="$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^\[info\] Backup stored at //p' | tail -n 1)"
 [[ -n "$BACKUP_FILE" && "$BACKUP_FILE" == *.dump.gpg && -f "$BACKUP_FILE" ]]
 [[ "$(realpath "$BACKUP_FILE")" == "$(realpath "$STAGING_BACKUP_DIR")/"* ]] \
   || fail "Backup script did not use the isolated staging backup directory."
-./infra/scripts/restore.sh "$BACKUP_FILE" --validate-only
+REQUIRE_BACKUP_METADATA_V2=true \
+EXPECTED_BACKUP_SOURCE_SHA="$BASELINE_RELEASE_COMMIT" \
+EXPECTED_BACKUP_RECIPIENT_FINGERPRINT="${BACKUP_GPG_RECIPIENT:?}" \
+EXPECTED_BACKUP_ENVIRONMENT=staging \
+  ./infra/scripts/restore.sh "$BACKUP_FILE" --validate-only
 
 write_release_state "$STATE_DIR/candidate.env" "$STATE_DIR/candidate.validated" \
   "$API_IMAGE" "$WEB_IMAGE" "$RELEASE_COMMIT"

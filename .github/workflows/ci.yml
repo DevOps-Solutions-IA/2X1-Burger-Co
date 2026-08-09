@@ -80,7 +80,9 @@ jobs:
             infra/release/normalize-next-build.test.mjs \
             infra/release/release-safety.test.mjs \
             infra/release/restore-validation.test.mjs \
+            infra/release/rollback-drill.test.mjs \
             infra/release/sofia-production-safety.test.mjs \
+            infra/release/staging-deploy-security.test.mjs \
             infra/release/web-healthcheck.test.mjs \
             infra/schema/migration-expectation.test.mjs
       - name: WhatsApp timeout lifecycle

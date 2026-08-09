@@ -62,6 +62,10 @@ test('a checksum-attested rollback baseline is mandatory and rollback never rebu
   assert.match(deploy, /Staging backups must be stored outside the clean checkout/);
   assert.match(deploy, /Release state directory must not be a symbolic link/);
   assert.match(deploy, /Staging backup directory must not be a symbolic link/);
+  assert.match(deploy, /BACKUP_SOURCE_SHA="\$BASELINE_RELEASE_COMMIT"/);
+  assert.match(deploy, /BACKUP_ENVIRONMENT=staging/);
+  assert.match(deploy, /REQUIRE_BACKUP_METADATA_V2=true/);
+  assert.match(deploy, /EXPECTED_BACKUP_RECIPIENT_FINGERPRINT="\$\{BACKUP_GPG_RECIPIENT:\?\}"/);
 });
 
 test('deployment command does not print or forward registry or database credentials', () => {
