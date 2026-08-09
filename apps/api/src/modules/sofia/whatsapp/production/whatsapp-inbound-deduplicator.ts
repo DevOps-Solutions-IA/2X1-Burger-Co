@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { WhatsappInboundEventKind } from '@prisma/client';
 import type { NormalizedWhatsappEvent } from './whatsapp-production.types';
-import { WHATSAPP_PRODUCTION_REPOSITORY, type WhatsappProductionRepository } from './whatsapp-production.repository';
+import {
+  WHATSAPP_PRODUCTION_REPOSITORY,
+  type WhatsappInboundClaimContext,
+  type WhatsappProductionRepository,
+} from './whatsapp-production.repository';
 
 @Injectable()
 export class WhatsappInboundDeduplicator {
@@ -18,15 +22,49 @@ export class WhatsappInboundDeduplicator {
       normalizedPayloadHash: event.payloadHash,
       eventKind: WhatsappInboundEventKind[event.kind],
     });
-    if (claimed.created) return { state: 'CLAIMED' as const, inboundEventId: claimed.id, replay: null };
-    return {
+    if (claimed.disposition === 'ACQUIRED' || (claimed.disposition === undefined && claimed.created)) {
+      if (!claimed.claimToken || !claimed.leaseExpiresAt) throw new Error('WHATSAPP_INBOUND_CLAIM_CONTEXT_INVALID');
+      return Object.freeze({
+        state: 'CLAIMED' as const,
+        inboundEventId: claimed.id,
+        claimToken: claimed.claimToken,
+        attempt: claimed.attempt ?? 1,
+        leaseExpiresAt: claimed.leaseExpiresAt,
+        recoveryCheckpoint: claimed.deterministicResult,
+        replay: null,
+      });
+    }
+    return Object.freeze({
       state: 'DETERMINISTIC_REPLAY' as const,
       inboundEventId: claimed.id,
-      replay: claimed.deterministicResult ?? { processingStatus: claimed.processingStatus === 'CLAIMED' ? 'PROCESSING' : claimed.processingStatus },
-    };
+      replay: claimed.deterministicResult ?? {
+        processingStatus: claimed.disposition === 'IN_PROGRESS' ? 'PROCESSING' : claimed.processingStatus,
+      },
+    });
   }
 
-  complete(id: string, processingStatus: string, result: unknown, errorCode?: string | null) {
-    return this.repository.completeInbound(id, processingStatus, result, errorCode);
+  checkpoint(claim: WhatsappInboundClaimContext, checkpoint: unknown) {
+    return this.repository.checkpointInbound(
+      claim.inboundEventId,
+      checkpoint,
+      claim.claimToken,
+    );
+  }
+
+  renew(claim: WhatsappInboundClaimContext) {
+    return this.repository.renewInboundLease(
+      claim.inboundEventId,
+      claim.claimToken,
+    );
+  }
+
+  complete(claim: WhatsappInboundClaimContext, processingStatus: string, result: unknown, errorCode?: string | null) {
+    return this.repository.completeInbound(
+      claim.inboundEventId,
+      processingStatus,
+      result,
+      errorCode,
+      claim.claimToken,
+    );
   }
 }

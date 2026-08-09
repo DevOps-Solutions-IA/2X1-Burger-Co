@@ -34,6 +34,16 @@ describe('CanonicalPaymentWebhookService', () => {
     const repository = {
       createWebhookEvidence: jest.fn().mockResolvedValue({ id: 'webhook-1', paymentIntentId: intent.id }),
       findWebhook: jest.fn().mockResolvedValue(input.existingWebhook ?? null),
+      claimWebhookEvidence: jest.fn().mockResolvedValue(input.existingWebhook
+        ? {
+            state: 'REPLAY',
+            webhookId: 'webhook-existing',
+            result: { processedStatus: 'PROCESSED', paymentIntentId: 'intent-1', paymentStatus: PaymentIntentStatus.SUCCEEDED },
+          }
+        : { state: 'CLAIMED', webhookId: 'webhook-1', paymentIntentId: intent.id, transitionApplied: false, attempt: 1 }),
+      completeWebhookClaim: jest.fn(),
+      failWebhookClaim: jest.fn(),
+      assertWebhookClaimOwned: jest.fn(),
       findIntentByProvider: jest.fn().mockResolvedValue(intent),
       transitionPayment: jest.fn().mockImplementation(async (command) => ({ ...intent, status: command.toStatus, version: 3 })),
       successfulPaymentCount: jest.fn().mockResolvedValue(1),
@@ -72,6 +82,17 @@ describe('CanonicalPaymentWebhookService', () => {
     expect(repository.transitionPayment).toHaveBeenCalledWith(expect.objectContaining({ toStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED }));
   });
 
+  it('rejects missing provider account binding instead of learning it from the webhook', async () => {
+    const { service, repository } = harness();
+    await expect(service.processBold({ rawPayload: {}, rawBody, headers: {} })).resolves.toMatchObject({
+      processedStatus: 'ACCOUNT_MISMATCH',
+      paymentStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
+    });
+    expect(repository.transitionPayment).toHaveBeenCalledWith(expect.not.objectContaining({
+      providerAccountHash: expect.anything(),
+    }));
+  });
+
   it('does not reserve an event id or mutate payment truth for an invalid signature', async () => {
     const { service, repository } = harness({ signature: false });
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: {} })).resolves.toMatchObject({ processedStatus: 'SIGNATURE_INVALID' });
@@ -96,7 +117,11 @@ describe('CanonicalPaymentWebhookService', () => {
     const { service, repository, kitchen } = harness();
     repository.findIntentByProvider.mockResolvedValue(null);
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'REFERENCE_UNKNOWN' });
-    expect(repository.createWebhookEvidence).toHaveBeenCalledWith(expect.objectContaining({ processedStatus: 'REFERENCE_UNKNOWN' }));
+    expect(repository.completeWebhookClaim).toHaveBeenCalledWith(expect.objectContaining({
+      webhookId: 'webhook-1',
+      result: expect.objectContaining({ processedStatus: 'REFERENCE_UNKNOWN' }),
+    }));
+    expect(repository.failWebhookClaim).not.toHaveBeenCalled();
     expect(repository.transitionPayment).not.toHaveBeenCalled();
     expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
   });

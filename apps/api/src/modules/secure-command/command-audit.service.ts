@@ -7,7 +7,7 @@ export class CommandAuditService {
   constructor(private readonly audit: AuditService) {}
 
   evidence(
-    command: Pick<CommandRecord, 'id' | 'actorId' | 'actorRoles' | 'source' | 'correlationId' | 'traceId' | 'idempotencyKey' | 'releaseVersion'>,
+    command: Pick<CommandRecord, 'id' | 'actorId' | 'actorType' | 'actorRoles' | 'source' | 'correlationId' | 'traceId' | 'idempotencyKey' | 'releaseVersion'>,
     action: string,
     result: CommandAuditEvidence['result'],
     reasonCode: string,
@@ -15,6 +15,7 @@ export class CommandAuditService {
   ): CommandAuditEvidence {
     return {
       actorId: command.actorId,
+      actorType: command.actorType === 'SYSTEM' ? 'SYSTEM' : 'USER',
       actorRole: command.actorRoles[0] ?? null,
       action,
       entityId: command.id || null,
@@ -32,6 +33,7 @@ export class CommandAuditService {
   async record(evidence: CommandAuditEvidence) {
     await this.audit.log({
       actorId: evidence.actorId,
+      actorType: evidence.actorType,
       actorRole: evidence.actorRole,
       action: evidence.action,
       module: 'secure_command',

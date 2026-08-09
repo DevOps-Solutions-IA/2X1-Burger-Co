@@ -6,9 +6,9 @@ Este archivo es la fuente de verdad vigente para agentes. Los reportes historico
 
 ## Decision vigente
 
-**Phase 4 implementada localmente en stack sobre Phase 3 y pendiente de CI/PR. Produccion: NOT READY.**
+**Phases 3, 4 y 5 fusionadas. Phase 6 detenida en el gate de autorizacion de migracion 37. Produccion: NOT READY.**
 
-El source candidato Phase 4 incorpora checkout comercial gobernado y una migracion aditiva local 35, pero no esta desplegado. Phase 3 PR #8 permanece draft y su CI remoto esta bloqueado externamente por billing. Produccion conserva el ejecutable anterior, 33/33 migraciones, receive-only y todos los efectos productivos bloqueados.
+El source actual en `main` es `3d70b80dcd2678357906d9856e5bca9fb29834a1` y contiene 36 migraciones. Phase 5 implementa checkout, pago y cocina bajo gates, pero este programa no desplego ni consulto produccion. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
 
 ## Controles efectivos
 
@@ -30,6 +30,8 @@ El source candidato Phase 4 incorpora checkout comercial gobernado y una migraci
 | Phase 3 outbound | Implementado pero deshabilitado | Secure command + runtime gate |
 | Migracion Phase 3 | 34/34 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
+| Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
+| Phase 6 | Discovery completo; migration 37 requerida | Owner gate activo; no SQL creado |
 
 ## Capacidades implementadas
 
@@ -83,8 +85,8 @@ El source candidato Phase 4 incorpora checkout comercial gobernado y una migraci
 
 ## Bloqueadores de produccion
 
-1. Restaurar GitHub Actions, completar CI de Phase 3 y revisar/mergear PR #8 antes de Phase 4.
-2. Revisar y autorizar separadamente la migracion aditiva antes de cualquier despliegue.
+1. Revisar y autorizar o rechazar el alcance exacto de migration 37 para Phase 6 y recovery.
+2. Corregir los hallazgos critical/high de resiliencia y seguridad antes de activacion.
 3. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
 4. Cerrar secret store, rotacion, monitoreo y proteccion de sesion Baileys.
 5. Validar cuenta/sesion, QR e inbound fisico sobre el mismo artifact autorizado.

@@ -49,7 +49,9 @@ describe('WhatsApp production persistence integration', () => {
     expect(new Set(claims.map((claim) => claim.id)).size).toBe(1);
     expect(await prisma.whatsappInboundEvent.count()).toBe(1);
 
-    await repository.completeInbound(claims[0]!.id, 'PROCESSED', { code: 'INBOUND_STORED' });
+    const winner = claims.find((claim) => claim.disposition === 'ACQUIRED');
+    expect(winner?.claimToken).toEqual(expect.any(String));
+    await repository.completeInbound(winner!.id, 'PROCESSED', { code: 'INBOUND_STORED' }, null, winner!.claimToken);
     const replay = await repository.claimInbound(input);
     expect(replay).toMatchObject({ created: false, deterministicResult: { code: 'INBOUND_STORED' } });
   });

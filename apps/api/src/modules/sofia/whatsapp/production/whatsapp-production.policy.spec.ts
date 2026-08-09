@@ -10,7 +10,10 @@ import type { WhatsappProductionRepository } from './whatsapp-production.reposit
 describe('WhatsApp production policy services', () => {
   it('returns deterministic replay without a second claim', async () => {
     const claimInbound = jest.fn()
-      .mockResolvedValueOnce({ id: 'event-row', created: true, processingStatus: 'CLAIMED', deterministicResult: null })
+      .mockResolvedValueOnce({
+        id: 'event-row', created: true, disposition: 'ACQUIRED', attempt: 1, claimToken: 'claim-token',
+        leaseExpiresAt: new Date(Date.now() + 60_000), processingStatus: 'CLAIMED', deterministicResult: null,
+      })
       .mockResolvedValueOnce({ id: 'event-row', created: false, processingStatus: 'PROCESSED', deterministicResult: { code: 'OK' } });
     const service = new WhatsappInboundDeduplicator({ claimInbound } as unknown as WhatsappProductionRepository);
     const event = {
@@ -47,6 +50,32 @@ describe('WhatsApp production policy services', () => {
       conversationId: 'conversation-1', actorId: 'operator-1', target: 'SOFIA_ACTIVE', reasonCode: 'RELEASE', expectedVersion: 4,
     })).rejects.toBeInstanceOf(ForbiddenException);
     expect(repository.transitionHandoff).not.toHaveBeenCalled();
+  });
+
+  it('delegates identical stale replays to the atomic repository decision', async () => {
+    const repository = {
+      conversationPolicyState: jest.fn().mockResolvedValue({
+        customerId: 'customer-1', status: 'HUMAN_TAKEN', humanStatus: 'HUMAN_TAKEN', sofiaEnabled: false,
+        assignedToUserId: 'operator-1', handoffVersion: 5,
+      }),
+      transitionHandoff: jest.fn().mockResolvedValue({
+        state: 'HUMAN_TAKEN', version: 5, assignedActorId: 'operator-1', replayed: true,
+      }),
+    };
+    const service = new WhatsappHandoffService(
+      repository as unknown as WhatsappProductionRepository,
+      { evaluate: jest.fn() } as never,
+      { getState: jest.fn() } as never,
+    );
+
+    await expect(service.transition({
+      conversationId: 'conversation-1', actorId: 'operator-1', target: 'HUMAN_TAKEN',
+      reasonCode: 'OPERATOR_TAKEOVER', expectedVersion: 4, assignedToUserId: 'operator-1',
+    })).resolves.toMatchObject({ version: 5, replayed: true });
+    expect(repository.transitionHandoff).toHaveBeenCalledWith(expect.objectContaining({
+      expectedVersion: 4,
+      previousState: 'HUMAN_TAKEN',
+    }));
   });
 
   it('rejects delivery status regressions', async () => {

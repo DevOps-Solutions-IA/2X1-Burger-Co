@@ -19,6 +19,7 @@ describe('environment boolean parsing', () => {
       DELIVERY_EXTERNAL_PROVIDERS_ENABLED: '0',
       PHASE5_ORDER_CREATION_ENABLED: 'false',
       PHASE5_PAYMENT_ORCHESTRATION_ENABLED: 'false',
+      PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED: 'false',
       PHASE5_KITCHEN_ENABLED: 'false',
     });
 
@@ -30,6 +31,7 @@ describe('environment boolean parsing', () => {
     expect(env.DELIVERY_EXTERNAL_PROVIDERS_ENABLED).toBe(false);
     expect(env.PHASE5_ORDER_CREATION_ENABLED).toBe(false);
     expect(env.PHASE5_PAYMENT_ORCHESTRATION_ENABLED).toBe(false);
+    expect(env.PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED).toBe(false);
     expect(env.PHASE5_KITCHEN_ENABLED).toBe(false);
   });
 
@@ -43,6 +45,19 @@ describe('environment boolean parsing', () => {
     expect(env.WHATSAPP_QR_ALLOW_RECEIVE).toBe(true);
     expect(env.SOFIA_HUMAN_HANDOFF_ENABLED).toBe(true);
     expect(() => validateEnv({ ...requiredEnv, SOFIA_AUTO_REPLY_ENABLED: 'yes' })).toThrow();
+  });
+
+  it('rejects payment orchestration without durable webhook recovery', () => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      PHASE5_PAYMENT_ORCHESTRATION_ENABLED: 'true',
+      PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED: 'false',
+    })).toThrow('PAYMENT_WEBHOOK_RECOVERY_REQUIRED');
+    expect(validateEnv({
+      ...requiredEnv,
+      PHASE5_PAYMENT_ORCHESTRATION_ENABLED: 'true',
+      PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED: 'true',
+    }).PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED).toBe(true);
   });
 
   it('normalizes case, defaults undefined and rejects empty critical flags', () => {

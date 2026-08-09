@@ -339,6 +339,7 @@ export class PrismaCommandRepository implements CommandRepository {
   private async writeAudit(tx: Prisma.TransactionClient, evidence: CommandAuditEvidence) {
     await this.audit.log({
       actorId: evidence.actorId,
+      actorType: evidence.actorType,
       actorRole: evidence.actorRole,
       action: evidence.action,
       module: 'secure_command',

@@ -17,6 +17,13 @@ import { WhatsappMediaSecurityService } from './whatsapp/production/whatsapp-med
 import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
 import { sanitizeWhatsappInboundReceipt } from './whatsapp/production/whatsapp-inbound-receipt';
 import { PrismaWhatsappConversationRepository } from './whatsapp/production/persistence/prisma-whatsapp-conversation.repository';
+import {
+  createWhatsappInboundConversationCheckpoint,
+  createWhatsappInboundConversationStartedCheckpoint,
+  parseWhatsappInboundDurableCheckpoint,
+  type WhatsappInboundConversationCheckpoint,
+} from './whatsapp/production/whatsapp-inbound-conversation-checkpoint';
+import type { WhatsappInboundClaimContext } from './whatsapp/production/whatsapp-production.repository';
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
@@ -42,6 +49,7 @@ const PAUSED_STATUSES: WhatsappConversationStatus[] = [
   WhatsappConversationStatus.HUMAN_TAKEN,
   WhatsappConversationStatus.SOFIA_PAUSED,
 ];
+const INBOUND_AGENT_HEARTBEAT_MS = 30_000;
 
 @Injectable()
 export class SofiaWhatsappService {
@@ -73,7 +81,7 @@ export class SofiaWhatsappService {
     const mode = this.providerFactory.resolveMode(headers);
     const providerName = this.providerFactory.resolveProviderName(providerParam, headers);
     const provider = this.providerFactory.getProvider(providerName);
-    const parsed = provider.parseInboundWebhook(rawPayload, headers);
+    let parsed = provider.parseInboundWebhook(rawPayload, headers);
     const effectiveProvider = provider.provider;
 
     if (
@@ -137,9 +145,18 @@ export class SofiaWhatsappService {
     if (ingress.event.kind !== 'INBOUND_MESSAGE') {
       throw new BadRequestException({ code: 'WHATSAPP_EVENT_CLASSIFICATION_INVALID' });
     }
+    if (ingress.claim.state !== 'CLAIMED') {
+      throw new BadRequestException({ code: 'WHATSAPP_INBOUND_CLAIM_CONTEXT_INVALID' });
+    }
+    parsed = {
+      ...parsed,
+      phone: ingress.event.sender,
+      body: ingress.event.messageType === 'AUDIO' ? null : ingress.event.sanitizedText,
+      transcript: ingress.event.messageType === 'AUDIO' ? ingress.event.sanitizedText : null,
+    };
     try {
     if (!parsed.phone) {
-      await this.inboundGateway.complete(ingress.claim.inboundEventId, 'REJECTED', { processingStatus: 'REJECTED' }, 'WHATSAPP_PHONE_REQUIRED');
+      await this.inboundGateway.complete(ingress.claim, 'REJECTED', { processingStatus: 'REJECTED' }, 'WHATSAPP_PHONE_REQUIRED');
       throw new BadRequestException('El webhook WhatsApp no incluye teléfono válido.');
     }
     const eventHash = ingress.event.payloadHash;
@@ -202,7 +219,7 @@ export class SofiaWhatsappService {
         noWhatsappReal: true,
       };
       const receipt = sanitizeWhatsappInboundReceipt(response);
-      await this.inboundGateway.complete(inboundEvent.id, 'ALLOWLIST_REQUIRED', receipt, 'ALLOWLIST_REQUIRED');
+      await this.inboundGateway.complete(ingress.claim, 'ALLOWLIST_REQUIRED', receipt, 'ALLOWLIST_REQUIRED');
       return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     }
     const conversation = await this.getOrCreateWhatsappConversation(
@@ -234,6 +251,8 @@ export class SofiaWhatsappService {
       inboundMessageId: inboundMessage.id,
       accountId: ingress.account.id,
       headers,
+      eventHash,
+      claim: ingress.claim,
     });
 
     const response = {
@@ -245,11 +264,11 @@ export class SofiaWhatsappService {
       ...result,
     };
     const receipt = sanitizeWhatsappInboundReceipt(response);
-    await this.inboundGateway.complete(inboundEvent.id, result.processingStatus, receipt, result.errorMessage ?? null);
+    await this.inboundGateway.complete(ingress.claim, result.processingStatus, receipt, result.errorMessage ?? null);
     return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     } catch (error) {
       await this.inboundGateway.complete(
-        ingress.claim.inboundEventId,
+        ingress.claim,
         'FAILED',
         { processingStatus: 'FAILED' },
         this.sanitizeProviderError(error),
@@ -303,8 +322,47 @@ export class SofiaWhatsappService {
     inboundMessageId: string;
     accountId: string;
     headers: HeaderMap;
+    eventHash: string;
+    claim: WhatsappInboundClaimContext;
   }) {
-    const { mode, providerName, parsed, conversationId, inboundMessageId, accountId, headers } = input;
+    const {
+      mode,
+      providerName,
+      parsed,
+      conversationId,
+      inboundMessageId,
+      accountId,
+      headers,
+      eventHash,
+      claim,
+    } = input;
+    if (this.isAbandonedInboundRecovery(claim.recoveryCheckpoint)) {
+      return {
+        processingStatus: 'HUMAN_REQUIRED',
+        outbound: null,
+        sofiaResult: null,
+        errorMessage: 'WHATSAPP_INBOUND_WORKER_DIED',
+      };
+    }
+    const recoveredCheckpoint = parseWhatsappInboundDurableCheckpoint(
+      claim.recoveryCheckpoint,
+      { eventHash, conversationId, inboundMessageId, mode, provider: providerName },
+    );
+    if (recoveredCheckpoint?.kind === 'SOFIA_CONVERSATION_RESULT_V1') {
+      return this.applyInboundConversationCheckpoint({
+        checkpoint: recoveredCheckpoint,
+        claim,
+        accountId,
+        sofiaResult: null,
+      });
+    }
+    if (recoveredCheckpoint?.kind === 'SOFIA_CONVERSATION_STARTED_V1') {
+      return this.failClosedRecoveredConversation({
+        claim,
+        checkpoint: recoveredCheckpoint,
+      });
+    }
+
     const automationGate = await this.runtimeSafetyService.evaluate('INBOUND_ANALYSIS');
     if (!automationGate.allowed) {
       await this.runtimeSafetyService.recordBlocked('INBOUND_ANALYSIS', {
@@ -432,49 +490,213 @@ export class SofiaWhatsappService {
         },
       };
     } else {
-      sofiaResult = await this.sofiaAgentService.processInboundMessage(
-        {
+      await this.inboundGateway.checkpoint(
+        claim,
+        createWhatsappInboundConversationStartedCheckpoint({
+          eventHash,
           conversationId,
-          phone: parsed.phone,
-          customerName: parsed.customerName ?? undefined,
-          message: agentInputText,
-          messageType: parsed.messageType === 'AUDIO' ? 'AUDIO_TRANSCRIPT' : 'TEXT',
-          transcriptConfidence: parsed.messageType === 'AUDIO' ? 0.75 : undefined,
-          sandboxNow: typeof parsed.rawPayload.sandboxNow === 'string' ? parsed.rawPayload.sandboxNow : undefined,
-        },
-        actorId,
-        { recordInbound: false, recordOutbound: false, headers },
+          inboundMessageId,
+          mode,
+          provider: providerName,
+        }),
+      );
+      sofiaResult = await this.withInboundAgentLease(claim, () =>
+        this.sofiaAgentService.processInboundMessage(
+          {
+            conversationId,
+            phone: parsed.phone,
+            customerName: parsed.customerName ?? undefined,
+            message: agentInputText,
+            messageType: parsed.messageType === 'AUDIO' ? 'AUDIO_TRANSCRIPT' : 'TEXT',
+            transcriptConfidence: parsed.messageType === 'AUDIO' ? 0.75 : undefined,
+            sandboxNow: typeof parsed.rawPayload.sandboxNow === 'string' ? parsed.rawPayload.sandboxNow : undefined,
+          },
+          actorId,
+          {
+            recordInbound: false,
+            recordOutbound: false,
+            headers,
+            sourceEventId: claim.inboundEventId,
+          },
+        ),
       );
     }
 
-    if (sofiaResult.shouldHandoff) {
-      await this.handoffService.transition({
-        conversationId,
-        actorId,
-        target: 'HUMAN_REQUIRED',
-        reasonCode: 'SOFIA_SAFE_HANDOFF',
+    const responseText = sofiaResult.responseText.slice(0, 4_000);
+    const mediaUrl = this.isSofiaFeaturedOfferMedia(sofiaResult.mediaSuggestion?.imageUrl)
+      ? (sofiaResult.mediaSuggestion?.imageUrl ?? null)
+      : null;
+    const checkpoint = createWhatsappInboundConversationCheckpoint({
+      eventHash,
+      conversationId,
+      inboundMessageId,
+      mode,
+      provider: providerName,
+      responseText,
+      confidence: sofiaResult.confidence,
+      businessOpen: sofiaResult.businessStatus.isOpen,
+      shouldHandoff: sofiaResult.shouldHandoff,
+      handoffApplied: false,
+      mediaUrl,
+      outboundStatus: responseText.trim()
+        ? this.resolveOutboundStatus(mode, sofiaResult.confidence, sofiaResult.businessStatus.isOpen, headers)
+        : null,
+    });
+    await this.inboundGateway.checkpoint(claim, checkpoint);
+    this.afterInboundConversationCheckpoint();
+
+    return this.applyInboundConversationCheckpoint({
+      checkpoint,
+      claim,
+      accountId,
+      sofiaResult,
+    });
+  }
+
+  private isAbandonedInboundRecovery(value: unknown): boolean {
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && 'kind' in value
+      && value.kind === 'WHATSAPP_INBOUND_ABANDONED_V1',
+    );
+  }
+
+  private async failClosedRecoveredConversation(input: {
+    claim: WhatsappInboundClaimContext;
+    checkpoint: Readonly<{
+      eventHash: string;
+      conversationId: string;
+      inboundMessageId: string;
+      mode: WhatsappMode;
+      provider: WhatsappProviderName;
+    }>;
+  }) {
+    await this.ensureInboundHumanHandoff(
+      input.checkpoint.conversationId,
+      'SOFIA_INBOUND_PROCESSING_OUTCOME_UNKNOWN',
+    );
+    const terminalCheckpoint = createWhatsappInboundConversationCheckpoint({
+      ...input.checkpoint,
+      responseText: '',
+      confidence: 0,
+      businessOpen: false,
+      shouldHandoff: true,
+      handoffApplied: true,
+      mediaUrl: null,
+      outboundStatus: null,
+    });
+    await this.inboundGateway.checkpoint(input.claim, terminalCheckpoint);
+    return {
+      processingStatus: 'HUMAN_REQUIRED',
+      outbound: null,
+      sofiaResult: null,
+      errorMessage: 'WHATSAPP_INBOUND_PROCESSING_OUTCOME_UNKNOWN',
+    };
+  }
+
+  private async withInboundAgentLease<T>(
+    claim: WhatsappInboundClaimContext,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    await this.inboundGateway.renew(claim);
+    let heartbeatInFlight: Promise<void> | null = null;
+    let leaseFailure: unknown = null;
+    const heartbeat = setInterval(() => {
+      if (heartbeatInFlight || leaseFailure) return;
+      heartbeatInFlight = this.inboundGateway.renew(claim)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          leaseFailure = error;
+        })
+        .finally(() => {
+          heartbeatInFlight = null;
+        });
+    }, INBOUND_AGENT_HEARTBEAT_MS);
+    heartbeat.unref();
+
+    try {
+      // The agent's external boundaries own their cancellable timeouts. Releasing this
+      // lease while an uncancellable promise still runs would permit late mutations.
+      const result = await operation();
+      if (heartbeatInFlight) await heartbeatInFlight;
+      if (leaseFailure) throw leaseFailure;
+      await this.inboundGateway.renew(claim);
+      return result;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  private async applyInboundConversationCheckpoint(input: {
+    checkpoint: WhatsappInboundConversationCheckpoint;
+    claim: WhatsappInboundClaimContext;
+    accountId: string;
+    sofiaResult: Awaited<ReturnType<SofiaAgentService['processSandboxMessage']>> | null;
+  }) {
+    let { checkpoint } = input;
+    if (checkpoint.shouldHandoff && !checkpoint.handoffApplied) {
+      await this.ensureInboundHumanHandoff(checkpoint.conversationId, 'SOFIA_SAFE_HANDOFF');
+      checkpoint = createWhatsappInboundConversationCheckpoint({
+        ...checkpoint,
+        handoffApplied: true,
       });
+      await this.inboundGateway.checkpoint(input.claim, checkpoint);
     }
 
     const outbound = await this.createOutboundForMode({
-      mode,
-      providerName,
-      conversationId,
-      inboundMessageId,
-      responseText: sofiaResult.responseText,
-      mediaUrl: sofiaResult.mediaSuggestion?.imageUrl ?? null,
-      confidence: sofiaResult.confidence,
-      isOpen: sofiaResult.businessStatus.isOpen,
-      accountId,
-      headers,
+      mode: checkpoint.mode,
+      providerName: checkpoint.provider,
+      conversationId: checkpoint.conversationId,
+      inboundMessageId: checkpoint.inboundMessageId,
+      responseText: checkpoint.responseText,
+      mediaUrl: checkpoint.mediaUrl,
+      confidence: checkpoint.confidence,
+      isOpen: checkpoint.businessOpen,
+      accountId: input.accountId,
+      statusOverride: checkpoint.outboundStatus,
     });
 
     return {
       processingStatus: outbound?.status === 'APPROVAL_PENDING' || outbound?.status === 'SUGGESTED' ? 'SUGGESTED' : 'PROCESSED',
       outbound,
-      sofiaResult,
+      sofiaResult: input.sofiaResult,
       errorMessage: null,
     };
+  }
+
+  private async ensureInboundHumanHandoff(conversationId: string, reasonCode: string) {
+    const current = await this.handoffService.decision(conversationId);
+    if (['HUMAN_REQUIRED', 'HUMAN_TAKEN', 'SOFIA_PAUSED'].includes(current.state)) return;
+    if (current.state !== 'SOFIA_ACTIVE') throw new Error('WHATSAPP_HANDOFF_STATE_CONFLICT');
+    await this.handoffService.transition({
+      conversationId,
+      actorId: await this.systemActorId(),
+      target: 'HUMAN_REQUIRED',
+      reasonCode,
+    });
+  }
+
+  private afterInboundConversationCheckpoint() {
+    // Deliberate fault-injection seam: production execution is a no-op.
+  }
+
+  private resolveOutboundStatus(
+    mode: WhatsappMode,
+    confidence: number,
+    isOpen: boolean,
+    headers?: HeaderMap,
+  ) {
+    if (mode === 'receive_only') return 'SUGGESTED';
+    if (mode === 'supervised') return 'APPROVAL_PENDING';
+    if (mode === 'mock') return 'QUEUED';
+    if (mode === 'auto') {
+      return this.providerFactory.isAutoReplyAllowed(confidence, isOpen, headers)
+        ? 'QUEUED'
+        : 'APPROVAL_PENDING';
+    }
+    return 'APPROVAL_PENDING';
   }
 
   private async createOutboundForMode(input: {
@@ -488,21 +710,28 @@ export class SofiaWhatsappService {
     isOpen: boolean;
     accountId: string;
     headers?: HeaderMap;
+    statusOverride?: string | null;
   }) {
-    const { mode, providerName, conversationId, inboundMessageId, responseText, mediaUrl, confidence, isOpen, accountId, headers } = input;
+    const {
+      mode,
+      providerName,
+      conversationId,
+      inboundMessageId,
+      responseText,
+      mediaUrl,
+      confidence,
+      isOpen,
+      accountId,
+      headers,
+      statusOverride,
+    } = input;
     if (!responseText.trim()) return null;
     const responseHash = this.sha256(`${responseText}|${mediaUrl ?? ''}`);
     const idempotencyKey = `outbound:${conversationId}:${inboundMessageId}:${responseHash}`;
     const existing = await this.conversations.findOutboundByIdempotency(idempotencyKey);
     if (existing) return existing;
 
-    let status = 'APPROVAL_PENDING';
-    if (mode === 'receive_only') status = 'SUGGESTED';
-    if (mode === 'supervised') status = 'APPROVAL_PENDING';
-    if (mode === 'mock') status = 'QUEUED';
-    if (mode === 'auto') {
-      status = this.providerFactory.isAutoReplyAllowed(confidence, isOpen, headers) ? 'QUEUED' : 'APPROVAL_PENDING';
-    }
+    const status = statusOverride ?? this.resolveOutboundStatus(mode, confidence, isOpen, headers);
 
     const outbound = await this.conversations.createOutbound({
         conversationId,

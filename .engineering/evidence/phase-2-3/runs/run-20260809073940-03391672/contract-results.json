@@ -1,0 +1,77 @@
+{
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "health",
+      "path": "/health",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "version",
+      "path": "/version",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "auth.me",
+      "path": "/auth/me",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "users",
+      "path": "/users",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "cash",
+      "path": "/cash-register/current",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "pos.catalog",
+      "path": "/products/sellable",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "inventory",
+      "path": "/inventory/stock",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "delivery",
+      "path": "/orders/delivery-active",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "sofia.dashboard",
+      "path": "/admin/sofia/dashboard/summary",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "sofia.inbox",
+      "path": "/admin/sofia/conversations/inbox",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "whatsapp.qr",
+      "path": "/admin/sofia/whatsapp/qr/status",
+      "status": 200,
+      "result": "PASS"
+    },
+    {
+      "name": "whatsapp.status",
+      "path": "/whatsapp/session",
+      "status": 200,
+      "result": "PASS"
+    }
+  ]
+}

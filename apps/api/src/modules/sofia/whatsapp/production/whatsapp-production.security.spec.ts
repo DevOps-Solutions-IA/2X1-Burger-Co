@@ -54,6 +54,74 @@ describe('WhatsApp production security boundaries', () => {
     expect(JSON.stringify(event)).not.toContain('arbitraryProviderSecret');
   });
 
+  it('binds provider timestamps into deterministic payload identity', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const first = normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1', timestamp: '2026-08-08T12:00:00.000Z' }, parsed, account,
+    });
+    const changed = normalizer.normalize({
+      provider: 'qr_gateway',
+      rawPayload: { id: 'event-1', timestamp: '2026-08-08T12:00:01.000Z' },
+      parsed: { ...parsed, timestamp: new Date('2026-08-08T12:00:01.000Z') },
+      account,
+    });
+
+    expect(changed.payloadHash).not.toBe(first.payloadHash);
+    expect(changed.occurredAt).toEqual(new Date('2026-08-08T12:00:01.000Z'));
+  });
+
+  it('excludes only bounded local ingestion timestamps from status replay identity', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const statusParsed = { ...parsed, timestamp: null };
+    const first = normalizer.normalize({
+      provider: 'qr_gateway',
+      rawPayload: { id: 'status-1', messageId: 'message-1', status: 'delivered', receivedAt: '2026-08-08T12:00:00.000Z' },
+      parsed: statusParsed,
+      account,
+    });
+    const replay = normalizer.normalize({
+      provider: 'qr_gateway',
+      rawPayload: { id: 'status-1', messageId: 'message-1', status: 'delivered', receivedAt: '2026-08-08T12:00:01.000Z' },
+      parsed: statusParsed,
+      account,
+    });
+
+    expect(replay.payloadHash).toBe(first.payloadHash);
+    expect(replay).toMatchObject({ kind: 'STATUS_EVENT', status: 'DELIVERED' });
+  });
+
+  it('validates excluded local timestamps before calculating semantic identity', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+
+    expect(() => normalizer.normalize({
+      provider: 'qr_gateway',
+      rawPayload: { id: 'status-1', messageId: 'message-1', status: 'delivered', receivedAt: cyclic },
+      parsed: { ...parsed, timestamp: null },
+      account,
+    })).toThrow('Bad Request Exception');
+  });
+
+  it('rejects provider contract mismatches and malformed sender identities', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    expect(() => normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1' }, parsed: { ...parsed, provider: 'hermes' }, account,
+    })).toThrow('Bad Request Exception');
+    expect(() => normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1' }, parsed: { ...parsed, phone: '123' }, account,
+    })).toThrow('Bad Request Exception');
+  });
+
+  it('rejects cyclic and excessively nested payloads before hashing', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const cyclic: Record<string, unknown> = { id: 'event-1' };
+    cyclic.self = cyclic;
+    expect(() => normalizer.normalize({ provider: 'qr_gateway', rawPayload: cyclic, parsed, account })).toThrow(
+      'Bad Request Exception',
+    );
+  });
+
   it('classifies status and unsupported events before conversational processing', () => {
     const normalizer = new WhatsappEventNormalizer();
     expect(normalizer.normalize({

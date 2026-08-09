@@ -1,0 +1,1 @@
+{"status":"UNHEALTHY","timestamp":"2026-08-09T07:45:07.532Z","services":{"api":"ALIVE","database":"READY","release":"NOT_READY"},"reason":"MIGRATION_HISTORY_INCOMPATIBLE"}

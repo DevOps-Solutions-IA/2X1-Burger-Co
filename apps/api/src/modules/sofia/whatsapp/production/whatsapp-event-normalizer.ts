@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { ParsedWhatsappInbound, WhatsappProviderName } from '../whatsapp-provider.adapter';
+import { normalizeInboundSender, normalizeProviderAccountObservation } from './whatsapp-inbound-contracts';
 import type { NormalizedDeliveryStatus, NormalizedWhatsappEvent, ProviderAccountObservation } from './whatsapp-production.types';
 
 const STATUS_MAP: Record<string, NormalizedDeliveryStatus> = {
   accepted: 'ACCEPTED', queued: 'ACCEPTED', sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED', error: 'FAILED', unknown: 'UNKNOWN',
 };
+const LOCAL_INGESTION_TIMESTAMP_KEYS = new Set(['receivedAt', 'received_at', 'ingestedAt']);
 
 @Injectable()
 export class WhatsappEventNormalizer {
@@ -19,6 +21,15 @@ export class WhatsappEventNormalizer {
       throw new BadRequestException({ code: 'WHATSAPP_PROVIDER_UNSUPPORTED' });
     }
     const provider = input.provider as ProviderAccountObservation['provider'];
+    if (input.parsed.provider !== provider || input.account.provider !== provider) {
+      throw new BadRequestException({ code: 'WHATSAPP_PROVIDER_CONTRACT_MISMATCH' });
+    }
+    let account: ProviderAccountObservation;
+    try {
+      account = normalizeProviderAccountObservation(input.account);
+    } catch (error) {
+      throw new BadRequestException({ code: this.errorCode(error, 'WHATSAPP_ACCOUNT_OBSERVATION_INVALID') });
+    }
     const rawKind = String(input.rawPayload.eventType ?? input.rawPayload.kind ?? input.rawPayload.type ?? '').toLowerCase();
     const statusValue = this.status(input.rawPayload);
     const eventId = this.requiredId(input.parsed.providerEventId ?? input.rawPayload.eventId ?? input.rawPayload.id, 'WHATSAPP_EVENT_ID_REQUIRED');
@@ -28,25 +39,29 @@ export class WhatsappEventNormalizer {
     if (rawKind.includes('status') || statusValue) {
       const messageId = this.requiredId(input.parsed.providerMessageId || input.rawPayload.messageId, 'WHATSAPP_STATUS_MESSAGE_ID_REQUIRED');
       return {
-        kind: 'STATUS_EVENT', provider, account: input.account, eventId, messageId,
-        recipientIdentityHash: this.hash(String(input.rawPayload.recipient ?? input.rawPayload.to ?? input.account.businessIdentity)),
+        kind: 'STATUS_EVENT', provider, account, eventId, messageId,
+        recipientIdentityHash: this.hash(String(input.rawPayload.recipient ?? input.rawPayload.to ?? account.businessIdentity)),
         status: statusValue ?? 'UNKNOWN', occurredAt, payloadHash,
       };
     }
 
     if (input.parsed.messageType === 'SYSTEM' || rawKind.includes('unsupported')) {
-      return { kind: 'UNSUPPORTED_EVENT', provider, account: input.account, eventId, reasonCode: 'WHATSAPP_EVENT_UNSUPPORTED', occurredAt, payloadHash };
+      return { kind: 'UNSUPPORTED_EVENT', provider, account, eventId, reasonCode: 'WHATSAPP_EVENT_UNSUPPORTED', occurredAt, payloadHash };
     }
 
-    const sender = this.normalizePhone(input.parsed.phone);
-    if (!sender) throw new BadRequestException({ code: 'WHATSAPP_SENDER_INVALID' });
+    let sender: string;
+    try {
+      sender = normalizeInboundSender(input.parsed.phone);
+    } catch {
+      throw new BadRequestException({ code: 'WHATSAPP_SENDER_INVALID' });
+    }
     const messageId = this.requiredId(input.parsed.providerMessageId, 'WHATSAPP_MESSAGE_ID_REQUIRED');
     const supportedType = input.parsed.messageType;
     const providerReference = this.string(input.rawPayload.mediaReference ?? input.rawPayload.mediaId ?? input.parsed.mediaUrl);
     const size = Number(input.rawPayload.mediaSizeBytes ?? input.rawPayload.fileSize ?? NaN);
     return {
-      kind: 'INBOUND_MESSAGE', provider, account: input.account, eventId, messageId, sender,
-      senderIdentityHash: this.hash(sender), recipientIdentityHash: this.hash(input.account.businessIdentity),
+      kind: 'INBOUND_MESSAGE', provider, account, eventId, messageId, sender,
+      senderIdentityHash: this.hash(sender), recipientIdentityHash: this.hash(account.businessIdentity),
       messageType: supportedType, sanitizedText: this.sanitizeText(input.parsed.transcript ?? input.parsed.body),
       media: providerReference || input.parsed.mediaMimeType ? {
         providerReference, declaredMimeType: this.string(input.parsed.mediaMimeType), declaredSizeBytes: Number.isSafeInteger(size) && size >= 0 ? size : null,
@@ -72,12 +87,6 @@ export class WhatsappEventNormalizer {
     return sanitized.trim().slice(0, 4_000) || null;
   }
 
-  private normalizePhone(value: string) {
-    const digits = String(value ?? '').replace(/\D/g, '');
-    if (!digits) return '';
-    return digits.startsWith('57') ? digits : digits.length === 10 ? `57${digits}` : digits;
-  }
-
   private requiredId(value: unknown, code: string) {
     const id = this.string(value);
     if (!id || id.length > 256) throw new BadRequestException({ code });
@@ -97,12 +106,53 @@ export class WhatsappEventNormalizer {
   }
 
   private hashCanonical(payload: Record<string, unknown>) {
-    return this.hash(JSON.stringify(this.sort(payload)));
+    try {
+      this.validateLocalIngestionTimestamps(payload);
+      const canonical = this.sort(payload, 0, new WeakSet<object>());
+      if (!canonical || typeof canonical !== 'object' || Array.isArray(canonical)) {
+        throw new Error('payload must be an object');
+      }
+      const semanticEntries = Object.entries(canonical).filter(([key]) => !LOCAL_INGESTION_TIMESTAMP_KEYS.has(key));
+      return this.hash(JSON.stringify(Object.fromEntries(semanticEntries)));
+    } catch {
+      throw new BadRequestException({ code: 'WHATSAPP_PAYLOAD_NOT_NORMALIZABLE' });
+    }
   }
 
-  private sort(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map((item) => this.sort(item));
+  private validateLocalIngestionTimestamps(payload: Record<string, unknown>) {
+    for (const key of LOCAL_INGESTION_TIMESTAMP_KEYS) {
+      if (!(key in payload)) continue;
+      const value = payload[key];
+      if (typeof value !== 'string' || value.length > 64 || !Number.isFinite(new Date(value).getTime())) {
+        throw new Error('local ingestion timestamp invalid');
+      }
+    }
+  }
+
+  private sort(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+    if (depth > 20) throw new Error('payload depth exceeded');
+    if (Array.isArray(value)) {
+      if (seen.has(value)) throw new Error('cyclic payload');
+      seen.add(value);
+      const result = value.map((item) => this.sort(item, depth + 1, seen));
+      seen.delete(value);
+      return result;
+    }
     if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, this.sort(item)]));
+    if (seen.has(value as object)) throw new Error('cyclic payload');
+    seen.add(value as object);
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length > 1_000) throw new Error('payload breadth exceeded');
+    const result = Object.fromEntries(
+      entries
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, this.sort(item, depth + 1, seen)]),
+    );
+    seen.delete(value as object);
+    return result;
+  }
+
+  private errorCode(error: unknown, fallback: string) {
+    return error instanceof Error && /^WHATSAPP_[A-Z_]+$/.test(error.message) ? error.message : fallback;
   }
 }

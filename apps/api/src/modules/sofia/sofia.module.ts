@@ -56,7 +56,7 @@ import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaController } from './sofia.controller';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
-import { SofiaDevPaymentsController, SofiaPaymentWebhooksController } from './sofia-payment-webhooks.controller';
+import { SofiaDevPaymentsController } from './sofia-payment-webhooks.controller';
 import { SofiaPublicPaymentsController } from './sofia-public-payments.controller';
 import { SofiaService } from './sofia.service';
 import { SofiaHermesWhatsappWebhookController, SofiaWhatsappWebhookController } from './sofia-whatsapp.controller';
@@ -83,13 +83,15 @@ import { WhatsappOutboundGateway } from './whatsapp/production/whatsapp-outbound
 import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
 import { WHATSAPP_PRODUCTION_REPOSITORY } from './whatsapp/production/whatsapp-production.repository';
 import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-verifier';
+import { WhatsappInboundRecoveryWorker } from './whatsapp/production/whatsapp-inbound-recovery.worker';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CustomerServiceModule } from '../customer-service/customer-service.module';
 
 @Module({
-  imports: [SofiaAutoSafeModule, DomainContractsModule],
+  imports: [SofiaAutoSafeModule, DomainContractsModule, NotificationsModule, CustomerServiceModule],
   controllers: [
     SofiaController,
     SofiaPublicPaymentsController,
-    SofiaPaymentWebhooksController,
     SofiaDevPaymentsController,
     SofiaWhatsappWebhookController,
     SofiaHermesWhatsappWebhookController,
@@ -153,6 +155,7 @@ import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-
     WhatsappEventNormalizer,
     WhatsappInboundDeduplicator,
     WhatsappInboundGateway,
+    WhatsappInboundRecoveryWorker,
     WhatsappConsentService,
     WhatsappHandoffService,
     WhatsappMessagePolicyService,

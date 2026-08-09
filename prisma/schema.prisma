@@ -106,6 +106,37 @@ enum DeliveryIssueStatus {
   RESOLVED
 }
 
+enum NotificationIntentStatus {
+  PENDING
+  SUPPRESSED
+  CLAIMED
+  COMMAND_PENDING
+  DISPATCHED
+  SUCCEEDED
+  FAILED
+  UNKNOWN_RESULT
+  EXPIRED
+}
+
+enum CustomerServiceCaseCategory {
+  LATE_ORDER
+  WRONG_ITEM
+  MISSING_ITEM
+  COLD_FOOD
+  QUALITY
+  PAYMENT_PROBLEM
+  DELIVERY_PROBLEM
+  OTHER
+}
+
+enum CustomerServiceCaseStatus {
+  OPEN
+  HUMAN_REQUIRED
+  HUMAN_TAKEN
+  RESOLVED
+  CLOSED
+}
+
 enum InventoryMovementType {
   INITIAL
   PURCHASE
@@ -446,6 +477,10 @@ model User {
   assignedWhatsappConversations      WhatsappConversation[]       @relation("WhatsappConversationAssignedTo")
   approvedWhatsappOutboundMessages   WhatsappOutboundMessage[]    @relation("WhatsappOutboundApprovedBy")
   whatsappHandoffEvents              WhatsappHandoffEvent[]       @relation("WhatsappHandoffActor")
+  deliveryWorkflowEvents             DeliveryWorkflowEvent[]      @relation("DeliveryWorkflowEventActor")
+  assignedCustomerServiceCases       CustomerServiceCase[]        @relation("CustomerServiceCaseAssignedActor")
+  resolvedCustomerServiceCases       CustomerServiceCase[]        @relation("CustomerServiceCaseResolutionActor")
+  customerServiceCaseEvents          CustomerServiceCaseEvent[]   @relation("CustomerServiceCaseEventActor")
 
   @@map("users")
 }
@@ -826,34 +861,35 @@ model SalePayment {
 }
 
 model OrderCheckout {
-  id                String                 @id @default(cuid())
-  source            OrderCheckoutSource
-  sourceReference   String                 @map("source_reference")
-  idempotencyKey    String                 @map("idempotency_key")
-  sofiaDraftId      String?                @map("sofia_draft_id")
-  sofiaDraftVersion Int?                   @map("sofia_draft_version")
-  sofiaDraftHash    String?                @map("sofia_draft_hash")
-  confirmationHash  String?                @map("confirmation_hash")
-  customerId        String?                @map("customer_id")
-  customerSnapshot  Json?                  @map("customer_snapshot")
-  itemsSnapshot     Json                   @map("items_snapshot")
-  subtotal          Decimal                @db.Decimal(12, 2)
-  deliveryFee       Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
-  total             Decimal                @db.Decimal(12, 2)
-  currency          String                 @default("COP")
-  fulfillment       OrderTicketType
-  paymentPreference SofiaPaymentPreference @map("payment_preference")
-  status            OrderCheckoutStatus    @default(CONFIRMED)
-  version           Int                    @default(1)
-  kitchenEligibleAt DateTime?              @map("kitchen_eligible_at")
-  orderTicketId     String?                @unique @map("order_ticket_id")
-  expiresAt         DateTime?              @map("expires_at")
-  createdAt         DateTime               @default(now()) @map("created_at")
-  updatedAt         DateTime               @updatedAt @map("updated_at")
-  sofiaDraft        SofiaOrderDraft?       @relation(fields: [sofiaDraftId], references: [id], onDelete: SetNull)
-  customer          Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  orderTicket       OrderTicket?           @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
-  paymentIntents    PaymentIntent[]
+  id                   String                 @id @default(cuid())
+  source               OrderCheckoutSource
+  sourceReference      String                 @map("source_reference")
+  idempotencyKey       String                 @map("idempotency_key")
+  sofiaDraftId         String?                @map("sofia_draft_id")
+  sofiaDraftVersion    Int?                   @map("sofia_draft_version")
+  sofiaDraftHash       String?                @map("sofia_draft_hash")
+  confirmationHash     String?                @map("confirmation_hash")
+  customerId           String?                @map("customer_id")
+  customerSnapshot     Json?                  @map("customer_snapshot")
+  itemsSnapshot        Json                   @map("items_snapshot")
+  subtotal             Decimal                @db.Decimal(12, 2)
+  deliveryFee          Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total                Decimal                @db.Decimal(12, 2)
+  currency             String                 @default("COP")
+  fulfillment          OrderTicketType
+  paymentPreference    SofiaPaymentPreference @map("payment_preference")
+  status               OrderCheckoutStatus    @default(CONFIRMED)
+  version              Int                    @default(1)
+  kitchenEligibleAt    DateTime?              @map("kitchen_eligible_at")
+  orderTicketId        String?                @unique @map("order_ticket_id")
+  expiresAt            DateTime?              @map("expires_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  sofiaDraft           SofiaOrderDraft?       @relation(fields: [sofiaDraftId], references: [id], onDelete: SetNull)
+  customer             Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orderTicket          OrderTicket?           @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
+  paymentIntents       PaymentIntent[]
+  customerServiceCases CustomerServiceCase[]
 
   @@unique([source, idempotencyKey])
   @@unique([sofiaDraftId, sofiaDraftVersion])
@@ -864,28 +900,29 @@ model OrderCheckout {
 }
 
 model PaymentIntent {
-  id                  String                @id @default(cuid())
-  checkoutId          String                @map("checkout_id")
-  attemptNumber       Int                   @map("attempt_number")
-  idempotencyKey      String                @map("idempotency_key")
-  provider            PaymentIntentProvider
-  amount              Decimal               @db.Decimal(12, 2)
-  currency            String                @default("COP")
-  status              PaymentIntentStatus   @default(CREATED)
-  providerPaymentId   String?               @map("provider_payment_id")
-  providerReference   String?               @map("provider_reference")
-  providerAccountHash String?               @map("provider_account_hash")
-  failureCode         String?               @map("failure_code")
-  expiresAt           DateTime?             @map("expires_at")
-  completedAt         DateTime?             @map("completed_at")
-  version             Int                   @default(1)
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
-  checkout            OrderCheckout         @relation(fields: [checkoutId], references: [id], onDelete: Restrict)
-  links               PaymentLink[]
-  transitions         PaymentTransition[]
-  webhookEvents       PaymentWebhookEvent[]
-  salePayment         SalePayment?
+  id                   String                @id @default(cuid())
+  checkoutId           String                @map("checkout_id")
+  attemptNumber        Int                   @map("attempt_number")
+  idempotencyKey       String                @map("idempotency_key")
+  provider             PaymentIntentProvider
+  amount               Decimal               @db.Decimal(12, 2)
+  currency             String                @default("COP")
+  status               PaymentIntentStatus   @default(CREATED)
+  providerPaymentId    String?               @map("provider_payment_id")
+  providerReference    String?               @map("provider_reference")
+  providerAccountHash  String?               @map("provider_account_hash")
+  failureCode          String?               @map("failure_code")
+  expiresAt            DateTime?             @map("expires_at")
+  completedAt          DateTime?             @map("completed_at")
+  version              Int                   @default(1)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  checkout             OrderCheckout         @relation(fields: [checkoutId], references: [id], onDelete: Restrict)
+  links                PaymentLink[]
+  transitions          PaymentTransition[]
+  webhookEvents        PaymentWebhookEvent[]
+  salePayment          SalePayment?
+  customerServiceCases CustomerServiceCase[]
 
   @@unique([checkoutId, attemptNumber])
   @@unique([provider, idempotencyKey])
@@ -1089,6 +1126,7 @@ model OrderTicket {
   deliveryLocationSource       String?                  @map("delivery_location_source")
   deliveryLocationReceivedAt   DateTime?                @map("delivery_location_received_at")
   deliveryWorkflowStatus       DeliveryWorkflowStatus?  @map("delivery_workflow_status")
+  deliveryWorkflowVersion      Int                      @default(0) @map("delivery_workflow_version")
   deliveryStatusUpdatedAt      DateTime?                @map("delivery_status_updated_at")
   tableId                      String?
   cashSessionId                String
@@ -1124,6 +1162,8 @@ model OrderTicket {
   deliveryIssues               DeliveryIssue[]
   whatsappDeliveryOrder        WhatsappDeliveryOrder?
   orderCheckout                OrderCheckout?
+  deliveryWorkflowEvents       DeliveryWorkflowEvent[]
+  customerServiceCases         CustomerServiceCase[]
 
   @@index([status, openedAt])
   @@index([tableId, status])
@@ -1168,7 +1208,7 @@ model WhatsappConversation {
   customerName           String?                    @map("customer_name")
   status                 WhatsappConversationStatus @default(ACTIVE)
   source                 SofiaOrderSource           @default(WHATSAPP)
-  provider               String                     @default("mock")
+  provider               String
   providerConversationId String?                    @map("provider_conversation_id")
   mode                   String                     @default("disabled")
   sofiaEnabled           Boolean                    @default(true) @map("sofia_enabled")
@@ -1192,6 +1232,8 @@ model WhatsappConversation {
   deliveryOrders         WhatsappDeliveryOrder[]
   customer               Customer?                  @relation(fields: [customerId], references: [id], onDelete: SetNull)
   handoffEvents          WhatsappHandoffEvent[]
+  notificationIntents    NotificationIntent[]
+  customerServiceCases   CustomerServiceCase[]
 
   @@index([phone])
   @@index([provider, providerConversationId])
@@ -1207,7 +1249,7 @@ model WhatsappMessage {
   conversationId    String                       @map("conversation_id")
   direction         WhatsappMessageDirection
   type              WhatsappMessageType          @default(TEXT)
-  provider          String                       @default("mock")
+  provider          String
   providerMessageId String?                      @map("provider_message_id")
   providerTimestamp DateTime?                    @map("provider_timestamp")
   body              String?
@@ -1427,6 +1469,8 @@ model Customer {
   sofiaOrderDrafts      SofiaOrderDraft[]           @relation("SofiaOrderDraftCustomer")
   orderCheckouts        OrderCheckout[]
   deliveryCustomer      DeliveryCustomer?
+  notificationIntents   NotificationIntent[]
+  customerServiceCases  CustomerServiceCase[]
 
   @@index([displayNameNormalized])
   @@index([status, updatedAt])
@@ -1692,28 +1736,36 @@ model SofiaPaymentEvent {
 }
 
 model PaymentWebhookEvent {
-  id                      String                 @id @default(cuid())
-  whatsappDeliveryOrderId String?                @map("whatsapp_delivery_order_id")
-  paymentIntentId         String?                @map("payment_intent_id")
-  provider                String
-  eventId                 String?                @map("event_id")
-  providerPaymentId       String?                @map("provider_payment_id")
-  providerReference       String?                @map("provider_reference")
-  orderReference          String?                @map("order_reference")
-  eventType               String                 @map("event_type")
-  status                  String
-  amount                  Decimal?               @db.Decimal(12, 2)
-  currency                String?
-  signatureValid          Boolean                @default(false) @map("signature_valid")
-  payloadHash             String?                @map("payload_hash")
-  providerAccountHash     String?                @map("provider_account_hash")
-  processedStatus         String                 @default("RECEIVED") @map("processed_status")
-  rawPayload              Json?                  @map("raw_payload")
-  receivedAt              DateTime               @default(now()) @map("received_at")
-  processedAt             DateTime?              @map("processed_at")
-  whatsappDeliveryOrder   WhatsappDeliveryOrder? @relation(fields: [whatsappDeliveryOrderId], references: [id], onDelete: SetNull)
-  paymentIntent           PaymentIntent?         @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
-  paymentTransition       PaymentTransition?
+  id                       String                 @id @default(cuid())
+  whatsappDeliveryOrderId  String?                @map("whatsapp_delivery_order_id")
+  paymentIntentId          String?                @map("payment_intent_id")
+  provider                 String
+  eventId                  String?                @map("event_id")
+  providerPaymentId        String?                @map("provider_payment_id")
+  providerReference        String?                @map("provider_reference")
+  orderReference           String?                @map("order_reference")
+  eventType                String                 @map("event_type")
+  status                   String
+  amount                   Decimal?               @db.Decimal(12, 2)
+  currency                 String?
+  signatureValid           Boolean                @default(false) @map("signature_valid")
+  payloadHash              String?                @map("payload_hash")
+  providerAccountHash      String?                @map("provider_account_hash")
+  processedStatus          String                 @default("RECEIVED") @map("processed_status")
+  processingAttempts       Int                    @default(0) @map("processing_attempts")
+  processingLeaseOwnerHash String?                @map("processing_lease_owner_hash")
+  processingLeaseExpiresAt DateTime?              @map("processing_lease_expires_at")
+  nextRetryAt              DateTime?              @map("next_retry_at")
+  resultCode               String?                @map("result_code")
+  deterministicResult      Json?                  @map("deterministic_result")
+  lastErrorCode            String?                @map("last_error_code")
+  retryable                Boolean                @default(false)
+  rawPayload               Json?                  @map("raw_payload")
+  receivedAt               DateTime               @default(now()) @map("received_at")
+  processedAt              DateTime?              @map("processed_at")
+  whatsappDeliveryOrder    WhatsappDeliveryOrder? @relation(fields: [whatsappDeliveryOrderId], references: [id], onDelete: SetNull)
+  paymentIntent            PaymentIntent?         @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+  paymentTransition        PaymentTransition?
 
   @@unique([provider, eventId])
   @@index([paymentIntentId, receivedAt])
@@ -1721,26 +1773,33 @@ model PaymentWebhookEvent {
   @@index([provider, providerReference])
   @@index([orderReference, receivedAt])
   @@index([whatsappDeliveryOrderId, receivedAt])
+  @@index([processedStatus, nextRetryAt, processingLeaseExpiresAt])
   @@map("payment_webhook_events")
 }
 
 model WhatsappInboundEvent {
-  id                    String                   @id @default(cuid())
-  provider              String
-  providerEventId       String?                  @unique @map("provider_event_id")
-  providerMessageId     String?                  @map("provider_message_id")
-  phone                 String
-  eventHash             String                   @map("event_hash")
-  rawPayload            Json?                    @map("raw_payload")
-  receivedAt            DateTime                 @default(now()) @map("received_at")
-  processedAt           DateTime?                @map("processed_at")
-  processingStatus      String                   @default("RECEIVED") @map("processing_status")
-  errorMessage          String?                  @map("error_message")
-  accountId             String?                  @map("account_id")
-  eventKind             WhatsappInboundEventKind @default(INBOUND_MESSAGE) @map("event_kind")
-  normalizedPayloadHash String?                  @map("normalized_payload_hash")
-  deterministicResult   Json?                    @map("deterministic_result")
-  account               WhatsappProviderAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  id                       String                   @id @default(cuid())
+  provider                 String
+  providerEventId          String?                  @unique @map("provider_event_id")
+  providerMessageId        String?                  @map("provider_message_id")
+  phone                    String
+  eventHash                String                   @map("event_hash")
+  rawPayload               Json?                    @map("raw_payload")
+  receivedAt               DateTime                 @default(now()) @map("received_at")
+  processedAt              DateTime?                @map("processed_at")
+  processingStatus         String                   @default("RECEIVED") @map("processing_status")
+  errorMessage             String?                  @map("error_message")
+  accountId                String?                  @map("account_id")
+  eventKind                WhatsappInboundEventKind @default(INBOUND_MESSAGE) @map("event_kind")
+  normalizedPayloadHash    String?                  @map("normalized_payload_hash")
+  deterministicResult      Json?                    @map("deterministic_result")
+  processingAttempts       Int                      @default(0) @map("processing_attempts")
+  processingLeaseOwnerHash String?                  @map("processing_lease_owner_hash")
+  processingLeaseExpiresAt DateTime?                @map("processing_lease_expires_at")
+  nextRetryAt              DateTime?                @map("next_retry_at")
+  lastErrorCode            String?                  @map("last_error_code")
+  retryable                Boolean                  @default(false)
+  account                  WhatsappProviderAccount? @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([provider, eventHash])
   @@unique([accountId, providerEventId])
@@ -1748,6 +1807,7 @@ model WhatsappInboundEvent {
   @@index([accountId, eventKind, receivedAt])
   @@index([phone, receivedAt])
   @@index([processingStatus, receivedAt])
+  @@index([processingStatus, nextRetryAt, processingLeaseExpiresAt])
   @@map("whatsapp_inbound_events")
 }
 
@@ -1781,6 +1841,7 @@ model WhatsappOutboundMessage {
   account               WhatsappProviderAccount?     @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   secureCommand         SofiaCommand?                @relation(fields: [secureCommandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   statusEvents          WhatsappMessageStatusEvent[]
+  notificationIntent    NotificationIntent?
 
   @@index([conversationId, createdAt])
   @@index([inboundMessageId])
@@ -1801,6 +1862,9 @@ model DeliveryLocationInbox {
   latitude              Decimal                     @db.Decimal(10, 7)
   longitude             Decimal                     @db.Decimal(10, 7)
   rawPayload            Json?                       @map("raw_payload")
+  sourceEventKey        String?                     @unique @map("source_event_key")
+  payloadHash           String?                     @map("payload_hash")
+  version               Int                         @default(0)
   matchStatus           DeliveryLocationInboxStatus @default(PENDING) @map("match_status")
   matchedOrderId        String?                     @map("matched_order_id")
   matchedCustomerId     String?                     @map("matched_customer_id")
@@ -2016,22 +2080,26 @@ model AuditLog {
 }
 
 model DeliveryIssue {
-  id            String              @id @default(cuid())
-  orderTicketId String              @map("order_ticket_id")
-  issueType     DeliveryIssueType   @map("issue_type")
-  status        DeliveryIssueStatus @default(OPEN)
-  summary       String
-  details       String?
-  reportedById  String              @map("reported_by_id")
-  resolvedById  String?             @map("resolved_by_id")
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  resolvedAt    DateTime?           @map("resolved_at")
-  orderTicket   OrderTicket         @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
-  reportedBy    User                @relation("DeliveryIssueReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
-  resolvedBy    User?               @relation("DeliveryIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
-  alerts        OperationalAlert[]
+  id                   String                @id @default(cuid())
+  orderTicketId        String                @map("order_ticket_id")
+  issueType            DeliveryIssueType     @map("issue_type")
+  status               DeliveryIssueStatus   @default(OPEN)
+  summary              String
+  details              String?
+  reportedById         String                @map("reported_by_id")
+  resolvedById         String?               @map("resolved_by_id")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  resolvedAt           DateTime?             @map("resolved_at")
+  idempotencyKey       String?               @map("idempotency_key")
+  version              Int                   @default(0)
+  orderTicket          OrderTicket           @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
+  reportedBy           User                  @relation("DeliveryIssueReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
+  resolvedBy           User?                 @relation("DeliveryIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  alerts               OperationalAlert[]
+  customerServiceCases CustomerServiceCase[]
 
+  @@unique([orderTicketId, idempotencyKey])
   @@index([orderTicketId, status, createdAt])
   @@index([reportedById, createdAt])
   @@map("delivery_issues")
@@ -2101,6 +2169,7 @@ model SofiaCommand {
   approvals               SofiaCommandApproval[]
   result                  SofiaCommandResult?
   whatsappOutboundMessage WhatsappOutboundMessage?
+  notificationIntent      NotificationIntent?
 
   @@unique([scope, commandType, idempotencyKey])
   @@index([status, expiresAt])
@@ -2109,6 +2178,136 @@ model SofiaCommand {
   @@index([actorId, createdAt])
   @@index([correlationId])
   @@map("sofia_commands")
+}
+
+model DeliveryWorkflowEvent {
+  id                String                  @id @default(cuid())
+  orderTicketId     String                  @map("order_ticket_id")
+  version           Int
+  idempotencyKey    String                  @map("idempotency_key")
+  fromStatus        DeliveryWorkflowStatus? @map("from_status")
+  toStatus          DeliveryWorkflowStatus  @map("to_status")
+  actorId           String?                 @map("actor_id")
+  reasonCode        String                  @map("reason_code")
+  sanitizedMetadata Json?                   @map("sanitized_metadata")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  orderTicket       OrderTicket             @relation(fields: [orderTicketId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  actor             User?                   @relation("DeliveryWorkflowEventActor", fields: [actorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([orderTicketId, version])
+  @@unique([orderTicketId, idempotencyKey])
+  @@index([orderTicketId, createdAt])
+  @@index([toStatus, createdAt])
+  @@index([actorId, createdAt])
+  @@map("delivery_workflow_events")
+}
+
+model NotificationIntent {
+  id                String                   @id @default(cuid())
+  eventType         String                   @map("event_type")
+  sourceEventId     String                   @map("source_event_id")
+  aggregateType     String                   @map("aggregate_type")
+  aggregateId       String                   @map("aggregate_id")
+  aggregateVersion  Int                      @map("aggregate_version")
+  customerId        String?                  @map("customer_id")
+  conversationId    String?                  @map("conversation_id")
+  channel           CustomerConsentChannel
+  purpose           CustomerConsentPurpose
+  factEnvelope      Json                     @map("fact_envelope")
+  factHash          String                   @map("fact_hash")
+  policyOutcome     String                   @map("policy_outcome")
+  policyReason      String?                  @map("policy_reason")
+  consentVersion    Int?                     @map("consent_version")
+  handoffVersion    Int?                     @map("handoff_version")
+  status            NotificationIntentStatus @default(PENDING)
+  attempts          Int                      @default(0)
+  claimOwnerHash    String?                  @map("claim_owner_hash")
+  leaseExpiresAt    DateTime?                @map("lease_expires_at")
+  nextRetryAt       DateTime?                @map("next_retry_at")
+  expiresAt         DateTime?                @map("expires_at")
+  completedAt       DateTime?                @map("completed_at")
+  lastErrorCode     String?                  @map("last_error_code")
+  outboundMessageId String?                  @unique @map("outbound_message_id")
+  secureCommandId   String?                  @unique @map("secure_command_id")
+  version           Int                      @default(0)
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  customer          Customer?                @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  conversation      WhatsappConversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  outboundMessage   WhatsappOutboundMessage? @relation(fields: [outboundMessageId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  secureCommand     SofiaCommand?            @relation(fields: [secureCommandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  // Event IDs are producer-local; aggregateType is the explicit namespace.
+  @@unique([aggregateType, sourceEventId, channel, purpose])
+  @@index([status, nextRetryAt, leaseExpiresAt])
+  @@index([aggregateType, aggregateId, aggregateVersion])
+  @@index([conversationId, createdAt])
+  @@index([customerId, createdAt])
+  @@map("notification_intents")
+}
+
+model CustomerServiceCase {
+  id                String                      @id @default(cuid())
+  category          CustomerServiceCaseCategory
+  status            CustomerServiceCaseStatus   @default(OPEN)
+  source            String
+  sourceReference   String                      @map("source_reference")
+  evidenceHash      String                      @map("evidence_hash")
+  sanitizedSummary  String                      @map("sanitized_summary")
+  customerId        String?                     @map("customer_id")
+  conversationId    String?                     @map("conversation_id")
+  orderCheckoutId   String?                     @map("order_checkout_id")
+  orderTicketId     String?                     @map("order_ticket_id")
+  paymentIntentId   String?                     @map("payment_intent_id")
+  deliveryIssueId   String?                     @map("delivery_issue_id")
+  assignedActorId   String?                     @map("assigned_actor_id")
+  resolutionActorId String?                     @map("resolution_actor_id")
+  resolutionCode    String?                     @map("resolution_code")
+  version           Int                         @default(0)
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  resolvedAt        DateTime?                   @map("resolved_at")
+  closedAt          DateTime?                   @map("closed_at")
+  customer          Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  conversation      WhatsappConversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  orderCheckout     OrderCheckout?              @relation(fields: [orderCheckoutId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  orderTicket       OrderTicket?                @relation(fields: [orderTicketId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  paymentIntent     PaymentIntent?              @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  deliveryIssue     DeliveryIssue?              @relation(fields: [deliveryIssueId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  assignedActor     User?                       @relation("CustomerServiceCaseAssignedActor", fields: [assignedActorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  resolutionActor   User?                       @relation("CustomerServiceCaseResolutionActor", fields: [resolutionActorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  events            CustomerServiceCaseEvent[]
+
+  @@unique([source, sourceReference])
+  @@index([status, createdAt])
+  @@index([category, status])
+  @@index([customerId, createdAt])
+  @@index([orderTicketId, status])
+  @@index([conversationId, status])
+  @@index([paymentIntentId, status])
+  @@map("customer_service_cases")
+}
+
+model CustomerServiceCaseEvent {
+  id                String                     @id @default(cuid())
+  caseId            String                     @map("case_id")
+  version           Int
+  idempotencyKey    String                     @map("idempotency_key")
+  action            String
+  fromStatus        CustomerServiceCaseStatus? @map("from_status")
+  toStatus          CustomerServiceCaseStatus  @map("to_status")
+  actorId           String?                    @map("actor_id")
+  reasonCode        String                     @map("reason_code")
+  sanitizedMetadata Json?                      @map("sanitized_metadata")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  serviceCase       CustomerServiceCase        @relation(fields: [caseId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  actor             User?                      @relation("CustomerServiceCaseEventActor", fields: [actorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([caseId, version])
+  @@unique([caseId, idempotencyKey])
+  @@index([caseId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("customer_service_case_events")
 }
 
 model WhatsappProviderAccount {

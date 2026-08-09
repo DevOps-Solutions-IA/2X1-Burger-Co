@@ -27,6 +27,7 @@ export class CommandPolicyService {
       allowedSources: [...definition.allowedSources].sort(),
       allowedRoles: [...definition.allowedRoles].sort(),
       requiredPermission: definition.requiredPermission,
+      receiveWhileDisabled: definition.receiveWhileDisabled === true,
     })).digest('hex');
   }
 
@@ -38,8 +39,38 @@ export class CommandPolicyService {
   }) {
     const definition = this.definition(input.command.commandType);
     const now = input.now ?? new Date();
-    if (!definition.enabled || definition.operational || input.command.expiresAt.getTime() <= now.getTime()) {
+    const durableDisabledReceipt = input.stage === 'RECEIVE'
+      && definition.receiveWhileDisabled === true
+      && !definition.enabled
+      && definition.operational;
+    if (
+      (!durableDisabledReceipt && (!definition.enabled || definition.operational))
+      || input.command.expiresAt.getTime() <= now.getTime()
+    ) {
       throw new SecureCommandError(input.command.expiresAt.getTime() <= now.getTime() ? 'SOFIA_COMMAND_EXPIRED' : 'SOFIA_COMMAND_POLICY_BLOCKED');
+    }
+    if (durableDisabledReceipt) {
+      const sourceAllowed = definition.allowedSources.includes(input.command.source);
+      const roleAllowed = definition.allowedRoles.some((role) => input.actor.roles.includes(role));
+      if (
+        input.actor.actorType !== 'SYSTEM'
+        || input.command.actorId !== input.actor.actorId
+        || !sourceAllowed
+        || !roleAllowed
+      ) {
+        throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
+      }
+      const safety = await this.safety.current();
+      if (safety.killSwitchActive || safety.globalPaused) {
+        throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
+      }
+      return {
+        definition,
+        authorization: { active: true, roles: [...input.actor.roles], permissions: [] },
+        safety,
+        stage: input.stage,
+        receiptOnly: true,
+      };
     }
     if (input.actor.actorType !== 'USER' || input.command.actorId !== input.actor.actorId) {
       throw new SecureCommandError('SOFIA_COMMAND_ACTOR_CONFLICT');

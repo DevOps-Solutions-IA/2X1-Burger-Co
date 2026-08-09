@@ -55,6 +55,8 @@ jobs:
         run: PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
       - name: Deploy migrations to ephemeral database
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+      - name: Phase 6 representative legacy migration 36 to 37
+        run: bash infra/testing/phase6-legacy-migration.sh
       - name: API lint with visible debt and web zero-warning gate
         run: |
           pnpm --filter @inventory-fastfood/api lint
@@ -72,6 +74,55 @@ jobs:
         run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
       - name: Delivery Phase A
         run: pnpm --dir apps/api exec jest src/tests/delivery-receipt-phase-a.spec.ts --runInBand --detectOpenHandles
+      - name: Phase 6 focused live-operations suites
+        run: |
+          pnpm --dir apps/api exec jest \
+            src/modules/customer-service/complaint-recovery.spec.ts \
+            src/modules/customer-service/customer-service-case.service.spec.ts \
+            src/modules/customer-service/persistence/prisma-customer-service-case.repository.spec.ts \
+            src/modules/delivery-operations/delivery-location.policy.spec.ts \
+            src/modules/delivery-operations/delivery-operation.dto.spec.ts \
+            src/modules/delivery-operations/delivery-workflow.policy.spec.ts \
+            src/modules/delivery-operations/delivery-workflow.service.spec.ts \
+            src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts \
+            src/modules/notifications/domain/notification-domain.spec.ts \
+            src/modules/notifications/notification-intent-consumer.service.spec.ts \
+            src/modules/notifications/notification-outbound-materializer.spec.ts \
+            src/modules/notifications/notification-outbox.service.spec.ts \
+            src/modules/notifications/notification-outbox.worker.spec.ts \
+            src/modules/orders/delivery-workflow-consequence.worker.spec.ts \
+            src/modules/notifications/notification-reconciliation-observer.spec.ts \
+            src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
+            src/modules/order-checkout/order-checkout.architecture.spec.ts \
+            src/modules/order-checkout/payment-webhook-recovery.worker.spec.ts \
+            src/modules/order-checkout/persistence/prisma-order-checkout-webhook-recovery.spec.ts \
+            src/application/domain-contracts.architecture.spec.ts \
+            src/modules/secure-command/secure-command.architecture.spec.ts \
+            src/modules/sofia/complaint-source-reference.spec.ts \
+            src/modules/sofia/commercial/commercial.architecture.spec.ts \
+            src/modules/sofia/whatsapp/production/persistence/prisma-whatsapp-handoff.repository.spec.ts \
+            src/modules/sofia/whatsapp/production/sofia-whatsapp-inbound-fault-recovery.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-rate-limit-policy.service.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-recovery.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-production.architecture.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-production.policy.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-production.security.spec.ts \
+            --runInBand \
+            --detectOpenHandles
+      - name: Phase 6 PostgreSQL persistence concurrency
+        run: |
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/tests/phase6-persistence-concurrency.integration.spec.ts \
+            src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts \
+            src/modules/orders/orders.phase6-atomicity.integration.spec.ts \
+            src/modules/notifications/phase6-notification-pipeline.integration.spec.ts \
+            src/modules/sofia/complaint-inbound.integration.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
+            src/tests/whatsapp-production.integration.spec.ts \
+            --runInBand \
+            --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
       - name: Generate CycloneDX SBOM

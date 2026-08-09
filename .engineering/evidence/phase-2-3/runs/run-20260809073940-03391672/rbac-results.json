@@ -1,0 +1,115 @@
+{
+  "status": "PASS",
+  "matrix": [
+    {
+      "endpoint": "/users",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 403,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/roles",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 403,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/cash-register/current",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 200,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/cash-register/history",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 403,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/sales",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/inventory/stock",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 403,
+      "cashier": 403,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/orders/delivery-active",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 403,
+      "delivery": 200,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/reports/daily",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/admin/sofia/dashboard/summary",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    },
+    {
+      "endpoint": "/whatsapp/session",
+      "method": "GET",
+      "unauthenticated": 401,
+      "admin": 200,
+      "supervisor": 200,
+      "cashier": 200,
+      "waiter": 403,
+      "delivery": 403,
+      "noAccess": 403
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+       CUENTA ACTUALIZADA DE 
+                  DOMICILIO
+    Pedido                      DOMICILIO-004
+    Versión                        VERSIÓN 2
+    Estado                           VIGENTE
+    Fecha                     9/08/26, 2:41 a. m.
+    Cliente                 Phase 2.5 Synthetic 
+                                       Delivery
+    Dirección           Synthetic address Phase 
+                                            2.5
+    DETALLE
+    1 x Hamburguesa 2x1               $ 20.000
+    1 x Coca-Cola Original 400         $ 4.000
+    ml
+    Subtotal productos                $ 24.000
+    Tarifa de domicilio                     $ 0
+    TOTAL A PAGAR                 $ 24.000
+       La tarifa de domicilio corresponde al valor 
+        calculado por el sistema para esta orden.
+      La ubicación compartida se utiliza únicamente 
+               para facilitar la entrega.
+        Esta cuenta reemplaza las versiones 
+               anteriores del pedido.
+                Gracias por tu compra

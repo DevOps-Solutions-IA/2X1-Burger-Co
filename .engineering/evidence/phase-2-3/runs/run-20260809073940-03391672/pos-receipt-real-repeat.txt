@@ -1,0 +1,18 @@
+        2x1 Burger Co
+          Bogota, Colombia
+          +57 3000000000
+           MOSTRADOR
+   COMPROBANTE OPERATIVO POS
+   Comprobante      FAC-297015
+   Fecha      09/08/2026, 02:41 a. m.
+   DETALLE
+   Coca-Cola Original 400 ml
+   1 x $ 4.000         $ 4.000
+   PAGOS
+   Efectivo            $ 4.000
+   RESUMEN DE COBRO
+   Subtotal            $ 4.000
+   Total              $ 4.000
+     Escanea para escribir al WhatsApp del 
+             negocio
+         Gracias por tu compra

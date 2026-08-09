@@ -12,6 +12,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { assertCheckoutPaymentCombination } from '../checkout-policy.service';
 import { checkoutConflict, checkoutNotFound } from '../order-checkout.errors';
 import type {
+  CanonicalWebhookResult,
   CheckoutCustomerSnapshot,
   CheckoutItemSnapshot,
   CreateSofiaCheckoutCommand,
@@ -30,7 +31,68 @@ type TransitionInput = {
   providerPaymentId?: string | null;
   providerReference?: string | null;
   providerAccountHash?: string | null;
+  webhookClaim?: { webhookId: string; leaseOwnerHash: string };
 };
+
+export type WebhookEvidenceInput = {
+  paymentIntentId?: string | null;
+  provider: string;
+  eventId: string | null;
+  providerPaymentId: string | null;
+  providerReference: string | null;
+  eventType: string;
+  status: string;
+  amount: number | null;
+  currency: string | null;
+  signatureValid: boolean;
+  payloadHash: string;
+  providerAccountHash: string | null;
+  processedStatus: string;
+  rawPayload: Prisma.InputJsonValue;
+};
+
+type WebhookLifecycleRow = {
+  id: string;
+  paymentIntentId: string | null;
+  providerAccountHash: string | null;
+  payloadHash: string | null;
+  processedStatus: string;
+  processedAt: Date | null;
+  processingAttempts: number;
+  processingLeaseOwnerHash: string | null;
+  processingLeaseExpiresAt: Date | null;
+  nextRetryAt: Date | null;
+  resultCode: string | null;
+  deterministicResult: Prisma.JsonValue | null;
+  lastErrorCode: string | null;
+  retryable: boolean;
+  transitionApplied: boolean;
+};
+
+export type ClaimedWebhookEvidence = {
+  id: string;
+  provider: string;
+  eventId: string | null;
+  providerPaymentId: string | null;
+  providerReference: string | null;
+  eventType: string;
+  status: string;
+  amount: Prisma.Decimal | null;
+  currency: string | null;
+  signatureValid: boolean;
+  payloadHash: string | null;
+  providerAccountHash: string | null;
+  processedStatus: string;
+  transitionApplied: boolean;
+  paymentIntent: Prisma.PaymentIntentGetPayload<{ include: { checkout: true } }> | null;
+};
+
+export type WebhookClaimResult =
+  | { state: 'CLAIMED'; webhookId: string; paymentIntentId: string | null; transitionApplied: boolean; attempt: number }
+  | { state: 'REPLAY'; webhookId: string; result: CanonicalWebhookResult }
+  | { state: 'ACTIVE'; webhookId: string; paymentIntentId: string | null }
+  | { state: 'BLOCKED'; webhookId: string; reasonCode: 'LEGACY_AMBIGUOUS' | 'NOT_RETRYABLE' | 'ATTEMPTS_EXHAUSTED' }
+  | { state: 'IDENTITY_CONFLICT'; webhookId: string };
 
 @Injectable()
 export class PrismaOrderCheckoutRepository {
@@ -270,6 +332,17 @@ export class PrismaOrderCheckoutRepository {
 
   async transitionPayment(input: TransitionInput) {
     return this.prisma.$transaction(async (tx) => {
+      if (input.webhookClaim) {
+        const owned = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM payment_webhook_events
+          WHERE id = ${input.webhookClaim.webhookId}
+            AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+            AND processing_lease_owner_hash = ${input.webhookClaim.leaseOwnerHash}
+            AND processing_lease_expires_at > CURRENT_TIMESTAMP
+          FOR UPDATE
+        `;
+        if (owned.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
+      }
       await tx.$queryRaw`SELECT id FROM "payment_intents" WHERE id = ${input.paymentIntentId} FOR UPDATE`;
       const intent = await tx.paymentIntent.findUnique({ where: { id: input.paymentIntentId } });
       if (!intent) checkoutNotFound();
@@ -354,29 +427,18 @@ export class PrismaOrderCheckoutRepository {
   }
 
   async markFinancialReview(checkoutId: string, reasonCode: string) {
-    await this.prisma.orderCheckout.update({
-      where: { id: checkoutId },
+    const updated = await this.prisma.orderCheckout.updateMany({
+      where: { id: checkoutId, status: { not: OrderCheckoutStatus.FINANCIAL_REVIEW_REQUIRED } },
       data: { status: OrderCheckoutStatus.FINANCIAL_REVIEW_REQUIRED, version: { increment: 1 } },
     });
+    if (updated.count === 0) {
+      const checkout = await this.prisma.orderCheckout.findUnique({ where: { id: checkoutId }, select: { id: true } });
+      if (!checkout) checkoutNotFound();
+    }
     return { reasonCode };
   }
 
-  async createWebhookEvidence(input: {
-    paymentIntentId?: string | null;
-    provider: string;
-    eventId: string | null;
-    providerPaymentId: string | null;
-    providerReference: string | null;
-    eventType: string;
-    status: string;
-    amount: number | null;
-    currency: string | null;
-    signatureValid: boolean;
-    payloadHash: string;
-    providerAccountHash: string | null;
-    processedStatus: string;
-    rawPayload: Prisma.InputJsonValue;
-  }) {
+  async createWebhookEvidence(input: WebhookEvidenceInput) {
     try {
       return await this.prisma.paymentWebhookEvent.create({
         data: { ...input, processedAt: new Date() },
@@ -389,6 +451,423 @@ export class PrismaOrderCheckoutRepository {
       }
       throw error;
     }
+  }
+
+  async claimWebhookEvidence(input: WebhookEvidenceInput & {
+    leaseOwnerHash: string;
+    leaseExpiresAt: Date;
+    maxAttempts: number;
+  }): Promise<WebhookClaimResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const identity = `${input.provider}:${input.eventId ?? input.payloadHash}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
+
+      const identityFilter = input.eventId
+        ? Prisma.sql`provider = ${input.provider} AND event_id = ${input.eventId}`
+        : Prisma.sql`provider = ${input.provider} AND event_id IS NULL AND payload_hash = ${input.payloadHash}`;
+      const rows = await tx.$queryRaw<WebhookLifecycleRow[]>(Prisma.sql`
+        SELECT
+          event.id,
+          event.payment_intent_id AS "paymentIntentId",
+          event.provider_account_hash AS "providerAccountHash",
+          event.payload_hash AS "payloadHash",
+          event.processed_status AS "processedStatus",
+          event.processed_at AS "processedAt",
+          event.processing_attempts AS "processingAttempts",
+          event.processing_lease_owner_hash AS "processingLeaseOwnerHash",
+          event.processing_lease_expires_at AS "processingLeaseExpiresAt",
+          event.next_retry_at AS "nextRetryAt",
+          event.result_code AS "resultCode",
+          event.deterministic_result AS "deterministicResult",
+          event.last_error_code AS "lastErrorCode",
+          event.retryable,
+          EXISTS (
+            SELECT 1 FROM payment_transitions transition
+            WHERE transition.webhook_event_id = event.id
+          ) AS "transitionApplied"
+        FROM payment_webhook_events event
+        WHERE ${identityFilter}
+        ORDER BY event.received_at ASC
+        LIMIT 1
+        FOR UPDATE
+      `);
+      const existing = rows[0];
+      if (!existing) {
+        const {
+          leaseOwnerHash: _leaseOwnerHash,
+          leaseExpiresAt: _leaseExpiresAt,
+          maxAttempts: _maxAttempts,
+          ...evidence
+        } = input;
+        const created = await tx.paymentWebhookEvent.create({
+          data: {
+            ...evidence,
+            processedStatus: 'PROCESSING',
+            processedAt: null,
+          },
+        });
+        await tx.$executeRaw`
+          UPDATE payment_webhook_events
+          SET processing_attempts = 1,
+              processing_lease_owner_hash = ${input.leaseOwnerHash},
+              processing_lease_expires_at = ${input.leaseExpiresAt},
+              retryable = false,
+              next_retry_at = NULL,
+              last_error_code = NULL
+          WHERE id = ${created.id}
+        `;
+        return {
+          state: 'CLAIMED',
+          webhookId: created.id,
+          paymentIntentId: created.paymentIntentId,
+          transitionApplied: false,
+          attempt: 1,
+        };
+      }
+
+      if (existing.payloadHash !== input.payloadHash) {
+        return { state: 'IDENTITY_CONFLICT', webhookId: existing.id };
+      }
+      if (
+        existing.providerAccountHash !== input.providerAccountHash
+        || (existing.paymentIntentId && input.paymentIntentId && existing.paymentIntentId !== input.paymentIntentId)
+      ) {
+        return { state: 'IDENTITY_CONFLICT', webhookId: existing.id };
+      }
+      const deterministic = this.canonicalWebhookResult(existing.deterministicResult);
+      if (deterministic) {
+        return { state: 'REPLAY', webhookId: existing.id, result: deterministic };
+      }
+      if (existing.processedAt) {
+        if (existing.transitionApplied || existing.processedStatus === 'REFERENCE_UNKNOWN') {
+          return {
+            state: 'REPLAY',
+            webhookId: existing.id,
+            result: {
+              processedStatus: existing.processedStatus === 'REFERENCE_UNKNOWN' ? 'REFERENCE_UNKNOWN' : 'DUPLICATE_REPLAY',
+              paymentIntentId: existing.paymentIntentId,
+              paymentStatus: null,
+            },
+          };
+        }
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'LEGACY_AMBIGUOUS' };
+      }
+      if (existing.processingAttempts === 0) {
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'LEGACY_AMBIGUOUS' };
+      }
+      const now = new Date();
+      if (existing.processingLeaseExpiresAt && existing.processingLeaseExpiresAt > now) {
+        return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
+      }
+      if (existing.nextRetryAt && existing.nextRetryAt > now) {
+        return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
+      }
+      if (existing.processedStatus === 'FAILED' && !existing.retryable) {
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'NOT_RETRYABLE' };
+      }
+      if (existing.processingAttempts >= input.maxAttempts) {
+        await tx.$executeRaw`
+          UPDATE payment_webhook_events
+          SET processed_status = 'FAILED',
+              processed_at = CURRENT_TIMESTAMP,
+              processing_lease_owner_hash = NULL,
+              processing_lease_expires_at = NULL,
+              retryable = false,
+              next_retry_at = NULL,
+              result_code = 'PROCESSING_ATTEMPTS_EXHAUSTED',
+              last_error_code = COALESCE(last_error_code, 'PROCESSING_ATTEMPTS_EXHAUSTED')
+          WHERE id = ${existing.id}
+        `;
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'ATTEMPTS_EXHAUSTED' };
+      }
+
+      const attempt = existing.processingAttempts + 1;
+      await tx.$executeRaw`
+        UPDATE payment_webhook_events
+        SET processed_status = CASE
+              WHEN processed_status = 'FAILED' THEN 'PROCESSING'
+              ELSE processed_status
+            END,
+            processed_at = NULL,
+            payment_intent_id = COALESCE(payment_intent_id, ${input.paymentIntentId ?? null}),
+            processing_attempts = ${attempt},
+            processing_lease_owner_hash = ${input.leaseOwnerHash},
+            processing_lease_expires_at = ${input.leaseExpiresAt},
+            retryable = false,
+            next_retry_at = NULL,
+            last_error_code = NULL
+        WHERE id = ${existing.id}
+      `;
+      return {
+        state: 'CLAIMED',
+        webhookId: existing.id,
+        paymentIntentId: existing.paymentIntentId,
+        transitionApplied: existing.transitionApplied,
+        attempt,
+      };
+    });
+  }
+
+  async findRecoverableWebhookIds(now: Date, limit: number, maxAttempts: number): Promise<string[]> {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM payment_webhook_events
+      WHERE signature_valid = TRUE
+        AND payment_intent_id IS NOT NULL
+        AND deterministic_result IS NULL
+        AND processed_at IS NULL
+        AND processing_attempts > 0
+        AND processing_attempts <= ${maxAttempts}
+        AND (
+          (
+            processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+            AND (processing_lease_expires_at IS NULL OR processing_lease_expires_at <= ${now})
+          )
+          OR (
+            processed_status = 'FAILED'
+            AND retryable = TRUE
+            AND (next_retry_at IS NULL OR next_retry_at <= ${now})
+          )
+        )
+      ORDER BY COALESCE(next_retry_at, processing_lease_expires_at, received_at), received_at
+      LIMIT ${boundedLimit}
+    `;
+    return rows.map((row) => row.id);
+  }
+
+  async claimRecoverableWebhook(input: {
+    webhookId: string;
+    leaseOwnerHash: string;
+    leaseExpiresAt: Date;
+    maxAttempts: number;
+  }): Promise<WebhookClaimResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockIdentity = `payment-webhook:${input.webhookId}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockIdentity}, 0))`;
+      const rows = await tx.$queryRaw<WebhookLifecycleRow[]>(Prisma.sql`
+        SELECT
+          event.id,
+          event.payment_intent_id AS "paymentIntentId",
+          event.provider_account_hash AS "providerAccountHash",
+          event.payload_hash AS "payloadHash",
+          event.processed_status AS "processedStatus",
+          event.processed_at AS "processedAt",
+          event.processing_attempts AS "processingAttempts",
+          event.processing_lease_owner_hash AS "processingLeaseOwnerHash",
+          event.processing_lease_expires_at AS "processingLeaseExpiresAt",
+          event.next_retry_at AS "nextRetryAt",
+          event.result_code AS "resultCode",
+          event.deterministic_result AS "deterministicResult",
+          event.last_error_code AS "lastErrorCode",
+          event.retryable,
+          EXISTS (
+            SELECT 1 FROM payment_transitions transition
+            WHERE transition.webhook_event_id = event.id
+          ) AS "transitionApplied"
+        FROM payment_webhook_events event
+        WHERE event.id = ${input.webhookId}
+        FOR UPDATE
+      `);
+      const existing = rows[0];
+      if (!existing) return { state: 'BLOCKED', webhookId: input.webhookId, reasonCode: 'NOT_RETRYABLE' };
+
+      const deterministic = this.canonicalWebhookResult(existing.deterministicResult);
+      if (deterministic) return { state: 'REPLAY', webhookId: existing.id, result: deterministic };
+      if (existing.processedAt || existing.processingAttempts === 0 || !existing.paymentIntentId) {
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'LEGACY_AMBIGUOUS' };
+      }
+      const now = new Date();
+      if (existing.processingLeaseExpiresAt && existing.processingLeaseExpiresAt > now) {
+        return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
+      }
+      if (existing.nextRetryAt && existing.nextRetryAt > now) {
+        return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
+      }
+      if (existing.processedStatus === 'FAILED' && !existing.retryable) {
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'NOT_RETRYABLE' };
+      }
+      if (existing.processingAttempts >= input.maxAttempts) {
+        await tx.$executeRaw`
+          UPDATE payment_webhook_events
+          SET processed_status = 'FAILED',
+              processed_at = CURRENT_TIMESTAMP,
+              processing_lease_owner_hash = NULL,
+              processing_lease_expires_at = NULL,
+              retryable = FALSE,
+              next_retry_at = NULL,
+              result_code = 'PROCESSING_ATTEMPTS_EXHAUSTED',
+              last_error_code = COALESCE(last_error_code, 'PROCESSING_ATTEMPTS_EXHAUSTED')
+          WHERE id = ${existing.id}
+        `;
+        return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'ATTEMPTS_EXHAUSTED' };
+      }
+
+      const attempt = existing.processingAttempts + 1;
+      const updated = await tx.$executeRaw`
+        UPDATE payment_webhook_events
+        SET processed_status = CASE
+              WHEN processed_status = 'FAILED' THEN 'PROCESSING'
+              ELSE processed_status
+            END,
+            processing_attempts = ${attempt},
+            processing_lease_owner_hash = ${input.leaseOwnerHash},
+            processing_lease_expires_at = ${input.leaseExpiresAt},
+            retryable = FALSE,
+            next_retry_at = NULL,
+            last_error_code = NULL
+        WHERE id = ${existing.id}
+          AND processed_at IS NULL
+      `;
+      if (updated !== 1) {
+        return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
+      }
+      return {
+        state: 'CLAIMED',
+        webhookId: existing.id,
+        paymentIntentId: existing.paymentIntentId,
+        transitionApplied: existing.transitionApplied,
+        attempt,
+      };
+    });
+  }
+
+  async findClaimedWebhookEvidence(webhookId: string, leaseOwnerHash: string): Promise<ClaimedWebhookEvidence | null> {
+    const event = await this.prisma.paymentWebhookEvent.findFirst({
+      where: {
+        id: webhookId,
+        processedAt: null,
+        processingLeaseOwnerHash: leaseOwnerHash,
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+      include: {
+        paymentIntent: { include: { checkout: true } },
+        paymentTransition: { select: { id: true } },
+      },
+    });
+    if (!event) return null;
+    return {
+      id: event.id,
+      provider: event.provider,
+      eventId: event.eventId,
+      providerPaymentId: event.providerPaymentId,
+      providerReference: event.providerReference,
+      eventType: event.eventType,
+      status: event.status,
+      amount: event.amount,
+      currency: event.currency,
+      signatureValid: event.signatureValid,
+      payloadHash: event.payloadHash,
+      providerAccountHash: event.providerAccountHash,
+      processedStatus: event.processedStatus,
+      transitionApplied: Boolean(event.paymentTransition),
+      paymentIntent: event.paymentIntent,
+    };
+  }
+
+  async advanceWebhookCheckpoint(input: {
+    webhookId: string;
+    leaseOwnerHash: string;
+    checkpoint: 'VALIDATED' | 'TRANSITION_APPLIED' | 'DOWNSTREAM_APPLIED';
+  }) {
+    const updated = await this.prisma.$executeRaw`
+      UPDATE payment_webhook_events
+      SET processed_status = ${input.checkpoint},
+          result_code = ${input.checkpoint}
+      WHERE id = ${input.webhookId}
+        AND processed_at IS NULL
+        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+  }
+
+  async completeWebhookClaim(input: {
+    webhookId: string;
+    leaseOwnerHash: string;
+    result: CanonicalWebhookResult;
+  }) {
+    const deterministicResult = JSON.stringify(input.result);
+    const updated = await this.prisma.$executeRaw`
+      UPDATE payment_webhook_events
+      SET processed_status = 'PROCESSED',
+          processed_at = CURRENT_TIMESTAMP,
+          result_code = ${input.result.processedStatus},
+          deterministic_result = ${deterministicResult}::jsonb,
+          processing_lease_owner_hash = NULL,
+          processing_lease_expires_at = NULL,
+          retryable = false,
+          next_retry_at = NULL,
+          last_error_code = NULL
+      WHERE id = ${input.webhookId}
+        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+  }
+
+  async assertWebhookClaimOwned(webhookId: string, leaseOwnerHash: string) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM payment_webhook_events
+      WHERE id = ${webhookId}
+        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+        AND processing_lease_owner_hash = ${leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (rows.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
+  }
+
+  async renewWebhookClaim(webhookId: string, leaseOwnerHash: string): Promise<Date> {
+    const leaseExpiresAt = new Date(Date.now() + 30_000);
+    const updated = await this.prisma.$executeRaw`
+      UPDATE payment_webhook_events
+      SET processing_lease_expires_at = ${leaseExpiresAt}
+      WHERE id = ${webhookId}
+        AND processed_at IS NULL
+        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+        AND processing_lease_owner_hash = ${leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    return leaseExpiresAt;
+  }
+
+  async failWebhookClaim(input: {
+    webhookId: string;
+    leaseOwnerHash: string;
+    errorCode: string;
+    maxAttempts: number;
+    retryable: boolean;
+  }) {
+    const updated = await this.prisma.$executeRaw`
+      UPDATE payment_webhook_events
+      SET processed_status = 'FAILED',
+          processed_at = CASE
+            WHEN processing_attempts >= ${input.maxAttempts} OR NOT ${input.retryable}
+              THEN CURRENT_TIMESTAMP
+            ELSE NULL
+          END,
+          processing_lease_owner_hash = NULL,
+          processing_lease_expires_at = NULL,
+          retryable = ${input.retryable} AND processing_attempts < ${input.maxAttempts},
+          next_retry_at = CASE
+            WHEN ${input.retryable} AND processing_attempts < ${input.maxAttempts}
+              THEN CURRENT_TIMESTAMP
+            ELSE NULL
+          END,
+          result_code = CASE
+            WHEN processing_attempts >= ${input.maxAttempts} THEN 'PROCESSING_ATTEMPTS_EXHAUSTED'
+            WHEN NOT ${input.retryable} THEN ${input.errorCode}
+            ELSE result_code
+          END,
+          last_error_code = ${input.errorCode}
+      WHERE id = ${input.webhookId}
+        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
+        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async findIntentByProvider(input: { provider: PaymentIntentProvider; providerPaymentId?: string | null; providerReference?: string | null }) {
@@ -467,6 +946,30 @@ export class PrismaOrderCheckoutRepository {
       status === PaymentIntentStatus.CANCELLED ||
       status === PaymentIntentStatus.UNKNOWN_RESULT ||
       status === PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED;
+  }
+
+  private canonicalWebhookResult(value: Prisma.JsonValue | null): CanonicalWebhookResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const result = value as Record<string, unknown>;
+    const processedStatuses: CanonicalWebhookResult['processedStatus'][] = [
+      'PROCESSED',
+      'DUPLICATE_REPLAY',
+      'SIGNATURE_INVALID',
+      'REFERENCE_UNKNOWN',
+      'AMOUNT_MISMATCH',
+      'CURRENCY_MISMATCH',
+      'ACCOUNT_MISMATCH',
+      'FINANCIAL_REVIEW_REQUIRED',
+    ];
+    if (!processedStatuses.includes(result.processedStatus as CanonicalWebhookResult['processedStatus'])) return null;
+    const paymentStatus = Object.values(PaymentIntentStatus).includes(result.paymentStatus as PaymentIntentStatus)
+      ? result.paymentStatus as PaymentIntentStatus
+      : null;
+    return {
+      processedStatus: result.processedStatus as CanonicalWebhookResult['processedStatus'],
+      paymentIntentId: typeof result.paymentIntentId === 'string' ? result.paymentIntentId : null,
+      paymentStatus,
+    };
   }
 
   private uniqueConflict(error: unknown) {

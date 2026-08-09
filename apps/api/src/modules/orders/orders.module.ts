@@ -6,11 +6,14 @@ import { SofiaModule } from '../sofia/sofia.module';
 import { TablesModule } from '../tables/tables.module';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { DeliveryOperationsModule } from '../delivery-operations/delivery-operations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { DeliveryWorkflowConsequenceWorker } from './delivery-workflow-consequence.worker';
 
 @Module({
-  imports: [SalesModule, RealtimeModule, DeliveryModule, TablesModule, SofiaModule],
+  imports: [SalesModule, RealtimeModule, DeliveryModule, DeliveryOperationsModule, NotificationsModule, TablesModule, SofiaModule],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, DeliveryWorkflowConsequenceWorker],
   exports: [OrdersService],
 })
 export class OrdersModule {}

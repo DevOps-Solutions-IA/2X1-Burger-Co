@@ -38,6 +38,10 @@ import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety
 import { getActiveSofiaFeaturedOffers, SofiaFeaturedOffer } from './sofia-featured-offers';
 import { SofiaService } from './sofia.service';
 import { SofiaAgentRepository } from './repositories/sofia-agent.repository';
+import { WhatsappHandoffService } from './whatsapp/production/whatsapp-handoff.service';
+import { CustomerServiceCaseService } from '../customer-service/customer-service-case.service';
+import { complaintSourceReference } from './complaint-source-reference';
+import type { CustomerServiceCaseCategory } from '../customer-service/persistence/customer-service-case.repository';
 
 type SofiaIntent =
   | 'GREETING'
@@ -112,6 +116,8 @@ export class SofiaAgentService {
     private readonly conversationMemoryService: SofiaConversationMemoryService,
     private readonly runtimeSafetyService: SofiaRuntimeSafetyService,
     private readonly commercialCheckout: CommercialCheckoutService,
+    private readonly whatsappHandoff: WhatsappHandoffService,
+    private readonly customerServiceCases: CustomerServiceCaseService,
   ) {}
 
   private actorContext(actorId: string, source: 'WHATSAPP' | 'SANDBOX'): SofiaActorContext {
@@ -167,6 +173,47 @@ export class SofiaAgentService {
 
   private isComplaint(normalized: string) {
     return /\b(queja|reclamo|me llego mal|me llego frio|frio|demorado|malo|molesto|enojado|devolucion)\b/.test(normalized);
+  }
+
+  private complaintCategory(normalized: string): CustomerServiceCaseCategory {
+    if (/\b(demora|demorado|tarde|retraso)\b/.test(normalized)) return 'LATE_ORDER';
+    if (/\b(equivocado|incorrecto|producto mal|pedido mal)\b/.test(normalized)) return 'WRONG_ITEM';
+    if (/\b(falto|falta|faltante|no llego)\b/.test(normalized)) return 'MISSING_ITEM';
+    if (/\b(frio|fria)\b/.test(normalized)) return 'COLD_FOOD';
+    if (/\b(calidad|malo|danado|dañado)\b/.test(normalized)) return 'QUALITY';
+    if (/\b(pago|cobro|cobraron|transferencia)\b/.test(normalized)) return 'PAYMENT_PROBLEM';
+    if (/\b(domicilio|domiciliario|entrega|direccion)\b/.test(normalized)) return 'DELIVERY_PROBLEM';
+    return 'OTHER';
+  }
+
+  private async recordComplaintCase(input: {
+    conversationId: string;
+    sourceEventId: string;
+    normalized: string;
+    message: string;
+  }) {
+    const sourceReference = complaintSourceReference(input);
+    const evidenceHash = createHash('sha256').update(input.message.normalize('NFKC'), 'utf8').digest('hex');
+    const opened = await this.customerServiceCases.open({
+      category: this.complaintCategory(input.normalized),
+      source: 'WHATSAPP',
+      sourceReference,
+      idempotencyKey: `complaint:open:${sourceReference}`,
+      evidenceHash,
+      summary: input.message,
+      conversationId: input.conversationId,
+      metadata: { automatedRemedyAuthorized: false },
+    });
+    if (opened.serviceCase.status === 'OPEN') {
+      await this.customerServiceCases.transition({
+        caseId: opened.serviceCase.id,
+        expectedVersion: opened.serviceCase.version,
+        idempotencyKey: `complaint:human:${sourceReference}`,
+        fromStatus: 'OPEN',
+        toStatus: 'HUMAN_REQUIRED',
+        reasonCode: 'CUSTOMER_COMPLAINT_REQUIRES_HUMAN',
+      });
+    }
   }
 
   private findFeaturedOffer(normalized: string): SofiaFeaturedOffer | null {
@@ -491,7 +538,12 @@ export class SofiaAgentService {
   async processInboundMessage(
     dto: ProcessSofiaAgentMessageDto,
     actorId: string,
-    options: { recordInbound?: boolean; recordOutbound?: boolean; headers?: HeaderMap } = {},
+    options: {
+      recordInbound?: boolean;
+      recordOutbound?: boolean;
+      headers?: HeaderMap;
+      sourceEventId: string;
+    },
   ) {
     return this.processMessage(dto, actorId, { ...options, source: 'WHATSAPP' });
   }
@@ -499,7 +551,13 @@ export class SofiaAgentService {
   private async processMessage(
     dto: ProcessSofiaAgentMessageDto,
     actorId: string,
-    options: { recordInbound?: boolean; recordOutbound?: boolean; source: 'SANDBOX' | 'WHATSAPP'; headers?: HeaderMap },
+    options: {
+      recordInbound?: boolean;
+      recordOutbound?: boolean;
+      source: 'SANDBOX' | 'WHATSAPP';
+      headers?: HeaderMap;
+      sourceEventId?: string;
+    },
   ) {
     const recordInbound = options.recordInbound ?? true;
     const recordOutbound = options.recordOutbound ?? true;
@@ -515,6 +573,15 @@ export class SofiaAgentService {
     const audioNeedsConfirmation = dto.messageType === 'AUDIO_TRANSCRIPT' && transcriptConfidence < 0.65;
     const outsideHours = !this.isInsideBusinessHours(dto.sandboxNow);
     const handoff = classified.intent === 'ASK_HUMAN' || classified.confidence < 0.45;
+    if (options.source === 'WHATSAPP' && dto.conversationId && this.isComplaint(normalized)) {
+      if (!options.sourceEventId) throw new BadRequestException('El inbound WhatsApp requiere identidad de evento.');
+      await this.recordComplaintCase({
+        conversationId: dto.conversationId,
+        sourceEventId: options.sourceEventId,
+        normalized,
+        message,
+      });
+    }
 
     const conversation = dto.conversationId
       ? await this.sofiaService.findConversation(dto.conversationId)
@@ -541,6 +608,7 @@ export class SofiaAgentService {
           conversationId: conversation.id,
           direction: WhatsappMessageDirection.INBOUND,
           type: dto.messageType === 'AUDIO_TRANSCRIPT' ? WhatsappMessageType.AUDIO : WhatsappMessageType.TEXT,
+          provider: options.source === 'WHATSAPP' ? 'sofia_gateway' : 'mock',
           body: dto.messageType === 'AUDIO_TRANSCRIPT' ? null : message,
           transcript: dto.messageType === 'AUDIO_TRANSCRIPT' ? message : null,
           aiIntent: classified.intent,
@@ -564,12 +632,20 @@ export class SofiaAgentService {
       });
       const confidence = commercial.state.confidence === 'HIGH' ? 0.95 : commercial.state.confidence === 'MEDIUM' ? 0.65 : 0.25;
       const shouldHandoff = commercial.nextAction === 'HANDOFF';
-      if (shouldHandoff) await this.repository.requireHuman(conversation.id);
+      if (shouldHandoff) {
+        await this.whatsappHandoff.transition({
+          conversationId: conversation.id,
+          actorId,
+          target: 'HUMAN_REQUIRED',
+          reasonCode: 'COMMERCIAL_HANDOFF_REQUIRED',
+        });
+      }
       if (recordOutbound) {
         await this.repository.createMessage({
           conversationId: conversation.id,
           direction: WhatsappMessageDirection.OUTBOUND,
           type: WhatsappMessageType.SYSTEM,
+          provider: options.source === 'WHATSAPP' ? 'sofia_gateway' : 'mock',
           body: commercial.responseText,
           aiIntent: commercial.state.intent,
           confidence,
@@ -803,7 +879,12 @@ export class SofiaAgentService {
     }
 
     if (handoff || aiWantsHandoff) {
-      await this.repository.requireHuman(conversation.id);
+      await this.whatsappHandoff.transition({
+        conversationId: conversation.id,
+        actorId,
+        target: 'HUMAN_REQUIRED',
+        reasonCode: handoff ? 'POLICY_HANDOFF_REQUIRED' : 'AI_HANDOFF_REVALIDATED',
+      });
     }
 
     const responseText = this.buildResponse({
@@ -1002,6 +1083,7 @@ export class SofiaAgentService {
           conversationId: conversation.id,
           direction: WhatsappMessageDirection.OUTBOUND,
           type: WhatsappMessageType.SYSTEM,
+          provider: options.source === 'WHATSAPP' ? 'sofia_gateway' : 'mock',
           body: responseText,
           aiIntent: effectiveIntent,
           confidence: effectiveConfidence,
