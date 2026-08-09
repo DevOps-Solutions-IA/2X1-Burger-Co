@@ -866,6 +866,71 @@ export class OrdersService {
     }
   }
 
+  private async resolveOperationalAlertsInTransaction(
+    tx: Prisma.TransactionClient,
+    input: {
+      module?: string;
+      entityType?: string;
+      entityId?: string;
+      types?: string[];
+      resolvedById?: string | null;
+    },
+  ) {
+    const alerts = await tx.operationalAlert.findMany({
+      where: {
+        ...(input.module ? { module: input.module } : {}),
+        ...(input.entityType ? { entityType: input.entityType } : {}),
+        ...(input.entityId ? { entityId: input.entityId } : {}),
+        ...(input.types?.length ? { type: { in: input.types } } : {}),
+        status: { in: [OperationalAlertStatus.OPEN, OperationalAlertStatus.ACKNOWLEDGED] },
+      },
+    });
+    if (!alerts.length) return [];
+
+    await tx.operationalAlert.updateMany({
+      where: { id: { in: alerts.map((alert) => alert.id) } },
+      data: {
+        status: OperationalAlertStatus.RESOLVED,
+        resolvedById: input.resolvedById ?? null,
+        resolvedAt: new Date(),
+      },
+    });
+    return alerts;
+  }
+
+  private publishOperationalAlert(alert: {
+    id: string;
+    module: string;
+    severity: OperationalAlertSeverity;
+    status: OperationalAlertStatus;
+    entityType: string | null;
+    entityId: string | null;
+  }) {
+    this.realtimeService.publishOperationalAlertUpdated({
+      alertId: alert.id,
+      module: alert.module,
+      severity: alert.severity,
+      status: alert.status,
+      entityType: alert.entityType,
+      entityId: alert.entityId,
+    });
+  }
+
+  private deliveryLocationConflicts(
+    currentLatitude: Prisma.Decimal | null | undefined,
+    currentLongitude: Prisma.Decimal | null | undefined,
+    incomingLatitude: number,
+    incomingLongitude: number,
+  ) {
+    if (currentLatitude == null || currentLongitude == null) return false;
+    const latitudeDeltaKm = (Number(currentLatitude) - incomingLatitude) * 111.32;
+    const longitudeDeltaKm =
+      (Number(currentLongitude) - incomingLongitude) *
+      111.32 *
+      Math.cos((incomingLatitude * Math.PI) / 180);
+    return Math.hypot(latitudeDeltaKm, longitudeDeltaKm) > 0.15;
+  }
+
   private resolveDeliveryLocationMatch(
     activeDeliveryOrders: Array<{
       id: string;
@@ -2526,6 +2591,181 @@ export class OrdersService {
     );
   }
 
+  private async reconcileDeliveryWorkflowConsequences(input: {
+    orderTicketId: string;
+    workflowVersion: number;
+    notes?: string;
+    issueType?: DeliveryIssueType;
+  }) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const event = await tx.deliveryWorkflowEvent.findUnique({
+        where: {
+          orderTicketId_version: {
+            orderTicketId: input.orderTicketId,
+            version: input.workflowVersion,
+          },
+        },
+      });
+      if (!event) return null;
+
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`delivery-workflow-consequences:${event.id}`}, 0))
+      `;
+
+      const order = await tx.orderTicket.findUniqueOrThrow({
+        where: { id: input.orderTicketId },
+        include: orderInclude,
+      });
+      const notes = input.notes?.trim() || null;
+      let effectiveOrder = order;
+      if (notes && !String(order.notes ?? '').split('\n').includes(notes)) {
+        effectiveOrder = await tx.orderTicket.update({
+          where: { id: order.id },
+          data: { notes: [order.notes, notes].filter(Boolean).join('\n') },
+          include: orderInclude,
+        });
+      }
+
+      let deliveryIssueId: string | null = null;
+      if (event.toStatus === DeliveryWorkflowStatus.ISSUE) {
+        const issueType = input.issueType ?? DeliveryIssueType.OTHER;
+        const issue = await tx.deliveryIssue.upsert({
+          where: {
+            orderTicketId_idempotencyKey: {
+              orderTicketId: order.id,
+              idempotencyKey: `delivery-issue:${order.id}:${event.version}`,
+            },
+          },
+          update: {},
+          create: {
+            orderTicketId: order.id,
+            idempotencyKey: `delivery-issue:${order.id}:${event.version}`,
+            issueType,
+            summary: this.buildDeliveryIssueSummary(issueType, notes),
+            details: notes,
+            reportedById: event.actorId ?? effectiveOrder.createdById,
+          },
+        });
+        deliveryIssueId = issue.id;
+      }
+
+      if (event.toStatus === DeliveryWorkflowStatus.DELIVERED) {
+        await tx.deliveryIssue.updateMany({
+          where: { orderTicketId: order.id, status: DeliveryIssueStatus.OPEN },
+          data: {
+            status: DeliveryIssueStatus.RESOLVED,
+            resolvedById: event.actorId,
+            resolvedAt: event.createdAt,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      const consequenceKey = `delivery:workflow:event:${event.id}`;
+      const existingAudit = await tx.auditLog.findFirst({
+        where: { idempotencyKey: consequenceKey, action: 'UPDATE_DELIVERY_WORKFLOW' },
+      });
+      if (!existingAudit) {
+        await this.auditService.log(
+          {
+            userId: event.actorId ?? undefined,
+            action: 'UPDATE_DELIVERY_WORKFLOW',
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: order.id,
+            idempotencyKey: consequenceKey,
+            oldValues: { deliveryWorkflowStatus: event.fromStatus },
+            newValues: {
+              status: effectiveOrder.status,
+              deliveryWorkflowStatus: event.toStatus,
+              assignedRiderId: effectiveOrder.assignedRiderId,
+              notes,
+              workflowVersion: event.version,
+            },
+          },
+          tx,
+        );
+      }
+
+      const alertType =
+        event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+          ? 'DELIVERY_IN_TRANSIT'
+          : event.toStatus === DeliveryWorkflowStatus.DELIVERED
+            ? 'DELIVERY_DELIVERED'
+            : event.toStatus === DeliveryWorkflowStatus.ISSUE
+              ? 'DELIVERY_ISSUE'
+              : 'DELIVERY_WORKFLOW_UPDATED';
+      let alert = await tx.operationalAlert.findFirst({
+        where: {
+          type: alertType,
+          module: 'deliveries',
+          entityType: 'order_ticket',
+          entityId: order.id,
+          metadata: { path: ['deliveryWorkflowEventId'], equals: event.id },
+        },
+      });
+      if (!alert) {
+        alert = await tx.operationalAlert.create({
+          data: {
+            type: alertType,
+            module: 'deliveries',
+            severity:
+              event.toStatus === DeliveryWorkflowStatus.ISSUE
+                ? OperationalAlertSeverity.CRITICAL
+                : OperationalAlertSeverity.INFO,
+            title:
+              event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+                ? 'Domicilio en camino'
+                : event.toStatus === DeliveryWorkflowStatus.DELIVERED
+                  ? 'Domicilio entregado'
+                  : event.toStatus === DeliveryWorkflowStatus.ISSUE
+                    ? 'Domicilio con novedad'
+                    : 'Flujo de delivery actualizado',
+            message:
+              event.toStatus === DeliveryWorkflowStatus.IN_TRANSIT
+                ? `${effectiveOrder.number} salió a entrega.`
+                : event.toStatus === DeliveryWorkflowStatus.DELIVERED
+                  ? `${effectiveOrder.number} fue marcado como entregado.`
+                  : event.toStatus === DeliveryWorkflowStatus.ISSUE
+                    ? `${effectiveOrder.number} quedó con una novedad operativa.`
+                    : `${effectiveOrder.number} actualizó su estado de reparto.`,
+            entityType: 'order_ticket',
+            entityId: order.id,
+            actorId: event.actorId,
+            deliveryIssueId,
+            metadata: {
+              deliveryWorkflowEventId: event.id,
+              workflowVersion: event.version,
+              workflowStatus: event.toStatus,
+              notesPresent: Boolean(notes),
+              issueType: input.issueType ?? null,
+            },
+          },
+        });
+      }
+
+      const resolvedAlerts =
+        event.toStatus === DeliveryWorkflowStatus.DELIVERED
+          ? await this.resolveOperationalAlertsInTransaction(tx, {
+              module: 'deliveries',
+              entityType: 'order_ticket',
+              entityId: order.id,
+              types: ['DELIVERY_ISSUE', 'DELIVERY_LOCATION_RECEIVED', 'DELIVERY_ASSIGNED', 'DELIVERY_IN_TRANSIT'],
+              resolvedById: event.actorId,
+            })
+          : [];
+
+      return { order: effectiveOrder, event, alert, resolvedAlerts };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+
+    if (!result) return null;
+    this.publishOperationalAlert(result.alert);
+    for (const alert of result.resolvedAlerts) {
+      this.publishOperationalAlert({ ...alert, status: OperationalAlertStatus.RESOLVED });
+    }
+    return result;
+  }
+
   async updateDeliveryWorkflow(id: string, dto: UpdateDeliveryWorkflowDto, actor: AuthUser) {
     const current = await this.prisma.orderTicket.findUnique({
       where: { id },
@@ -2572,118 +2812,15 @@ export class OrdersService {
         issueType: dto.issueType ?? null,
       },
     });
-    if (transition.state !== 'APPLIED') {
-      return this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude });
-    }
-    if (dto.notes !== undefined) {
-      await this.prisma.orderTicket.update({
-        where: { id },
-        data: { notes: [current.notes, dto.notes.trim()].filter(Boolean).join('\n') || null },
-      });
-    }
-    const updated = await this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude });
-
-    let deliveryIssueId: string | null = null;
-    if (nextStatus === DeliveryWorkflowStatus.ISSUE) {
-      const issueType = (dto.issueType as DeliveryIssueType | undefined) ?? DeliveryIssueType.OTHER;
-      const issueIdempotencyKey = `delivery-issue:${id}:${updated.deliveryWorkflowVersion}`;
-      const issue = await this.prisma.deliveryIssue.upsert({
-        where: { orderTicketId_idempotencyKey: { orderTicketId: id, idempotencyKey: issueIdempotencyKey } },
-        update: {},
-        create: {
-          orderTicketId: id,
-          idempotencyKey: issueIdempotencyKey,
-          issueType,
-          summary: this.buildDeliveryIssueSummary(issueType, dto.notes),
-          details: dto.notes?.trim() || null,
-          reportedById: actor.sub,
-        },
-      });
-      deliveryIssueId = issue.id;
-    }
-
-    if (nextStatus === DeliveryWorkflowStatus.DELIVERED) {
-      await this.prisma.deliveryIssue.updateMany({
-        where: {
-          orderTicketId: id,
-          status: DeliveryIssueStatus.OPEN,
-        },
-        data: {
-          status: DeliveryIssueStatus.RESOLVED,
-          resolvedById: actor.sub,
-          resolvedAt: new Date(),
-        },
-      });
-    }
-
-    await this.auditService.log({
-      userId: actor.sub,
-      action: 'UPDATE_DELIVERY_WORKFLOW',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      oldValues: {
-        deliveryWorkflowStatus: current.deliveryWorkflowStatus,
-        assignedRiderId: current.assignedRiderId,
-      },
-      newValues: {
-        status: updated.status,
-        deliveryWorkflowStatus: nextStatus,
-        assignedRiderId: updated.assignedRiderId,
-        notes: dto.notes?.trim() || null,
-      },
+    const reconciled = await this.reconcileDeliveryWorkflowConsequences({
+      orderTicketId: id,
+      workflowVersion: transition.version,
+      notes: dto.notes,
+      issueType: dto.issueType as DeliveryIssueType | undefined,
     });
-
-    await this.createOperationalAlert({
-      type:
-        nextStatus === DeliveryWorkflowStatus.IN_TRANSIT
-          ? 'DELIVERY_IN_TRANSIT'
-          : nextStatus === DeliveryWorkflowStatus.DELIVERED
-            ? 'DELIVERY_DELIVERED'
-            : nextStatus === DeliveryWorkflowStatus.ISSUE
-              ? 'DELIVERY_ISSUE'
-              : 'DELIVERY_WORKFLOW_UPDATED',
-      module: 'deliveries',
-      severity:
-        nextStatus === DeliveryWorkflowStatus.ISSUE
-          ? OperationalAlertSeverity.CRITICAL
-          : OperationalAlertSeverity.INFO,
-      title:
-        nextStatus === DeliveryWorkflowStatus.IN_TRANSIT
-          ? 'Domicilio en camino'
-          : nextStatus === DeliveryWorkflowStatus.DELIVERED
-            ? 'Domicilio entregado'
-            : nextStatus === DeliveryWorkflowStatus.ISSUE
-              ? 'Domicilio con novedad'
-              : 'Flujo de delivery actualizado',
-      message:
-        nextStatus === DeliveryWorkflowStatus.IN_TRANSIT
-          ? `${updated.number} salió a entrega.`
-          : nextStatus === DeliveryWorkflowStatus.DELIVERED
-            ? `${updated.number} fue marcado como entregado.`
-            : nextStatus === DeliveryWorkflowStatus.ISSUE
-              ? `${updated.number} quedó con una novedad operativa.`
-              : `${updated.number} actualizó su estado de reparto.`,
-      entityType: 'order_ticket',
-      entityId: updated.id,
-      actorId: actor.sub,
-      deliveryIssueId,
-      metadata: {
-        workflowStatus: nextStatus,
-        notes: dto.notes?.trim() || null,
-        issueType: dto.issueType ?? null,
-      },
-    });
-
-    if (nextStatus === DeliveryWorkflowStatus.DELIVERED) {
-      await this.resolveOperationalAlerts({
-        module: 'deliveries',
-        entityType: 'order_ticket',
-        entityId: updated.id,
-        types: ['DELIVERY_ISSUE', 'DELIVERY_LOCATION_RECEIVED', 'DELIVERY_ASSIGNED', 'DELIVERY_IN_TRANSIT'],
-        resolvedById: actor.sub,
-      });
-    }
+    const updated =
+      reconciled?.order ??
+      (await this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude }));
 
     this.realtimeService.publishDeliveryWorkflowUpdated({
       entityId: updated.id,
@@ -3224,6 +3361,7 @@ export class OrdersService {
   }
 
   private async applyDeliveryLocationForLogisticsOnly(
+    tx: Prisma.TransactionClient,
     order: {
       id: string;
       number: string;
@@ -3259,100 +3397,79 @@ export class OrdersService {
     longitude: number,
     actorId?: string,
   ) {
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const normalizedPhone = this.normalizeDeliveryPhone(order.customerPhone);
-      let deliveryCustomerId = order.deliveryCustomerId ?? null;
-      if (normalizedPhone) {
-        const deliveryCustomer = await tx.deliveryCustomer.upsert({
-          where: { phone: normalizedPhone },
-          update: {
-            fullName: order.customerName?.trim() || undefined,
-            defaultAddress: order.deliveryReference?.trim() || undefined,
-            defaultReference: order.deliveryReference?.trim() || undefined,
-            lastLatitude: new Prisma.Decimal(latitude),
-            lastLongitude: new Prisma.Decimal(longitude),
-            lastLocationAt: new Date(),
-          },
-          create: {
-            phone: normalizedPhone,
-            fullName: order.customerName?.trim() || null,
-            defaultAddress: order.deliveryReference?.trim() || null,
-            defaultReference: order.deliveryReference?.trim() || null,
-            lastLatitude: new Prisma.Decimal(latitude),
-            lastLongitude: new Prisma.Decimal(longitude),
-            lastZoneLabel: order.deliveryZoneLabel ?? null,
-            lastDistanceKm: order.deliveryDistanceKm ?? null,
-            lastLocationAt: new Date(),
-          },
-        });
-        deliveryCustomerId = deliveryCustomer.id;
-      }
-
-      const updatedOrder = await tx.orderTicket.update({
-        where: { id: order.id },
-        data: {
-          deliveryLatitude: new Prisma.Decimal(latitude),
-          deliveryLongitude: new Prisma.Decimal(longitude),
-          deliveryLocationSource: 'whatsapp_live_location',
-          deliveryLocationReceivedAt: new Date(),
-          deliveryCustomerId,
-          deliveryStatusUpdatedAt: new Date(),
-          revision: {
-            increment: 1,
-          },
+    const normalizedPhone = this.normalizeDeliveryPhone(order.customerPhone);
+    let deliveryCustomerId = order.deliveryCustomerId ?? null;
+    if (normalizedPhone) {
+      const deliveryCustomer = await tx.deliveryCustomer.upsert({
+        where: { phone: normalizedPhone },
+        update: {
+          fullName: order.customerName?.trim() || undefined,
+          defaultAddress: order.deliveryReference?.trim() || undefined,
+          defaultReference: order.deliveryReference?.trim() || undefined,
+          lastLatitude: new Prisma.Decimal(latitude),
+          lastLongitude: new Prisma.Decimal(longitude),
+          lastLocationAt: new Date(),
         },
-        include: orderInclude,
+        create: {
+          phone: normalizedPhone,
+          fullName: order.customerName?.trim() || null,
+          defaultAddress: order.deliveryReference?.trim() || null,
+          defaultReference: order.deliveryReference?.trim() || null,
+          lastLatitude: new Prisma.Decimal(latitude),
+          lastLongitude: new Prisma.Decimal(longitude),
+          lastZoneLabel: order.deliveryZoneLabel ?? null,
+          lastDistanceKm: order.deliveryDistanceKm ?? null,
+          lastLocationAt: new Date(),
+        },
       });
+      deliveryCustomerId = deliveryCustomer.id;
+    }
 
-      await this.auditService.log(
-        {
-          userId: actorId || undefined,
-          action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
-          module: 'orders',
-          entity: 'order_ticket',
-          entityId: updatedOrder.id,
-          oldValues: {
-            locationPresent: Boolean(order.deliveryLatitude && order.deliveryLongitude),
-            subtotal: order.items.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0))
-              .add(order.deliveryFee ?? 0),
-            deliveryFee: order.deliveryFee,
-          },
-          newValues: {
-            phoneMasked: this.maskPhoneForAudit(order.customerPhone),
-            latitude,
-            longitude,
-            locationPresent: true,
-            source: 'whatsapp_location',
-            pricingPreserved: true,
-            feeChanged: false,
-            totalChanged: false,
-            locationSavedForDelivery: true,
-            subtotal: updatedOrder.subtotal,
-            deliveryFee: updatedOrder.deliveryFee,
-          },
+    const updatedOrder = await tx.orderTicket.update({
+      where: { id: order.id },
+      data: {
+        deliveryLatitude: new Prisma.Decimal(latitude),
+        deliveryLongitude: new Prisma.Decimal(longitude),
+        deliveryLocationSource: 'whatsapp_live_location',
+        deliveryLocationReceivedAt: new Date(),
+        deliveryCustomerId,
+        deliveryStatusUpdatedAt: new Date(),
+        revision: { increment: 1 },
+      },
+      include: orderInclude,
+    });
+
+    await this.auditService.log(
+      {
+        userId: actorId || undefined,
+        action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: updatedOrder.id,
+        oldValues: {
+          locationPresent: Boolean(order.deliveryLatitude && order.deliveryLongitude),
+          subtotal: order.items.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0))
+            .add(order.deliveryFee ?? 0),
+          deliveryFee: order.deliveryFee,
         },
-        tx,
-      );
+        newValues: {
+          phoneMasked: this.maskPhoneForAudit(order.customerPhone),
+          latitude,
+          longitude,
+          locationPresent: true,
+          source: 'whatsapp_location',
+          pricingPreserved: true,
+          feeChanged: false,
+          totalChanged: false,
+          locationSavedForDelivery: true,
+          subtotal: updatedOrder.subtotal,
+          deliveryFee: updatedOrder.deliveryFee,
+        },
+      },
+      tx,
+    );
 
-      return updatedOrder;
-    });
-
-    await this.resolveOperationalAlerts({
-      module: 'deliveries',
-      entityType: 'order_ticket',
-      entityId: updated.id,
-      types: ['DELIVERY_LOCATION_PENDING_REVIEW'],
-      resolvedById: actorId ?? null,
-    });
-
-    this.realtimeService.publishOrderUpdated({
-      entityId: updated.id,
-      orderType: updated.type,
-      status: updated.status,
-      actorId: actorId ?? null,
-    });
-
-    return updated;
+    return updatedOrder;
   }
 
   async captureDeliveryLocationFromWhatsapp(input: {
@@ -3398,10 +3515,14 @@ export class OrdersService {
         throw new ConflictException('La identidad del evento de ubicación no coincide con su contenido.');
       }
       if (replay.processedAt) {
+        const alert = await this.prisma.operationalAlert.findFirst({
+          where: { deliveryLocationInboxId: replay.id },
+          orderBy: { createdAt: 'desc' },
+        });
         return {
           inbox: replay,
           order: replay.matchedOrder,
-          alert: null,
+          alert,
           matchedRule: replay.matchedRule,
         };
       }
@@ -3428,32 +3549,53 @@ export class OrdersService {
     const matched = this.resolveDeliveryLocationMatch(activeDeliveryOrders, normalizedCandidates);
 
     if (!matched) {
-      const unresolved = await this.prisma.deliveryLocationInbox.update({
-        where: { id: inbox.id },
-        data: {
-          matchStatus: DeliveryLocationInboxStatus.REQUIRES_REVIEW,
-          processingNotes: 'No fue posible correlacionar automáticamente la ubicación con una comanda activa.',
-          processedAt: new Date(),
-        },
-      });
+      const { unresolved, alert } = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(hashtextextended(${`delivery-location:${inbox.id}`}, 0))
+        `;
+        const currentInbox = await tx.deliveryLocationInbox.findUniqueOrThrow({ where: { id: inbox.id } });
+        const unresolved = currentInbox.processedAt
+          ? currentInbox
+          : await tx.deliveryLocationInbox.update({
+              where: { id: currentInbox.id, version: currentInbox.version },
+              data: {
+                version: { increment: 1 },
+                matchStatus: DeliveryLocationInboxStatus.REQUIRES_REVIEW,
+                processingNotes: 'No fue posible correlacionar automáticamente la ubicación con una comanda activa.',
+                processedAt: new Date(),
+              },
+            });
+        let alert = await tx.operationalAlert.findFirst({
+          where: {
+            type: 'DELIVERY_LOCATION_PENDING_REVIEW',
+            deliveryLocationInboxId: unresolved.id,
+          },
+        });
+        if (!alert) {
+          alert = await tx.operationalAlert.create({
+            data: {
+              type: 'DELIVERY_LOCATION_PENDING_REVIEW',
+              module: 'deliveries',
+              severity: OperationalAlertSeverity.WARNING,
+              title: 'Ubicación pendiente de vincular',
+              message: 'Llegó una ubicación de WhatsApp, pero el sistema no pudo determinar automáticamente a qué domicilio pertenece.',
+              entityType: 'delivery_location_inbox',
+              entityId: unresolved.id,
+              actorId: input.actorId ?? null,
+              deliveryLocationInboxId: unresolved.id,
+              metadata: {
+                senderIdentitiesMasked: normalizedCandidates
+                  .map((candidate) => this.maskPhoneForAudit(candidate))
+                  .filter(Boolean),
+                valuesSanitized: true,
+              },
+            },
+          });
+        }
+        return { unresolved, alert };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-      const alert = await this.createOperationalAlert({
-        type: 'DELIVERY_LOCATION_PENDING_REVIEW',
-        module: 'deliveries',
-        severity: OperationalAlertSeverity.WARNING,
-        title: 'Ubicación pendiente de vincular',
-        message: 'Llegó una ubicación de WhatsApp, pero el sistema no pudo determinar automáticamente a qué domicilio pertenece.',
-        entityType: 'delivery_location_inbox',
-        entityId: unresolved.id,
-        actorId: input.actorId ?? null,
-        deliveryLocationInboxId: unresolved.id,
-        metadata: {
-          senderIdentitiesMasked: normalizedCandidates
-            .map((candidate) => this.maskPhoneForAudit(candidate))
-            .filter(Boolean),
-          valuesSanitized: true,
-        },
-      });
+      this.publishOperationalAlert(alert);
 
       this.realtimeService.publishDeliveryLocationPending({
         inboxId: unresolved.id,
@@ -3468,6 +3610,72 @@ export class OrdersService {
         alert,
         matchedRule: null,
       };
+    }
+
+    if (
+      this.deliveryLocationConflicts(
+        matched.order.deliveryLatitude,
+        matched.order.deliveryLongitude,
+        input.latitude,
+        input.longitude,
+      )
+    ) {
+      const { conflicted, alert } = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(hashtextextended(${`delivery-location:${inbox.id}`}, 0))
+        `;
+        const currentInbox = await tx.deliveryLocationInbox.findUniqueOrThrow({ where: { id: inbox.id } });
+        const conflicted = currentInbox.processedAt
+          ? currentInbox
+          : await tx.deliveryLocationInbox.update({
+              where: { id: currentInbox.id, version: currentInbox.version },
+              data: {
+                version: { increment: 1 },
+                matchStatus: DeliveryLocationInboxStatus.REQUIRES_REVIEW,
+                matchedOrderId: matched.order.id,
+                matchedCustomerId: matched.order.deliveryCustomerId ?? null,
+                matchedRule: 'coordinate_conflict',
+                processingNotes: 'La ubicación recibida difiere de las coordenadas comerciales confirmadas.',
+                processedAt: new Date(),
+              },
+            });
+        let alert = await tx.operationalAlert.findFirst({
+          where: {
+            type: 'DELIVERY_LOCATION_PENDING_REVIEW',
+            deliveryLocationInboxId: conflicted.id,
+          },
+        });
+        if (!alert) {
+          alert = await tx.operationalAlert.create({
+            data: {
+              type: 'DELIVERY_LOCATION_PENDING_REVIEW',
+              module: 'deliveries',
+              severity: OperationalAlertSeverity.WARNING,
+              title: 'Ubicación distinta a la dirección confirmada',
+              message: 'La ubicación logística no coincide con las coordenadas comerciales. Requiere revisión sin alterar tarifa ni total.',
+              entityType: 'delivery_location_inbox',
+              entityId: conflicted.id,
+              actorId: input.actorId ?? null,
+              deliveryLocationInboxId: conflicted.id,
+              metadata: {
+                matchedOrderId: matched.order.id,
+                conflict: 'COMMERCIAL_COORDINATES_MISMATCH',
+                pricingPreserved: true,
+                feeChanged: false,
+                totalChanged: false,
+              },
+            },
+          });
+        }
+        return { conflicted, alert };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      this.publishOperationalAlert(alert);
+      this.realtimeService.publishDeliveryLocationPending({
+        inboxId: conflicted.id,
+        reason: 'commercial_coordinates_conflict',
+        actorId: input.actorId ?? null,
+      });
+      return { inbox: conflicted, order: null, alert, matchedRule: 'coordinate_conflict' };
     }
 
     let applied;
@@ -3485,48 +3693,15 @@ export class OrdersService {
         if (claimed.count !== 1) throw new ConflictException('DELIVERY_LOCATION_EVENT_ALREADY_PROCESSING');
 
         const order = matched.order!;
-        const normalizedPhone = this.normalizeDeliveryPhone(order.customerPhone);
-        let deliveryCustomerId = order.deliveryCustomerId ?? null;
-        if (normalizedPhone) {
-          const deliveryCustomer = await tx.deliveryCustomer.upsert({
-            where: { phone: normalizedPhone },
-            update: {
-              fullName: order.customerName?.trim() || undefined,
-              defaultAddress: order.deliveryReference?.trim() || undefined,
-              defaultReference: order.deliveryReference?.trim() || undefined,
-              lastLatitude: new Prisma.Decimal(input.latitude),
-              lastLongitude: new Prisma.Decimal(input.longitude),
-              lastLocationAt: new Date(),
-            },
-            create: {
-              phone: normalizedPhone,
-              fullName: order.customerName?.trim() || null,
-              defaultAddress: order.deliveryReference?.trim() || null,
-              defaultReference: order.deliveryReference?.trim() || null,
-              lastLatitude: new Prisma.Decimal(input.latitude),
-              lastLongitude: new Prisma.Decimal(input.longitude),
-              lastZoneLabel: order.deliveryZoneLabel ?? null,
-              lastDistanceKm: order.deliveryDistanceKm ?? null,
-              lastLocationAt: new Date(),
-            },
-          });
-          deliveryCustomerId = deliveryCustomer.id;
-        }
-        const updated = await tx.orderTicket.update({
-          where: { id: order.id },
-          data: {
-            deliveryLatitude: new Prisma.Decimal(input.latitude),
-            deliveryLongitude: new Prisma.Decimal(input.longitude),
-            deliveryLocationSource: 'whatsapp_live_location',
-            deliveryLocationReceivedAt: new Date(),
-            deliveryCustomerId,
-            deliveryStatusUpdatedAt: new Date(),
-            revision: { increment: 1 },
-          },
-          include: orderInclude,
-        });
+        const updated = await this.applyDeliveryLocationForLogisticsOnly(
+          tx,
+          order,
+          input.latitude,
+          input.longitude,
+          input.actorId ?? undefined,
+        );
         const appliedInbox = await tx.deliveryLocationInbox.update({
-          where: { id: inbox.id },
+          where: { id: inbox.id, version: inbox.version + 1 },
           data: {
             matchStatus: DeliveryLocationInboxStatus.APPLIED,
             matchedOrderId: updated.id,
@@ -3536,26 +3711,29 @@ export class OrdersService {
             processedAt: new Date(),
           },
         });
-        await this.auditService.log({
-          userId: input.actorId || undefined,
-          action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
-          module: 'orders',
-          entity: 'order_ticket',
-          entityId: updated.id,
-          oldValues: {
-            locationPresent: Boolean(order.deliveryLatitude && order.deliveryLongitude),
-            deliveryFee: order.deliveryFee,
+        const infoAlert = await tx.operationalAlert.create({
+          data: {
+            type: 'DELIVERY_LOCATION_RECEIVED',
+            module: 'deliveries',
+            severity: OperationalAlertSeverity.INFO,
+            title: 'Ubicación en vivo recibida',
+            message: `El pedido ${updated.number} recibió ubicación para logística. Tarifa de domicilio conservada.`,
+            entityType: 'order_ticket',
+            entityId: updated.id,
+            actorId: input.actorId ?? null,
+            deliveryLocationInboxId: appliedInbox.id,
+            metadata: {
+              matchedRule: matched.rule,
+              event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+              source: 'whatsapp_location',
+              pricingPreserved: true,
+              feeChanged: false,
+              totalChanged: false,
+              locationSavedForDelivery: true,
+            },
           },
-          newValues: {
-            locationPresent: true,
-            source: 'whatsapp_location',
-            pricingPreserved: true,
-            feeChanged: false,
-            totalChanged: false,
-            deliveryFee: updated.deliveryFee,
-          },
-        }, tx);
-        return { updated, appliedInbox };
+        });
+        return { updated, appliedInbox, infoAlert };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (!input.sourceEventKey || !(error instanceof ConflictException || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'))) {
@@ -3566,30 +3744,14 @@ export class OrdersService {
         include: { matchedOrder: { include: orderInclude } },
       });
       if (!replay.processedAt) throw new ConflictException('DELIVERY_LOCATION_EVENT_ALREADY_PROCESSING');
-      return { inbox: replay, order: replay.matchedOrder, alert: null, matchedRule: replay.matchedRule };
+      const alert = await this.prisma.operationalAlert.findFirst({
+        where: { deliveryLocationInboxId: replay.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      return { inbox: replay, order: replay.matchedOrder, alert, matchedRule: replay.matchedRule };
     }
-    const { updated, appliedInbox } = applied;
-
-    const infoAlert = await this.createOperationalAlert({
-      type: 'DELIVERY_LOCATION_RECEIVED',
-      module: 'deliveries',
-      severity: OperationalAlertSeverity.INFO,
-      title: 'Ubicación en vivo recibida',
-      message: `El pedido ${updated.number} recibió ubicación para logística. Tarifa de domicilio conservada.`,
-      entityType: 'order_ticket',
-      entityId: updated.id,
-      actorId: input.actorId ?? null,
-      deliveryLocationInboxId: appliedInbox.id,
-      metadata: {
-        matchedRule: matched.rule,
-        event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
-        source: 'whatsapp_location',
-        pricingPreserved: true,
-        feeChanged: false,
-        totalChanged: false,
-        locationSavedForDelivery: true,
-      },
-    });
+    const { updated, appliedInbox, infoAlert } = applied;
+    this.publishOperationalAlert(infoAlert);
 
     this.realtimeService.publishDeliveryLocationReceived({
       entityId: updated.id,
@@ -3683,115 +3845,218 @@ export class OrdersService {
     input: { orderId?: string; ignore?: boolean; notes?: string },
     actor: AuthUser,
   ) {
-    const inbox = await this.prisma.deliveryLocationInbox.findUnique({
-      where: { id },
-    });
-
-    if (!inbox) {
-      throw new NotFoundException('No se encontró la ubicación pendiente.');
-    }
-
-    if (input.ignore) {
-      const ignored = await this.prisma.deliveryLocationInbox.update({
-        where: { id },
-        data: {
-          matchStatus: DeliveryLocationInboxStatus.IGNORED,
-          processingNotes: input.notes?.trim() || 'Marcada como ignorada por operación.',
-          processedAt: new Date(),
-        },
-      });
-
-      await this.resolveOperationalAlerts({
-        module: 'deliveries',
-        entityType: 'delivery_location_inbox',
-        entityId: ignored.id,
-        types: ['DELIVERY_LOCATION_PENDING_REVIEW'],
-        resolvedById: actor.sub,
-      });
-
-      this.realtimeService.publishOperationalRefresh('all');
-      return ignored;
-    }
-
-    if (!input.orderId) {
+    if (!input.ignore && !input.orderId) {
       throw new BadRequestException('Selecciona una comanda para aplicar la ubicación pendiente.');
     }
 
-    const order = await this.prisma.orderTicket.findUnique({
-      where: { id: input.orderId },
-      include: {
-        items: {
-          select: {
-            totalPrice: true,
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`delivery-location:${id}`}, 0))
+      `;
+      const inbox = await tx.deliveryLocationInbox.findUnique({ where: { id } });
+      if (!inbox) throw new NotFoundException('No se encontró la ubicación pendiente.');
+
+      if (input.ignore) {
+        if (inbox.matchStatus === DeliveryLocationInboxStatus.IGNORED) {
+          return { kind: 'IGNORED' as const, inbox, resolvedAlerts: [] };
+        }
+        if (inbox.matchStatus === DeliveryLocationInboxStatus.APPLIED) {
+          throw new ConflictException('La ubicación ya fue aplicada y no puede ignorarse.');
+        }
+        const ignored = await tx.deliveryLocationInbox.update({
+          where: { id: inbox.id, version: inbox.version },
+          data: {
+            version: { increment: 1 },
+            matchStatus: DeliveryLocationInboxStatus.IGNORED,
+            processingNotes: input.notes?.trim() || 'Marcada como ignorada por operación.',
+            processedAt: new Date(),
           },
+        });
+        const resolvedAlerts = await this.resolveOperationalAlertsInTransaction(tx, {
+          module: 'deliveries',
+          entityType: 'delivery_location_inbox',
+          entityId: ignored.id,
+          types: ['DELIVERY_LOCATION_PENDING_REVIEW'],
+          resolvedById: actor.sub,
+        });
+        return { kind: 'IGNORED' as const, inbox: ignored, resolvedAlerts };
+      }
+
+      if (inbox.matchStatus === DeliveryLocationInboxStatus.APPLIED) {
+        if (inbox.matchedOrderId !== input.orderId) {
+          throw new ConflictException('La ubicación ya fue aplicada a otra comanda.');
+        }
+        const order = await tx.orderTicket.findUniqueOrThrow({
+          where: { id: inbox.matchedOrderId },
+          include: orderInclude,
+        });
+        const alert = await tx.operationalAlert.findFirst({
+          where: { type: 'DELIVERY_LOCATION_RECEIVED', deliveryLocationInboxId: inbox.id },
+        });
+        return { kind: 'APPLIED' as const, inbox, order, alert, resolvedAlerts: [] };
+      }
+
+      if (
+        inbox.matchStatus === DeliveryLocationInboxStatus.REQUIRES_REVIEW &&
+        inbox.matchedRule === 'coordinate_conflict' &&
+        inbox.matchedOrderId === input.orderId
+      ) {
+        const alert = await tx.operationalAlert.findFirst({
+          where: { type: 'DELIVERY_LOCATION_PENDING_REVIEW', deliveryLocationInboxId: inbox.id },
+        });
+        return { kind: 'CONFLICT' as const, inbox, order: null, alert, resolvedAlerts: [] };
+      }
+
+      const order = await tx.orderTicket.findUnique({
+        where: { id: input.orderId! },
+        include: orderInclude,
+      });
+      if (!order) throw new NotFoundException('No se encontró la comanda seleccionada.');
+      this.assertDeliveryOrder(order);
+
+      if (
+        this.deliveryLocationConflicts(
+          order.deliveryLatitude,
+          order.deliveryLongitude,
+          Number(inbox.latitude),
+          Number(inbox.longitude),
+        )
+      ) {
+        const conflicted = await tx.deliveryLocationInbox.update({
+          where: { id: inbox.id, version: inbox.version },
+          data: {
+            version: { increment: 1 },
+            matchStatus: DeliveryLocationInboxStatus.REQUIRES_REVIEW,
+            matchedOrderId: order.id,
+            matchedCustomerId: order.deliveryCustomerId ?? null,
+            matchedRule: 'coordinate_conflict',
+            processingNotes: 'La ubicación recibida difiere de las coordenadas comerciales confirmadas.',
+            processedAt: new Date(),
+          },
+        });
+        let alert = await tx.operationalAlert.findFirst({
+          where: { type: 'DELIVERY_LOCATION_PENDING_REVIEW', deliveryLocationInboxId: inbox.id },
+        });
+        if (!alert) {
+          alert = await tx.operationalAlert.create({
+            data: {
+              type: 'DELIVERY_LOCATION_PENDING_REVIEW',
+              module: 'deliveries',
+              severity: OperationalAlertSeverity.WARNING,
+              title: 'Ubicación distinta a la dirección confirmada',
+              message: 'La ubicación requiere revisión y no modificó la tarifa ni el total comercial.',
+              entityType: 'delivery_location_inbox',
+              entityId: inbox.id,
+              actorId: actor.sub,
+              deliveryLocationInboxId: inbox.id,
+              metadata: {
+                matchedOrderId: order.id,
+                conflict: 'COMMERCIAL_COORDINATES_MISMATCH',
+                pricingPreserved: true,
+                feeChanged: false,
+                totalChanged: false,
+              },
+            },
+          });
+        }
+        return { kind: 'CONFLICT' as const, inbox: conflicted, order: null, alert, resolvedAlerts: [] };
+      }
+
+      const claimed = await tx.deliveryLocationInbox.updateMany({
+        where: {
+          id: inbox.id,
+          version: inbox.version,
+          matchStatus: { in: [DeliveryLocationInboxStatus.PENDING, DeliveryLocationInboxStatus.REQUIRES_REVIEW] },
         },
-      },
-    });
+        data: { version: { increment: 1 } },
+      });
+      if (claimed.count !== 1) throw new ConflictException('STALE_DELIVERY_LOCATION_INBOX_VERSION');
 
-    if (!order) {
-      throw new NotFoundException('No se encontró la comanda seleccionada.');
+      const updatedOrder = await this.applyDeliveryLocationForLogisticsOnly(
+        tx,
+        order,
+        Number(inbox.latitude),
+        Number(inbox.longitude),
+        actor.sub,
+      );
+      const resolvedInbox = await tx.deliveryLocationInbox.update({
+        where: { id: inbox.id, version: inbox.version + 1 },
+        data: {
+          matchStatus: DeliveryLocationInboxStatus.APPLIED,
+          matchedOrderId: updatedOrder.id,
+          matchedCustomerId: updatedOrder.deliveryCustomerId ?? null,
+          matchedRule: 'manual_resolution',
+          processingNotes: input.notes?.trim() || `Ubicación aplicada manualmente a ${updatedOrder.number}.`,
+          processedAt: new Date(),
+        },
+      });
+      const resolvedAlerts = await this.resolveOperationalAlertsInTransaction(tx, {
+        module: 'deliveries',
+        entityType: 'delivery_location_inbox',
+        entityId: resolvedInbox.id,
+        types: ['DELIVERY_LOCATION_PENDING_REVIEW'],
+        resolvedById: actor.sub,
+      });
+      let alert = await tx.operationalAlert.findFirst({
+        where: { type: 'DELIVERY_LOCATION_RECEIVED', deliveryLocationInboxId: resolvedInbox.id },
+      });
+      if (!alert) {
+        alert = await tx.operationalAlert.create({
+          data: {
+            type: 'DELIVERY_LOCATION_RECEIVED',
+            module: 'deliveries',
+            severity: OperationalAlertSeverity.INFO,
+            title: 'Ubicación aplicada manualmente',
+            message: `La ubicación pendiente quedó vinculada a ${updatedOrder.number}. Tarifa de domicilio conservada.`,
+            entityType: 'order_ticket',
+            entityId: updatedOrder.id,
+            actorId: actor.sub,
+            deliveryLocationInboxId: resolvedInbox.id,
+            metadata: {
+              event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+              matchedRule: 'manual_resolution',
+              source: 'whatsapp_location',
+              pricingPreserved: true,
+              feeChanged: false,
+              totalChanged: false,
+              locationSavedForDelivery: true,
+            },
+          },
+        });
+      }
+      return { kind: 'APPLIED' as const, inbox: resolvedInbox, order: updatedOrder, alert, resolvedAlerts };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+
+    for (const alert of result.resolvedAlerts) {
+      this.publishOperationalAlert({ ...alert, status: OperationalAlertStatus.RESOLVED });
     }
-
-    this.assertDeliveryOrder(order);
-
-    const updatedOrder = await this.applyDeliveryLocationForLogisticsOnly(
-      order,
-      Number(inbox.latitude),
-      Number(inbox.longitude),
-      actor.sub,
-    );
-
-    const resolvedInbox = await this.prisma.deliveryLocationInbox.update({
-      where: { id },
-      data: {
-        matchStatus: DeliveryLocationInboxStatus.APPLIED,
-        matchedOrderId: updatedOrder.id,
-        matchedCustomerId: updatedOrder.deliveryCustomerId ?? null,
-        matchedRule: 'manual_resolution',
-        processingNotes: input.notes?.trim() || `Ubicación aplicada manualmente a ${updatedOrder.number}.`,
-        processedAt: new Date(),
-      },
-    });
-
-    await this.resolveOperationalAlerts({
-      module: 'deliveries',
-      entityType: 'delivery_location_inbox',
-      entityId: resolvedInbox.id,
-      types: ['DELIVERY_LOCATION_PENDING_REVIEW'],
-      resolvedById: actor.sub,
-    });
-
-    await this.createOperationalAlert({
-      type: 'DELIVERY_LOCATION_RECEIVED',
-      module: 'deliveries',
-      severity: OperationalAlertSeverity.INFO,
-      title: 'Ubicación aplicada manualmente',
-      message: `La ubicación pendiente quedó vinculada a ${updatedOrder.number}. Tarifa de domicilio conservada.`,
-      entityType: 'order_ticket',
-      entityId: updatedOrder.id,
-      actorId: actor.sub,
-      deliveryLocationInboxId: resolvedInbox.id,
-      metadata: {
-        event: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
-        matchedRule: 'manual_resolution',
-        source: 'whatsapp_location',
-        pricingPreserved: true,
-        feeChanged: false,
-        totalChanged: false,
-        locationSavedForDelivery: true,
-      },
-    });
-
+    if (result.kind === 'IGNORED') {
+      this.realtimeService.publishOperationalRefresh('all');
+      return result.inbox;
+    }
+    if (result.alert) this.publishOperationalAlert(result.alert);
+    if (result.kind === 'CONFLICT') {
+      this.realtimeService.publishDeliveryLocationPending({
+        inboxId: result.inbox.id,
+        reason: 'commercial_coordinates_conflict',
+        actorId: actor.sub,
+      });
+      this.realtimeService.publishOperationalRefresh('all');
+      return { inbox: result.inbox, order: null };
+    }
     this.realtimeService.publishDeliveryLocationReceived({
-      entityId: updatedOrder.id,
-      inboxId: resolvedInbox.id,
+      entityId: result.order.id,
+      inboxId: result.inbox.id,
+      actorId: actor.sub,
+    });
+    this.realtimeService.publishOrderUpdated({
+      entityId: result.order.id,
+      orderType: result.order.type,
+      status: result.order.status,
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('all');
-    return {
-      inbox: resolvedInbox,
-      order: updatedOrder,
-    };
+    return { inbox: result.inbox, order: result.order };
   }
 
   async listOperationalAlerts(module?: string) {
