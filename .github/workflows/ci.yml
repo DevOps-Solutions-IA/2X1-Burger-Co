@@ -76,6 +76,7 @@ jobs:
           node --test \
             infra/release/canary-deploy-config.test.mjs \
             infra/release/migration-attestation.test.mjs \
+            infra/release/normalize-next-build.test.mjs \
             infra/release/release-safety.test.mjs \
             infra/release/restore-validation.test.mjs \
             infra/release/sofia-production-safety.test.mjs \

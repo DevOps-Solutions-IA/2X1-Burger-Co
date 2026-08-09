@@ -16,13 +16,17 @@ RUN find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
 FROM deps AS build
 ARG SOURCE_DATE_EPOCH
+ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 WORKDIR /app
 COPY apps/web apps/web
+COPY infra/release/normalize-next-build.mjs infra/release/normalize-next-build.mjs
 ARG NEXT_PUBLIC_API_URL
 ARG RELEASE_BUILD_ID
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV RELEASE_BUILD_ID=${RELEASE_BUILD_ID}
+ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 RUN pnpm --filter @inventory-fastfood/web build && \
+    node infra/release/normalize-next-build.mjs apps/web/.next && \
     find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner

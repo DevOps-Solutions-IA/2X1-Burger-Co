@@ -77,4 +77,5 @@ test('release builds bind BuildKit layer timestamps to the source commit epoch',
     assert.match(dockerSource, /ARG SOURCE_DATE_EPOCH/);
     assert.match(dockerSource, /find \/app .*touch -h -d "@\$\{SOURCE_DATE_EPOCH\}"/);
   }
+  assert.match(readFileSync(webDockerfile, 'utf8'), /node infra\/release\/normalize-next-build\.mjs apps\/web\/\.next/);
 });

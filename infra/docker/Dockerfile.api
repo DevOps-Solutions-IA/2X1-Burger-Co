@@ -14,6 +14,11 @@ RUN pnpm install --frozen-lockfile
 RUN PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma
 RUN find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
+FROM deps AS runtime-deps
+ARG SOURCE_DATE_EPOCH
+RUN rm -f /app/node_modules/.modules.yaml /app/node_modules/.pnpm-workspace-state-v1.json && \
+    find /app/node_modules -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+
 FROM deps AS build
 ARG SOURCE_DATE_EPOCH
 WORKDIR /app
@@ -37,8 +42,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV RELEASE_MANIFEST_PATH=/app/release-manifest.json
 ENV RELEASE_BUILD_ID=$RELEASE_BUILD_ID
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=runtime-deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY prisma/schema.prisma ./prisma/schema.prisma
 COPY prisma/migrations ./prisma/migrations

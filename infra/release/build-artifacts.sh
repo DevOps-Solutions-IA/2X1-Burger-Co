@@ -25,6 +25,7 @@ mkdir -p "$TEMP_DIR/.release"
 find "$TEMP_DIR/.release" -exec touch -h -d "@$EPOCH" {} +
 
 BUILD_ID="$(node -p "require('$TEMP_DIR/.release/release-manifest.json').buildId")"
+NEXT_ACTIONS_KEY="$(node -e "process.stdout.write(require('node:crypto').createHash('sha256').update('2x1-no-server-actions:$COMMIT').digest('base64'))")"
 OUTPUT_DIR="$OUTPUT_ROOT/$BUILD_ID"
 mkdir -p "$OUTPUT_DIR"
 cp "$TEMP_DIR/.release/release-manifest.json" "$OUTPUT_DIR/release-manifest.json"
@@ -49,7 +50,8 @@ if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.api"
   cat "$OUTPUT_DIR/api-build.log" >&2
   exit 1
 fi
-if ! docker build "${COMMON_ARGS[@]}" -f "$TEMP_DIR/infra/docker/Dockerfile.web" -t "$WEB_TAG" "$TEMP_DIR" \
+if ! docker build "${COMMON_ARGS[@]}" --build-arg "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$NEXT_ACTIONS_KEY" \
+  -f "$TEMP_DIR/infra/docker/Dockerfile.web" -t "$WEB_TAG" "$TEMP_DIR" \
   >"$OUTPUT_DIR/web-build.log" 2>&1; then
   cat "$OUTPUT_DIR/web-build.log" >&2
   exit 1
@@ -57,6 +59,17 @@ fi
 
 API_DIGEST="$(docker image inspect --format '{{.Id}}' "$API_TAG")"
 WEB_DIGEST="$(docker image inspect --format '{{.Id}}' "$WEB_TAG")"
+docker image inspect "$API_TAG" >"$OUTPUT_DIR/api-image-inspect.json"
+docker image inspect "$WEB_TAG" >"$OUTPUT_DIR/web-image-inspect.json"
+API_CONTENT_DIGEST="$(docker run --rm --network none --entrypoint node \
+  -v "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
+  "$API_TAG" /tmp/runtime-artifact-digest.mjs filesystem /app)"
+WEB_CONTENT_DIGEST="$(docker run --rm --network none --entrypoint node \
+  -v "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
+  "$WEB_TAG" /tmp/runtime-artifact-digest.mjs filesystem /app)"
+API_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/api-image-inspect.json")"
+WEB_CONFIG_DIGEST="$(node "$TEMP_DIR/infra/release/runtime-artifact-digest.mjs" config "$OUTPUT_DIR/web-image-inspect.json")"
+rm -f "$OUTPUT_DIR/api-image-inspect.json" "$OUTPUT_DIR/web-image-inspect.json"
 API_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$API_TAG")"
 WEB_LABEL_COMMIT="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$WEB_TAG")"
 [[ "$API_LABEL_COMMIT" == "$COMMIT" && "$WEB_LABEL_COMMIT" == "$COMMIT" ]]
@@ -68,14 +81,16 @@ docker run --rm --network none --entrypoint sh "$WEB_TAG" -lc 'test ! -e /app/.g
 [[ "$(docker image inspect --format '{{.Config.User}}' "$API_TAG")" == node ]]
 [[ "$(docker image inspect --format '{{.Config.User}}' "$WEB_TAG")" == node ]]
 
-node - "$OUTPUT_DIR/artifact-record.json" "$OUTPUT_DIR/release-manifest.json" "$API_TAG" "$API_DIGEST" "$WEB_TAG" "$WEB_DIGEST" <<'NODE'
+node - "$OUTPUT_DIR/artifact-record.json" "$OUTPUT_DIR/release-manifest.json" \
+  "$API_TAG" "$API_DIGEST" "$API_CONTENT_DIGEST" "$API_CONFIG_DIGEST" \
+  "$WEB_TAG" "$WEB_DIGEST" "$WEB_CONTENT_DIGEST" "$WEB_CONFIG_DIGEST" <<'NODE'
 const fs = require('fs');
-const [output, manifestPath, apiTag, apiDigest, webTag, webDigest] = process.argv.slice(2);
+const [output, manifestPath, apiTag, apiDigest, apiContentDigest, apiConfigDigest, webTag, webDigest, webContentDigest, webConfigDigest] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 fs.writeFileSync(output, JSON.stringify({
   manifest,
-  api: { tag: apiTag, digest: apiDigest, immutableReference: apiDigest, migrationCount: manifest.schemaMigrationCount },
-  web: { tag: webTag, digest: webDigest, immutableReference: webDigest },
+  api: { tag: apiTag, digest: apiDigest, immutableReference: apiDigest, contentDigest: apiContentDigest, configDigest: apiConfigDigest, migrationCount: manifest.schemaMigrationCount },
+  web: { tag: webTag, digest: webDigest, immutableReference: webDigest, contentDigest: webContentDigest, configDigest: webConfigDigest },
 }, null, 2) + '\n');
 NODE
 
