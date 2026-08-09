@@ -138,8 +138,63 @@ test('does not contain rebuild or down-migration execution paths', () => {
   const source = readFileSync(drill, 'utf8');
   assert.doesNotMatch(source, /docker\s+(?:build|image\s+build)|prisma\s+migrate\s+(?:reset|dev)|migrate\s+down/i);
   assert.match(source, /stop --timeout 1 canary-api canary-web/);
-  assert.match(source, /sales t/);
-  assert.match(source, /payment_webhook_events t/);
   assert.match(source, /databaseRollbackPerformed: false/);
   assert.match(source, /rebuildDuringRollback: false/);
+});
+
+test('snapshots every required operational and financial authority deterministically', () => {
+  const source = readFileSync(drill, 'utf8');
+  const requiredTables = [
+    'products',
+    'ingredients',
+    'inventory_movements',
+    'cash_sessions',
+    'cash_movements',
+    'sales',
+    'sale_items',
+    'sale_payments',
+    'order_tickets',
+    'order_ticket_items',
+    'order_checkouts',
+    'payment_intents',
+    'payment_links',
+    'payment_transitions',
+    'payment_webhook_events',
+    'delivery_workflow_events',
+    'delivery_issues',
+    'delivery_location_inbox',
+    'notification_intents',
+    'sofia_commands',
+    'whatsapp_messages',
+    'whatsapp_inbound_events',
+    'whatsapp_outbound_messages',
+    'whatsapp_message_status_events',
+    'whatsapp_delivery_orders',
+    'customer_service_cases',
+    'customer_service_case_events',
+  ];
+
+  for (const table of requiredTables) {
+    assert.match(source, new RegExp(`'${table.replaceAll('_', '\\_')}'`));
+    assert.match(source, new RegExp(`FROM ${table} t`));
+  }
+
+  assert.match(source, /ORDER BY id/);
+  assert.match(source, /to_jsonb\(t\)::text/);
+  assert.match(source, /sum\("currentStock"\)/);
+  assert.match(source, /sum\("openingAmount"\)/);
+  assert.match(source, /sum\("closingAmount"\)/);
+  assert.match(source, /'snapshotSchemaVersion', 2/);
+});
+
+test('fails closed before snapshotting when any required frontier-37 table is absent', () => {
+  const source = readFileSync(drill, 'utf8');
+  const preflightStart = source.indexOf('DO $rpo_preflight$');
+  const snapshotStart = source.indexOf('SELECT jsonb_build_object(');
+
+  assert.ok(preflightStart >= 0);
+  assert.ok(snapshotStart > preflightStart);
+  assert.match(source, /to_regclass\(format\('%I\.%I', 'public', required_table\)\) IS NULL/);
+  assert.match(source, /RAISE EXCEPTION 'RPO snapshot requires missing tables:/);
+  assert.match(source, /psql -X -qAt -v ON_ERROR_STOP=1/);
 });

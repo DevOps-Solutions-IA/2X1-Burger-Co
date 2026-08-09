@@ -99,15 +99,80 @@ default_rpo_snapshot() {
   load_canary_environment
   docker compose --env-file "$STATE_DIR/canary.env" -f "$COMPOSE_FILE" exec -T canary-postgres \
     psql -X -qAt -v ON_ERROR_STOP=1 -U "$CANARY_POSTGRES_USER" -d "$CANARY_POSTGRES_DB" <<'SQL'
+DO $rpo_preflight$
+DECLARE
+  required_table text;
+  missing_tables text[] := ARRAY[]::text[];
+BEGIN
+  FOREACH required_table IN ARRAY ARRAY[
+    'products',
+    'ingredients',
+    'inventory_movements',
+    'cash_sessions',
+    'cash_movements',
+    'sales',
+    'sale_items',
+    'sale_payments',
+    'order_tickets',
+    'order_ticket_items',
+    'order_checkouts',
+    'payment_intents',
+    'payment_links',
+    'payment_transitions',
+    'payment_webhook_events',
+    'delivery_workflow_events',
+    'delivery_issues',
+    'delivery_location_inbox',
+    'notification_intents',
+    'sofia_commands',
+    'whatsapp_messages',
+    'whatsapp_inbound_events',
+    'whatsapp_outbound_messages',
+    'whatsapp_message_status_events',
+    'whatsapp_delivery_orders',
+    'customer_service_cases',
+    'customer_service_case_events'
+  ] LOOP
+    IF to_regclass(format('%I.%I', 'public', required_table)) IS NULL THEN
+      missing_tables := array_append(missing_tables, required_table);
+    END IF;
+  END LOOP;
+
+  IF cardinality(missing_tables) > 0 THEN
+    RAISE EXCEPTION 'RPO snapshot requires missing tables: %', array_to_string(missing_tables, ', ');
+  END IF;
+END
+$rpo_preflight$;
+
 SELECT jsonb_build_object(
+  'snapshotSchemaVersion', 2,
+  'products', (SELECT jsonb_build_object('count', count(*), 'currentStock', coalesce(sum("currentStock"), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM products t),
+  'ingredients', (SELECT jsonb_build_object('count', count(*), 'currentStock', coalesce(sum("currentStock"), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM ingredients t),
+  'inventoryMovements', (SELECT jsonb_build_object('count', count(*), 'quantity', coalesce(sum(quantity), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM inventory_movements t),
+  'cashSessions', (SELECT jsonb_build_object('count', count(*), 'openingAmount', coalesce(sum("openingAmount"), 0)::text, 'closingAmount', coalesce(sum("closingAmount"), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM cash_sessions t),
+  'cashMovements', (SELECT jsonb_build_object('count', count(*), 'amount', coalesce(sum(amount), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM cash_movements t),
   'sales', (SELECT jsonb_build_object('count', count(*), 'total', coalesce(sum(total), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM sales t),
+  'saleItems', (SELECT jsonb_build_object('count', count(*), 'quantity', coalesce(sum(quantity), 0)::text, 'total', coalesce(sum("totalPrice"), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM sale_items t),
   'salePayments', (SELECT jsonb_build_object('count', count(*), 'amount', coalesce(sum(amount), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM sale_payments t),
   'orderTickets', (SELECT jsonb_build_object('count', count(*), 'subtotal', coalesce(sum(subtotal), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM order_tickets t),
-  'inventoryMovements', (SELECT jsonb_build_object('count', count(*), 'quantity', coalesce(sum(quantity), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM inventory_movements t),
+  'orderTicketItems', (SELECT jsonb_build_object('count', count(*), 'quantity', coalesce(sum(quantity), 0)::text, 'total', coalesce(sum("totalPrice"), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM order_ticket_items t),
   'checkouts', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM order_checkouts t),
   'paymentIntents', (SELECT jsonb_build_object('count', count(*), 'amount', coalesce(sum(amount), 0)::text, 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM payment_intents t),
+  'paymentLinks', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM payment_links t),
   'paymentTransitions', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM payment_transitions t),
-  'paymentWebhooks', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM payment_webhook_events t)
+  'paymentWebhooks', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM payment_webhook_events t),
+  'deliveryWorkflowEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM delivery_workflow_events t),
+  'deliveryIssues', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM delivery_issues t),
+  'deliveryLocations', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM delivery_location_inbox t),
+  'notificationIntents', (SELECT jsonb_build_object('count', count(*), 'attempts', coalesce(sum(attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM notification_intents t),
+  'secureCommands', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM sofia_commands t),
+  'whatsappMessages', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_messages t),
+  'whatsappInboundEvents', (SELECT jsonb_build_object('count', count(*), 'processingAttempts', coalesce(sum(processing_attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_inbound_events t),
+  'whatsappOutboundMessages', (SELECT jsonb_build_object('count', count(*), 'attempts', coalesce(sum(attempts), 0), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_outbound_messages t),
+  'whatsappStatusEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_message_status_events t),
+  'whatsappDeliveryOrders', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM whatsapp_delivery_orders t),
+  'customerServiceCases', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM customer_service_cases t),
+  'customerServiceCaseEvents', (SELECT jsonb_build_object('count', count(*), 'rows', md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' ORDER BY id), ''))) FROM customer_service_case_events t)
 )::text;
 SQL
 }
