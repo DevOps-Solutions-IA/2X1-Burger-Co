@@ -81,4 +81,22 @@ describe('WhatsappInboundRateLimitPolicyService', () => {
       reasonCode: 'WHATSAPP_ACCOUNT_RATE_LIMITED',
     });
   });
+
+  it('enforces the configured per-minute sender ceiling and rejects unsafe values', () => {
+    const previous = process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE;
+    try {
+      process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE = '2';
+      const policy = WhatsappInboundRateLimitPolicyService.fromEnvironment();
+      const request = { accountId: 'account-1', senderIdentityHash: 'sender-a', now: start };
+      expect(policy.evaluate(request).allowed).toBe(true);
+      expect(policy.evaluate(request).allowed).toBe(true);
+      expect(policy.evaluate(request)).toMatchObject({ allowed: false, reasonCode: 'WHATSAPP_SENDER_RATE_LIMITED' });
+
+      process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE = '10001';
+      expect(() => WhatsappInboundRateLimitPolicyService.fromEnvironment()).toThrow('WHATSAPP_RATE_LIMIT_ENV_INVALID');
+    } finally {
+      if (previous === undefined) delete process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE;
+      else process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE = previous;
+    }
+  });
 });

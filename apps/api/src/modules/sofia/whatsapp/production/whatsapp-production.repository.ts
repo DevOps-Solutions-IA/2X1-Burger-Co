@@ -52,7 +52,7 @@ export interface WhatsappProductionRepository {
     status: 'ACTIVE' | 'HUMAN_REQUIRED' | 'HUMAN_TAKEN' | 'SOFIA_PAUSED' | 'RESOLVED' | 'ARCHIVED';
     sofiaEnabled: boolean;
     assignedToUserId: string | null;
-  }): Promise<{ state: string; version: number; assignedActorId: string | null }>;
+  }): Promise<{ state: string; version: number; assignedActorId: string | null; replayed: boolean }>;
   conversationPolicyState(conversationId: string): Promise<{
     customerId: string | null;
     status: string;

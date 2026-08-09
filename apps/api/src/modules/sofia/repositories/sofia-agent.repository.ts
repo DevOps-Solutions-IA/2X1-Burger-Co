@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, SofiaOrderDraftStatus, WhatsappConversationStatus, WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
+import { Prisma, SofiaOrderDraftStatus, WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
@@ -34,10 +34,6 @@ export class SofiaAgentRepository {
           orderBy: { updatedAt: 'desc' },
           include: { conversation: true, deliveryOrder: true },
         });
-  }
-
-  requireHuman(conversationId: string) {
-    return this.prisma.whatsappConversation.update({ where: { id: conversationId }, data: { status: WhatsappConversationStatus.HUMAN_REQUIRED, sofiaEnabled: false } });
   }
 
   touchConversation(conversationId: string) {

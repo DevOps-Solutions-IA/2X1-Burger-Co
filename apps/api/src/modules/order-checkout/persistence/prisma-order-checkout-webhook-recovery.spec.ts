@@ -43,6 +43,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
     return {
       id: 'webhook-1',
       paymentIntentId: 'intent-1',
+      providerAccountHash: 'account-hash',
       payloadHash: 'payload-hash',
       processedStatus: 'PROCESSING',
       processedAt: null,

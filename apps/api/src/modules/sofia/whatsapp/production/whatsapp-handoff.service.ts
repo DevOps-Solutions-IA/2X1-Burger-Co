@@ -33,7 +33,14 @@ export class WhatsappHandoffService {
     conversationId: string; actorId: string; target: HandoffTarget; reasonCode: string; expectedVersion?: number; assignedToUserId?: string | null;
   }) {
     const current = await this.required(input.conversationId);
-    if (input.expectedVersion != null && input.expectedVersion !== current.handoffVersion) {
+    if (
+      input.expectedVersion != null
+      && input.expectedVersion !== current.handoffVersion
+      && (
+        input.expectedVersion + 1 !== current.handoffVersion
+        || current.humanStatus !== input.target
+      )
+    ) {
       throw new ConflictException({ code: 'WHATSAPP_HANDOFF_VERSION_CONFLICT' });
     }
     if (input.target === 'SOFIA_ACTIVE') {
@@ -46,7 +53,7 @@ export class WhatsappHandoffService {
       return await this.repository.transitionHandoff({
         conversationId: input.conversationId,
         actorId: input.actorId,
-        expectedVersion: current.handoffVersion,
+        expectedVersion: input.expectedVersion ?? current.handoffVersion,
         previousState: current.humanStatus,
         nextState: input.target,
         reasonCode: input.reasonCode,

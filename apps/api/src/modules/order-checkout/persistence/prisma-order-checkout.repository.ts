@@ -31,6 +31,7 @@ type TransitionInput = {
   providerPaymentId?: string | null;
   providerReference?: string | null;
   providerAccountHash?: string | null;
+  webhookClaim?: { webhookId: string; leaseOwnerHash: string };
 };
 
 export type WebhookEvidenceInput = {
@@ -53,6 +54,7 @@ export type WebhookEvidenceInput = {
 type WebhookLifecycleRow = {
   id: string;
   paymentIntentId: string | null;
+  providerAccountHash: string | null;
   payloadHash: string | null;
   processedStatus: string;
   processedAt: Date | null;
@@ -312,6 +314,17 @@ export class PrismaOrderCheckoutRepository {
 
   async transitionPayment(input: TransitionInput) {
     return this.prisma.$transaction(async (tx) => {
+      if (input.webhookClaim) {
+        const owned = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM payment_webhook_events
+          WHERE id = ${input.webhookClaim.webhookId}
+            AND processed_status = 'PROCESSING'
+            AND processing_lease_owner_hash = ${input.webhookClaim.leaseOwnerHash}
+            AND processing_lease_expires_at > CURRENT_TIMESTAMP
+          FOR UPDATE
+        `;
+        if (owned.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
+      }
       await tx.$queryRaw`SELECT id FROM "payment_intents" WHERE id = ${input.paymentIntentId} FOR UPDATE`;
       const intent = await tx.paymentIntent.findUnique({ where: { id: input.paymentIntentId } });
       if (!intent) checkoutNotFound();
@@ -438,6 +451,7 @@ export class PrismaOrderCheckoutRepository {
         SELECT
           event.id,
           event.payment_intent_id AS "paymentIntentId",
+          event.provider_account_hash AS "providerAccountHash",
           event.payload_hash AS "payloadHash",
           event.processed_status AS "processedStatus",
           event.processed_at AS "processedAt",
@@ -496,6 +510,12 @@ export class PrismaOrderCheckoutRepository {
       if (existing.payloadHash !== input.payloadHash) {
         return { state: 'IDENTITY_CONFLICT', webhookId: existing.id };
       }
+      if (
+        existing.providerAccountHash !== input.providerAccountHash
+        || (existing.paymentIntentId && input.paymentIntentId && existing.paymentIntentId !== input.paymentIntentId)
+      ) {
+        return { state: 'IDENTITY_CONFLICT', webhookId: existing.id };
+      }
       const deterministic = this.canonicalWebhookResult(existing.deterministicResult);
       if (deterministic) {
         return { state: 'REPLAY', webhookId: existing.id, result: deterministic };
@@ -548,6 +568,7 @@ export class PrismaOrderCheckoutRepository {
         UPDATE payment_webhook_events
         SET processed_status = 'PROCESSING',
             processed_at = NULL,
+            payment_intent_id = COALESCE(payment_intent_id, ${input.paymentIntentId ?? null}),
             processing_attempts = ${attempt},
             processing_lease_owner_hash = ${input.leaseOwnerHash},
             processing_lease_expires_at = ${input.leaseExpiresAt},
@@ -586,8 +607,20 @@ export class PrismaOrderCheckoutRepository {
       WHERE id = ${input.webhookId}
         AND processed_status = 'PROCESSING'
         AND processing_lease_owner_hash = ${input.leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
     `;
     if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+  }
+
+  async assertWebhookClaimOwned(webhookId: string, leaseOwnerHash: string) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM payment_webhook_events
+      WHERE id = ${webhookId}
+        AND processed_status = 'PROCESSING'
+        AND processing_lease_owner_hash = ${leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
+    `;
+    if (rows.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async failWebhookClaim(input: {
@@ -597,7 +630,7 @@ export class PrismaOrderCheckoutRepository {
     maxAttempts: number;
     retryable: boolean;
   }) {
-    await this.prisma.$executeRaw`
+    const updated = await this.prisma.$executeRaw`
       UPDATE payment_webhook_events
       SET processed_status = 'FAILED',
           processed_at = CASE
@@ -622,7 +655,9 @@ export class PrismaOrderCheckoutRepository {
       WHERE id = ${input.webhookId}
         AND processed_status = 'PROCESSING'
         AND processing_lease_owner_hash = ${input.leaseOwnerHash}
+        AND processing_lease_expires_at > CURRENT_TIMESTAMP
     `;
+    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async findIntentByProvider(input: { provider: PaymentIntentProvider; providerPaymentId?: string | null; providerReference?: string | null }) {

@@ -10,6 +10,7 @@ export const CHECKOUT_ERROR_CODES = [
   'PAYMENT_INTENT_CONFLICT',
   'PAYMENT_UNKNOWN_RESULT',
   'PAYMENT_FINANCIAL_REVIEW_REQUIRED',
+  'PAYMENT_WEBHOOK_CLAIM_LOST',
   'KITCHEN_NOT_ELIGIBLE',
 ] as const;
 
@@ -26,4 +27,3 @@ export function checkoutForbidden(code: CheckoutErrorCode): never {
 export function checkoutNotFound(): never {
   throw new NotFoundException({ code: 'CHECKOUT_NOT_FOUND' });
 }
-

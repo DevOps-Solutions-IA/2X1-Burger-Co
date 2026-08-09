@@ -110,11 +110,11 @@ export class CanonicalPaymentWebhookService {
           paymentIntentId: null,
           paymentStatus: null,
         };
-        if (!webhookId) {
-          const webhook = await this.repository.createWebhookEvidence({ ...evidence, processedStatus: result.processedStatus });
-          webhookId = webhook?.id ?? null;
-        }
-        await this.completeClaim(webhookId, leaseOwnerHash, result);
+        await this.failClaim(
+          webhookId,
+          leaseOwnerHash,
+          new Error('PAYMENT_WEBHOOK_REFERENCE_NOT_BOUND'),
+        );
         return result;
       }
 
@@ -129,7 +129,7 @@ export class CanonicalPaymentWebhookService {
         processedStatus = 'CURRENCY_MISMATCH';
         nextStatus = PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED;
         reasonCode = 'BOLD_CURRENCY_MISMATCH';
-      } else if (intent.providerAccountHash && accountHash !== intent.providerAccountHash) {
+      } else if (!intent.providerAccountHash || !accountHash || accountHash !== intent.providerAccountHash) {
         processedStatus = 'ACCOUNT_MISMATCH';
         nextStatus = PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED;
         reasonCode = 'BOLD_ACCOUNT_MISMATCH';
@@ -173,19 +173,22 @@ export class CanonicalPaymentWebhookService {
           webhookEventId: webhookId,
           providerPaymentId: parsed.providerPaymentId,
           providerReference: parsed.providerReference,
-          providerAccountHash: accountHash,
           metadata: { provider, eventType: parsed.eventType, processedStatus },
+          webhookClaim: { webhookId, leaseOwnerHash },
         });
         updatedStatus = updated.status;
       }
 
       if (updatedStatus === PaymentIntentStatus.SUCCEEDED) {
+        await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
         const successes = await this.repository.successfulPaymentCount(intent.checkoutId);
         if (successes > 1) {
           await this.repository.markFinancialReview(intent.checkoutId, 'MULTIPLE_SUCCESSFUL_PAYMENTS');
           processedStatus = 'FINANCIAL_REVIEW_REQUIRED';
         } else {
+          await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
           await this.repository.markCheckoutPaymentVerified(intent.checkoutId);
+          await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
           await this.kitchen.evaluateAndMark(intent.checkoutId, null);
         }
       }
@@ -249,7 +252,7 @@ export class CanonicalPaymentWebhookService {
       leaseOwnerHash,
       errorCode,
       maxAttempts: CanonicalPaymentWebhookService.MAX_PROCESSING_ATTEMPTS,
-      retryable: !errorCode.includes('UNKNOWN_RESULT'),
+      retryable: !errorCode.includes('UNKNOWN_RESULT') && !errorCode.includes('IDENTITY_CONFLICT'),
     });
   }
 

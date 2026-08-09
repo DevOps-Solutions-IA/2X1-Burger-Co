@@ -46,6 +46,7 @@ describe('CanonicalPaymentWebhookService recovery lifecycle', () => {
       successfulPaymentCount: jest.fn().mockResolvedValue(1),
       markFinancialReview: jest.fn().mockResolvedValue(undefined),
       markCheckoutPaymentVerified: jest.fn().mockResolvedValue(undefined),
+      assertWebhookClaimOwned: jest.fn().mockResolvedValue(undefined),
       completeWebhookClaim: jest.fn().mockResolvedValue(undefined),
       failWebhookClaim: jest.fn().mockResolvedValue(undefined),
       createWebhookEvidence: jest.fn(),

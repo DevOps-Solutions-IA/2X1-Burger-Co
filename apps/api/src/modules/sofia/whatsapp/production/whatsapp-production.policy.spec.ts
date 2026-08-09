@@ -49,6 +49,32 @@ describe('WhatsApp production policy services', () => {
     expect(repository.transitionHandoff).not.toHaveBeenCalled();
   });
 
+  it('delegates identical stale replays to the atomic repository decision', async () => {
+    const repository = {
+      conversationPolicyState: jest.fn().mockResolvedValue({
+        customerId: 'customer-1', status: 'HUMAN_TAKEN', humanStatus: 'HUMAN_TAKEN', sofiaEnabled: false,
+        assignedToUserId: 'operator-1', handoffVersion: 5,
+      }),
+      transitionHandoff: jest.fn().mockResolvedValue({
+        state: 'HUMAN_TAKEN', version: 5, assignedActorId: 'operator-1', replayed: true,
+      }),
+    };
+    const service = new WhatsappHandoffService(
+      repository as unknown as WhatsappProductionRepository,
+      { evaluate: jest.fn() } as never,
+      { getState: jest.fn() } as never,
+    );
+
+    await expect(service.transition({
+      conversationId: 'conversation-1', actorId: 'operator-1', target: 'HUMAN_TAKEN',
+      reasonCode: 'OPERATOR_TAKEOVER', expectedVersion: 4, assignedToUserId: 'operator-1',
+    })).resolves.toMatchObject({ version: 5, replayed: true });
+    expect(repository.transitionHandoff).toHaveBeenCalledWith(expect.objectContaining({
+      expectedVersion: 4,
+      previousState: 'HUMAN_TAKEN',
+    }));
+  });
+
   it('rejects delivery status regressions', async () => {
     const repository = {
       latestStatus: jest.fn().mockResolvedValue('DELIVERED'),

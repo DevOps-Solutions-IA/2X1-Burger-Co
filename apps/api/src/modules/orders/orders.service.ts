@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import {
   CashMovementType,
   CashSessionStatus,
+  CustomerConsentChannel,
+  CustomerConsentPurpose,
   DeliveryIssueStatus,
   DeliveryIssueType,
   DeliveryLocationInboxStatus,
@@ -50,6 +51,9 @@ import { SyncWaiterOrderDto } from './dto/sync-waiter-order.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
+import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
+import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
+import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 
 const ACTIVE_ORDER_STATUSES: OrderTicketStatus[] = [
   OrderTicketStatus.OPEN,
@@ -407,16 +411,10 @@ export function resolveDeliveryReceiptPayment(paymentMethod?: string | null) {
   return { label: null, target: null };
 }
 
-type DeliveryReceiptSender = {
-  sendDeliveryOrderSummary: (
-    orderId: string,
-    actorId: string,
-    options?: { updated?: boolean; reason?: string; idempotencyKey?: string },
-  ) => Promise<{ success: boolean; phone: string; orderNumber: string; updated?: boolean; sentAt: string }>;
-};
-
 @Injectable()
 export class OrdersService {
+  private readonly deliveryLocationPolicy = new DeliveryLocationPolicy();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
@@ -425,7 +423,8 @@ export class OrdersService {
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly tablesService: TablesService,
     private readonly sofiaPaymentLinkService: SofiaPaymentLinkService,
-    private readonly moduleRef: ModuleRef,
+    private readonly deliveryWorkflow: DeliveryWorkflowService,
+    private readonly notificationOutbox: NotificationOutboxService,
   ) {}
 
   private isPrivilegedOrderOperator(actor: AuthUser) {
@@ -504,39 +503,10 @@ export class OrdersService {
     );
   }
 
-  private async resolveDeliveryReceiptSender() {
-    try {
-      const { WhatsappService } = await import('../whatsapp/whatsapp.service');
-      return this.moduleRef.get(WhatsappService, { strict: false }) as DeliveryReceiptSender;
-    } catch {
-      return null;
-    }
-  }
-
   private readAuditJsonObject(value: Prisma.JsonValue | null | undefined) {
     return value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
-  }
-
-  private sanitizeDeliveryReceiptSendFailure(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error ?? 'unknown_error');
-    return message.replace(/\+?\d[\d\s\-()]{7,}\d/g, '[phone-redacted]').slice(0, 240);
-  }
-
-  private async hasUpdatedDeliveryReceiptSent(orderId: string, revision: number) {
-    const previousSentLogs = await this.prisma.auditLog.findMany({
-      where: {
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: orderId,
-        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 12,
-    });
-
-    return previousSentLogs.some((log) => this.readAuditJsonObject(log.newValues).revision === revision);
   }
 
   private async sendUpdatedDeliveryReceiptAfterCommercialChange(input: {
@@ -592,76 +562,39 @@ export class OrdersService {
       return;
     }
 
-    if (await this.hasUpdatedDeliveryReceiptSent(input.order.id, input.order.revision)) {
-      return;
-    }
-
-    const sender = await this.resolveDeliveryReceiptSender();
-    if (!sender) {
-      await this.auditService.log({
-        userId: input.actorId,
-        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: input.order.id,
-        newValues: {
-          revision: input.order.revision,
-          previousTotal: input.previousTotal,
-          newTotal: input.order.subtotal,
-          receiptUpdated: true,
-          sendAttempted: true,
-          sendSucceeded: false,
-          failureReason: 'WHATSAPP_SERVICE_UNAVAILABLE',
-          phoneMasked,
-          idempotencyKey,
-        },
-      });
-      return;
-    }
-
-    try {
-      await sender.sendDeliveryOrderSummary(input.order.id, input.actorId, {
-        updated: true,
-        reason: 'commercial_order_change',
+    await this.notificationOutbox.enqueue({
+      eventType: 'DELIVERY_RECEIPT_UPDATED',
+      sourceEventId: idempotencyKey,
+      aggregateType: 'ORDER_TICKET',
+      aggregateId: input.order.id,
+      aggregateVersion: input.order.revision,
+      channel: CustomerConsentChannel.WHATSAPP,
+      purpose: CustomerConsentPurpose.SERVICE,
+      factEnvelope: {
+        orderNumber: input.order.number,
+        receiptUpdated: true,
+        previousTotal: Number(input.previousTotal),
+        total: Number(input.order.subtotal),
+      },
+      policyOutcome: 'SUPPRESSED',
+      policyReason: 'AUTO_WHATSAPP_DISABLED',
+    });
+    await this.auditService.log({
+      userId: input.actorId,
+      action: 'DELIVERY_UPDATED_RECEIPT_SEND_SUPPRESSED',
+      module: 'orders',
+      entity: 'order_ticket',
+      entityId: input.order.id,
+      newValues: {
+        revision: input.order.revision,
+        receiptUpdated: true,
+        sendAttempted: false,
+        sendSucceeded: false,
+        failureReason: 'AUTO_WHATSAPP_DISABLED',
+        phoneMasked,
         idempotencyKey,
-      });
-      await this.auditService.log({
-        userId: input.actorId,
-        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: input.order.id,
-        newValues: {
-          revision: input.order.revision,
-          previousTotal: input.previousTotal,
-          newTotal: input.order.subtotal,
-          receiptUpdated: true,
-          sendAttempted: true,
-          sendSucceeded: true,
-          phoneMasked,
-          idempotencyKey,
-        },
-      });
-    } catch (error) {
-      await this.auditService.log({
-        userId: input.actorId,
-        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
-        module: 'orders',
-        entity: 'order_ticket',
-        entityId: input.order.id,
-        newValues: {
-          revision: input.order.revision,
-          previousTotal: input.previousTotal,
-          newTotal: input.order.subtotal,
-          receiptUpdated: true,
-          sendAttempted: true,
-          sendSucceeded: false,
-          failureReason: this.sanitizeDeliveryReceiptSendFailure(error),
-          phoneMasked,
-          idempotencyKey,
-        },
-      });
-    }
+      },
+    });
   }
 
   private getWaiterAssignmentSnapshot(actor: AuthUser) {
@@ -933,24 +866,6 @@ export class OrdersService {
     }
   }
 
-  private scoreDeliveryOrderPhoneMatch(candidatePhone: string, senderPhoneCandidates: string[]) {
-    if (!candidatePhone || !senderPhoneCandidates.length) {
-      return 0;
-    }
-
-    for (const senderPhone of senderPhoneCandidates) {
-      if (!senderPhone) {
-        continue;
-      }
-
-      if (candidatePhone === senderPhone) {
-        return 100;
-      }
-    }
-
-    return 0;
-  }
-
   private resolveDeliveryLocationMatch(
     activeDeliveryOrders: Array<{
       id: string;
@@ -968,40 +883,25 @@ export class OrdersService {
       deliveryAddressNormalized?: string | null;
       deliveryDistanceKm?: Prisma.Decimal | null;
       deliveryZoneLabel?: string | null;
+      deliveryFee?: Prisma.Decimal | null;
       items: Array<{ totalPrice: Prisma.Decimal }>;
       updatedAt: Date;
       openedAt: Date;
     }>,
     senderPhoneCandidates: string[],
   ) {
-    const normalizedCandidates = senderPhoneCandidates.filter(Boolean);
-    const rankedMatches = activeDeliveryOrders
-      .map((order) => ({
-        order,
-        normalizedPhone: this.normalizeDeliveryPhone(order.customerPhone),
-        score: this.scoreDeliveryOrderPhoneMatch(this.normalizeDeliveryPhone(order.customerPhone), normalizedCandidates),
-      }))
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-
-        return right.order.updatedAt.getTime() - left.order.updatedAt.getTime();
-      });
-
-    if (rankedMatches.length === 1) {
-      return { order: rankedMatches[0]!.order, rule: 'sender_phone_exact_or_suffix' };
-    }
-
-    if (rankedMatches.length > 1) {
-      const distinctPhones = Array.from(new Set(rankedMatches.map((entry) => entry.normalizedPhone).filter(Boolean)));
-      if (distinctPhones.length === 1) {
-        return { order: rankedMatches[0]!.order, rule: 'same_phone_most_recent_active_order' };
-      }
-    }
-
-    return null;
+    const decision = this.deliveryLocationPolicy.resolveMatch(
+      senderPhoneCandidates,
+      activeDeliveryOrders.map((order) => ({
+        orderId: order.id,
+        fulfillment: order.type,
+        active: ACTIVE_ORDER_STATUSES.includes(order.status),
+        customerPhone: order.customerPhone,
+      })),
+    );
+    if (decision.status !== 'MATCHED') return null;
+    const order = activeDeliveryOrders.find((candidate) => candidate.id === decision.orderId);
+    return order ? { order, rule: decision.rule } : null;
   }
 
   async findOne(id: string) {
@@ -1724,10 +1624,8 @@ export class OrdersService {
           deliveryCustomerId: nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryCustomerId ?? null : null,
           deliveryWorkflowStatus:
             nextType === OrderTicketType.DELIVERY
-              ? nextStatus === OrderTicketStatus.CANCELLED
-                ? DeliveryWorkflowStatus.ISSUE
-                : current.type === OrderTicketType.DELIVERY
-                ? current.deliveryWorkflowStatus ?? (current.assignedRiderId ? DeliveryWorkflowStatus.ASSIGNED : DeliveryWorkflowStatus.PENDING_ASSIGNMENT)
+              ? current.type === OrderTicketType.DELIVERY
+                ? current.deliveryWorkflowStatus
                 : DeliveryWorkflowStatus.PENDING_ASSIGNMENT
               : null,
           deliveryStatusUpdatedAt:
@@ -1736,12 +1634,7 @@ export class OrdersService {
           assignedRiderAt: nextType === OrderTicketType.DELIVERY ? current.assignedRiderAt ?? null : null,
           deliveryDispatchedAt: nextType === OrderTicketType.DELIVERY ? current.deliveryDispatchedAt ?? null : null,
           deliveryDeliveredAt: nextType === OrderTicketType.DELIVERY ? current.deliveryDeliveredAt ?? null : null,
-          deliveryIssueAt:
-            nextType === OrderTicketType.DELIVERY
-              ? nextStatus === OrderTicketStatus.CANCELLED
-                ? current.deliveryIssueAt ?? new Date()
-                : current.deliveryIssueAt ?? null
-              : null,
+          deliveryIssueAt: nextType === OrderTicketType.DELIVERY ? current.deliveryIssueAt ?? null : null,
           notes: dto.notes === undefined ? undefined : dto.notes.trim() || null,
           subtotal,
           servedAt:
@@ -1982,12 +1875,6 @@ export class OrdersService {
             currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryLocationReceivedAt ?? null : null,
           deliveryCustomerId:
             currentOrder.type === OrderTicketType.DELIVERY ? currentOrder.deliveryCustomerId ?? null : null,
-          deliveryWorkflowStatus:
-            currentOrder.type === OrderTicketType.DELIVERY
-              ? current.deliveryWorkflowStatus ?? (current.assignedRiderId ? DeliveryWorkflowStatus.ASSIGNED : DeliveryWorkflowStatus.PENDING_ASSIGNMENT)
-              : null,
-          deliveryStatusUpdatedAt:
-            currentOrder.type === OrderTicketType.DELIVERY ? new Date() : null,
           ...(access.shouldAssign ? this.getWaiterAssignmentSnapshot(actor) : {}),
           revision: {
             increment: 1,
@@ -2531,22 +2418,21 @@ export class OrdersService {
       throw new BadRequestException('Selecciona un domiciliario activo y válido.');
     }
 
-    const assigned = await this.prisma.orderTicket.update({
+    const transition = await this.deliveryWorkflow.transition({
+      orderTicketId: id,
+      expectedVersion: current.deliveryWorkflowVersion,
+      toStatus: DeliveryWorkflowStatus.ASSIGNED,
+      assignedRiderId: rider.id,
+      actorId: actor.sub,
+      reasonCode: 'DELIVERY_RIDER_ASSIGNED',
+      idempotencyKey: `delivery:assign:${id}:${current.deliveryWorkflowVersion}:${rider.id}`,
+      sanitizedMetadata: { notesPresent: Boolean(dto.notes?.trim()) },
+    });
+    const assigned = await this.prisma.orderTicket.findUniqueOrThrow({
       where: { id },
-      data: {
-        assignedRiderId: rider.id,
-        assignedRiderAt: new Date(),
-        deliveryWorkflowStatus: DeliveryWorkflowStatus.ASSIGNED,
-        deliveryStatusUpdatedAt: new Date(),
-        deliveryDispatchedAt: null,
-        deliveryDeliveredAt: null,
-        deliveryIssueAt: null,
-        revision: {
-          increment: 1,
-        },
-      },
       include: orderInclude,
     });
+    if (transition.state !== 'APPLIED') return assigned;
 
     await this.auditService.log({
       userId: actor.sub,
@@ -2673,62 +2559,40 @@ export class OrdersService {
       throw new ConflictException('Asigna un domiciliario antes de cambiar el estado del reparto.');
     }
 
-    const updated = await this.prisma.orderTicket.update({
-      where: { id },
-      data: {
-        assignedRiderId: access.shouldAssignToActor ? actor.sub : current.assignedRiderId,
-        assignedRiderAt:
-          access.shouldAssignToActor || (nextStatus === DeliveryWorkflowStatus.ASSIGNED && !current.assignedRiderAt)
-            ? new Date()
-            : current.assignedRiderAt,
-        deliveryWorkflowStatus: nextStatus,
-        deliveryStatusUpdatedAt: new Date(),
-        deliveryDispatchedAt:
-          nextStatus === DeliveryWorkflowStatus.IN_TRANSIT
-            ? current.deliveryDispatchedAt ?? new Date()
-            : nextStatus === DeliveryWorkflowStatus.PENDING_ASSIGNMENT || nextStatus === DeliveryWorkflowStatus.ASSIGNED
-              ? null
-              : current.deliveryDispatchedAt,
-        deliveryDeliveredAt:
-          nextStatus === DeliveryWorkflowStatus.DELIVERED
-            ? current.deliveryDeliveredAt ?? new Date()
-            : nextStatus === DeliveryWorkflowStatus.PENDING_ASSIGNMENT ||
-                nextStatus === DeliveryWorkflowStatus.ASSIGNED ||
-                nextStatus === DeliveryWorkflowStatus.IN_TRANSIT
-              ? null
-              : current.deliveryDeliveredAt,
-        deliveryIssueAt:
-          nextStatus === DeliveryWorkflowStatus.ISSUE
-            ? new Date()
-            : nextStatus === DeliveryWorkflowStatus.PENDING_ASSIGNMENT ||
-                nextStatus === DeliveryWorkflowStatus.ASSIGNED ||
-                nextStatus === DeliveryWorkflowStatus.IN_TRANSIT ||
-                nextStatus === DeliveryWorkflowStatus.DELIVERED
-              ? null
-              : current.deliveryIssueAt,
-        status:
-          nextStatus === DeliveryWorkflowStatus.DELIVERED &&
-          current.status !== OrderTicketStatus.PAID &&
-          current.status !== OrderTicketStatus.CANCELLED
-            ? OrderTicketStatus.PAYMENT_PENDING
-            : current.status,
-        notes:
-          dto.notes === undefined
-            ? undefined
-            : [current.notes, dto.notes.trim()].filter(Boolean).join('\n') || null,
-        revision: {
-          increment: 1,
-        },
+    const transition = await this.deliveryWorkflow.transition({
+      orderTicketId: id,
+      expectedVersion: current.deliveryWorkflowVersion,
+      toStatus: nextStatus,
+      assignedRiderId: access.shouldAssignToActor ? actor.sub : undefined,
+      actorId: actor.sub,
+      reasonCode: `DELIVERY_WORKFLOW_${nextStatus}`,
+      idempotencyKey: `delivery:status:${id}:${current.deliveryWorkflowVersion}:${nextStatus}`,
+      sanitizedMetadata: {
+        notesPresent: Boolean(dto.notes?.trim()),
+        issueType: dto.issueType ?? null,
       },
-      include: orderInclude,
     });
+    if (transition.state !== 'APPLIED') {
+      return this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude });
+    }
+    if (dto.notes !== undefined) {
+      await this.prisma.orderTicket.update({
+        where: { id },
+        data: { notes: [current.notes, dto.notes.trim()].filter(Boolean).join('\n') || null },
+      });
+    }
+    const updated = await this.prisma.orderTicket.findUniqueOrThrow({ where: { id }, include: orderInclude });
 
     let deliveryIssueId: string | null = null;
     if (nextStatus === DeliveryWorkflowStatus.ISSUE) {
       const issueType = (dto.issueType as DeliveryIssueType | undefined) ?? DeliveryIssueType.OTHER;
-      const issue = await this.prisma.deliveryIssue.create({
-        data: {
+      const issueIdempotencyKey = `delivery-issue:${id}:${updated.deliveryWorkflowVersion}`;
+      const issue = await this.prisma.deliveryIssue.upsert({
+        where: { orderTicketId_idempotencyKey: { orderTicketId: id, idempotencyKey: issueIdempotencyKey } },
+        update: {},
+        create: {
           orderTicketId: id,
+          idempotencyKey: issueIdempotencyKey,
           issueType,
           summary: this.buildDeliveryIssueSummary(issueType, dto.notes),
           details: dto.notes?.trim() || null,
@@ -2942,16 +2806,6 @@ export class OrdersService {
         where: { id: current.id },
         data: {
           status: OrderTicketStatus.PAID,
-          deliveryWorkflowStatus:
-            current.type === OrderTicketType.DELIVERY
-              ? DeliveryWorkflowStatus.DELIVERED
-              : undefined,
-          deliveryStatusUpdatedAt:
-            current.type === OrderTicketType.DELIVERY ? new Date() : undefined,
-          deliveryDeliveredAt:
-            current.type === OrderTicketType.DELIVERY && !current.deliveryDeliveredAt
-              ? new Date()
-              : undefined,
           paidAt: new Date(),
           notes: dto.notes?.trim() || current.notes || null,
         },
@@ -3162,16 +3016,6 @@ export class OrdersService {
         where: { id: current.id },
         data: {
           status: OrderTicketStatus.OPEN,
-          deliveryWorkflowStatus:
-            current.type === OrderTicketType.DELIVERY
-              ? current.assignedRiderId
-                ? DeliveryWorkflowStatus.ASSIGNED
-                : DeliveryWorkflowStatus.PENDING_ASSIGNMENT
-              : current.deliveryWorkflowStatus,
-          deliveryStatusUpdatedAt:
-            current.type === OrderTicketType.DELIVERY ? new Date() : current.deliveryStatusUpdatedAt,
-          deliveryDeliveredAt: current.type === OrderTicketType.DELIVERY ? null : current.deliveryDeliveredAt,
-          deliveryIssueAt: current.type === OrderTicketType.DELIVERY ? null : current.deliveryIssueAt,
           paidAt: null,
           cancelledAt: null,
           notes: [current.notes, `Reabierta: ${reason}`].filter(Boolean).join('\n'),
@@ -3512,6 +3356,8 @@ export class OrdersService {
   }
 
   async captureDeliveryLocationFromWhatsapp(input: {
+    sourceEventKey?: string | null;
+    payloadHash?: string | null;
     rawSenderJid?: string | null;
     participantJid?: string | null;
     remoteJid?: string | null;
@@ -3525,17 +3371,42 @@ export class OrdersService {
       new Set(input.senderPhoneCandidates.map((phone) => this.normalizeDeliveryPhone(phone)).filter(Boolean)),
     );
 
-    const inbox = await this.prisma.deliveryLocationInbox.create({
-      data: {
-        rawSenderJid: this.maskWhatsappIdentifier(input.rawSenderJid),
-        participantJid: this.maskWhatsappIdentifier(input.participantJid),
-        remoteJid: this.maskWhatsappIdentifier(input.remoteJid),
-        normalizedSenderPhone: this.maskPhoneForAudit(normalizedCandidates[0]),
-        latitude: toDecimal(input.latitude),
-        longitude: toDecimal(input.longitude),
-        rawPayload: input.rawPayload ?? undefined,
-      },
-    });
+    let inbox;
+    try {
+      inbox = await this.prisma.deliveryLocationInbox.create({
+        data: {
+          sourceEventKey: input.sourceEventKey ?? null,
+          payloadHash: input.payloadHash ?? null,
+          rawSenderJid: this.maskWhatsappIdentifier(input.rawSenderJid),
+          participantJid: this.maskWhatsappIdentifier(input.participantJid),
+          remoteJid: this.maskWhatsappIdentifier(input.remoteJid),
+          normalizedSenderPhone: this.maskPhoneForAudit(normalizedCandidates[0]),
+          latitude: toDecimal(input.latitude),
+          longitude: toDecimal(input.longitude),
+          rawPayload: input.rawPayload ?? undefined,
+        },
+      });
+    } catch (error) {
+      if (!input.sourceEventKey || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error;
+      }
+      const replay = await this.prisma.deliveryLocationInbox.findUniqueOrThrow({
+        where: { sourceEventKey: input.sourceEventKey },
+        include: { matchedOrder: { include: orderInclude } },
+      });
+      if (replay.payloadHash && input.payloadHash && replay.payloadHash !== input.payloadHash) {
+        throw new ConflictException('La identidad del evento de ubicación no coincide con su contenido.');
+      }
+      if (replay.processedAt) {
+        return {
+          inbox: replay,
+          order: replay.matchedOrder,
+          alert: null,
+          matchedRule: replay.matchedRule,
+        };
+      }
+      inbox = replay;
+    }
 
     const activeDeliveryOrders = await this.prisma.orderTicket.findMany({
       where: {
@@ -3599,24 +3470,105 @@ export class OrdersService {
       };
     }
 
-    const updated = await this.applyDeliveryLocationForLogisticsOnly(
-      matched.order!,
-      input.latitude,
-      input.longitude,
-      input.actorId ?? undefined,
-    );
+    let applied;
+    try {
+      applied = await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.deliveryLocationInbox.updateMany({
+          where: {
+            id: inbox.id,
+            version: inbox.version,
+            matchStatus: DeliveryLocationInboxStatus.PENDING,
+            processedAt: null,
+          },
+          data: { version: { increment: 1 } },
+        });
+        if (claimed.count !== 1) throw new ConflictException('DELIVERY_LOCATION_EVENT_ALREADY_PROCESSING');
 
-    const appliedInbox = await this.prisma.deliveryLocationInbox.update({
-      where: { id: inbox.id },
-      data: {
-        matchStatus: DeliveryLocationInboxStatus.APPLIED,
-        matchedOrderId: updated.id,
-        matchedCustomerId: updated.deliveryCustomerId ?? null,
-        matchedRule: matched.rule,
-        processingNotes: `Ubicación aplicada automáticamente a ${updated.number}.`,
-        processedAt: new Date(),
-      },
-    });
+        const order = matched.order!;
+        const normalizedPhone = this.normalizeDeliveryPhone(order.customerPhone);
+        let deliveryCustomerId = order.deliveryCustomerId ?? null;
+        if (normalizedPhone) {
+          const deliveryCustomer = await tx.deliveryCustomer.upsert({
+            where: { phone: normalizedPhone },
+            update: {
+              fullName: order.customerName?.trim() || undefined,
+              defaultAddress: order.deliveryReference?.trim() || undefined,
+              defaultReference: order.deliveryReference?.trim() || undefined,
+              lastLatitude: new Prisma.Decimal(input.latitude),
+              lastLongitude: new Prisma.Decimal(input.longitude),
+              lastLocationAt: new Date(),
+            },
+            create: {
+              phone: normalizedPhone,
+              fullName: order.customerName?.trim() || null,
+              defaultAddress: order.deliveryReference?.trim() || null,
+              defaultReference: order.deliveryReference?.trim() || null,
+              lastLatitude: new Prisma.Decimal(input.latitude),
+              lastLongitude: new Prisma.Decimal(input.longitude),
+              lastZoneLabel: order.deliveryZoneLabel ?? null,
+              lastDistanceKm: order.deliveryDistanceKm ?? null,
+              lastLocationAt: new Date(),
+            },
+          });
+          deliveryCustomerId = deliveryCustomer.id;
+        }
+        const updated = await tx.orderTicket.update({
+          where: { id: order.id },
+          data: {
+            deliveryLatitude: new Prisma.Decimal(input.latitude),
+            deliveryLongitude: new Prisma.Decimal(input.longitude),
+            deliveryLocationSource: 'whatsapp_live_location',
+            deliveryLocationReceivedAt: new Date(),
+            deliveryCustomerId,
+            deliveryStatusUpdatedAt: new Date(),
+            revision: { increment: 1 },
+          },
+          include: orderInclude,
+        });
+        const appliedInbox = await tx.deliveryLocationInbox.update({
+          where: { id: inbox.id },
+          data: {
+            matchStatus: DeliveryLocationInboxStatus.APPLIED,
+            matchedOrderId: updated.id,
+            matchedCustomerId: updated.deliveryCustomerId ?? null,
+            matchedRule: matched.rule,
+            processingNotes: `Ubicación aplicada automáticamente a ${updated.number}.`,
+            processedAt: new Date(),
+          },
+        });
+        await this.auditService.log({
+          userId: input.actorId || undefined,
+          action: 'DELIVERY_LOCATION_RECEIVED_LOGISTICS_ONLY',
+          module: 'orders',
+          entity: 'order_ticket',
+          entityId: updated.id,
+          oldValues: {
+            locationPresent: Boolean(order.deliveryLatitude && order.deliveryLongitude),
+            deliveryFee: order.deliveryFee,
+          },
+          newValues: {
+            locationPresent: true,
+            source: 'whatsapp_location',
+            pricingPreserved: true,
+            feeChanged: false,
+            totalChanged: false,
+            deliveryFee: updated.deliveryFee,
+          },
+        }, tx);
+        return { updated, appliedInbox };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (!input.sourceEventKey || !(error instanceof ConflictException || (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'))) {
+        throw error;
+      }
+      const replay = await this.prisma.deliveryLocationInbox.findUniqueOrThrow({
+        where: { sourceEventKey: input.sourceEventKey },
+        include: { matchedOrder: { include: orderInclude } },
+      });
+      if (!replay.processedAt) throw new ConflictException('DELIVERY_LOCATION_EVENT_ALREADY_PROCESSING');
+      return { inbox: replay, order: replay.matchedOrder, alert: null, matchedRule: replay.matchedRule };
+    }
+    const { updated, appliedInbox } = applied;
 
     const infoAlert = await this.createOperationalAlert({
       type: 'DELIVERY_LOCATION_RECEIVED',

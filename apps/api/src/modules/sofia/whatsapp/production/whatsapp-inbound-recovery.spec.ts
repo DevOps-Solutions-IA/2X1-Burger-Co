@@ -1,4 +1,5 @@
 import { WhatsappInboundEventKind } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { PrismaWhatsappProductionRepository } from './persistence/prisma-whatsapp-production.repository';
 import { normalizeWhatsappInboundClaimInput } from './whatsapp-inbound-contracts';
 import { WhatsappInboundDeduplicator } from './whatsapp-inbound-deduplicator';
@@ -32,13 +33,11 @@ function existing(overrides: Record<string, unknown> = {}) {
     providerEventId: 'event-1',
     eventHash: 'event-hash',
     processingStatus: 'CLAIMED',
-    processedAt: new Date(Date.now() + 60_000),
-    deterministicResult: {
-      claimVersion: 1,
-      claimToken: 'claim-1',
-      attempt: 1,
-      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-    },
+    processingAttempts: 1,
+    processingLeaseExpiresAt: new Date(Date.now() + 60_000),
+    nextRetryAt: null,
+    retryable: true,
+    deterministicResult: null,
     ...overrides,
   };
 }
@@ -81,7 +80,7 @@ describe('WhatsApp inbound leased recovery', () => {
   it('recovers an expired lease once with a new token and incremented attempt', async () => {
     const inbound = {
       create: jest.fn().mockRejectedValue(duplicateError()),
-      findFirst: jest.fn().mockResolvedValue(existing({ processedAt: new Date(Date.now() - 1) })),
+      findFirst: jest.fn().mockResolvedValue(existing({ processingLeaseExpiresAt: new Date(Date.now() - 1) })),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     };
     const repository = repositoryWith(inbound);
@@ -97,10 +96,10 @@ describe('WhatsApp inbound leased recovery', () => {
   });
 
   it('observes the winning lease when a concurrent recovery wins the CAS', async () => {
-    const expired = existing({ processedAt: new Date(Date.now() - 1) });
+    const expired = existing({ processingLeaseExpiresAt: new Date(Date.now() - 1) });
     const active = existing({
-      processedAt: new Date(Date.now() + 60_000),
-      deterministicResult: { ...expired.deterministicResult, claimToken: 'winner', attempt: 2 },
+      processingAttempts: 2,
+      processingLeaseExpiresAt: new Date(Date.now() + 60_000),
     });
     const inbound = {
       create: jest.fn().mockRejectedValue(duplicateError()),
@@ -126,11 +125,14 @@ describe('WhatsApp inbound leased recovery', () => {
       create: jest.fn().mockRejectedValue(duplicateError()),
       findFirst: jest.fn()
         .mockResolvedValueOnce(existing({
-          processedAt: new Date(Date.now() - 1),
-          deterministicResult: { claimToken: 'claim-3', attempt: 3 },
+          processingAttempts: 3,
+          processingLeaseExpiresAt: new Date(Date.now() - 1),
         }))
         .mockResolvedValueOnce(existing({
           processingStatus: 'ATTEMPTS_EXHAUSTED',
+          processingAttempts: 3,
+          processingLeaseExpiresAt: null,
+          retryable: false,
           deterministicResult: terminal,
         })),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -161,7 +163,7 @@ describe('WhatsApp inbound leased recovery', () => {
     );
     await expect(repository.completeInbound('row-1', 'FAILED', { code: 'FAILED' }, null, 'stale')).resolves.toBeUndefined();
     expect(inbound.updateMany.mock.calls[0]?.[0].where).toEqual(expect.objectContaining({
-      deterministicResult: { path: ['claimToken'], equals: 'stale' },
+      processingLeaseOwnerHash: createHash('sha256').update('stale').digest('hex'),
     }));
   });
 

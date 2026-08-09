@@ -6,9 +6,11 @@ import { SofiaModule } from '../sofia/sofia.module';
 import { TablesModule } from '../tables/tables.module';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { DeliveryOperationsModule } from '../delivery-operations/delivery-operations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [SalesModule, RealtimeModule, DeliveryModule, TablesModule, SofiaModule],
+  imports: [SalesModule, RealtimeModule, DeliveryModule, DeliveryOperationsModule, NotificationsModule, TablesModule, SofiaModule],
   controllers: [OrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

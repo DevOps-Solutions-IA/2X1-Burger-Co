@@ -9,7 +9,7 @@ import type { ProviderAccountObservation } from './whatsapp-production.types';
 
 @Injectable()
 export class WhatsappInboundGateway {
-  private readonly rateLimits = new WhatsappInboundRateLimitPolicyService();
+  private readonly rateLimits = WhatsappInboundRateLimitPolicyService.fromEnvironment();
 
   constructor(
     private readonly normalizer: WhatsappEventNormalizer,

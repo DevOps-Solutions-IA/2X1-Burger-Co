@@ -9,13 +9,10 @@ import type { ClaimedInbound, WhatsappProductionRepository } from '../whatsapp-p
 
 const INBOUND_LEASE_MS = 2 * 60 * 1_000;
 const INBOUND_MAX_ATTEMPTS = 3;
-const INBOUND_CLAIM_VERSION = 1;
-
 type InboundClaimMetadata = {
-  claimVersion: number;
   claimToken: string;
   attempt: number;
-  leaseExpiresAt: string;
+  leaseExpiresAt: Date;
 };
 
 @Injectable()
@@ -68,10 +65,12 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
           eventKind: normalized.eventKind,
           rawPayload: { redacted: true },
           processingStatus: 'CLAIMED',
-          processedAt: new Date(initialClaim.leaseExpiresAt),
-          deterministicResult: initialClaim,
+          processingAttempts: 1,
+          processingLeaseOwnerHash: this.hash(initialClaim.claimToken),
+          processingLeaseExpiresAt: initialClaim.leaseExpiresAt,
+          retryable: true,
         },
-        select: { id: true, processingStatus: true, deterministicResult: true },
+        select: { id: true, processingStatus: true },
       });
       return this.acquiredClaim(created.id, created.processingStatus, initialClaim, true);
     } catch (error) {
@@ -93,21 +92,27 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
           providerEventId: true,
           eventHash: true,
           processingStatus: true,
-          processedAt: true,
+          processingAttempts: true,
+          processingLeaseExpiresAt: true,
+          nextRetryAt: true,
+          retryable: true,
           deterministicResult: true,
         },
       });
       if (!existing) continue;
       this.assertSameInbound(existing, normalized);
 
-      if (existing.processingStatus !== 'CLAIMED') {
+      const failedReadyForRetry = existing.processingStatus === 'FAILED'
+        && existing.retryable
+        && (!existing.nextRetryAt || existing.nextRetryAt.getTime() <= now.getTime());
+      if (existing.processingStatus !== 'CLAIMED' && !failedReadyForRetry) {
         return {
           id: existing.id,
           created: false,
           disposition: existing.processingStatus === 'ATTEMPTS_EXHAUSTED'
             ? 'ATTEMPTS_EXHAUSTED'
             : 'DETERMINISTIC_REPLAY',
-          attempt: this.claimAttempt(existing.deterministicResult),
+          attempt: existing.processingAttempts,
           claimToken: null,
           leaseExpiresAt: null,
           processingStatus: existing.processingStatus,
@@ -115,15 +120,19 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
         };
       }
 
-      const attempt = this.claimAttempt(existing.deterministicResult);
-      if (existing.processedAt && existing.processedAt.getTime() > now.getTime()) {
+      const attempt = existing.processingAttempts;
+      if (
+        existing.processingStatus === 'CLAIMED'
+        && existing.processingLeaseExpiresAt
+        && existing.processingLeaseExpiresAt.getTime() > now.getTime()
+      ) {
         return {
           id: existing.id,
           created: false,
           disposition: 'IN_PROGRESS',
           attempt,
           claimToken: null,
-          leaseExpiresAt: existing.processedAt,
+          leaseExpiresAt: existing.processingLeaseExpiresAt,
           processingStatus: existing.processingStatus,
           deterministicResult: null,
         };
@@ -136,12 +145,22 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
           attempts: attempt,
         };
         const exhausted = await this.prisma.whatsappInboundEvent.updateMany({
-          where: { id: existing.id, processingStatus: 'CLAIMED', processedAt: existing.processedAt },
+          where: {
+            id: existing.id,
+            processingStatus: existing.processingStatus,
+            processingAttempts: attempt,
+            processingLeaseExpiresAt: existing.processingLeaseExpiresAt,
+          },
           data: {
             processingStatus: 'ATTEMPTS_EXHAUSTED',
             processedAt: now,
             errorMessage: 'WHATSAPP_INBOUND_ATTEMPTS_EXHAUSTED',
             deterministicResult: terminalResult,
+            processingLeaseOwnerHash: null,
+            processingLeaseExpiresAt: null,
+            nextRetryAt: null,
+            lastErrorCode: 'WHATSAPP_INBOUND_ATTEMPTS_EXHAUSTED',
+            retryable: false,
           },
         });
         if (exhausted.count === 1) {
@@ -161,11 +180,21 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
 
       const recoveredClaim = this.claimMetadata(attempt + 1, now);
       const recovered = await this.prisma.whatsappInboundEvent.updateMany({
-        where: { id: existing.id, processingStatus: 'CLAIMED', processedAt: existing.processedAt },
+        where: {
+          id: existing.id,
+          processingStatus: existing.processingStatus,
+          processingAttempts: attempt,
+          processingLeaseExpiresAt: existing.processingLeaseExpiresAt,
+        },
         data: {
-          processedAt: new Date(recoveredClaim.leaseExpiresAt),
+          processingStatus: 'CLAIMED',
+          processingAttempts: { increment: 1 },
+          processingLeaseOwnerHash: this.hash(recoveredClaim.claimToken),
+          processingLeaseExpiresAt: recoveredClaim.leaseExpiresAt,
+          nextRetryAt: null,
           errorMessage: null,
-          deterministicResult: recoveredClaim,
+          lastErrorCode: null,
+          retryable: true,
         },
       });
       if (recovered.count === 1) {
@@ -185,16 +214,25 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
   ) {
     const normalizedId = this.requiredBounded(id, 191, 'WHATSAPP_INBOUND_ID_INVALID');
     const normalizedStatus = this.requiredBounded(processingStatus, 64, 'WHATSAPP_PROCESSING_STATUS_INVALID');
-    const tokenFilter = claimToken
-      ? { deterministicResult: { path: ['claimToken'], equals: claimToken } }
-      : {};
+    if (!claimToken) throw new Error('WHATSAPP_INBOUND_CLAIM_TOKEN_REQUIRED');
+    const retryable = normalizedStatus === 'FAILED';
     const completed = await this.prisma.whatsappInboundEvent.updateMany({
-      where: { id: normalizedId, processingStatus: 'CLAIMED', ...tokenFilter },
+      where: {
+        id: normalizedId,
+        processingStatus: 'CLAIMED',
+        processingLeaseOwnerHash: this.hash(claimToken),
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
       data: {
         processingStatus: normalizedStatus,
         processedAt: new Date(),
         errorMessage: errorCode,
         deterministicResult: this.safeJson(result),
+        processingLeaseOwnerHash: null,
+        processingLeaseExpiresAt: null,
+        nextRetryAt: retryable ? new Date(Date.now() + 5_000) : null,
+        lastErrorCode: errorCode,
+        retryable,
       },
     });
     if (completed.count === 1) return;
@@ -234,6 +272,54 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
 
   async transitionHandoff(input: Parameters<WhatsappProductionRepository['transitionHandoff']>[0]) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "whatsapp_conversations" WHERE "id" = ${input.conversationId} FOR UPDATE`;
+      const current = await tx.whatsappConversation.findUnique({
+        where: { id: input.conversationId },
+        select: {
+          status: true,
+          humanStatus: true,
+          sofiaEnabled: true,
+          assignedToUserId: true,
+          handoffVersion: true,
+        },
+      });
+      if (!current) throw new Error('WHATSAPP_HANDOFF_VERSION_CONFLICT');
+
+      const currentMatchesTarget = current.humanStatus === input.nextState
+        && current.status === input.status
+        && current.sofiaEnabled === input.sofiaEnabled
+        && current.assignedToUserId === input.assignedToUserId;
+      const replayVersion = current.handoffVersion;
+      if (
+        currentMatchesTarget
+        && (replayVersion === input.expectedVersion || replayVersion === input.expectedVersion + 1)
+      ) {
+        const latestEvent = await tx.whatsappHandoffEvent.findUnique({
+          where: {
+            conversationId_version: {
+              conversationId: input.conversationId,
+              version: replayVersion,
+            },
+          },
+          select: { actorId: true, nextState: true, reasonCode: true },
+        });
+        if (
+          latestEvent?.actorId === input.actorId
+          && latestEvent.nextState === input.nextState
+          && latestEvent.reasonCode === input.reasonCode
+        ) {
+          return {
+            state: current.humanStatus,
+            version: current.handoffVersion,
+            assignedActorId: current.assignedToUserId,
+            replayed: true,
+          };
+        }
+      }
+
+      if (current.handoffVersion !== input.expectedVersion || current.humanStatus !== input.previousState) {
+        throw new Error('WHATSAPP_HANDOFF_VERSION_CONFLICT');
+      }
       const changed = await tx.whatsappConversation.updateMany({
         where: { id: input.conversationId, handoffVersion: input.expectedVersion, humanStatus: input.previousState },
         data: {
@@ -268,7 +354,7 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
         oldValues: { state: input.previousState, version: input.expectedVersion },
         newValues: { state: input.nextState, version },
       }, tx);
-      return { state: input.nextState, version, assignedActorId: input.assignedToUserId };
+      return { state: input.nextState, version, assignedActorId: input.assignedToUserId, replayed: false };
     });
   }
 
@@ -373,10 +459,9 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
 
   private claimMetadata(attempt: number, now: Date): InboundClaimMetadata {
     return {
-      claimVersion: INBOUND_CLAIM_VERSION,
       claimToken: randomUUID(),
       attempt,
-      leaseExpiresAt: new Date(now.getTime() + INBOUND_LEASE_MS).toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + INBOUND_LEASE_MS),
     };
   }
 
@@ -392,19 +477,10 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
       disposition: 'ACQUIRED',
       attempt: metadata.attempt,
       claimToken: metadata.claimToken,
-      leaseExpiresAt: new Date(metadata.leaseExpiresAt),
+      leaseExpiresAt: metadata.leaseExpiresAt,
       processingStatus,
       deterministicResult: null,
     };
-  }
-
-  private claimAttempt(value: Prisma.JsonValue | null): number {
-    if (!value || Array.isArray(value) || typeof value !== 'object') return 1;
-    const metadata = value as Record<string, Prisma.JsonValue>;
-    const attempt = metadata.attempt ?? metadata.attempts;
-    return typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0
-      ? Math.min(attempt, INBOUND_MAX_ATTEMPTS)
-      : 1;
   }
 
   private assertSameInbound(

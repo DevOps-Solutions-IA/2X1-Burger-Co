@@ -28,7 +28,7 @@ type WindowCounter = {
 const DEFAULT_POLICY: WhatsappInboundRateLimitPolicy = {
   windowMs: 60_000,
   accountLimit: 300,
-  senderLimit: 30,
+  senderLimit: 20,
   maxTrackedAccounts: 100,
   maxTrackedSenders: 10_000,
 };
@@ -43,6 +43,15 @@ export class WhatsappInboundRateLimitPolicyService {
     for (const [key, value] of Object.entries(this.policy)) {
       if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`WHATSAPP_RATE_LIMIT_POLICY_INVALID:${key}`);
     }
+  }
+
+  static fromEnvironment() {
+    const raw = process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE ?? '20';
+    const senderLimit = Number(raw);
+    if (!Number.isSafeInteger(senderLimit) || senderLimit <= 0 || senderLimit > 10_000) {
+      throw new Error('WHATSAPP_RATE_LIMIT_ENV_INVALID');
+    }
+    return new WhatsappInboundRateLimitPolicyService({ senderLimit });
   }
 
   evaluate(input: WhatsappInboundRateLimitInput): WhatsappInboundRateLimitDecision {

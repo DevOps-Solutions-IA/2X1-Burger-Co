@@ -73,7 +73,7 @@ export class SofiaWhatsappService {
     const mode = this.providerFactory.resolveMode(headers);
     const providerName = this.providerFactory.resolveProviderName(providerParam, headers);
     const provider = this.providerFactory.getProvider(providerName);
-    const parsed = provider.parseInboundWebhook(rawPayload, headers);
+    let parsed = provider.parseInboundWebhook(rawPayload, headers);
     const effectiveProvider = provider.provider;
 
     if (
@@ -137,6 +137,12 @@ export class SofiaWhatsappService {
     if (ingress.event.kind !== 'INBOUND_MESSAGE') {
       throw new BadRequestException({ code: 'WHATSAPP_EVENT_CLASSIFICATION_INVALID' });
     }
+    parsed = {
+      ...parsed,
+      phone: ingress.event.sender,
+      body: ingress.event.messageType === 'AUDIO' ? null : ingress.event.sanitizedText,
+      transcript: ingress.event.messageType === 'AUDIO' ? ingress.event.sanitizedText : null,
+    };
     try {
     if (!parsed.phone) {
       await this.inboundGateway.complete(ingress.claim.inboundEventId, 'REJECTED', { processingStatus: 'REJECTED' }, 'WHATSAPP_PHONE_REQUIRED');

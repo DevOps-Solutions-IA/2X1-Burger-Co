@@ -83,9 +83,11 @@ import { WhatsappOutboundGateway } from './whatsapp/production/whatsapp-outbound
 import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-provider-health.service';
 import { WHATSAPP_PRODUCTION_REPOSITORY } from './whatsapp/production/whatsapp-production.repository';
 import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-verifier';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { CustomerServiceModule } from '../customer-service/customer-service.module';
 
 @Module({
-  imports: [SofiaAutoSafeModule, DomainContractsModule],
+  imports: [SofiaAutoSafeModule, DomainContractsModule, NotificationsModule, CustomerServiceModule],
   controllers: [
     SofiaController,
     SofiaPublicPaymentsController,

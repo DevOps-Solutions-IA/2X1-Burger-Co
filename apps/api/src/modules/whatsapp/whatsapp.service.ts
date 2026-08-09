@@ -16,6 +16,7 @@ import type {
 import QRCode from 'qrcode';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrdersService } from '../orders/orders.service';
@@ -880,6 +881,8 @@ export class WhatsappService implements OnModuleDestroy {
       }
 
       const captureResult = await this.ordersService.captureDeliveryLocationFromWhatsapp({
+        sourceEventKey: this.hashLocationEvent(remoteJid, String(message?.key?.id ?? '')),
+        payloadHash: this.hashLocationPayload(normalizedContent),
         rawSenderJid: remoteJid,
         participantJid: String(message?.key?.participant ?? message?.participant ?? ''),
         remoteJid,
@@ -890,7 +893,7 @@ export class WhatsappService implements OnModuleDestroy {
       });
 
       const updatedOrder = captureResult.order;
-      if (!updatedOrder || !this.socket) {
+      if (!updatedOrder) {
         this.logger.warn(
           'Se recibió una ubicación, pero no existe una correlación exacta con una comanda activa.',
         );
@@ -900,20 +903,16 @@ export class WhatsappService implements OnModuleDestroy {
       this.logger.log(
         `Ubicación logística aplicada a ${updatedOrder.number} mediante correlación exacta. Tarifa conservada.`,
       );
-
-      if ((await this.outboundBlockers({ automated: true })).length === 0) {
-        await this.withTimeout(
-          this.socket.sendMessage(remoteJid, {
-            text: [
-              `Ubicación recibida para tu pedido ${updatedOrder.number}.`,
-              'La usaremos para facilitar la entrega.',
-              'Tu cuenta conserva la tarifa de domicilio ya calculada.',
-            ].join('\n'),
-          }),
-          this.configService.get<number>('WHATSAPP_SEND_TIMEOUT_MS') ?? 45000,
-        );
-      }
     }
+  }
+
+  private hashLocationEvent(remoteJid: string, messageId: string) {
+    if (!messageId) throw new BadRequestException('La ubicación no incluye identidad de evento.');
+    return createHash('sha256').update(`qr_gateway:location:${remoteJid}:${messageId}`).digest('hex');
+  }
+
+  private hashLocationPayload(payload: WAMessageContent | null) {
+    return createHash('sha256').update(JSON.stringify(payload ?? null)).digest('hex');
   }
 
   private unwrapWhatsappMessageContent(

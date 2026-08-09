@@ -8,6 +8,7 @@ import {
 import {
   UNKNOWN_NOTIFICATION_RESULT_POLICY,
   assertNotificationTransition,
+  decideNotificationReconciliation,
   evaluateNotificationClaim,
 } from './notification.policy';
 
@@ -49,29 +50,47 @@ describe('notification domain policy', () => {
       assumeNotDelivered: false,
       requiresHumanReconciliation: true,
     });
-    expect(() => assertNotificationTransition('UNKNOWN_RESULT', 'ACCEPTED')).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
-    expect(() => assertNotificationTransition('UNKNOWN_RESULT', 'ACCEPTED', {
+    expect(() => assertNotificationTransition('UNKNOWN_RESULT', 'SUCCEEDED')).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
+    expect(() => assertNotificationTransition('UNKNOWN_RESULT', 'SUCCEEDED', {
       manualReconciliation: true, resultCertainty: 'ACCEPTED',
     })).not.toThrow();
   });
 
-  it('retries a known failure only when the provider definitely did not accept it', () => {
+  it('keeps terminal failures outside the send claim state machine', () => {
     expect(() => assertNotificationTransition('FAILED', 'CLAIMED', {
       retryable: true, resultCertainty: 'NOT_ACCEPTED',
-    })).not.toThrow();
-    expect(() => assertNotificationTransition('FAILED', 'CLAIMED', {
-      retryable: true, resultCertainty: 'UNKNOWN',
     })).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
   });
 
   it('binds dispatch transitions to explicit result certainty', () => {
-    expect(() => assertNotificationTransition('DISPATCHING', 'ACCEPTED')).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
-    expect(() => assertNotificationTransition('DISPATCHING', 'ACCEPTED', {
+    expect(() => assertNotificationTransition('DISPATCHED', 'SUCCEEDED')).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
+    expect(() => assertNotificationTransition('DISPATCHED', 'SUCCEEDED', {
       resultCertainty: 'ACCEPTED',
     })).not.toThrow();
-    expect(() => assertNotificationTransition('DISPATCHING', 'UNKNOWN_RESULT', {
+    expect(() => assertNotificationTransition('DISPATCHED', 'UNKNOWN_RESULT', {
       resultCertainty: 'UNKNOWN',
     })).not.toThrow();
+  });
+
+  it('maps normalized command and outbound evidence without creating a second send decision engine', () => {
+    expect(decideNotificationReconciliation({
+      status: 'COMMAND_PENDING', observation: 'COMMAND_PENDING', explicitReconciliation: false,
+    })).toEqual({ action: 'DEFER', targetStatus: null, resultCertainty: 'NOT_ATTEMPTED' });
+    expect(decideNotificationReconciliation({
+      status: 'COMMAND_PENDING', observation: 'OUTBOUND_PENDING', explicitReconciliation: false,
+    })).toEqual({ action: 'TRANSITION', targetStatus: 'DISPATCHED', resultCertainty: 'ACCEPTED' });
+    expect(decideNotificationReconciliation({
+      status: 'COMMAND_PENDING', observation: 'OUTBOUND_SUCCEEDED', explicitReconciliation: false,
+    })).toEqual({ action: 'TRANSITION', targetStatus: 'SUCCEEDED', resultCertainty: 'ACCEPTED' });
+  });
+
+  it('requires explicit reconciliation before resolving an unknown result', () => {
+    expect(() => decideNotificationReconciliation({
+      status: 'UNKNOWN_RESULT', observation: 'OUTBOUND_SUCCEEDED', explicitReconciliation: false,
+    })).toThrow('NOTIFICATION_STATUS_TRANSITION_BLOCKED');
+    expect(decideNotificationReconciliation({
+      status: 'UNKNOWN_RESULT', observation: 'OUTBOUND_SUCCEEDED', explicitReconciliation: true,
+    })).toEqual({ action: 'TRANSITION', targetStatus: 'SUCCEEDED', resultCertainty: 'ACCEPTED' });
   });
 
   it('generates deterministic canonical hashes in separate namespaces', () => {
@@ -83,8 +102,8 @@ describe('notification domain policy', () => {
       scope: 'store-1',
       complaintId: 'complaint-1',
       eventId: 'event-1',
-      channel: 'EMAIL' as const,
-      purpose: 'CUSTOMER_SERVICE_CASE_UPDATE' as const,
+      channel: 'WHATSAPP' as const,
+      purpose: 'SERVICE' as const,
       recipientIdentityHash,
       templateVersion: 'case-update.v1',
       factsHash,
@@ -100,8 +119,8 @@ describe('notification domain policy', () => {
 
   it('changes the idempotency key when any bound delivery identity changes', () => {
     const base = {
-      scope: 'store-1', complaintId: 'complaint-1', eventId: 'event-1', channel: 'EMAIL' as const,
-      purpose: 'CUSTOMER_SERVICE_CASE_UPDATE' as const,
+      scope: 'store-1', complaintId: 'complaint-1', eventId: 'event-1', channel: 'WHATSAPP' as const,
+      purpose: 'SERVICE' as const,
       recipientIdentityHash: notificationRecipientIdentityHash('customer@example.com'),
       templateVersion: 'case-update.v1', factsHash: deterministicNotificationHash(['fact-1']),
     };
