@@ -2,7 +2,7 @@
   "status": "PASS",
   "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
   "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
-  "evidenceCommitSha": "SEE_FINAL_PR_HEAD",
+  "evidenceCommitSha": "SEE_PR_12_HEAD",
   "runtimeFocusedValidationParentSha": "0cd1ebeabad943d5838e27ef5cfb74715e90cebd",
   "validationLineage": "60af56e changes release/recovery/test code only; application runtime is unchanged from the focused parent",
   "migrationFrontier": "37/37",
@@ -52,9 +52,10 @@
     "rtoSeconds": 13.335,
     "cleanup": "0_CONTAINERS_0_VOLUMES_0_NETWORKS_CRYPTO_REMOVED"
   },
-  "remoteCi": "PENDING_FINAL_PR_HEAD",
+  "pullRequest": 12,
+  "remoteCi": "PENDING_PR_12_FINAL_HEAD",
   "productionModified": false,
   "realBold": false,
   "autoWhatsapp": false,
-  "recordedAt": "2026-08-09T13:28:06Z"
+  "recordedAt": "2026-08-09T13:37:48Z"
 }

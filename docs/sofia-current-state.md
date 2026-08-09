@@ -6,7 +6,7 @@ Este archivo es la fuente de verdad vigente para agentes. Los reportes historico
 
 ## Decision vigente
 
-**Phases 3, 4, 5 y 6 fusionadas. Phase 7 esta implementada y en validacion final. Produccion permanece cerrada.**
+**Phases 3, 4, 5 y 6 fusionadas. Phase 7 esta implementada en Draft PR #12 y en validacion final. Produccion permanece cerrada.**
 
 El source actual en `main` es `064a2706c099c75b6a4cd68eb916b037cd6dc302` y contiene 37 migraciones. El runtime artifact local validado proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD de codigo revisado es `8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75` y su delta posterior al runtime solo fija acciones CI/CD a commits inmutables. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
 
@@ -35,7 +35,7 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
 | Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
 | Migracion Phase 6 | 37/37 validada y fusionada | No aplicada por este programa |
-| Phase 7 | Hardening implementado; CI/PR final pendientes | Sin migration 38 |
+| Phase 7 | Hardening implementado; Draft PR #12, CI final pendiente | Sin migration 38 |
 
 ## Capacidades implementadas
 

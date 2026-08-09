@@ -5,7 +5,7 @@
   "baseSha": "064a2706c099c75b6a4cd68eb916b037cd6dc302",
   "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
   "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
-  "finalSha": "SEE_FINAL_PR_HEAD",
+  "finalSha": "SEE_PR_12_HEAD",
   "migrationFrontier": 37,
   "phase07MigrationCount": 0,
   "freshMigrationValidation": "PASS_37_OF_37",
@@ -17,14 +17,14 @@
   "postgresConcurrencyFaultLoad": "PASS_41_OF_41",
   "criticalRbacRegression": "PASS_92_OF_92",
   "localCi": "PASS_EXACT_ARTIFACT_E2E_AND_RECOVERY",
-  "remoteCi": "PENDING_FINAL_HEAD",
+  "remoteCi": "PENDING_PR_12_FINAL_HEAD",
   "securityReview": "PASS_0_CRITICAL_0_HIGH",
   "architectureReview": "PASS_NO_DUPLICATE_AUTHORITIES",
   "acceptedMediumRisks": 2,
   "mockSandboxAudit": "PASS_0_MOCK_0_SANDBOX_0_FAKE_SUCCESS",
   "resilienceValidation": "PASS_RPO_0_RTO_13.335",
   "observabilityValidation": "PASS_LOCAL_OWNER_ROUTING_PENDING_ACTIVATION",
-  "pullRequest": "PENDING",
+  "pullRequest": 12,
   "productionActivationAuthorized": false,
-  "lastUpdated": "2026-08-09T13:28:06Z"
+  "lastUpdated": "2026-08-09T13:37:48Z"
 }
