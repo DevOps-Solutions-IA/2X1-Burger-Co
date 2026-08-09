@@ -30,6 +30,7 @@ export class WhatsappInboundDeduplicator {
         claimToken: claimed.claimToken,
         attempt: claimed.attempt ?? 1,
         leaseExpiresAt: claimed.leaseExpiresAt,
+        recoveryCheckpoint: claimed.deterministicResult,
         replay: null,
       });
     }
@@ -40,6 +41,21 @@ export class WhatsappInboundDeduplicator {
         processingStatus: claimed.disposition === 'IN_PROGRESS' ? 'PROCESSING' : claimed.processingStatus,
       },
     });
+  }
+
+  checkpoint(claim: WhatsappInboundClaimContext, checkpoint: unknown) {
+    return this.repository.checkpointInbound(
+      claim.inboundEventId,
+      checkpoint,
+      claim.claimToken,
+    );
+  }
+
+  renew(claim: WhatsappInboundClaimContext) {
+    return this.repository.renewInboundLease(
+      claim.inboundEventId,
+      claim.claimToken,
+    );
   }
 
   complete(claim: WhatsappInboundClaimContext, processingStatus: string, result: unknown, errorCode?: string | null) {

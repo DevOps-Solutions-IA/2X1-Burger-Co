@@ -63,4 +63,12 @@ export class WhatsappInboundGateway {
   complete(claim: WhatsappInboundClaimContext, processingStatus: string, result: unknown, errorCode?: string | null) {
     return this.deduplicator.complete(claim, processingStatus, result, errorCode);
   }
+
+  checkpoint(claim: WhatsappInboundClaimContext, checkpoint: unknown) {
+    return this.deduplicator.checkpoint(claim, checkpoint);
+  }
+
+  renew(claim: WhatsappInboundClaimContext) {
+    return this.deduplicator.renew(claim);
+  }
 }

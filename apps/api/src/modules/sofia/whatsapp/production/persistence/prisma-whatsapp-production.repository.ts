@@ -198,11 +198,65 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
         },
       });
       if (recovered.count === 1) {
-        return this.acquiredClaim(existing.id, 'CLAIMED', recoveredClaim, false);
+        return this.acquiredClaim(
+          existing.id,
+          'CLAIMED',
+          recoveredClaim,
+          false,
+          existing.deterministicResult,
+        );
       }
     }
 
     throw new Error('WHATSAPP_INBOUND_CLAIM_CONTENTION');
+  }
+
+  async checkpointInbound(id: string, checkpoint: unknown, claimToken: string) {
+    const normalizedId = this.requiredBounded(id, 191, 'WHATSAPP_INBOUND_ID_INVALID');
+    const normalizedToken = this.requiredBounded(claimToken, 191, 'WHATSAPP_INBOUND_CLAIM_TOKEN_REQUIRED');
+    const checkpointed = await this.prisma.whatsappInboundEvent.updateMany({
+      where: {
+        id: normalizedId,
+        processingStatus: 'CLAIMED',
+        processingLeaseOwnerHash: this.hash(normalizedToken),
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+      data: {
+        deterministicResult: this.safeJson(checkpoint),
+      },
+    });
+    if (checkpointed.count === 1) return;
+
+    const existing = await this.prisma.whatsappInboundEvent.findUnique({
+      where: { id: normalizedId },
+      select: { processingStatus: true },
+    });
+    if (!existing) throw new Error('WHATSAPP_INBOUND_NOT_FOUND');
+    throw new Error('WHATSAPP_INBOUND_LEASE_LOST');
+  }
+
+  async renewInboundLease(id: string, claimToken: string) {
+    const normalizedId = this.requiredBounded(id, 191, 'WHATSAPP_INBOUND_ID_INVALID');
+    const normalizedToken = this.requiredBounded(claimToken, 191, 'WHATSAPP_INBOUND_CLAIM_TOKEN_REQUIRED');
+    const now = new Date();
+    const leaseExpiresAt = new Date(now.getTime() + INBOUND_LEASE_MS);
+    const renewed = await this.prisma.whatsappInboundEvent.updateMany({
+      where: {
+        id: normalizedId,
+        processingStatus: 'CLAIMED',
+        processingLeaseOwnerHash: this.hash(normalizedToken),
+        processingLeaseExpiresAt: { gt: now },
+      },
+      data: { processingLeaseExpiresAt: leaseExpiresAt },
+    });
+    if (renewed.count === 1) return leaseExpiresAt;
+
+    const existing = await this.prisma.whatsappInboundEvent.findUnique({
+      where: { id: normalizedId },
+      select: { processingStatus: true },
+    });
+    if (!existing) throw new Error('WHATSAPP_INBOUND_NOT_FOUND');
+    throw new Error('WHATSAPP_INBOUND_LEASE_LOST');
   }
 
   async completeInbound(
@@ -227,7 +281,7 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
         processingStatus: normalizedStatus,
         processedAt: new Date(),
         errorMessage: errorCode,
-        deterministicResult: this.safeJson(result),
+        deterministicResult: retryable ? undefined : this.safeJson(result),
         processingLeaseOwnerHash: null,
         processingLeaseExpiresAt: null,
         nextRetryAt: retryable ? new Date(Date.now() + 5_000) : null,
@@ -470,6 +524,7 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
     processingStatus: string,
     metadata: InboundClaimMetadata,
     created: boolean,
+    deterministicResult: unknown = null,
   ): ClaimedInbound {
     return {
       id,
@@ -479,7 +534,7 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
       claimToken: metadata.claimToken,
       leaseExpiresAt: metadata.leaseExpiresAt,
       processingStatus,
-      deterministicResult: null,
+      deterministicResult,
     };
   }
 

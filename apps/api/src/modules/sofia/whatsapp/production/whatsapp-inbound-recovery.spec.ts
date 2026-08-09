@@ -95,6 +95,31 @@ describe('WhatsApp inbound leased recovery', () => {
     }));
   });
 
+  it('recovers a fenced conversational checkpoint without losing it', async () => {
+    const checkpoint = {
+      kind: 'SOFIA_CONVERSATION_RESULT_V1',
+      eventHash: 'event-hash',
+      conversationId: 'conversation-1',
+      inboundMessageId: 'message-1',
+    };
+    const inbound = {
+      create: jest.fn().mockRejectedValue(duplicateError()),
+      findFirst: jest.fn().mockResolvedValue(existing({
+        processingLeaseExpiresAt: new Date(Date.now() - 1),
+        deterministicResult: checkpoint,
+      })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    };
+    const repository = repositoryWith(inbound);
+
+    await expect(repository.claimInbound(input)).resolves.toMatchObject({
+      disposition: 'ACQUIRED',
+      attempt: 2,
+      deterministicResult: checkpoint,
+    });
+    expect(inbound.updateMany.mock.calls[0]?.[0].data).not.toHaveProperty('deterministicResult');
+  });
+
   it('observes the winning lease when a concurrent recovery wins the CAS', async () => {
     const expired = existing({ processingLeaseExpiresAt: new Date(Date.now() - 1) });
     const active = existing({
@@ -164,6 +189,53 @@ describe('WhatsApp inbound leased recovery', () => {
     await expect(repository.completeInbound('row-1', 'FAILED', { code: 'FAILED' }, null, 'stale')).resolves.toBeUndefined();
     expect(inbound.updateMany.mock.calls[0]?.[0].where).toEqual(expect.objectContaining({
       processingLeaseOwnerHash: createHash('sha256').update('stale').digest('hex'),
+    }));
+  });
+
+  it('checkpoints only the live owned lease and preserves it on retryable failure', async () => {
+    const checkpoint = { kind: 'SOFIA_CONVERSATION_RESULT_V1', responseText: 'Respuesta segura.' };
+    const inbound = {
+      updateMany: jest.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 }),
+      findUnique: jest.fn(),
+    };
+    const repository = repositoryWith(inbound);
+
+    await expect(repository.checkpointInbound('row-1', checkpoint, 'lease-token')).resolves.toBeUndefined();
+    await expect(
+      repository.completeInbound('row-1', 'FAILED', { processingStatus: 'FAILED' }, 'CRASH', 'lease-token'),
+    ).resolves.toBeUndefined();
+
+    expect(inbound.updateMany.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      where: expect.objectContaining({
+        processingLeaseOwnerHash: createHash('sha256').update('lease-token').digest('hex'),
+      }),
+      data: { deterministicResult: checkpoint },
+    }));
+    expect(inbound.updateMany.mock.calls[1]?.[0].data).toEqual(expect.objectContaining({
+      processingStatus: 'FAILED',
+      deterministicResult: undefined,
+      retryable: true,
+    }));
+  });
+
+  it('renews only the live owned lease and fences stale workers', async () => {
+    const inbound = {
+      updateMany: jest.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 }),
+      findUnique: jest.fn().mockResolvedValue({ processingStatus: 'CLAIMED' }),
+    };
+    const repository = repositoryWith(inbound);
+
+    await expect(repository.renewInboundLease('row-1', 'lease-token')).resolves.toBeInstanceOf(Date);
+    await expect(repository.renewInboundLease('row-1', 'stale-token')).rejects.toThrow(
+      'WHATSAPP_INBOUND_LEASE_LOST',
+    );
+    expect(inbound.updateMany.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      where: expect.objectContaining({
+        processingStatus: 'CLAIMED',
+        processingLeaseOwnerHash: createHash('sha256').update('lease-token').digest('hex'),
+        processingLeaseExpiresAt: { gt: expect.any(Date) },
+      }),
+      data: { processingLeaseExpiresAt: expect.any(Date) },
     }));
   });
 

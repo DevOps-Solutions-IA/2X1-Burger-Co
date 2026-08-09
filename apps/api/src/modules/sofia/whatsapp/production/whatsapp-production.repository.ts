@@ -25,6 +25,7 @@ export type WhatsappInboundClaimContext = Readonly<{
   claimToken: string;
   attempt: number;
   leaseExpiresAt: Date;
+  recoveryCheckpoint: unknown;
 }>;
 
 export type WhatsappInboundClaimInput = {
@@ -41,6 +42,8 @@ export type WhatsappInboundClaimInput = {
 export interface WhatsappProductionRepository {
   resolveAccount(observation: ProviderAccountObservation): Promise<{ id: string; status: string }>;
   claimInbound(input: WhatsappInboundClaimInput): Promise<ClaimedInbound>;
+  renewInboundLease(id: string, claimToken: string): Promise<Date>;
+  checkpointInbound(id: string, checkpoint: unknown, claimToken: string): Promise<void>;
   completeInbound(
     id: string,
     processingStatus: string,
