@@ -69,7 +69,7 @@ jobs:
       - run: pnpm --filter @inventory-fastfood/web typecheck
       - run: pnpm --filter @inventory-fastfood/web build
       - name: Config and provenance contracts
-        run: pnpm --dir apps/api exec jest src/config/env.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
+        run: pnpm --dir apps/api exec jest src/config/env.spec.ts src/config/canary-release-config.spec.ts src/release/release-manifest.spec.ts --runInBand --detectOpenHandles
       - name: WhatsApp timeout lifecycle
         run: pnpm --dir apps/api exec jest src/modules/whatsapp/whatsapp-timeout.spec.ts --runInBand --detectOpenHandles
       - name: Delivery Phase A
@@ -111,6 +111,51 @@ jobs:
             src/modules/sofia/whatsapp/production/whatsapp-production.security.spec.ts \
             --runInBand \
             --detectOpenHandles
+      - name: Phase 7 production-hardening deterministic suites
+        run: |
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/config/env.spec.ts \
+            src/common/security/safe-remote-asset-fetcher.spec.ts \
+            src/modules/auth/auth.controller.throttle.spec.ts \
+            src/modules/auth/auth.refresh-concurrency.integration.spec.ts \
+            src/modules/health/health.service.spec.ts \
+            src/modules/health/observability.service.spec.ts \
+            src/modules/health/operational-alert-policy.spec.ts \
+            src/modules/health/operational-backlog.service.spec.ts \
+            src/modules/notifications/notification-intent-consumer.service.spec.ts \
+            src/modules/notifications/notification-outbox.service.spec.ts \
+            src/modules/notifications/notification-outbox.worker.spec.ts \
+            src/modules/notifications/notifications.architecture.spec.ts \
+            src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
+            src/modules/order-checkout/bold-early-webhook.integration.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
+            src/modules/order-checkout/kitchen-eligibility.service.spec.ts \
+            src/modules/order-checkout/payment-orchestration.spec.ts \
+            src/modules/order-checkout/persistence/prisma-order-checkout-provider-binding.spec.ts \
+            src/modules/order-checkout/phase5-runtime-gate.service.spec.ts \
+            src/modules/secure-command/command-policy.separation.spec.ts \
+            src/modules/sofia/ai/deepseek-ai.provider.spec.ts \
+            src/modules/sofia/privacy/sofia-privacy.service.spec.ts \
+            src/modules/sofia/sofia-abandoned-draft-recovery.spec.ts \
+            src/modules/sofia/sofia-payment-link.service.spec.ts \
+            src/modules/sofia/sofia-production-isolation.spec.ts \
+            src/modules/sofia/whatsapp/hermes-whatsapp.provider.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-distributed-rate-limit.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-outbound.gateway.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/qr-session-ownership.coordinator.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-fencing.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-reconnect.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-send-probe.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/whatsapp-authority.architecture.spec.ts \
+            src/modules/whatsapp/whatsapp-outbound-safety.spec.ts \
+            src/modules/whatsapp/whatsapp-timeout.spec.ts \
+            src/tests/phase7-load-chaos-ai-outage.spec.ts \
+            src/tests/phase7-load-chaos-event-notification-bursts.spec.ts \
+            src/tests/phase7-load-chaos-timeout-unknown-result.spec.ts \
+            src/tests/phase7-observability.contract.spec.ts \
+            --runInBand \
+            --detectOpenHandles
       - name: Phase 6 PostgreSQL persistence concurrency
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
@@ -120,6 +165,7 @@ jobs:
             src/modules/notifications/phase6-notification-pipeline.integration.spec.ts \
             src/modules/sofia/complaint-inbound.integration.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
+            src/tests/phase7-whatsapp-rate-limit-concurrency.integration.spec.ts \
             src/tests/whatsapp-production.integration.spec.ts \
             --runInBand \
             --detectOpenHandles

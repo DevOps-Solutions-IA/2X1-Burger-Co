@@ -3,15 +3,12 @@ import type { ParsedWhatsappInbound, WhatsappProviderName } from '../whatsapp-pr
 import { WhatsappDeliveryStatusService } from './whatsapp-delivery-status.service';
 import { WhatsappEventNormalizer } from './whatsapp-event-normalizer';
 import { WhatsappInboundDeduplicator } from './whatsapp-inbound-deduplicator';
-import { WhatsappInboundRateLimitPolicyService } from './whatsapp-inbound-rate-limit-policy.service';
 import { WhatsappProviderHealthService } from './whatsapp-provider-health.service';
 import type { ProviderAccountObservation } from './whatsapp-production.types';
 import type { WhatsappInboundClaimContext } from './whatsapp-production.repository';
 
 @Injectable()
 export class WhatsappInboundGateway {
-  private readonly rateLimits = WhatsappInboundRateLimitPolicyService.fromEnvironment();
-
   constructor(
     private readonly normalizer: WhatsappEventNormalizer,
     private readonly deduplicator: WhatsappInboundDeduplicator,
@@ -30,15 +27,20 @@ export class WhatsappInboundGateway {
     const account = await this.health.bind(event.account);
     const claim = await this.deduplicator.claim(event, account.id);
     if (claim.state === 'DETERMINISTIC_REPLAY') return { event, account, claim, terminal: true, result: claim.replay };
-    const rateLimit = this.rateLimits.evaluate({
+    const now = new Date();
+    const senderLimit = this.senderRateLimit();
+    const rateLimit = await this.deduplicator.consumeRateLimit({
       accountId: account.id,
-      senderIdentityHash: event.kind === 'INBOUND_MESSAGE' ? event.senderIdentityHash : null,
+      sender: event.kind === 'INBOUND_MESSAGE' ? event.sender : null,
+      accountLimit: 300,
+      senderLimit,
+      windowStartedAt: new Date(Math.floor(now.getTime() / 60_000) * 60_000),
     });
     if (!rateLimit.allowed) {
       const response = {
         processingStatus: 'RATE_LIMITED',
         reasonCode: rateLimit.reasonCode,
-        retryAfterMs: rateLimit.retryAfterMs,
+        retryAfterMs: 60_000 - (now.getTime() % 60_000),
       };
       await this.deduplicator.complete(claim, response.processingStatus, response, rateLimit.reasonCode);
       return { event, account, claim, terminal: true, result: response };
@@ -70,5 +72,13 @@ export class WhatsappInboundGateway {
 
   renew(claim: WhatsappInboundClaimContext) {
     return this.deduplicator.renew(claim);
+  }
+
+  private senderRateLimit() {
+    const value = Number(process.env.SOFIA_WHATSAPP_RATE_LIMIT_PER_MINUTE ?? 20);
+    if (!Number.isSafeInteger(value) || value <= 0 || value > 10_000) {
+      throw new Error('WHATSAPP_RATE_LIMIT_ENV_INVALID');
+    }
+    return value;
   }
 }

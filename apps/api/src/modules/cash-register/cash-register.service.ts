@@ -8,7 +8,6 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { toDecimal, toNumber } from '../../common/utils/decimal.util';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { OpenCashSessionDto } from './dto/open-cash-session.dto';
@@ -26,7 +25,6 @@ export class CashRegisterService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly reportsService: ReportsService,
-    private readonly whatsappService: WhatsappService,
     private readonly cashReconciliationService: CashReconciliationService,
   ) {}
 
@@ -219,38 +217,11 @@ export class CashRegisterService {
     const closureSnapshot = await this.reportsService.captureDailyClosure(closedSession.id, actorId, dto.notes);
     await this.invalidateAllWaiterSessions(actorId, closedSession.id);
 
-    let whatsappDispatch:
-      | {
-          success: boolean;
-          skipped?: boolean;
-          reason?: string;
-          groupJid?: string;
-          groupLabel?: string | null;
-          sentAt?: string;
-        }
-      | null = null;
-
-    try {
-      whatsappDispatch = await this.whatsappService.sendClosingSummary(closureSnapshot.id, actorId);
-    } catch (error) {
-      whatsappDispatch = {
-        success: false,
-        skipped: false,
-        reason: error instanceof Error ? error.message : String(error),
-      };
-
-      await this.auditService.log({
-        userId: actorId,
-        action: 'SEND_FAILED',
-        module: 'whatsapp',
-        entity: 'daily_closure',
-        entityId: closureSnapshot.id,
-        newValues: {
-          channel: 'whatsapp_internal_group',
-          error: whatsappDispatch.reason,
-        },
-      });
-    }
+    const whatsappDispatch = {
+      success: false,
+      skipped: true,
+      reason: 'WHATSAPP_LEGACY_TRANSPORT_RETIRED',
+    };
 
     return {
       ...closedSession,

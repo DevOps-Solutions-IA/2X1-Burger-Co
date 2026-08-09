@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { SecureCommandModule } from '../secure-command/secure-command.module';
+import { SofiaModule } from '../sofia/sofia.module';
 import { NotificationOutboxService } from './notification-outbox.service';
 import {
   NotificationDispatchPolicyPort,
@@ -20,6 +22,7 @@ import { NotificationIntentRepository } from './persistence/notification-intent.
 import { PrismaNotificationIntentRepository } from './persistence/prisma-notification-intent.repository';
 
 @Module({
+  imports: [SofiaModule, SecureCommandModule],
   providers: [
     NotificationOutboxService,
     NotificationIntentConsumerService,

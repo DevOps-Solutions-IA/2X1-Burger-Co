@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HermesWhatsappProvider } from './hermes-whatsapp.provider';
 import { MockWhatsappProvider } from './mock-whatsapp.provider';
@@ -13,7 +13,7 @@ const WHATSAPP_PROVIDERS: WhatsappProviderName[] = ['mock', 'hermes', 'qr_gatewa
 export class WhatsappProviderFactory {
   constructor(
     private readonly configService: ConfigService,
-    private readonly mockProvider: MockWhatsappProvider,
+    @Optional() private readonly mockProvider: MockWhatsappProvider | null,
     private readonly hermesProvider: HermesWhatsappProvider,
     private readonly qrGatewayProvider: SofiaWhatsappQrGatewayProvider,
     private readonly nullProvider: NullWhatsappProvider,
@@ -43,6 +43,7 @@ export class WhatsappProviderFactory {
   getProvider(providerName: WhatsappProviderName): WhatsappProviderAdapter {
     if (providerName === 'mock') {
       if (this.configService.get<string>('NODE_ENV') !== 'test') this.rejectMockProvider();
+      if (!this.mockProvider) this.rejectUnavailableMock();
       return this.mockProvider;
     }
     if (providerName === 'qr_gateway') return this.qrGatewayProvider;
@@ -95,6 +96,10 @@ export class WhatsappProviderFactory {
 
   private rejectMockProvider(): never {
     throw new BadRequestException({ code: 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN' });
+  }
+
+  private rejectUnavailableMock(): never {
+    throw new BadRequestException({ code: 'SOFIA_TEST_MOCK_WHATSAPP_NOT_REGISTERED' });
   }
 
   private headerValue(headers: Record<string, string | string[] | undefined> | undefined, name: string) {

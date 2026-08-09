@@ -8,14 +8,12 @@ import type { ThermalReceiptData } from '@/lib/thermal-receipt';
 type PosLastReceiptPanelProps = {
   receipt: ThermalReceiptData | null;
   onPrint: (receipt: ThermalReceiptData) => void | Promise<void>;
-  onOpenWhatsapp: () => void;
   onClose: () => void;
 };
 
 export function PosLastReceiptPanel({
   receipt,
   onPrint,
-  onOpenWhatsapp,
   onClose,
 }: PosLastReceiptPanelProps) {
   if (!receipt) {
@@ -32,7 +30,7 @@ export function PosLastReceiptPanel({
           <p className="text-sm font-semibold text-ink">{formatCurrency(receipt.total)}</p>
         </div>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
         <Button
           type="button"
           size="sm"
@@ -41,14 +39,6 @@ export function PosLastReceiptPanel({
           onClick={() => onPrint(receipt)}
         >
           Imprimir
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="min-w-0 border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
-          onClick={onOpenWhatsapp}
-        >
-          WhatsApp
         </Button>
         <Button type="button" size="sm" variant="secondary" className="min-w-0" onClick={onClose}>
           Cerrar

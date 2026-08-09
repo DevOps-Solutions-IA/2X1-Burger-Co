@@ -219,7 +219,7 @@ export class CanonicalPaymentWebhookService {
           await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
           await this.repository.markCheckoutPaymentVerified(intent.checkoutId);
           await this.repository.assertWebhookClaimOwned(webhookId, leaseOwnerHash);
-          await this.kitchen.evaluateAndMark(intent.checkoutId, null);
+          await this.kitchen.continueAfterVerifiedPayment(intent.checkoutId, null);
         }
       }
       await this.advanceCheckpoint(persisted.processedStatus, webhookId, leaseOwnerHash, 'DOWNSTREAM_APPLIED');
@@ -303,13 +303,6 @@ export class CanonicalPaymentWebhookService {
         reasonCode: 'BOLD_ACCOUNT_MISMATCH',
       };
     }
-    if (intent.status === PaymentIntentStatus.UNKNOWN_RESULT) {
-      return {
-        processedStatus: 'FINANCIAL_REVIEW_REQUIRED',
-        nextStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
-        reasonCode: 'WEBHOOK_AFTER_UNKNOWN_RESULT_REQUIRES_REVIEW',
-      };
-    }
     if (evidence.status === 'APPROVED') {
       if (intent.checkout.status === 'CANCELLED' || intent.checkout.status === 'EXPIRED') {
         return {
@@ -336,6 +329,13 @@ export class CanonicalPaymentWebhookService {
         processedStatus: 'FINANCIAL_REVIEW_REQUIRED',
         nextStatus: PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
         reasonCode: 'BOLD_PROVIDER_REVIEW',
+      };
+    }
+    if (intent.status === PaymentIntentStatus.UNKNOWN_RESULT) {
+      return {
+        processedStatus: 'PROCESSED',
+        nextStatus: PaymentIntentStatus.UNKNOWN_RESULT,
+        reasonCode: 'BOLD_WEBHOOK_PENDING_AFTER_UNKNOWN_RESULT',
       };
     }
     return {

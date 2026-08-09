@@ -247,6 +247,52 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
     throw new Error('WHATSAPP_INBOUND_CLAIM_CONTENTION');
   }
 
+  async consumeInboundRateLimit(input: Parameters<WhatsappProductionRepository['consumeInboundRateLimit']>[0]) {
+    const accountId = this.requiredBounded(input.accountId, 191, 'WHATSAPP_RATE_LIMIT_ACCOUNT_INVALID');
+    const sender = input.sender === null
+      ? null
+      : this.requiredBounded(input.sender, 191, 'WHATSAPP_RATE_LIMIT_SENDER_INVALID');
+    if (!Number.isSafeInteger(input.accountLimit) || input.accountLimit <= 0) {
+      throw new Error('WHATSAPP_RATE_LIMIT_ACCOUNT_LIMIT_INVALID');
+    }
+    if (!Number.isSafeInteger(input.senderLimit) || input.senderLimit <= 0) {
+      throw new Error('WHATSAPP_RATE_LIMIT_SENDER_LIMIT_INVALID');
+    }
+    if (!Number.isFinite(input.windowStartedAt.getTime())) throw new Error('WHATSAPP_RATE_LIMIT_WINDOW_INVALID');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        WITH locked AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtextextended(${`whatsapp-rate:account:${accountId}`}, 0))
+        )
+        SELECT TRUE AS "acquired" FROM locked
+      `;
+      if (sender) {
+        await tx.$queryRaw`
+          WITH locked AS MATERIALIZED (
+            SELECT pg_advisory_xact_lock(hashtextextended(${`whatsapp-rate:sender:${accountId}:${this.hash(sender)}`}, 0))
+          )
+          SELECT TRUE AS "acquired" FROM locked
+        `;
+      }
+      const accountCount = await tx.whatsappInboundEvent.count({
+        where: { accountId, receivedAt: { gte: input.windowStartedAt } },
+      });
+      if (accountCount > input.accountLimit) {
+        return { allowed: false, accountCount, senderCount: null, reasonCode: 'WHATSAPP_ACCOUNT_RATE_LIMITED' as const };
+      }
+      const senderCount = sender
+        ? await tx.whatsappInboundEvent.count({
+          where: { accountId, phone: sender, receivedAt: { gte: input.windowStartedAt } },
+        })
+        : null;
+      if (senderCount !== null && senderCount > input.senderLimit) {
+        return { allowed: false, accountCount, senderCount, reasonCode: 'WHATSAPP_SENDER_RATE_LIMITED' as const };
+      }
+      return { allowed: true, accountCount, senderCount, reasonCode: 'WHATSAPP_RATE_LIMIT_ALLOWED' as const };
+    });
+  }
+
   async recoverAbandonedInboundBatch(now = new Date(), limit = 25) {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const candidates = await this.prisma.whatsappInboundEvent.findMany({

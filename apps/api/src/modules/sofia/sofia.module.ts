@@ -43,10 +43,6 @@ import { SofiaLearningService } from './learning/sofia-learning.service';
 import { SofiaConversationMemoryService } from './memory/sofia-conversation-memory.service';
 import { SofiaCustomerMemoryService } from './memory/sofia-customer-memory.service';
 import { SofiaMetricsService } from './metrics/sofia-metrics.service';
-import { BoldPaymentProvider } from './payments/bold-payment.provider';
-import { MockPaymentProvider } from './payments/mock-payment.provider';
-import { NullPaymentProvider } from './payments/null-payment.provider';
-import { PaymentProviderFactory } from './payments/payment-provider.factory';
 import { SofiaPromptService } from './prompt/sofia-prompt.service';
 import { SofiaPrivacyService } from './privacy/sofia-privacy.service';
 import { SofiaAdminResponseSanitizerInterceptor } from './privacy/sofia-admin-response-sanitizer.interceptor';
@@ -57,12 +53,10 @@ import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaController } from './sofia.controller';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
 import { SofiaDevPaymentsController } from './sofia-payment-webhooks.controller';
-import { SofiaPublicPaymentsController } from './sofia-public-payments.controller';
 import { SofiaService } from './sofia.service';
 import { SofiaHermesWhatsappWebhookController, SofiaWhatsappWebhookController } from './sofia-whatsapp.controller';
 import { SofiaWhatsappService } from './sofia-whatsapp.service';
 import { HermesWhatsappProvider } from './whatsapp/hermes-whatsapp.provider';
-import { MockWhatsappProvider } from './whatsapp/mock-whatsapp.provider';
 import { NullWhatsappProvider } from './whatsapp/null-whatsapp.provider';
 import { SofiaWhatsappQrGatewayController } from './whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller';
 import { SofiaWhatsappQrGatewayProvider } from './whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.provider';
@@ -84,15 +78,17 @@ import { WhatsappProviderHealthService } from './whatsapp/production/whatsapp-pr
 import { WHATSAPP_PRODUCTION_REPOSITORY } from './whatsapp/production/whatsapp-production.repository';
 import { WhatsappWebhookVerifier } from './whatsapp/production/whatsapp-webhook-verifier';
 import { WhatsappInboundRecoveryWorker } from './whatsapp/production/whatsapp-inbound-recovery.worker';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { CustomerServiceModule } from '../customer-service/customer-service.module';
 
+const TEST_ONLY_CONTROLLERS = process.env.NODE_ENV === 'test'
+  ? [SofiaDevPaymentsController]
+  : [];
+
 @Module({
-  imports: [SofiaAutoSafeModule, DomainContractsModule, NotificationsModule, CustomerServiceModule],
+  imports: [SofiaAutoSafeModule, DomainContractsModule, CustomerServiceModule],
   controllers: [
     SofiaController,
-    SofiaPublicPaymentsController,
-    SofiaDevPaymentsController,
+    ...TEST_ONLY_CONTROLLERS,
     SofiaWhatsappWebhookController,
     SofiaHermesWhatsappWebhookController,
     SofiaWhatsappQrGatewayController,
@@ -101,12 +97,7 @@ import { CustomerServiceModule } from '../customer-service/customer-service.modu
   providers: [
     SofiaService,
     SofiaPaymentLinkService,
-    MockPaymentProvider,
-    BoldPaymentProvider,
-    NullPaymentProvider,
-    PaymentProviderFactory,
     SofiaAgentService,
-    MockWhatsappProvider,
     HermesWhatsappProvider,
     SofiaWhatsappQrGatewayProvider,
     NullWhatsappProvider,
@@ -197,6 +188,7 @@ import { CustomerServiceModule } from '../customer-service/customer-service.modu
     SofiaRuntimeSafetyService,
     SofiaCrmService,
     WhatsappOutboundCommandHandler,
+    WhatsappMessagePolicyService,
   ],
 })
 export class SofiaModule {}

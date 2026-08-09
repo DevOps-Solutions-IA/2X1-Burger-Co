@@ -1,6 +1,7 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { UnknownCommandResultError } from '../../../secure-command/secure-command.errors';
 import type { CommandHandlerResult, CommandRecord } from '../../../secure-command/secure-command.types';
 import { WhatsappMessagePolicyService } from './whatsapp-message-policy.service';
 import { WhatsappOutboundGateway } from './whatsapp-outbound.gateway';
@@ -59,6 +60,9 @@ export class WhatsappOutboundCommandHandler {
       sanitizedPayload: { code: result.code, acceptedAt: result.acceptedAt?.toISOString() ?? null },
       errorCode: result.code === 'WHATSAPP_SENT' ? null : result.code,
     });
+    if (result.unknownResult) {
+      throw new UnknownCommandResultError('WHATSAPP_UNKNOWN_RESULT');
+    }
     return { resultCode: result.code, payload: { outboundMessageId: outbound.id, providerMessageId: result.providerMessageId, unknownResult: result.unknownResult }, domainReferenceIds: [outbound.id] };
   }
 

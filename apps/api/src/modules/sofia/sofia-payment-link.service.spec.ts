@@ -1,47 +1,66 @@
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { AuditService } from '../audit/audit.service';
-import type { RealtimeService } from '../realtime/realtime.service';
-import type { PaymentProviderFactory } from './payments/payment-provider.factory';
-import type { SofiaPrivacyService } from './privacy/sofia-privacy.service';
-import type { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
+import { SofiaDevPaymentsController } from './sofia-payment-webhooks.controller';
+import { SofiaPublicPaymentsController } from './sofia-public-payments.controller';
 
-describe('SofiaPaymentLinkService production gate', () => {
-  const prisma = { whatsappDeliveryOrder: { findUnique: jest.fn() } } as unknown as PrismaService;
-  const evaluate = jest.fn();
-  const recordBlocked = jest.fn();
-  const service = new SofiaPaymentLinkService(
-    prisma,
-    {} as AuditService,
-    {} as RealtimeService,
-    {} as PaymentProviderFactory,
-    { evaluate, recordBlocked } as unknown as SofiaRuntimeSafetyService,
-    {} as SofiaPrivacyService,
-  );
+function expectCode(action: () => unknown, code: string) {
+  try {
+    action();
+    throw new Error('Expected action to throw.');
+  } catch (error) {
+    expect((error as { getResponse?: () => unknown }).getResponse?.()).toEqual(
+      expect.objectContaining({ code }),
+    );
+  }
+}
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    evaluate.mockResolvedValue({
-      allowed: false,
-      reason: 'PRODUCTION_DISABLED',
-      blockers: ['PRODUCTION_DISABLED'],
-    });
-    recordBlocked.mockResolvedValue({ id: 'audit-payment-blocked' });
+describe('Sofia legacy payment retirement', () => {
+  const service = new SofiaPaymentLinkService();
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('rejects every legacy payment mutation before persistence or provider work', () => {
+    const mutations = [
+      () => service.getPaymentSettings(),
+      () => service.updatePaymentSettings({ onlinePaymentsEnabled: true }, 'actor'),
+      () => service.generateOperationalLink('ticket-1', 'actor'),
+      () => service.getPublicPayment('legacy-token'),
+      () => service.selectPublicPaymentMethod('legacy-token', 'ONLINE'),
+      () => service.updateManualPaymentStatus('ticket-1', { status: 'FAILED' }, 'actor'),
+      () => service.processPaymentWebhook('bold', { status: 'APPROVED' }, {}),
+      () => service.simulateMockWebhook({ status: 'PAID' }),
+    ];
+
+    for (const mutation of mutations) {
+      expectCode(mutation, 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED');
+    }
   });
 
-  it.each(['CASH', 'NEQUI_MANUAL', 'ONLINE'] as const)(
-    'blocks %s before reading or mutating an order',
-    async (method) => {
-      await expect(service.selectPublicPaymentMethod('opaque-public-token', method)).rejects.toThrow(
-        'La selección de pago está bloqueada',
-      );
+  it('does not expose legacy payment state as an operational read authority', () => {
+    expectCode(() => service.getOperationalLink('ticket-1'), 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED');
+  });
 
-      expect(evaluate).toHaveBeenCalledWith('PRODUCTIVE_ACTION');
-      expect(recordBlocked).toHaveBeenCalledWith(
-        'PRODUCTIVE_ACTION',
-        expect.objectContaining({ reason: 'PRODUCTION_DISABLED' }),
-      );
-      expect(prisma.whatsappDeliveryOrder.findUnique).not.toHaveBeenCalled();
-    },
-  );
+  it('hard-disables both retained legacy controllers without invoking a service', () => {
+    const publicController = new SofiaPublicPaymentsController();
+    const devController = new SofiaDevPaymentsController();
+
+    expectCode(() => publicController.getPayment('legacy-token'), 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED');
+    expectCode(() => publicController.selectPaymentMethod('legacy-token'), 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED');
+    expectCode(() => devController.simulateMockWebhook(), 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED');
+  });
+
+  it('keeps the web payment page on the canonical Phase 5 API only', () => {
+    const page = readFileSync(
+      resolve(__dirname, '../../../../web/src/app/pagos/[token]/page.tsx'),
+      'utf8',
+    );
+
+    expect(page).toContain('/public/payments/${token}');
+    expect(page).toContain('/public/payments/${token}/start-online');
+    expect(page).not.toContain('/public/sofia/payments');
+    expect(page).not.toContain("type PaymentBackend = 'canonical' | 'legacy'");
+    expect(page).not.toContain("paymentStatus === 'PAID'");
+    expect(page).not.toContain('Pago recibido');
+  });
 });

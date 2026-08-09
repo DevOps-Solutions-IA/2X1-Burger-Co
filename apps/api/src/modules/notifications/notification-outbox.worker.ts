@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
@@ -18,6 +19,7 @@ export class NotificationOutboxWorker implements OnModuleInit, OnApplicationShut
   private stopping = false;
 
   constructor(
+    private readonly config: ConfigService,
     private readonly consumer: NotificationIntentConsumerService,
     private readonly outbox: NotificationOutboxService,
     private readonly observer: NotificationReconciliationObserver,
@@ -97,10 +99,7 @@ export class NotificationOutboxWorker implements OnModuleInit, OnApplicationShut
   }
 
   private enabled(): boolean {
-    const configured = process.env.NOTIFICATION_OUTBOX_WORKER_ENABLED?.trim().toLowerCase();
-    if (configured === 'true') return true;
-    if (configured === 'false') return false;
-    return process.env.NODE_ENV !== 'test';
+    return this.config.get<boolean>('NOTIFICATION_OUTBOX_WORKER_ENABLED') === true;
   }
 
   private errorCode(error: unknown): string {

@@ -59,6 +59,7 @@ function harness(overrides: { claim?: unknown; policy?: unknown; command?: unkno
   const outbox = {
     findClaimCandidates: jest.fn().mockResolvedValue([]),
     claim: jest.fn().mockResolvedValue(overrides.claim ?? { state: 'CLAIMED', intent: intent() }),
+    renewClaim: jest.fn().mockResolvedValue(true),
     markSuppressed: jest.fn().mockResolvedValue(intent({ status: NotificationIntentStatus.SUPPRESSED })),
     markPreDispatchFailure: jest.fn().mockResolvedValue(intent({ status: NotificationIntentStatus.PENDING })),
     markCommandPending: jest.fn().mockResolvedValue(intent({ status: NotificationIntentStatus.COMMAND_PENDING })),
@@ -111,6 +112,7 @@ describe('NotificationIntentConsumerService', () => {
     });
 
     expect(outbox.claim).toHaveBeenCalledWith('notification-1', 'worker-1', now);
+    expect(outbox.renewClaim).toHaveBeenCalledTimes(3);
     expect(policy.evaluate).toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-1' }));
     expect(materializer.materialize).toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-1' }));
     expect(materializer.materialize.mock.invocationCallOrder[0])
@@ -137,6 +139,21 @@ describe('NotificationIntentConsumerService', () => {
       now,
     });
     expect(commands).not.toHaveProperty('execute');
+  });
+
+  it('stops before creating a command when the durable claim lease is lost', async () => {
+    const { service, outbox, commands } = harness();
+    outbox.renewClaim.mockResolvedValue(false);
+
+    await expect(service.consume('notification-1', 'worker-1', now)).resolves.toEqual({
+      notificationIntentId: 'notification-1',
+      state: 'SKIPPED',
+      reasonCode: 'NOTIFICATION_CLAIM_LEASE_LOST',
+      secureCommandId: null,
+    });
+
+    expect(commands.receive).not.toHaveBeenCalled();
+    expect(outbox.markPreDispatchFailure).not.toHaveBeenCalled();
   });
 
   it('durably suppresses when consent, handoff or governance denies automation', async () => {
@@ -254,8 +271,7 @@ describe('NotificationIntentConsumerService', () => {
 describe('SecureCommandNotificationAdapter', () => {
   it('uses SecureCommandService.receive with immutable outbound binding and exposes no execute path', async () => {
     const receive = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, replayed: true });
-    const modules = { get: jest.fn().mockReturnValue({ receive }) };
-    const adapter = new SecureCommandNotificationAdapter(modules as never);
+    const adapter = new SecureCommandNotificationAdapter({ receive } as never);
 
     await expect(adapter.receive({
       notificationIntentId: 'notification-1',
@@ -299,8 +315,7 @@ describe('WhatsappNotificationDispatchPolicyAdapter', () => {
       handoff: { version: 9 },
       safety: { globalPaused: false, killSwitchActive: false },
     });
-    const modules = { get: jest.fn().mockReturnValue({ outbound }) };
-    const adapter = new WhatsappNotificationDispatchPolicyAdapter(modules as never);
+    const adapter = new WhatsappNotificationDispatchPolicyAdapter({ outbound } as never);
 
     await expect(adapter.evaluate(intent())).resolves.toEqual({
       allowed: true,

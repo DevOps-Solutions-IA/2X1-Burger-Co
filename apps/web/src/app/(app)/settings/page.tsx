@@ -114,34 +114,6 @@ export default function SettingsPage() {
     });
   }, [settings.data]);
 
-  const linkWhatsappGroup = useMutation({
-    mutationFn: () =>
-      apiFetch<{
-        success: boolean;
-        inviteCode: string;
-        groupJid: string;
-        groupLabel: string | null;
-        linkedAt: string;
-      }>('/whatsapp/daily-close-group/link', {
-        method: 'POST',
-        body: JSON.stringify({
-          inviteLink: form.closingSummaryGroupInviteCode,
-        }),
-      }),
-    onSuccess: (response) => {
-      setForm((current) => ({
-        ...current,
-        closingSummaryEnabled: true,
-        closingSummaryGroupInviteCode: response.inviteCode,
-        closingSummaryGroupJid: response.groupJid,
-        closingSummaryGroupLabel: response.groupLabel ?? current.closingSummaryGroupLabel,
-      }));
-      toast.success('Grupo de cierre enlazado y listo para automatización.');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No pudimos enlazar el grupo de WhatsApp.'),
-  });
-
   const saveSettings = useMutation({
     mutationFn: () =>
       apiFetch('/settings', {
@@ -176,17 +148,6 @@ export default function SettingsPage() {
               value: {
                 printSignature: form.printSignature,
                 timezone: form.timezone,
-              },
-            },
-            {
-              key: 'whatsapp.closing-summary',
-              category: 'whatsapp',
-              description: 'Configuración del grupo que recibe el cierre diario',
-              value: {
-                enabled: form.closingSummaryEnabled,
-                groupLabel: form.closingSummaryGroupLabel,
-                groupInviteCode: form.closingSummaryGroupInviteCode,
-                groupJid: form.closingSummaryGroupJid,
               },
             },
           ],
@@ -337,7 +298,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Cierre y reporte</h2>
-              <p className="text-[11px] text-stone-500">Parametros de cierre diario e impresion.</p>
+              <p className="text-[11px] text-stone-500">Parámetros de cierre diario e impresión.</p>
             </div>
           </div>
           <Field label="Zona horaria" hint="Fijada en Bogota, Colombia.">
@@ -357,51 +318,48 @@ export default function SettingsPage() {
           </label>
           <label className="flex items-center justify-between rounded-[1.5rem] border border-stone-200 bg-stone-50 px-3.5 py-3.5">
             <div>
-              <p className="text-[14px] font-bold text-ink">Cierre a WhatsApp</p>
-              <p className="text-[11px] text-stone-500">Envio automatico al grupo.</p>
+              <p className="text-[14px] font-bold text-ink">Cierre a WhatsApp legado</p>
+              <p className="text-[11px] text-stone-500">Configuración histórica, sin envío productivo.</p>
             </div>
             <input
               type="checkbox"
               checked={form.closingSummaryEnabled}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, closingSummaryEnabled: event.target.checked }))
-              }
+              disabled
+              readOnly
               className="h-5 w-5 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
             />
           </label>
           <Field label="Nombre del grupo de cierre">
             <Input
               value={form.closingSummaryGroupLabel}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, closingSummaryGroupLabel: event.target.value }))
-              }
+              disabled
+              readOnly
               placeholder="Ej. Equipo cierre nocturno"
             />
           </Field>
           <Field
             label="Código o enlace del grupo"
-            hint="Pega el enlace de invitacion. El sistema extrae el codigo."
+            hint="Dato histórico. El transporte legado ya no acepta enlaces."
           >
             <Input
               value={form.closingSummaryGroupInviteCode}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, closingSummaryGroupInviteCode: event.target.value }))
-              }
+              disabled
+              readOnly
               placeholder="https://chat.whatsapp.com/..."
             />
           </Field>
           <Field label="Grupo enlazado">
-            <Input value={form.closingSummaryGroupJid} readOnly placeholder="Se completa al validar" />
+            <Input value={form.closingSummaryGroupJid} readOnly disabled placeholder="Sin grupo histórico" />
           </Field>
 
           <Button
             type="button"
             variant="secondary"
             className="w-full"
-            disabled={!form.closingSummaryGroupInviteCode.trim() || linkWhatsappGroup.isPending}
-            onClick={() => linkWhatsappGroup.mutate()}
+            disabled
+            data-testid="settings-whatsapp-group-retired"
           >
-            {linkWhatsappGroup.isPending ? 'Enlazando grupo...' : 'Validar y enlazar grupo'}
+            Integración de grupo retirada
           </Button>
 
           <Button type="submit" className="w-full" disabled={saveSettings.isPending}>

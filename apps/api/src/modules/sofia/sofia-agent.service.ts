@@ -1156,7 +1156,7 @@ export class SofiaAgentService {
       draftId: draft.id,
       detectedIntent: 'RECOVER_ABANDONED_ORDER',
       currentItems: items,
-      nextAction: 'SEND_RECOVERY_SUGGESTION_SANDBOX',
+      nextAction: 'RECOVERY_SUGGESTION_READY',
       responseText,
       safeguards: {
         noWhatsappReal: true,

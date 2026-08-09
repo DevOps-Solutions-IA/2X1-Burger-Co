@@ -1,5 +1,5 @@
 import { ExecutionContext } from '@nestjs/common';
-import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, MODULE_METADATA } from '@nestjs/common/constants';
 import type { ConfigService } from '@nestjs/config';
 import type { BoldPaymentProvider } from './payments/bold-payment.provider';
 import { MockPaymentProvider } from './payments/mock-payment.provider';
@@ -50,6 +50,27 @@ describe('Sofia production mock isolation', () => {
     expectReasonCode(() => factory.resolve('MOCK'), 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN');
     await expectAsyncReasonCode(() => mock.getPaymentStatus(), 'SOFIA_PROD_MOCK_PAYMENT_FORBIDDEN');
     expect(factory.resolve('BOLD').provider).toBe('BOLD');
+  });
+
+  it('omits test providers and the dev payment controller from the production Nest graph', async () => {
+    process.env.NODE_ENV = 'production';
+    jest.resetModules();
+    const isolated = await import('./sofia.module');
+    const providers = (Reflect.getMetadata(MODULE_METADATA.PROVIDERS, isolated.SofiaModule) ?? []) as Array<unknown>;
+    const controllers = (Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, isolated.SofiaModule) ?? []) as Array<unknown>;
+    const names = (values: Array<unknown>) => values.map((value) => (value as { name?: string }).name ?? '');
+
+    expect(names(providers)).not.toEqual(expect.arrayContaining([
+      'MockPaymentProvider',
+      'MockWhatsappProvider',
+      'BoldPaymentProvider',
+      'NullPaymentProvider',
+      'PaymentProviderFactory',
+    ]));
+    expect(names(controllers)).not.toEqual(expect.arrayContaining([
+      'SofiaDevPaymentsController',
+      'SofiaPublicPaymentsController',
+    ]));
   });
 
   it('retains mock payment only in the explicit test runtime', () => {

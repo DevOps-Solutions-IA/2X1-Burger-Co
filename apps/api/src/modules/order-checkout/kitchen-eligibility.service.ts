@@ -18,8 +18,25 @@ export class KitchenEligibilityService {
     private readonly audit: AuditService,
   ) {}
 
+  async continueAfterVerifiedPayment(checkoutId: string, actorId: string | null) {
+    const gate = await this.gate.decision('KITCHEN');
+    if (!gate.enabled) {
+      return {
+        state: 'DEFERRED_DISABLED' as const,
+        reasonCode: 'KITCHEN_GATE_DISABLED' as const,
+        blockers: gate.blockers,
+      };
+    }
+    const checkout = await this.evaluateAndMarkAuthorized(checkoutId, actorId);
+    return { state: 'APPLIED' as const, checkout };
+  }
+
   async evaluateAndMark(checkoutId: string, actorId: string | null) {
     await this.gate.assertEnabled('KITCHEN');
+    return this.evaluateAndMarkAuthorized(checkoutId, actorId);
+  }
+
+  private async evaluateAndMarkAuthorized(checkoutId: string, actorId: string | null) {
     const checkout = await this.repository.requiredCheckout(checkoutId);
     const latest = checkout.paymentIntents[0] ?? null;
     const successes = await this.repository.successfulPaymentCount(checkout.id);

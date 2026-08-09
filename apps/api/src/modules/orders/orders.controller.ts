@@ -17,7 +17,6 @@ import { UpdateOperationalAlertDto } from './dto/update-operational-alert.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
 import { OrdersService } from './orders.service';
-import { UpdateSofiaManualPaymentStatusDto } from '../sofia/dto/sofia.dto';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -72,34 +71,6 @@ export class OrdersController {
   @Roles('admin', 'cashier', 'supervisor')
   findAll(@Query('status') status?: string, @Query('activeOnly') activeOnly?: string) {
     return this.ordersService.findAll(status, activeOnly === 'true');
-  }
-
-  @Get(':id/sofia-payment-link')
-  @Roles('admin', 'cashier', 'supervisor')
-  getSofiaPaymentLink(@Param('id') id: string) {
-    return this.ordersService.getSofiaPaymentLink(id);
-  }
-
-  @Post(':id/sofia-payment-link')
-  @Roles('admin', 'cashier', 'supervisor')
-  generateSofiaPaymentLink(@Param('id') id: string, @CurrentUser('sub') actorId: string) {
-    return this.ordersService.generateSofiaPaymentLink(id, actorId);
-  }
-
-  @Get(':id/sofia-payment-events')
-  @Roles('admin', 'cashier', 'supervisor')
-  listSofiaPaymentEvents(@Param('id') id: string) {
-    return this.ordersService.listSofiaPaymentEvents(id);
-  }
-
-  @Patch(':id/sofia-payment-status')
-  @Roles('admin', 'cashier', 'supervisor')
-  updateSofiaPaymentStatus(
-    @Param('id') id: string,
-    @Body() dto: UpdateSofiaManualPaymentStatusDto,
-    @CurrentUser('sub') actorId: string,
-  ) {
-    return this.ordersService.updateSofiaPaymentStatus(id, dto, actorId);
   }
 
   @Get(':id/delivery-receipt')

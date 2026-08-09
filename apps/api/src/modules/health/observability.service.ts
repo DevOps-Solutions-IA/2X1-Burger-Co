@@ -3,6 +3,8 @@ import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OperationalAlertPolicy } from './operational-alert-policy';
+import { OperationalBacklogService, type OperationalBacklogSnapshot } from './operational-backlog.service';
 
 type HttpObservation = {
   durationMs: number;
@@ -28,7 +30,11 @@ export class ObservabilityService {
   private httpErrors = 0;
   private readinessFailures = 0;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly operationalBacklog: OperationalBacklogService,
+    private readonly operationalAlerts: OperationalAlertPolicy,
+  ) {}
 
   recordHttp(observation: HttpObservation) {
     this.httpRequests += 1;
@@ -45,7 +51,10 @@ export class ObservabilityService {
     const memory = process.memoryUsage();
     const cpu = process.cpuUsage();
     const latency = this.latencySummary();
-    const database = await this.databaseSnapshot(options.includeBusiness === true);
+    const [database, operational] = await Promise.all([
+      this.databaseSnapshot(options.includeBusiness === true),
+      this.operationalBacklog.snapshot(),
+    ]);
     const recovery = this.recoveryStatus();
     const effectiveFlags = {
       realSendingEnabled: this.strictTrue(process.env.WHATSAPP_QR_ALLOW_REAL_SEND),
@@ -77,6 +86,7 @@ export class ObservabilityService {
       database,
       business: database.business,
       sofiaWhatsapp: database.sofiaWhatsapp,
+      operational,
       recovery,
       tracing: {
         propagation: 'W3C_TRACE_CONTEXT_COMPATIBLE',
@@ -87,9 +97,9 @@ export class ObservabilityService {
     };
 
     return {
-      status: database.available ? 'READY' : 'DEGRADED',
+      status: database.available && operational.available ? 'READY' : 'DEGRADED',
       metrics,
-      alerts: this.evaluateAlerts(metrics),
+      alerts: this.evaluateAlerts(metrics, operational),
       cardinalityPolicy: 'NO_PHONE_ORDER_USER_OR_REQUEST_LABELS',
     };
   }
@@ -235,7 +245,7 @@ export class ObservabilityService {
       autoSafeEnabled: boolean;
       productionEnabled: boolean;
     };
-  }) {
+  }, operational: OperationalBacklogSnapshot) {
     const alerts = [
       this.alert('API_HIGH_ERROR_RATE', 'HIGH', metrics.http.errorRate >= 0.05, 'http.errorRate >= 0.05'),
       this.alert('API_HIGH_P95', 'MEDIUM', (metrics.http.latencyMs.p95 ?? 0) >= 1000, 'http.latency.p95 >= 1000ms'),
@@ -247,7 +257,7 @@ export class ObservabilityService {
       this.alert('AUTO_SAFE_UNEXPECTED', 'CRITICAL', metrics.effectiveFlags.autoSafeEnabled, 'autoSafeEnabled == true'),
       this.alert('PRODUCTION_UNEXPECTED', 'CRITICAL', metrics.effectiveFlags.productionEnabled, 'productionEnabled == true'),
     ];
-    return alerts.filter((alert) => alert.active);
+    return [...alerts.filter((alert) => alert.active), ...this.operationalAlerts.evaluate(operational)];
   }
 
   private alert(code: string, severity: string, active: boolean, condition: string) {

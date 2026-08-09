@@ -160,6 +160,10 @@ fi
 
 [[ "${FORCE_RESTORE:-false}" == "true" ]] || fail "FORCE_RESTORE=true is required for a target restore."
 
+if [[ "${NODE_ENV:-}" == "production" && "${SKIP_BACKUP_BEFORE_RESTORE:-false}" == "true" ]]; then
+  fail "SKIP_BACKUP_BEFORE_RESTORE is forbidden in production."
+fi
+
 if [[ "${SKIP_BACKUP_BEFORE_RESTORE:-false}" != "true" ]]; then
   TARGET_EXISTS="$(database_exists "$DB_NAME")"
   if [[ "$TARGET_EXISTS" == "1" ]]; then

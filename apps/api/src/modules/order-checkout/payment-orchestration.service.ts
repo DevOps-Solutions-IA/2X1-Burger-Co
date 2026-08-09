@@ -98,9 +98,22 @@ export class PaymentOrchestrationService {
     }
     const checkout = intent.checkout;
     const customer = this.object(checkout.customerSnapshot);
+    const providerReference = this.boldProviderReference(intent.id);
+    const beginning = await this.repository.beginProviderPayment({
+      paymentIntentId: intent.id,
+      expectedVersion: intent.version,
+      providerReference,
+      providerAccountHash: this.expectedProviderAccountHash(),
+      idempotencyKey: `${intent.id}:provider-requested`,
+    });
+    if (!beginning.started) {
+      return { paymentIntent: this.intentView(beginning.paymentIntent), checkoutUrl: null, replayed: true };
+    }
+
+    let payment: Awaited<ReturnType<BoldPaymentProvider['createPayment']>>;
     try {
-      const payment = await this.bold.createPayment({
-        orderReference: `checkout_${checkout.id}`,
+      payment = await this.bold.createPayment({
+        orderReference: providerReference,
         amount: Number(checkout.total),
         currency: 'COP',
         customerName: typeof customer.name === 'string' ? customer.name : null,
@@ -108,30 +121,19 @@ export class PaymentOrchestrationService {
         description: `2X1 checkout ${checkout.id}`,
         metadata: { checkoutId: checkout.id, paymentIntentId: intent.id },
       });
-      const updated = await this.repository.transitionPayment({
-        paymentIntentId: intent.id,
-        expectedVersion: intent.version,
-        toStatus: PaymentIntentStatus.PENDING,
-        reasonCode: 'BOLD_PAYMENT_CREATED',
-        idempotencyKey: `${intent.id}:provider-created`,
-        providerPaymentId: payment.providerPaymentId,
-        providerReference: payment.providerReference,
-        providerAccountHash: this.expectedProviderAccountHash(),
-        metadata: { provider: payment.provider, providerStatus: payment.status },
-      });
-      await this.repository.markPaymentLinkOpened(link.id);
-      return { paymentIntent: this.intentView(updated), checkoutUrl: payment.checkoutUrl, replayed: false };
     } catch {
-      const updated = await this.repository.transitionPayment({
-        paymentIntentId: intent.id,
-        expectedVersion: intent.version,
-        toStatus: PaymentIntentStatus.UNKNOWN_RESULT,
-        reasonCode: 'BOLD_CREATE_UNKNOWN_RESULT',
-        idempotencyKey: `${intent.id}:unknown-result`,
-        metadata: { retryAllowed: false },
-      });
-      throw new BadRequestException({ code: 'PAYMENT_UNKNOWN_RESULT', paymentIntentId: updated.id });
+      return this.handleUnknownProviderResult(intent.id, providerReference);
     }
+    if (payment.providerReference !== providerReference) {
+      return this.handleUnknownProviderResult(intent.id, providerReference);
+    }
+    const updated = await this.repository.bindProviderPaymentResult({
+      paymentIntentId: intent.id,
+      providerReference,
+      providerPaymentId: payment.providerPaymentId,
+    });
+    await this.repository.markPaymentLinkOpened(link.id);
+    return { paymentIntent: this.intentView(updated), checkoutUrl: payment.checkoutUrl, replayed: false };
   }
 
   async getPublicPayment(publicReference: string) {
@@ -162,6 +164,22 @@ export class PaymentOrchestrationService {
   private expectedProviderAccountHash() {
     const account = process.env.BOLD_EXPECTED_ACCOUNT_ID?.trim();
     return account ? this.hash(account) : null;
+  }
+
+  private boldProviderReference(paymentIntentId: string) {
+    return `checkout_${paymentIntentId}`;
+  }
+
+  private async handleUnknownProviderResult(paymentIntentId: string, providerReference: string) {
+    const result = await this.repository.markProviderPaymentUnknown({
+      paymentIntentId,
+      providerReference,
+      idempotencyKey: `${paymentIntentId}:unknown-result`,
+    });
+    if (!result.marked && result.paymentIntent.status !== PaymentIntentStatus.UNKNOWN_RESULT) {
+      return { paymentIntent: this.intentView(result.paymentIntent), checkoutUrl: null, replayed: true };
+    }
+    throw new BadRequestException({ code: 'PAYMENT_UNKNOWN_RESULT', paymentIntentId: result.paymentIntent.id });
   }
 
   private hash(value: string) {

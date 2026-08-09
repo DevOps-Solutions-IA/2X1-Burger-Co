@@ -9,7 +9,7 @@ const TRANSITIONS: Record<PaymentIntentStatus, readonly PaymentIntentStatus[]> =
   FAILED: [PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED],
   EXPIRED: [PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED],
   CANCELLED: [PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED],
-  UNKNOWN_RESULT: [PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED],
+  UNKNOWN_RESULT: [PaymentIntentStatus.SUCCEEDED, PaymentIntentStatus.FAILED, PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED],
   FINANCIAL_REVIEW_REQUIRED: [],
 };
 

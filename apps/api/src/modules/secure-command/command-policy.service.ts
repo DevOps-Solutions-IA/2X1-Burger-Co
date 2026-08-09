@@ -97,9 +97,21 @@ export class CommandPolicyService {
     return { definition, authorization, safety, stage: input.stage };
   }
 
-  async assertApproverAllowed(command: CommandRecord, approver: CommandActor) {
+  async assertApproverAllowed(
+    command: CommandRecord,
+    approver: CommandActor,
+    options: { requireSeparation?: boolean } = {},
+  ) {
     const definition = this.definition(command.commandType);
     if (approver.actorType !== 'USER') throw new SecureCommandError('SOFIA_COMMAND_APPROVAL_INVALID');
+    if (
+      options.requireSeparation !== false
+      && definition.operational
+      && definition.approvalRequired
+      && command.actorId === approver.actorId
+    ) {
+      throw new SecureCommandError('SOFIA_COMMAND_APPROVAL_INVALID');
+    }
     const [authorization, safety] = await Promise.all([
       this.repository.actorAuthorization(approver.actorId),
       this.safety.current(),

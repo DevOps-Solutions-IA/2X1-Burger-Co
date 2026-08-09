@@ -44,6 +44,7 @@ export class NotificationIntentConsumerService {
     const intent = claim.intent;
     try {
       const decision = await this.policy.evaluate(intent);
+      await this.assertClaimRenewed(intent, workerIdentity);
       if (!decision.allowed) {
         await this.suppress(intent, workerIdentity, decision.reasonCode, decision, now);
         return this.result(intent.id, 'SUPPRESSED', decision.reasonCode, null);
@@ -54,12 +55,14 @@ export class NotificationIntentConsumerService {
       }
 
       const materialized = await this.materializer.materialize(intent);
+      await this.assertClaimRenewed(intent, workerIdentity);
       const binding = materialized.binding;
       const command = await this.commands.receive({
         notificationIntentId: intent.id,
         binding,
         expiresAt: this.commandExpiry(intent, now),
       });
+      await this.assertClaimRenewed(intent, workerIdentity);
       await this.outbox.markCommandPending({
         notificationIntentId: intent.id,
         expectedVersion: intent.version,
@@ -71,6 +74,9 @@ export class NotificationIntentConsumerService {
       return this.result(intent.id, 'COMMAND_PENDING', command.replayed ? 'SECURE_COMMAND_REPLAYED' : 'SECURE_COMMAND_CREATED', command.commandId);
     } catch (error) {
       const code = this.errorCode(error);
+      if (code === 'NOTIFICATION_CLAIM_LEASE_LOST') {
+        return this.result(intent.id, 'SKIPPED', code, null);
+      }
       if (code === 'SOFIA_COMMAND_POLICY_BLOCKED' || code === 'WHATSAPP_REAL_SEND_DISABLED') {
         await this.suppress(intent, workerIdentity, code, null, now);
         return this.result(intent.id, 'SUPPRESSED', code, null);
@@ -92,6 +98,11 @@ export class NotificationIntentConsumerService {
 
   reconcile(input: ReconcileNotificationInput) {
     return this.outbox.reconcile(input);
+  }
+
+  private async assertClaimRenewed(intent: NotificationIntent, workerIdentity: string) {
+    const renewed = await this.outbox.renewClaim(intent.id, intent.version, workerIdentity);
+    if (!renewed) throw new Error('NOTIFICATION_CLAIM_LEASE_LOST');
   }
 
   private suppress(

@@ -7,6 +7,15 @@ const requiredEnv = {
   ADMIN_PASSWORD: 'AdminPassword123!',
 };
 
+const productionEnv = {
+  ...requiredEnv,
+  NODE_ENV: 'production',
+  COOKIE_SECURE: 'true',
+  APP_URL: 'https://app.2x1burger.example',
+  PUBLIC_PAYMENTS_BASE_URL: 'https://pay.2x1burger.example',
+  CORS_ORIGIN: 'https://app.2x1burger.example',
+};
+
 describe('environment boolean parsing', () => {
   it('preserves explicit false values for operational safety flags', () => {
     const env = validateEnv({
@@ -76,6 +85,27 @@ describe('environment boolean parsing', () => {
 });
 
 describe('production Sofia safety validation', () => {
+  it('accepts production startup when test-only harness variables are absent', () => {
+    const env = validateEnv(productionEnv);
+
+    expect(env.NODE_ENV).toBe('production');
+    expect(env.TEST_DATABASE_URL).toBeUndefined();
+    expect(env.JEST_WORKER_ID).toBeUndefined();
+  });
+
+  it.each([
+    ['TEST_DATABASE_URL', 'postgresql://test-user:test-password@localhost/test', 'PROD_TEST_DATABASE_URL_FORBIDDEN'],
+    ['JEST_WORKER_ID', '1', 'PROD_JEST_WORKER_ID_FORBIDDEN'],
+  ])('rejects accidental production %s without exposing its value', (key, value, reasonCode) => {
+    expect(() => validateEnv({ ...productionEnv, [key]: value })).toThrow(reasonCode);
+
+    try {
+      validateEnv({ ...productionEnv, [key]: value });
+    } catch (error) {
+      expect(String(error)).not.toContain(value);
+    }
+  });
+
   it.each([
     ['WHATSAPP_PROVIDER', 'mock', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN'],
     ['WHATSAPP_MODE', 'mock', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN'],
@@ -94,14 +124,13 @@ describe('production Sofia safety validation', () => {
     const sensitiveMarker = 'must-not-appear-in-validation-errors';
     expect(() =>
       validateEnv({
-        ...requiredEnv,
-        NODE_ENV: 'production',
+        ...productionEnv,
         BOLD_API_KEY: sensitiveMarker,
         [key]: value,
       }),
     ).toThrow(reasonCode);
     try {
-      validateEnv({ ...requiredEnv, NODE_ENV: 'production', BOLD_API_KEY: sensitiveMarker, [key]: value });
+      validateEnv({ ...productionEnv, BOLD_API_KEY: sensitiveMarker, [key]: value });
     } catch (error) {
       expect(String(error)).not.toContain(sensitiveMarker);
     }
@@ -109,15 +138,13 @@ describe('production Sofia safety validation', () => {
 
   it('requires immutable QR account binding in production', () => {
     expect(() => validateEnv({
-      ...requiredEnv,
-      NODE_ENV: 'production',
+      ...productionEnv,
       WHATSAPP_PROVIDER: 'qr_gateway',
       WHATSAPP_QR_ENABLED: 'true',
     })).toThrow('SOFIA_PROD_WHATSAPP_ACCOUNT_BINDING_REQUIRED');
 
     expect(validateEnv({
-      ...requiredEnv,
-      NODE_ENV: 'production',
+      ...productionEnv,
       WHATSAPP_PROVIDER: 'qr_gateway',
       WHATSAPP_QR_ENABLED: 'true',
       WHATSAPP_EXPECTED_ACCOUNT_ID: 'account-1',
@@ -128,21 +155,28 @@ describe('production Sofia safety validation', () => {
 
   it('allows only the official Bold endpoint in production', () => {
     expect(() => validateEnv({
-      ...requiredEnv,
-      NODE_ENV: 'production',
+      ...productionEnv,
       BOLD_BASE_URL: 'https://sandbox.example.test',
     })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
 
     expect(() => validateEnv({
-      ...requiredEnv,
-      NODE_ENV: 'production',
+      ...productionEnv,
       BOLD_BASE_URL: 'https://user:password@integrations.api.bold.co',
     })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
 
     expect(validateEnv({
-      ...requiredEnv,
-      NODE_ENV: 'production',
+      ...productionEnv,
       BOLD_BASE_URL: 'https://integrations.api.bold.co',
     }).BOLD_BASE_URL).toBe('https://integrations.api.bold.co');
+  });
+
+  it.each([
+    [{ COOKIE_SECURE: 'false' }, 'PROD_SECURE_COOKIE_REQUIRED'],
+    [{ APP_URL: 'http://app.2x1burger.example' }, 'PROD_PUBLIC_URL_HTTPS_REQUIRED'],
+    [{ PUBLIC_PAYMENTS_BASE_URL: 'https://localhost:3301' }, 'PROD_PUBLIC_URL_HTTPS_REQUIRED'],
+    [{ CORS_ORIGIN: 'https://app.2x1burger.example/path' }, 'PROD_CORS_ORIGIN_HTTPS_REQUIRED'],
+    [{ CORS_ORIGIN: 'http://app.2x1burger.example' }, 'PROD_CORS_ORIGIN_HTTPS_REQUIRED'],
+  ])('rejects insecure production transport configuration', (override, reason) => {
+    expect(() => validateEnv({ ...productionEnv, ...override })).toThrow(reason);
   });
 });

@@ -122,81 +122,19 @@ export class AuthService {
 
       const tokenHash = this.hashToken(refreshToken);
 
-      // Buscar el token INCLUYENDO revocados para detectar reuso (H-06)
-      const existingToken = await this.prisma.refreshToken.findFirst({
-        where: {
-          userId: payload.sub,
-          tokenHash,
-        },
-        include: {
-          user: {
-            include: {
-              roles: {
-                include: {
-                  role: {
-                    include: {
-                      permissions: {
-                        include: {
-                          permission: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (!existingToken) {
-        // Token no encontrado: podria ser invalido o ya limpiado tras revocacion.
-        // Como heuristica, revisamos si el usuario tiene tokens revocados recientes.
-        const recentlyRevoked = await this.prisma.refreshToken.findFirst({
-          where: {
-            userId: payload.sub,
-            revokedAt: { not: null },
-            expiresAt: { gt: new Date() },
-          },
-        });
-
-        if (recentlyRevoked) {
-          // Posible reuso de un token ya limpiado. Invalidamos todo por seguridad.
-          await this.handleTokenReuse(payload.sub, request);
-        }
-
+      const rotation = await this.rotateRefreshToken(payload.sub, tokenHash, request);
+      if (rotation.kind === 'REUSE') {
+        await this.auditTokenReuse(payload.sub, request);
         throw new UnauthorizedException('El token de actualización no es válido.');
       }
-
-      // REUSO DETECTADO: el token existe pero ya fue revocado
-      if (existingToken.revokedAt) {
-        await this.handleTokenReuse(payload.sub, request);
+      if (rotation.kind !== 'SUCCESS') {
         throw new UnauthorizedException('El token de actualización no es válido.');
       }
-
-      // Token expirado
-      if (existingToken.expiresAt <= new Date()) {
-        throw new UnauthorizedException('El token de actualización no es válido.');
-      }
-
-      // Usuario inactivo
-      if (!existingToken.user.isActive) {
-        throw new UnauthorizedException('El token de actualización no es válido.');
-      }
-
-      // Rotacion: revocar el token actual y emitir uno nuevo
-      await this.prisma.refreshToken.update({
-        where: { id: existingToken.id },
-        data: { revokedAt: new Date() },
-      });
-
-      const authUser = this.toAuthUser(existingToken.user);
-      const tokens = await this.issueTokens(this.prisma, authUser, request);
 
       return {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        user: authUser,
+        accessToken: rotation.tokens.accessToken,
+        refreshToken: rotation.tokens.refreshToken,
+        user: rotation.user,
       };
     } catch (error) {
       throw new UnauthorizedException('El token de actualización no es válido.', {
@@ -521,14 +459,85 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  private async rotateRefreshToken(userId: string, tokenHash: string, request: Request) {
+    return this.prisma.$transaction(async (tx) => {
+      const lockIdentity = `auth-refresh:${tokenHash}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockIdentity}, 0))
+      `;
+
+      // The advisory lock serializes even missing-token reuse checks. The row
+      // lock keeps the parent state stable until its child has been persisted.
+      await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "refresh_tokens"
+        WHERE "userId" = ${userId} AND "tokenHash" = ${tokenHash}
+        FOR UPDATE
+      `;
+
+      // Revoked rows remain evidence for reuse detection. A queued second use is
+      // treated as compromise and revokes the child minted by the first caller.
+      const existingToken = await tx.refreshToken.findFirst({
+        where: { userId, tokenHash },
+        include: {
+          user: {
+            include: {
+              roles: {
+                include: {
+                  role: {
+                    include: {
+                      permissions: { include: { permission: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!existingToken) {
+        const revokedEvidence = await tx.refreshToken.findFirst({
+          where: { userId, revokedAt: { not: null }, expiresAt: { gt: new Date() } },
+          orderBy: { revokedAt: 'desc' },
+        });
+        if (!revokedEvidence) return { kind: 'INVALID' as const };
+        await this.revokeTokenFamily(tx, userId);
+        return { kind: 'REUSE' as const };
+      }
+
+      if (existingToken.revokedAt) {
+        await this.revokeTokenFamily(tx, userId);
+        return { kind: 'REUSE' as const };
+      }
+
+      if (existingToken.expiresAt <= new Date() || !existingToken.user.isActive) {
+        return { kind: 'INVALID' as const };
+      }
+
+      const revoked = await tx.refreshToken.updateMany({
+        where: { id: existingToken.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (revoked.count !== 1) {
+        await this.revokeTokenFamily(tx, userId);
+        return { kind: 'REUSE' as const };
+      }
+
+      const user = this.toAuthUser(existingToken.user);
+      const tokens = await this.issueTokens(tx, user, request);
+      return { kind: 'SUCCESS' as const, tokens, user };
+    });
+  }
+
   /**
-   * Maneja la deteccion de reuso de refresh token (H-06):
+   * Applies token-family invalidation for confirmed refresh-token reuse (H-06):
    * 1. Revoca TODOS los tokens activos del usuario
    * 2. Incrementa sessionVersion para invalidar JWTs actuales
-   * 3. Registra evento de auditoria
+   * The caller records the audit event only after this transaction commits.
    */
-  private async handleTokenReuse(userId: string, request: Request) {
-    await this.prisma.refreshToken.updateMany({
+  private async revokeTokenFamily(client: Prisma.TransactionClient, userId: string) {
+    await client.refreshToken.updateMany({
       where: {
         userId,
         revokedAt: null,
@@ -536,11 +545,13 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    await this.prisma.user.update({
+    await client.user.update({
       where: { id: userId },
       data: { sessionVersion: { increment: 1 } },
     });
+  }
 
+  private async auditTokenReuse(userId: string, request: Request) {
     const meta = extractRequestMeta(request);
     await this.auditService.log({
       userId,

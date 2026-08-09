@@ -110,14 +110,6 @@ export class SofiaPaymentReadAdapter implements PaymentReadService {
   constructor(private readonly payments: SofiaPaymentLinkService) {}
   async readOrderPayment(orderTicketId: string, actor: SofiaActorContext) {
     if (!actor.roles.some((role) => ['admin', 'cashier', 'supervisor'].includes(role))) throw new ForbiddenException({ code: 'SOFIA_PAYMENT_READ_FORBIDDEN' });
-    const result = await this.payments.getOperationalLink(orderTicketId);
-    return {
-      orderTicketId,
-      paymentStatus: result.paymentStatus ?? null,
-      paymentMethod: result.paymentMethod ?? null,
-      provider: result.provider ?? null,
-      expiresAt: result.expiresAt?.toISOString() ?? null,
-      linkAvailable: Boolean(result.publicPaymentUrl),
-    };
+    return this.payments.getOperationalLink(orderTicketId);
   }
 }

@@ -39,7 +39,6 @@ import type { AuthUser } from '../../common/types/auth-user.type';
 import { CreateSaleDto } from '../sales/dto/create-sale.dto';
 import { SalesService } from '../sales/sales.service';
 import { RealtimeService } from '../realtime/realtime.service';
-import { SofiaPaymentLinkService } from '../sofia/sofia-payment-link.service';
 import { TablesService } from '../tables/tables.service';
 import { DeliveryPricingService } from '../../delivery/delivery-pricing/delivery-pricing.service';
 import { CheckoutOrderTicketDto } from './dto/checkout-order-ticket.dto';
@@ -423,7 +422,6 @@ export class OrdersService {
     private readonly realtimeService: RealtimeService,
     private readonly deliveryPricingService: DeliveryPricingService,
     private readonly tablesService: TablesService,
-    private readonly sofiaPaymentLinkService: SofiaPaymentLinkService,
     private readonly deliveryWorkflow: DeliveryWorkflowService,
     private readonly notificationOutbox: NotificationOutboxService,
   ) {}
@@ -981,26 +979,6 @@ export class OrdersService {
     }
 
     return order;
-  }
-
-  getSofiaPaymentLink(id: string) {
-    return this.sofiaPaymentLinkService.getOperationalLink(id);
-  }
-
-  generateSofiaPaymentLink(id: string, actorId: string) {
-    return this.sofiaPaymentLinkService.generateOperationalLink(id, actorId);
-  }
-
-  listSofiaPaymentEvents(id: string) {
-    return this.sofiaPaymentLinkService.listPaymentEvents(id);
-  }
-
-  updateSofiaPaymentStatus(
-    id: string,
-    dto: { status: 'FAILED' | 'MANUAL_REVIEW' | 'CANCELLED'; paymentMethod?: 'ONLINE' | 'NEQUI_MANUAL' | 'CASH'; message?: string },
-    actorId: string,
-  ) {
-    return this.sofiaPaymentLinkService.updateManualPaymentStatus(id, dto, actorId);
   }
 
   /* Cuenta vigente para visualización: renderiza el estado actual de la orden

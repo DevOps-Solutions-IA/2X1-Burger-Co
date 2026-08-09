@@ -11,6 +11,7 @@ import {
 @Injectable()
 export class HermesWhatsappProvider extends WhatsappProviderAdapter {
   readonly provider = 'hermes' as const;
+  private static readonly MAX_PROVIDER_MESSAGE_ID_LENGTH = 256;
 
   constructor(private readonly configService: ConfigService) {
     super();
@@ -112,9 +113,22 @@ export class HermesWhatsappProvider extends WhatsappProviderAdapter {
       if (!response.ok) {
         return { providerMessageId: null, status: 'FAILED', rawPayload: body, errorMessage: `Hermes HTTP ${response.status}` };
       }
-      return { providerMessageId: body.id ? String(body.id) : null, status: 'SENT', rawPayload: body };
+      const providerMessageId = this.validProviderMessageId(body.id);
+      if (!providerMessageId) {
+        // Hermes may have accepted the request even when its response is incomplete.
+        // Treat that ambiguity as terminal unknown instead of claiming a safe retry.
+        throw new Error('HERMES_PROVIDER_MESSAGE_ID_INVALID');
+      }
+      return { providerMessageId, status: 'SENT', rawPayload: body };
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private validProviderMessageId(value: unknown) {
+    if (typeof value !== 'string') return null;
+    if (!value || value.length > HermesWhatsappProvider.MAX_PROVIDER_MESSAGE_ID_LENGTH) return null;
+    if (value.trim() !== value || !/^[\x21-\x7e]+$/.test(value)) return null;
+    return value;
   }
 }

@@ -15,12 +15,7 @@ import type {
   OrderType,
   PaymentMethod,
   PaymentRow,
-  WhatsappReceiptResponse,
 } from '../pos.types';
-
-type SendReceiptByWhatsapp = {
-  mutateAsync: (payload: { saleId: string; phone: string }) => Promise<WhatsappReceiptResponse>;
-};
 
 type UsePosCheckoutOrchestratorParams = {
   activeOrderId: string | null;
@@ -38,7 +33,6 @@ type UsePosCheckoutOrchestratorParams = {
   orderNotes: string;
   payments: PaymentRow[];
   paymentMethodMap: Map<string, PaymentMethod>;
-  sendReceiptByWhatsapp: SendReceiptByWhatsapp;
   createReceiptData: (sale: CompletedSale) => ThermalReceiptData;
   onReceiptReady: (receipt: ThermalReceiptData) => void;
   resetWorkspace: () => void;
@@ -62,7 +56,6 @@ export function usePosCheckoutOrchestrator({
   orderNotes,
   payments,
   paymentMethodMap,
-  sendReceiptByWhatsapp,
   createReceiptData,
   onReceiptReady,
   resetWorkspace,
@@ -118,26 +111,7 @@ export function usePosCheckoutOrchestrator({
     },
     onSuccess: async (response) => {
       onReceiptReady(createReceiptData(response.sale));
-      const shouldAutoSendPaidDeliveryReceipt =
-        orderType === 'DELIVERY' && Boolean(customerPhone.trim());
-
-      if (shouldAutoSendPaidDeliveryReceipt) {
-        try {
-          const receiptResponse = await sendReceiptByWhatsapp.mutateAsync({
-            saleId: response.sale.id,
-            phone: customerPhone.trim(),
-          });
-          toast.success(`Comanda cobrada y comprobante ${receiptResponse.receiptNumber} enviado por WhatsApp`);
-        } catch (error) {
-          toast.warning(
-            error instanceof Error
-              ? `Comanda cobrada, pero no pudimos enviar el comprobante: ${error.message}`
-              : 'Comanda cobrada, pero no pudimos enviar el comprobante por WhatsApp.',
-          );
-        }
-      } else {
-        toast.success('Comanda cobrada y mesa liberada');
-      }
+      toast.success('Comanda cobrada y mesa liberada');
       resetWorkspace();
       clearWorkspaceContext();
       await invalidateOperationalQueries();

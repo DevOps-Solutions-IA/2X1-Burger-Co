@@ -5,8 +5,13 @@ import { ObservabilityService } from './observability.service';
 import { ReleaseMetadataService } from '../../release/release-metadata.service';
 import { evaluateMigrationIdentity, type AppliedMigration } from './migration-identity';
 
+const READINESS_CACHE_MS = 5_000;
+
 @Injectable()
 export class HealthService {
+  private readinessCache: { expiresAt: number; result: Record<string, unknown> } | null = null;
+  private readinessInFlight: Promise<Record<string, unknown>> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly observability: ObservabilityService,
@@ -23,6 +28,24 @@ export class HealthService {
   }
 
   async readiness() {
+    const now = Date.now();
+    if (this.readinessCache && this.readinessCache.expiresAt > now) {
+      return this.readinessCache.result;
+    }
+    if (this.readinessInFlight) return this.readinessInFlight;
+
+    this.readinessInFlight = this.evaluateReadiness()
+      .then((result) => {
+        this.readinessCache = { expiresAt: Date.now() + READINESS_CACHE_MS, result };
+        return result;
+      })
+      .finally(() => {
+        this.readinessInFlight = null;
+      });
+    return this.readinessInFlight;
+  }
+
+  private async evaluateReadiness(): Promise<Record<string, unknown>> {
     const startedAt = performance.now();
     let migrations: AppliedMigration[];
     try {
@@ -77,10 +100,18 @@ export class HealthService {
       this.failReadiness('SAFETY_CONFIGURATION_UNSAFE', { api: 'ALIVE', database: 'READY', safety: 'NOT_READY' });
     }
 
+    const providers = this.providerActivationState();
+
     return {
       status: 'READY',
       timestamp: new Date().toISOString(),
-      services: { api: 'READY', database: 'READY', release: 'READY', safety: 'READY' },
+      services: {
+        api: 'READY',
+        database: 'READY',
+        release: 'READY',
+        safety: 'READY',
+        providers,
+      },
       checks: {
         databaseLatencyMs: Math.round((performance.now() - startedAt) * 100) / 100,
         appliedMigrations: migrationIdentity.appliedCount,
@@ -96,9 +127,13 @@ export class HealthService {
     };
   }
 
-  async check() {
-    const ready = await this.readiness();
-    return { ...ready, status: 'ok', environment: this.releaseMetadata.getEnvironment() };
+  check() {
+    const live = this.liveness();
+    return {
+      ...live,
+      status: 'ok',
+      environment: this.releaseMetadata.getEnvironment(),
+    };
   }
 
   metrics() {
@@ -117,5 +152,20 @@ export class HealthService {
       services,
       reason,
     });
+  }
+
+  private providerActivationState() {
+    const whatsappMode = this.config.get<string>('WHATSAPP_MODE') ?? 'disabled';
+    const aiMode = this.config.get<string>('SOFIA_AI_MODE') ?? 'disabled';
+    const realSendingEnabled = this.config.get<boolean>('WHATSAPP_QR_ALLOW_REAL_SEND') === true;
+    const productionEnabled = this.config.get<boolean>('SOFIA_PRODUCTION_ENABLED') === true;
+    const orderCreationEnabled = this.config.get<boolean>('PHASE5_ORDER_CREATION_ENABLED') === true;
+    return {
+      whatsappInbound: whatsappMode === 'disabled' ? 'DISABLED_BY_POLICY' : 'ENABLED_REQUIRES_PROVIDER_PROBE',
+      whatsappOutbound: realSendingEnabled ? 'ENABLED_REQUIRES_PROVIDER_PROBE' : 'DISABLED_BY_POLICY',
+      aiGeneration: aiMode === 'disabled' ? 'DISABLED_BY_POLICY' : 'ENABLED_REQUIRES_PROVIDER_PROBE',
+      boldMutation: productionEnabled && orderCreationEnabled ? 'ENABLED_REQUIRES_PROVIDER_PROBE' : 'DISABLED_BY_POLICY',
+      orderExecution: orderCreationEnabled ? 'ENABLED_REQUIRES_RUNTIME_PROBE' : 'DISABLED_BY_POLICY',
+    } as const;
   }
 }
