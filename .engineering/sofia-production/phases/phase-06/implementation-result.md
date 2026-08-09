@@ -3,7 +3,7 @@
 - Base SHA: `3d70b80dcd2678357906d9856e5bca9fb29834a1`
 - Migration commit: `f3b4a30b5c140702d8dbe1220606d9e0ad6a0d03`
 - Runtime integration commit: `023be65`
-- Final validated runtime SHA: `3f160090badba17bacf02eaf03d7428e3977e767`
+- Final validated runtime SHA: `b8376d1dbd6f0dba7378b40d2fcd9400e73150ed`
 - Migration: `20260809030000_sofia_live_operations_recovery_core`
 - Frontier: `37/37`
 - Production deployment: `false`
@@ -28,5 +28,11 @@ Implemented authorities:
 - Handoff transitions are versioned and immediate identical replays are no-ops.
 - PostgreSQL payment webhook advisory locks execute without deserializing the PostgreSQL `void` result and are covered by real concurrent claims.
 - Provider timestamps remain bound to inbound payload identity; test-only inbound no longer invents a new provider timestamp on replay.
+- Payment and inbound claims renew leases while work is active and fence completion after ownership loss.
+- Expired inbound work is recovered by an autonomous worker without a second AI invocation; uncertain conversation state is forced to one versioned human handoff.
+- Automated handoff evidence uses a deterministic disabled technical principal and is audited as `SYSTEM`, never attributed to a human operator.
+- Notification command receipt preserves `SYSTEM` audit identity without requiring a fabricated user row; command execution remains disabled and approval-gated.
+- Delivery transitions derive consequences only from append-only event facts and a restart-safe worker restores missing audit/notification consequences.
+- The representative `36 -> 37` migration test preserves twelve legacy operational and financial authorities without rewriting historical provider provenance.
 
 No production action or irreversible customer/business side effect was performed.

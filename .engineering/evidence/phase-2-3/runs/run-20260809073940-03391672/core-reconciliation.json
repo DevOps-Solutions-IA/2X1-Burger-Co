@@ -1,0 +1,41 @@
+{
+  "status": "PASS",
+  "baseline": {
+    "sales": 1,
+    "orders": 2,
+    "cashSessions": 2,
+    "cashMovements": 0,
+    "inventoryMovements": 0,
+    "purchases": 0,
+    "audits": 54
+  },
+  "final": {
+    "sales": 5,
+    "orders": 7,
+    "cashSessions": 3,
+    "cashMovements": 12,
+    "inventoryMovements": 12,
+    "purchases": 1,
+    "audits": 101
+  },
+  "cash": {
+    "openSessions": 1,
+    "conversionReversals": 2
+  },
+  "pos": {
+    "saleItemsTotal": 20000,
+    "paidSalesTotal": 4000
+  },
+  "delivery": {
+    "activeVersions": 2,
+    "persistedFee": 0,
+    "persistedTotal": 24000
+  },
+  "inventory": {
+    "productStock": 21,
+    "movements": 12
+  },
+  "operationalDatabaseTouched": false,
+  "productionModified": false,
+  "realWhatsapp": "OFF"
+}

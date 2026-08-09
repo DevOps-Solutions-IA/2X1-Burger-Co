@@ -1,0 +1,98 @@
+{
+  "status": "PASS",
+  "isolation": {
+    "databaseName": "inventory_e2e_[RUN_ID]_test",
+    "markerValidated": true
+  },
+  "cash": {
+    "concurrentClose": "PASS",
+    "concurrentReopen": "PASS",
+    "openSessions": 1,
+    "closingMovements": 1,
+    "manualMovementId": "cmslhutt00053o501wmaj1tsb"
+  },
+  "pos": {
+    "saleId": "cmslhutts0059o501xuhmpe6v",
+    "checkout": "PASS",
+    "receipt": {
+      "sha256": "0da86be1a97e0f2602914a8330b0f85cc8bf73c21be1e33bc7c0f0507561d342",
+      "repeatSha256": "ba29f0d852f80007c81e51f8cf74148564b26fb64aedb5d789ac80f0aa54f577",
+      "contentDeterministic": true,
+      "binaryDeterministic": false,
+      "noSideEffects": true
+    },
+    "recoveryExactlyOnce": "PASS",
+    "reopenExactlyOnce": "PASS",
+    "directOrderReopenExactlyOnce": "PASS",
+    "insufficientStockRollback": "PASS",
+    "recoveredOrderId": "cmslhuu9h005ro5010wltaueg"
+  },
+  "delivery": {
+    "orderId": "cmslhuuj2008ko5016bd8543q",
+    "feePersisted": 0,
+    "initialVersion": 1,
+    "updatedVersion": 2,
+    "initialPdf": {
+      "sha256": "a9bc9eeeabefb14ba3114b0c33381f5f6e58b6668491744e4d0b085e9e8eeaa9",
+      "bytes": 3948
+    },
+    "updatedPdf": {
+      "sha256": "3d7aaaaba125496f6f3d2b13540f91a5e3212b757fc94221b2b53ebfebedf567",
+      "bytes": 4126
+    },
+    "noOpDidNotVersion": true,
+    "logisticsOnly": true,
+    "concurrency": "PASS",
+    "maxyFamilyRule": "PASS"
+  },
+  "inventory": {
+    "purchaseId": "cmslhuv2h00abo5019vtbybtq",
+    "purchaseStockIncrement": 3,
+    "purchaseMovementId": "cmslhuv2f00a9o501e1e5y6c9",
+    "concurrentAdjustments": "PASS",
+    "negativeStockGuard": "PASS",
+    "stockCount": "PASS"
+  },
+  "rbac": {
+    "denied": 5,
+    "operationalSideEffects": 0,
+    "persistedRejections": 5,
+    "status": "PASS"
+  },
+  "audit": {
+    "entries": 15,
+    "requestIdsObserved": 50,
+    "persistedFields": [
+      "eventVersion",
+      "actorId",
+      "actorRole",
+      "requestId",
+      "correlationId",
+      "traceId",
+      "idempotencyKey",
+      "before",
+      "after",
+      "result",
+      "reasonCode",
+      "timestamp"
+    ],
+    "rbacRejections": 4,
+    "authenticationRejections": 1,
+    "status": "PASS",
+    "queryApi": "PASS",
+    "legacyCompatibility": "PASS"
+  },
+  "performanceMs": {
+    "cashConcurrentClose": 110.83,
+    "cashConcurrentReopen": 23.14,
+    "posCheckout": 34.27,
+    "posReceiptGeneration": 80.14,
+    "posConcurrentRecovery": 66.08,
+    "posConcurrentReopen": 40.14,
+    "orderConcurrentReopen": 41.69,
+    "deliveryCommercialUpdate": 74.36,
+    "deliveryConcurrentUpdate": 78.52,
+    "inventoryPurchase": 26.41,
+    "inventoryConcurrentAdjustments": 22.64
+  }
+}

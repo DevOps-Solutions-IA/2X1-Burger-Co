@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "database": "inventory_recovery_restore__20260809074233_47cc7365_test",
+  "host": "127.0.0.1",
+  "port": "33273",
+  "sanitizedUrl": "postgresql://[user]@127.0.0.1:33273/inventory_recovery_restore__20260809074233_47cc7365_test?schema=test"
+}

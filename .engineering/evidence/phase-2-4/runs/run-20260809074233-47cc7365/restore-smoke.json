@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "live": true,
+  "ready": true,
+  "version": {
+    "buildId": "0.1.0-b8376d1dbd6f-phase24-03d160bfece1",
+    "dirtyBuild": true
+  },
+  "readOnlyRoutes": 5,
+  "metrics": true,
+  "protectedObservability": true,
+  "realWhatsapp": "OFF"
+}

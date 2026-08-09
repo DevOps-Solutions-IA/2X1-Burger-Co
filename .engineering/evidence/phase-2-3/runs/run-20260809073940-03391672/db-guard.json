@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "database": "inventory_e2e__20260809073940_03391672_test",
+  "host": "127.0.0.1",
+  "port": "39563",
+  "sanitizedUrl": "postgresql://[user]@127.0.0.1:39563/inventory_e2e__20260809073940_03391672_test?schema=test"
+}

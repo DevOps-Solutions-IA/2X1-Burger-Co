@@ -1,0 +1,772 @@
+;
+; Archive created at 2026-08-09 07:44:13 UTC
+;     dbname: inventory_recovery_source__20260809074233_47cc7365_test
+;     TOC Entries: 761
+;     Compression: gzip
+;     Dump Version: 1.15-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 16.13
+;     Dumped by pg_dump version: 16.13
+;
+;
+; Selected TOC Entries:
+;
+943; 1247 16444 TYPE public CashMovementType e2e__20260809074
+940; 1247 16436 TYPE public CashSessionStatus e2e__20260809074
+1225; 1247 18044 TYPE public CustomerCampaignDeliveryStatus e2e__20260809074
+1222; 1247 18036 TYPE public CustomerCampaignStatus e2e__20260809074
+1207; 1247 17996 TYPE public CustomerConsentChannel e2e__20260809074
+1204; 1247 17990 TYPE public CustomerConsentPurpose e2e__20260809074
+1210; 1247 18004 TYPE public CustomerConsentStatus e2e__20260809074
+1201; 1247 17986 TYPE public CustomerIdentityType e2e__20260809074
+1213; 1247 18010 TYPE public CustomerInteractionChannel e2e__20260809074
+1216; 1247 18020 TYPE public CustomerInteractionDirection e2e__20260809074
+1219; 1247 18028 TYPE public CustomerSegmentStatus e2e__20260809074
+1336; 1247 18720 TYPE public CustomerServiceCaseCategory e2e__20260809074
+1339; 1247 18738 TYPE public CustomerServiceCaseStatus e2e__20260809074
+1198; 1247 17980 TYPE public CustomerStatus e2e__20260809074
+1087; 1247 17286 TYPE public DeliveryIssueStatus e2e__20260809074
+1084; 1247 17270 TYPE public DeliveryIssueType e2e__20260809074
+1075; 1247 17245 TYPE public DeliveryLocationInboxStatus e2e__20260809074
+1072; 1247 17226 TYPE public DeliveryWorkflowStatus e2e__20260809074
+1030; 1247 16958 TYPE public DiningTableStatus e2e__20260809074
+937; 1247 16418 TYPE public InventoryMovementType e2e__20260809074
+1333; 1247 18701 TYPE public NotificationIntentStatus e2e__20260809074
+1078; 1247 17254 TYPE public OperationalAlertSeverity e2e__20260809074
+1081; 1247 17262 TYPE public OperationalAlertStatus e2e__20260809074
+1306; 1247 18529 TYPE public OrderCheckoutSource e2e__20260809074
+1309; 1247 18538 TYPE public OrderCheckoutStatus e2e__20260809074
+1033; 1247 16970 TYPE public OrderTicketStatus e2e__20260809074
+1036; 1247 16984 TYPE public OrderTicketType e2e__20260809074
+1312; 1247 18558 TYPE public PaymentIntentProvider e2e__20260809074
+1315; 1247 18564 TYPE public PaymentIntentStatus e2e__20260809074
+1318; 1247 18584 TYPE public PaymentLinkStatus e2e__20260809074
+1048; 1247 17065 TYPE public ProductBrand e2e__20260809074
+928; 1247 16395 TYPE public ProductKind e2e__20260809074
+931; 1247 16400 TYPE public PurchaseStatus e2e__20260809074
+1024; 1247 16926 TYPE public SaleChannel e2e__20260809074
+934; 1247 16408 TYPE public SaleStatus e2e__20260809074
+1171; 1247 17848 TYPE public SofiaCatalogItemStatus e2e__20260809074
+1168; 1247 17838 TYPE public SofiaCatalogItemType e2e__20260809074
+1174; 1247 17854 TYPE public SofiaCatalogPriceSource e2e__20260809074
+1261; 1247 18256 TYPE public SofiaCommandApprovalStatus e2e__20260809074
+1264; 1247 18264 TYPE public SofiaCommandAttemptOutcome e2e__20260809074
+1267; 1247 18274 TYPE public SofiaCommandFailureClass e2e__20260809074
+1258; 1247 18234 TYPE public SofiaCommandStatus e2e__20260809074
+1177; 1247 17862 TYPE public SofiaMemoryConsentState e2e__20260809074
+1126; 1247 17546 TYPE public SofiaOrderDraftStatus e2e__20260809074
+1135; 1247 17588 TYPE public SofiaOrderSource e2e__20260809074
+1303; 1247 18504 TYPE public SofiaPaymentPreference e2e__20260809074
+1165; 1247 17831 TYPE public SofiaPromptStatus e2e__20260809074
+1054; 1247 17084 TYPE public StockCountScope e2e__20260809074
+1051; 1247 17079 TYPE public StockCountStatus e2e__20260809074
+1117; 1247 17513 TYPE public WhatsappConversationStatus e2e__20260809074
+1129; 1247 17560 TYPE public WhatsappDeliveryOrderStatus e2e__20260809074
+1285; 1247 18380 TYPE public WhatsappDeliveryStatus e2e__20260809074
+1282; 1247 18373 TYPE public WhatsappInboundEventKind e2e__20260809074
+1288; 1247 18394 TYPE public WhatsappMediaSecurityStatus e2e__20260809074
+1120; 1247 17524 TYPE public WhatsappMessageDirection e2e__20260809074
+1123; 1247 17532 TYPE public WhatsappMessageType e2e__20260809074
+1132; 1247 17574 TYPE public WhatsappPaymentStatus e2e__20260809074
+215; 1259 16385 TABLE public _prisma_migrations e2e__20260809074
+240; 1259 16680 TABLE public audit_logs e2e__20260809074
+237; 1259 16655 TABLE public cash_movements e2e__20260809074
+236; 1259 16645 TABLE public cash_sessions e2e__20260809074
+222; 1259 16509 TABLE public categories e2e__20260809074
+284; 1259 18129 TABLE public crm_customer_campaign_deliveries e2e__20260809074
+283; 1259 18119 TABLE public crm_customer_campaigns e2e__20260809074
+277; 1259 18069 TABLE public crm_customer_consents e2e__20260809074
+276; 1259 18060 TABLE public crm_customer_identities e2e__20260809074
+278; 1259 18077 TABLE public crm_customer_interactions e2e__20260809074
+282; 1259 18111 TABLE public crm_customer_segment_memberships e2e__20260809074
+281; 1259 18102 TABLE public crm_customer_segments e2e__20260809074
+280; 1259 18094 TABLE public crm_customer_tag_assignments e2e__20260809074
+279; 1259 18086 TABLE public crm_customer_tags e2e__20260809074
+275; 1259 18051 TABLE public crm_customers e2e__20260809074
+300; 1259 18785 TABLE public customer_service_case_events e2e__20260809074
+299; 1259 18775 TABLE public customer_service_cases e2e__20260809074
+250; 1259 17207 TABLE public delivery_customers e2e__20260809074
+252; 1259 17301 TABLE public delivery_issues e2e__20260809074
+251; 1259 17291 TABLE public delivery_location_inbox e2e__20260809074
+256; 1259 17413 TABLE public delivery_pricing_audits e2e__20260809074
+255; 1259 17397 TABLE public delivery_provider_usage e2e__20260809074
+297; 1259 18756 TABLE public delivery_workflow_events e2e__20260809074
+243; 1259 16993 TABLE public dining_tables e2e__20260809074
+238; 1259 16663 TABLE public expenses e2e__20260809074
+254; 1259 17381 TABLE public external_api_cache e2e__20260809074
+226; 1259 16546 TABLE public ingredients e2e__20260809074
+231; 1259 16597 TABLE public inventory_movements e2e__20260809074
+298; 1259 18764 TABLE public notification_intents e2e__20260809074
+253; 1259 17310 TABLE public operational_alerts e2e__20260809074
+293; 1259 18593 TABLE public order_checkouts e2e__20260809074
+245; 1259 17016 TABLE public order_ticket_items e2e__20260809074
+244; 1259 17004 TABLE public order_tickets e2e__20260809074
+294; 1259 18605 TABLE public payment_intents e2e__20260809074
+295; 1259 18616 TABLE public payment_links e2e__20260809074
+235; 1259 16636 TABLE public payment_methods e2e__20260809074
+296; 1259 18625 TABLE public payment_transitions e2e__20260809074
+266; 1259 17748 TABLE public payment_webhook_events e2e__20260809074
+218; 1259 16477 TABLE public permissions e2e__20260809074
+225; 1259 16535 TABLE public products e2e__20260809074
+230; 1259 16589 TABLE public purchase_items e2e__20260809074
+229; 1259 16575 TABLE public purchases e2e__20260809074
+228; 1259 16566 TABLE public recipe_items e2e__20260809074
+227; 1259 16556 TABLE public recipes e2e__20260809074
+221; 1259 16501 TABLE public refresh_tokens e2e__20260809074
+239; 1259 16672 TABLE public reports_snapshots e2e__20260809074
+220; 1259 16493 TABLE public role_permissions e2e__20260809074
+217; 1259 16468 TABLE public roles e2e__20260809074
+248; 1259 17152 TABLE public sale_conversions e2e__20260809074
+233; 1259 16620 TABLE public sale_items e2e__20260809074
+234; 1259 16628 TABLE public sale_payments e2e__20260809074
+232; 1259 16606 TABLE public sales e2e__20260809074
+241; 1259 16688 TABLE public settings e2e__20260809074
+274; 1259 17941 TABLE public sofia_auto_safe_decision_events e2e__20260809074
+286; 1259 18302 TABLE public sofia_command_approvals e2e__20260809074
+287; 1259 18314 TABLE public sofia_command_attempts e2e__20260809074
+288; 1259 18325 TABLE public sofia_command_results e2e__20260809074
+285; 1259 18289 TABLE public sofia_commands e2e__20260809074
+270; 1259 17879 TABLE public sofia_commercial_catalog_items e2e__20260809074
+273; 1259 17910 TABLE public sofia_commercial_rule_events e2e__20260809074
+272; 1259 17901 TABLE public sofia_conversation_memories e2e__20260809074
+271; 1259 17891 TABLE public sofia_customer_memories e2e__20260809074
+262; 1259 17617 TABLE public sofia_order_drafts e2e__20260809074
+265; 1259 17716 TABLE public sofia_payment_events e2e__20260809074
+264; 1259 17701 TABLE public sofia_payment_settings e2e__20260809074
+269; 1259 17869 TABLE public sofia_prompt_versions e2e__20260809074
+247; 1259 17103 TABLE public stock_count_items e2e__20260809074
+246; 1259 17093 TABLE public stock_count_sessions e2e__20260809074
+242; 1259 16936 TABLE public supplier_notifications e2e__20260809074
+224; 1259 16526 TABLE public suppliers e2e__20260809074
+257; 1259 17439 TABLE public table_groups e2e__20260809074
+223; 1259 16518 TABLE public units e2e__20260809074
+219; 1259 16485 TABLE public user_roles e2e__20260809074
+216; 1259 16459 TABLE public users e2e__20260809074
+249; 1259 17180 TABLE public waiter_order_sync_receipts e2e__20260809074
+259; 1259 17484 TABLE public waiter_table_assignments e2e__20260809074
+258; 1259 17456 TABLE public waiter_table_group_assignments e2e__20260809074
+260; 1259 17597 TABLE public whatsapp_conversations e2e__20260809074
+263; 1259 17631 TABLE public whatsapp_delivery_orders e2e__20260809074
+291; 1259 18424 TABLE public whatsapp_handoff_events e2e__20260809074
+267; 1259 17779 TABLE public whatsapp_inbound_events e2e__20260809074
+292; 1259 18432 TABLE public whatsapp_media_envelopes e2e__20260809074
+290; 1259 18416 TABLE public whatsapp_message_status_events e2e__20260809074
+261; 1259 17608 TABLE public whatsapp_messages e2e__20260809074
+268; 1259 17788 TABLE public whatsapp_outbound_messages e2e__20260809074
+289; 1259 18403 TABLE public whatsapp_provider_accounts e2e__20260809074
+4790; 0 16385 TABLE DATA public _prisma_migrations e2e__20260809074
+4815; 0 16680 TABLE DATA public audit_logs e2e__20260809074
+4812; 0 16655 TABLE DATA public cash_movements e2e__20260809074
+4811; 0 16645 TABLE DATA public cash_sessions e2e__20260809074
+4797; 0 16509 TABLE DATA public categories e2e__20260809074
+4859; 0 18129 TABLE DATA public crm_customer_campaign_deliveries e2e__20260809074
+4858; 0 18119 TABLE DATA public crm_customer_campaigns e2e__20260809074
+4852; 0 18069 TABLE DATA public crm_customer_consents e2e__20260809074
+4851; 0 18060 TABLE DATA public crm_customer_identities e2e__20260809074
+4853; 0 18077 TABLE DATA public crm_customer_interactions e2e__20260809074
+4857; 0 18111 TABLE DATA public crm_customer_segment_memberships e2e__20260809074
+4856; 0 18102 TABLE DATA public crm_customer_segments e2e__20260809074
+4855; 0 18094 TABLE DATA public crm_customer_tag_assignments e2e__20260809074
+4854; 0 18086 TABLE DATA public crm_customer_tags e2e__20260809074
+4850; 0 18051 TABLE DATA public crm_customers e2e__20260809074
+4875; 0 18785 TABLE DATA public customer_service_case_events e2e__20260809074
+4874; 0 18775 TABLE DATA public customer_service_cases e2e__20260809074
+4825; 0 17207 TABLE DATA public delivery_customers e2e__20260809074
+4827; 0 17301 TABLE DATA public delivery_issues e2e__20260809074
+4826; 0 17291 TABLE DATA public delivery_location_inbox e2e__20260809074
+4831; 0 17413 TABLE DATA public delivery_pricing_audits e2e__20260809074
+4830; 0 17397 TABLE DATA public delivery_provider_usage e2e__20260809074
+4872; 0 18756 TABLE DATA public delivery_workflow_events e2e__20260809074
+4818; 0 16993 TABLE DATA public dining_tables e2e__20260809074
+4813; 0 16663 TABLE DATA public expenses e2e__20260809074
+4829; 0 17381 TABLE DATA public external_api_cache e2e__20260809074
+4801; 0 16546 TABLE DATA public ingredients e2e__20260809074
+4806; 0 16597 TABLE DATA public inventory_movements e2e__20260809074
+4873; 0 18764 TABLE DATA public notification_intents e2e__20260809074
+4828; 0 17310 TABLE DATA public operational_alerts e2e__20260809074
+4868; 0 18593 TABLE DATA public order_checkouts e2e__20260809074
+4820; 0 17016 TABLE DATA public order_ticket_items e2e__20260809074
+4819; 0 17004 TABLE DATA public order_tickets e2e__20260809074
+4869; 0 18605 TABLE DATA public payment_intents e2e__20260809074
+4870; 0 18616 TABLE DATA public payment_links e2e__20260809074
+4810; 0 16636 TABLE DATA public payment_methods e2e__20260809074
+4871; 0 18625 TABLE DATA public payment_transitions e2e__20260809074
+4841; 0 17748 TABLE DATA public payment_webhook_events e2e__20260809074
+4793; 0 16477 TABLE DATA public permissions e2e__20260809074
+4800; 0 16535 TABLE DATA public products e2e__20260809074
+4805; 0 16589 TABLE DATA public purchase_items e2e__20260809074
+4804; 0 16575 TABLE DATA public purchases e2e__20260809074
+4803; 0 16566 TABLE DATA public recipe_items e2e__20260809074
+4802; 0 16556 TABLE DATA public recipes e2e__20260809074
+4796; 0 16501 TABLE DATA public refresh_tokens e2e__20260809074
+4814; 0 16672 TABLE DATA public reports_snapshots e2e__20260809074
+4795; 0 16493 TABLE DATA public role_permissions e2e__20260809074
+4792; 0 16468 TABLE DATA public roles e2e__20260809074
+4823; 0 17152 TABLE DATA public sale_conversions e2e__20260809074
+4808; 0 16620 TABLE DATA public sale_items e2e__20260809074
+4809; 0 16628 TABLE DATA public sale_payments e2e__20260809074
+4807; 0 16606 TABLE DATA public sales e2e__20260809074
+4816; 0 16688 TABLE DATA public settings e2e__20260809074
+4849; 0 17941 TABLE DATA public sofia_auto_safe_decision_events e2e__20260809074
+4861; 0 18302 TABLE DATA public sofia_command_approvals e2e__20260809074
+4862; 0 18314 TABLE DATA public sofia_command_attempts e2e__20260809074
+4863; 0 18325 TABLE DATA public sofia_command_results e2e__20260809074
+4860; 0 18289 TABLE DATA public sofia_commands e2e__20260809074
+4845; 0 17879 TABLE DATA public sofia_commercial_catalog_items e2e__20260809074
+4848; 0 17910 TABLE DATA public sofia_commercial_rule_events e2e__20260809074
+4847; 0 17901 TABLE DATA public sofia_conversation_memories e2e__20260809074
+4846; 0 17891 TABLE DATA public sofia_customer_memories e2e__20260809074
+4837; 0 17617 TABLE DATA public sofia_order_drafts e2e__20260809074
+4840; 0 17716 TABLE DATA public sofia_payment_events e2e__20260809074
+4839; 0 17701 TABLE DATA public sofia_payment_settings e2e__20260809074
+4844; 0 17869 TABLE DATA public sofia_prompt_versions e2e__20260809074
+4822; 0 17103 TABLE DATA public stock_count_items e2e__20260809074
+4821; 0 17093 TABLE DATA public stock_count_sessions e2e__20260809074
+4817; 0 16936 TABLE DATA public supplier_notifications e2e__20260809074
+4799; 0 16526 TABLE DATA public suppliers e2e__20260809074
+4832; 0 17439 TABLE DATA public table_groups e2e__20260809074
+4798; 0 16518 TABLE DATA public units e2e__20260809074
+4794; 0 16485 TABLE DATA public user_roles e2e__20260809074
+4791; 0 16459 TABLE DATA public users e2e__20260809074
+4824; 0 17180 TABLE DATA public waiter_order_sync_receipts e2e__20260809074
+4834; 0 17484 TABLE DATA public waiter_table_assignments e2e__20260809074
+4833; 0 17456 TABLE DATA public waiter_table_group_assignments e2e__20260809074
+4835; 0 17597 TABLE DATA public whatsapp_conversations e2e__20260809074
+4838; 0 17631 TABLE DATA public whatsapp_delivery_orders e2e__20260809074
+4866; 0 18424 TABLE DATA public whatsapp_handoff_events e2e__20260809074
+4842; 0 17779 TABLE DATA public whatsapp_inbound_events e2e__20260809074
+4867; 0 18432 TABLE DATA public whatsapp_media_envelopes e2e__20260809074
+4865; 0 18416 TABLE DATA public whatsapp_message_status_events e2e__20260809074
+4836; 0 17608 TABLE DATA public whatsapp_messages e2e__20260809074
+4843; 0 17788 TABLE DATA public whatsapp_outbound_messages e2e__20260809074
+4864; 0 18403 TABLE DATA public whatsapp_provider_accounts e2e__20260809074
+4034; 2606 16393 CONSTRAINT public _prisma_migrations _prisma_migrations_pkey e2e__20260809074
+4147; 2606 16687 CONSTRAINT public audit_logs audit_logs_pkey e2e__20260809074
+4130; 2606 16662 CONSTRAINT public cash_movements cash_movements_pkey e2e__20260809074
+4126; 2606 16654 CONSTRAINT public cash_sessions cash_sessions_pkey e2e__20260809074
+4059; 2606 16517 CONSTRAINT public categories categories_pkey e2e__20260809074
+4396; 2606 18137 CONSTRAINT public crm_customer_campaign_deliveries crm_customer_campaign_deliveries_pkey e2e__20260809074
+4389; 2606 18128 CONSTRAINT public crm_customer_campaigns crm_customer_campaigns_pkey e2e__20260809074
+4369; 2606 18076 CONSTRAINT public crm_customer_consents crm_customer_consents_pkey e2e__20260809074
+4364; 2606 18068 CONSTRAINT public crm_customer_identities crm_customer_identities_pkey e2e__20260809074
+4374; 2606 18085 CONSTRAINT public crm_customer_interactions crm_customer_interactions_pkey e2e__20260809074
+4387; 2606 18118 CONSTRAINT public crm_customer_segment_memberships crm_customer_segment_memberships_pkey e2e__20260809074
+4383; 2606 18110 CONSTRAINT public crm_customer_segments crm_customer_segments_pkey e2e__20260809074
+4379; 2606 18101 CONSTRAINT public crm_customer_tag_assignments crm_customer_tag_assignments_pkey e2e__20260809074
+4377; 2606 18093 CONSTRAINT public crm_customer_tags crm_customer_tags_pkey e2e__20260809074
+4360; 2606 18059 CONSTRAINT public crm_customers crm_customers_pkey e2e__20260809074
+4498; 2606 18792 CONSTRAINT public customer_service_case_events customer_service_case_events_pkey e2e__20260809074
+4490; 2606 18784 CONSTRAINT public customer_service_cases customer_service_cases_pkey e2e__20260809074
+4200; 2606 17214 CONSTRAINT public delivery_customers delivery_customers_pkey e2e__20260809074
+4210; 2606 17309 CONSTRAINT public delivery_issues delivery_issues_pkey e2e__20260809074
+4205; 2606 17300 CONSTRAINT public delivery_location_inbox delivery_location_inbox_pkey e2e__20260809074
+4237; 2606 17421 CONSTRAINT public delivery_pricing_audits delivery_pricing_audits_pkey e2e__20260809074
+4228; 2606 17407 CONSTRAINT public delivery_provider_usage delivery_provider_usage_pkey e2e__20260809074
+4473; 2606 18763 CONSTRAINT public delivery_workflow_events delivery_workflow_events_pkey e2e__20260809074
+4160; 2606 17003 CONSTRAINT public dining_tables dining_tables_pkey e2e__20260809074
+4133; 2606 16671 CONSTRAINT public expenses expenses_pkey e2e__20260809074
+4221; 2606 17388 CONSTRAINT public external_api_cache external_api_cache_pkey e2e__20260809074
+4080; 2606 16555 CONSTRAINT public ingredients ingredients_pkey e2e__20260809074
+4103; 2606 16605 CONSTRAINT public inventory_movements inventory_movements_pkey e2e__20260809074
+4481; 2606 18774 CONSTRAINT public notification_intents notification_intents_pkey e2e__20260809074
+4215; 2606 17318 CONSTRAINT public operational_alerts operational_alerts_pkey e2e__20260809074
+4445; 2606 18604 CONSTRAINT public order_checkouts order_checkouts_pkey e2e__20260809074
+4174; 2606 17023 CONSTRAINT public order_ticket_items order_ticket_items_pkey e2e__20260809074
+4168; 2606 17015 CONSTRAINT public order_tickets order_tickets_pkey e2e__20260809074
+4453; 2606 18615 CONSTRAINT public payment_intents payment_intents_pkey e2e__20260809074
+4460; 2606 18624 CONSTRAINT public payment_links payment_links_pkey e2e__20260809074
+4123; 2606 16644 CONSTRAINT public payment_methods payment_methods_pkey e2e__20260809074
+4466; 2606 18632 CONSTRAINT public payment_transitions payment_transitions_pkey e2e__20260809074
+4300; 2606 17757 CONSTRAINT public payment_webhook_events payment_webhook_events_pkey e2e__20260809074
+4044; 2606 16484 CONSTRAINT public permissions permissions_pkey e2e__20260809074
+4076; 2606 16545 CONSTRAINT public products products_pkey e2e__20260809074
+4098; 2606 16596 CONSTRAINT public purchase_items purchase_items_pkey e2e__20260809074
+4092; 2606 16588 CONSTRAINT public purchases purchases_pkey e2e__20260809074
+4086; 2606 16574 CONSTRAINT public recipe_items recipe_items_pkey e2e__20260809074
+4082; 2606 16565 CONSTRAINT public recipes recipes_pkey e2e__20260809074
+4055; 2606 16508 CONSTRAINT public refresh_tokens refresh_tokens_pkey e2e__20260809074
+4136; 2606 16679 CONSTRAINT public reports_snapshots reports_snapshots_pkey e2e__20260809074
+4051; 2606 16500 CONSTRAINT public role_permissions role_permissions_pkey e2e__20260809074
+4041; 2606 16476 CONSTRAINT public roles roles_pkey e2e__20260809074
+4188; 2606 17160 CONSTRAINT public sale_conversions sale_conversions_pkey e2e__20260809074
+4115; 2606 16627 CONSTRAINT public sale_items sale_items_pkey e2e__20260809074
+4120; 2606 16635 CONSTRAINT public sale_payments sale_payments_pkey e2e__20260809074
+4112; 2606 16619 CONSTRAINT public sales sales_pkey e2e__20260809074
+4152; 2606 16696 CONSTRAINT public settings settings_pkey e2e__20260809074
+4355; 2606 17951 CONSTRAINT public sofia_auto_safe_decision_events sofia_auto_safe_decision_events_pkey e2e__20260809074
+4409; 2606 18313 CONSTRAINT public sofia_command_approvals sofia_command_approvals_pkey e2e__20260809074
+4417; 2606 18324 CONSTRAINT public sofia_command_attempts sofia_command_attempts_pkey e2e__20260809074
+4420; 2606 18334 CONSTRAINT public sofia_command_results sofia_command_results_pkey e2e__20260809074
+4400; 2606 18301 CONSTRAINT public sofia_commands sofia_commands_pkey e2e__20260809074
+4334; 2606 17890 CONSTRAINT public sofia_commercial_catalog_items sofia_commercial_catalog_items_pkey e2e__20260809074
+4350; 2606 17917 CONSTRAINT public sofia_commercial_rule_events sofia_commercial_rule_events_pkey e2e__20260809074
+4346; 2606 17909 CONSTRAINT public sofia_conversation_memories sofia_conversation_memories_pkey e2e__20260809074
+4341; 2606 17900 CONSTRAINT public sofia_customer_memories sofia_customer_memories_pkey e2e__20260809074
+4273; 2606 17630 CONSTRAINT public sofia_order_drafts sofia_order_drafts_pkey e2e__20260809074
+4295; 2606 17723 CONSTRAINT public sofia_payment_events sofia_payment_events_pkey e2e__20260809074
+4291; 2606 17715 CONSTRAINT public sofia_payment_settings sofia_payment_settings_pkey e2e__20260809074
+4329; 2606 17878 CONSTRAINT public sofia_prompt_versions sofia_prompt_versions_pkey e2e__20260809074
+4181; 2606 17110 CONSTRAINT public stock_count_items stock_count_items_pkey e2e__20260809074
+4177; 2606 17102 CONSTRAINT public stock_count_sessions stock_count_sessions_pkey e2e__20260809074
+4154; 2606 16943 CONSTRAINT public supplier_notifications supplier_notifications_pkey e2e__20260809074
+4067; 2606 16534 CONSTRAINT public suppliers suppliers_pkey e2e__20260809074
+4242; 2606 17447 CONSTRAINT public table_groups table_groups_pkey e2e__20260809074
+4064; 2606 16525 CONSTRAINT public units units_pkey e2e__20260809074
+4046; 2606 16492 CONSTRAINT public user_roles user_roles_pkey e2e__20260809074
+4038; 2606 16467 CONSTRAINT public users users_pkey e2e__20260809074
+4193; 2606 17187 CONSTRAINT public waiter_order_sync_receipts waiter_order_sync_receipts_pkey e2e__20260809074
+4249; 2606 17493 CONSTRAINT public waiter_table_assignments waiter_table_assignments_pkey e2e__20260809074
+4244; 2606 17465 CONSTRAINT public waiter_table_group_assignments waiter_table_group_assignments_pkey e2e__20260809074
+4258; 2606 17607 CONSTRAINT public whatsapp_conversations whatsapp_conversations_pkey e2e__20260809074
+4286; 2606 17645 CONSTRAINT public whatsapp_delivery_orders whatsapp_delivery_orders_pkey e2e__20260809074
+4437; 2606 18431 CONSTRAINT public whatsapp_handoff_events whatsapp_handoff_events_pkey e2e__20260809074
+4310; 2606 17787 CONSTRAINT public whatsapp_inbound_events whatsapp_inbound_events_pkey e2e__20260809074
+4440; 2606 18440 CONSTRAINT public whatsapp_media_envelopes whatsapp_media_envelopes_pkey e2e__20260809074
+4431; 2606 18423 CONSTRAINT public whatsapp_message_status_events whatsapp_message_status_events_pkey e2e__20260809074
+4265; 2606 17616 CONSTRAINT public whatsapp_messages whatsapp_messages_pkey e2e__20260809074
+4323; 2606 17797 CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_pkey e2e__20260809074
+4424; 2606 18412 CONSTRAINT public whatsapp_provider_accounts whatsapp_provider_accounts_pkey e2e__20260809074
+4137; 1259 17972 INDEX public audit_logs_actor_id_event_timestamp_idx e2e__20260809074
+4138; 1259 17973 INDEX public audit_logs_actor_role_event_timestamp_idx e2e__20260809074
+4139; 1259 17977 INDEX public audit_logs_correlation_id_idx e2e__20260809074
+4140; 1259 16743 INDEX public audit_logs_entity_entityId_idx e2e__20260809074
+4141; 1259 17975 INDEX public audit_logs_entity_type_entityId_event_timestamp_idx e2e__20260809074
+4142; 1259 17971 INDEX public audit_logs_event_timestamp_idx e2e__20260809074
+4143; 1259 17978 INDEX public audit_logs_idempotency_key_idx e2e__20260809074
+4144; 1259 17974 INDEX public audit_logs_module_action_event_timestamp_idx e2e__20260809074
+4145; 1259 16742 INDEX public audit_logs_module_createdAt_idx e2e__20260809074
+4148; 1259 17976 INDEX public audit_logs_request_id_idx e2e__20260809074
+4149; 1259 17373 INDEX public audit_logs_userId_createdAt_idx e2e__20260809074
+4128; 1259 16739 INDEX public cash_movements_cashSessionId_createdAt_idx e2e__20260809074
+4124; 1259 16738 INDEX public cash_sessions_openedAt_idx e2e__20260809074
+4127; 1259 16737 INDEX public cash_sessions_status_idx e2e__20260809074
+4057; 1259 16706 INDEX public categories_name_key e2e__20260809074
+4060; 1259 16707 INDEX public categories_slug_key e2e__20260809074
+4392; 1259 18154 INDEX public crm_customer_campaign_deliveries_campaign_id_customer_id_key e2e__20260809074
+4393; 1259 18155 INDEX public crm_customer_campaign_deliveries_customer_id_status_idx e2e__20260809074
+4394; 1259 18156 INDEX public crm_customer_campaign_deliveries_identity_id_idx e2e__20260809074
+4390; 1259 18153 INDEX public crm_customer_campaigns_segment_id_idx e2e__20260809074
+4391; 1259 18152 INDEX public crm_customer_campaigns_status_updated_at_idx e2e__20260809074
+4366; 1259 18143 INDEX public crm_customer_consents_customer_id_purpose_channel_created_a_idx e2e__20260809074
+4367; 1259 18142 INDEX public crm_customer_consents_customer_id_purpose_channel_version_key e2e__20260809074
+4370; 1259 18144 INDEX public crm_customer_consents_status_created_at_idx e2e__20260809074
+4362; 1259 18141 INDEX public crm_customer_identities_customer_id_type_idx e2e__20260809074
+4365; 1259 18140 INDEX public crm_customer_identities_type_value_hash_key e2e__20260809074
+4371; 1259 18145 INDEX public crm_customer_interactions_customer_id_occurred_at_idx e2e__20260809074
+4372; 1259 18146 INDEX public crm_customer_interactions_kind_occurred_at_idx e2e__20260809074
+4385; 1259 18151 INDEX public crm_customer_segment_memberships_customer_id_added_at_idx e2e__20260809074
+4381; 1259 18149 INDEX public crm_customer_segments_name_normalized_key e2e__20260809074
+4384; 1259 18150 INDEX public crm_customer_segments_status_updated_at_idx e2e__20260809074
+4380; 1259 18148 INDEX public crm_customer_tag_assignments_tag_id_assigned_at_idx e2e__20260809074
+4375; 1259 18147 INDEX public crm_customer_tags_name_normalized_key e2e__20260809074
+4358; 1259 18138 INDEX public crm_customers_display_name_normalized_idx e2e__20260809074
+4361; 1259 18139 INDEX public crm_customers_status_updated_at_idx e2e__20260809074
+4493; 1259 18815 INDEX public customer_service_case_events_actor_id_created_at_idx e2e__20260809074
+4494; 1259 18814 INDEX public customer_service_case_events_case_id_created_at_idx e2e__20260809074
+4495; 1259 18813 INDEX public customer_service_case_events_case_id_idempotency_key_key e2e__20260809074
+4496; 1259 18812 INDEX public customer_service_case_events_case_id_version_key e2e__20260809074
+4484; 1259 18807 INDEX public customer_service_cases_category_status_idx e2e__20260809074
+4485; 1259 18810 INDEX public customer_service_cases_conversation_id_status_idx e2e__20260809074
+4486; 1259 18808 INDEX public customer_service_cases_customer_id_created_at_idx e2e__20260809074
+4487; 1259 18809 INDEX public customer_service_cases_order_ticket_id_status_idx e2e__20260809074
+4488; 1259 18811 INDEX public customer_service_cases_payment_intent_id_status_idx e2e__20260809074
+4491; 1259 18805 INDEX public customer_service_cases_source_source_reference_key e2e__20260809074
+4492; 1259 18806 INDEX public customer_service_cases_status_created_at_idx e2e__20260809074
+4195; 1259 18157 INDEX public delivery_customers_customer_id_key e2e__20260809074
+4196; 1259 17218 INDEX public delivery_customers_fullName_idx e2e__20260809074
+4197; 1259 17217 INDEX public delivery_customers_phone_key e2e__20260809074
+4198; 1259 17380 INDEX public delivery_customers_phone_normalized_idx e2e__20260809074
+4207; 1259 18816 INDEX public delivery_issues_order_ticket_id_idempotency_key_key e2e__20260809074
+4208; 1259 17322 INDEX public delivery_issues_order_ticket_id_status_createdAt_idx e2e__20260809074
+4211; 1259 17323 INDEX public delivery_issues_reported_by_id_createdAt_idx e2e__20260809074
+4201; 1259 17319 INDEX public delivery_location_inbox_match_status_received_at_idx e2e__20260809074
+4202; 1259 17321 INDEX public delivery_location_inbox_matched_order_id_received_at_idx e2e__20260809074
+4203; 1259 17320 INDEX public delivery_location_inbox_normalized_sender_phone_received_at_idx e2e__20260809074
+4206; 1259 18817 INDEX public delivery_location_inbox_source_event_key_key e2e__20260809074
+4232; 1259 17426 INDEX public delivery_pricing_audits_created_at_idx e2e__20260809074
+4233; 1259 17424 INDEX public delivery_pricing_audits_customer_id_idx e2e__20260809074
+4234; 1259 17425 INDEX public delivery_pricing_audits_operator_id_idx e2e__20260809074
+4235; 1259 17422 INDEX public delivery_pricing_audits_order_ticket_id_idx e2e__20260809074
+4238; 1259 17423 INDEX public delivery_pricing_audits_sale_id_idx e2e__20260809074
+4225; 1259 17412 INDEX public delivery_provider_usage_circuit_open_until_idx e2e__20260809074
+4226; 1259 17410 INDEX public delivery_provider_usage_endpoint_idx e2e__20260809074
+4229; 1259 17408 INDEX public delivery_provider_usage_provider_endpoint_usage_date_key e2e__20260809074
+4230; 1259 17409 INDEX public delivery_provider_usage_provider_idx e2e__20260809074
+4231; 1259 17411 INDEX public delivery_provider_usage_usage_date_idx e2e__20260809074
+4468; 1259 18797 INDEX public delivery_workflow_events_actor_id_created_at_idx e2e__20260809074
+4469; 1259 18795 INDEX public delivery_workflow_events_order_ticket_id_created_at_idx e2e__20260809074
+4470; 1259 18794 INDEX public delivery_workflow_events_order_ticket_id_idempotency_key_key e2e__20260809074
+4471; 1259 18793 INDEX public delivery_workflow_events_order_ticket_id_version_key e2e__20260809074
+4474; 1259 18796 INDEX public delivery_workflow_events_to_status_created_at_idx e2e__20260809074
+4157; 1259 17450 INDEX public dining_tables_group_id_idx e2e__20260809074
+4158; 1259 17024 INDEX public dining_tables_label_key e2e__20260809074
+4161; 1259 17025 INDEX public dining_tables_status_isActive_idx e2e__20260809074
+4131; 1259 16741 INDEX public expenses_cashSessionId_idx e2e__20260809074
+4134; 1259 16740 INDEX public expenses_spentAt_idx e2e__20260809074
+4218; 1259 17392 INDEX public external_api_cache_cache_type_idx e2e__20260809074
+4219; 1259 17390 INDEX public external_api_cache_expires_at_idx e2e__20260809074
+4222; 1259 17389 INDEX public external_api_cache_provider_cache_type_cache_key_key e2e__20260809074
+4223; 1259 17391 INDEX public external_api_cache_provider_idx e2e__20260809074
+4224; 1259 17393 INDEX public external_api_cache_status_idx e2e__20260809074
+4077; 1259 16716 INDEX public ingredients_code_key e2e__20260809074
+4078; 1259 16717 INDEX public ingredients_isActive_idx e2e__20260809074
+4100; 1259 16727 INDEX public inventory_movements_ingredientId_idx e2e__20260809074
+4101; 1259 16729 INDEX public inventory_movements_occurredAt_idx e2e__20260809074
+4104; 1259 16728 INDEX public inventory_movements_productId_idx e2e__20260809074
+4475; 1259 18802 INDEX public notification_intents_aggregate_type_aggregate_id_aggregate__idx e2e__20260809074
+4476; 1259 18800 INDEX public notification_intents_aggregate_type_source_event_id_channel_key e2e__20260809074
+4477; 1259 18803 INDEX public notification_intents_conversation_id_created_at_idx e2e__20260809074
+4478; 1259 18804 INDEX public notification_intents_customer_id_created_at_idx e2e__20260809074
+4479; 1259 18798 INDEX public notification_intents_outbound_message_id_key e2e__20260809074
+4482; 1259 18799 INDEX public notification_intents_secure_command_id_key e2e__20260809074
+4483; 1259 18801 INDEX public notification_intents_status_next_retry_at_lease_expires_at_idx e2e__20260809074
+4212; 1259 17326 INDEX public operational_alerts_entity_type_entity_id_idx e2e__20260809074
+4213; 1259 17325 INDEX public operational_alerts_module_status_createdAt_idx e2e__20260809074
+4216; 1259 17327 INDEX public operational_alerts_severity_status_createdAt_idx e2e__20260809074
+4217; 1259 17324 INDEX public operational_alerts_status_createdAt_idx e2e__20260809074
+4442; 1259 18638 INDEX public order_checkouts_customer_id_created_at_idx e2e__20260809074
+4443; 1259 18634 INDEX public order_checkouts_order_ticket_id_key e2e__20260809074
+4446; 1259 18636 INDEX public order_checkouts_sofia_draft_id_sofia_draft_version_key e2e__20260809074
+4447; 1259 18635 INDEX public order_checkouts_source_idempotency_key_key e2e__20260809074
+4448; 1259 18639 INDEX public order_checkouts_source_source_reference_idx e2e__20260809074
+4449; 1259 18637 INDEX public order_checkouts_status_expires_at_idx e2e__20260809074
+4172; 1259 17030 INDEX public order_ticket_items_orderTicketId_idx e2e__20260809074
+4175; 1259 17031 INDEX public order_ticket_items_productId_idx e2e__20260809074
+4162; 1259 17242 INDEX public order_tickets_assigned_rider_id_delivery_workflow_status_idx e2e__20260809074
+4163; 1259 17191 INDEX public order_tickets_assigned_waiter_id_status_idx e2e__20260809074
+4164; 1259 17029 INDEX public order_tickets_cashSessionId_status_idx e2e__20260809074
+4165; 1259 17219 INDEX public order_tickets_delivery_customer_id_idx e2e__20260809074
+4166; 1259 17026 INDEX public order_tickets_number_key e2e__20260809074
+4169; 1259 17027 INDEX public order_tickets_status_openedAt_idx e2e__20260809074
+4170; 1259 17028 INDEX public order_tickets_tableId_status_idx e2e__20260809074
+4171; 1259 17243 INDEX public order_tickets_type_delivery_workflow_status_status_idx e2e__20260809074
+4450; 1259 18640 INDEX public payment_intents_checkout_id_attempt_number_key e2e__20260809074
+4451; 1259 18643 INDEX public payment_intents_checkout_id_status_idx e2e__20260809074
+4454; 1259 18641 INDEX public payment_intents_provider_idempotency_key_key e2e__20260809074
+4455; 1259 18642 INDEX public payment_intents_provider_provider_payment_id_key e2e__20260809074
+4456; 1259 18645 INDEX public payment_intents_provider_provider_reference_idx e2e__20260809074
+4457; 1259 18644 INDEX public payment_intents_status_expires_at_idx e2e__20260809074
+4458; 1259 18647 INDEX public payment_links_payment_intent_id_status_idx e2e__20260809074
+4461; 1259 18648 INDEX public payment_links_status_expires_at_idx e2e__20260809074
+4462; 1259 18646 INDEX public payment_links_token_hash_key e2e__20260809074
+4121; 1259 16736 INDEX public payment_methods_code_key e2e__20260809074
+4463; 1259 18651 INDEX public payment_transitions_payment_intent_id_created_at_idx e2e__20260809074
+4464; 1259 18650 INDEX public payment_transitions_payment_intent_id_idempotency_key_key e2e__20260809074
+4467; 1259 18649 INDEX public payment_transitions_webhook_event_id_key e2e__20260809074
+4297; 1259 17763 INDEX public payment_webhook_events_order_reference_received_at_idx e2e__20260809074
+4298; 1259 18653 INDEX public payment_webhook_events_payment_intent_id_received_at_idx e2e__20260809074
+4301; 1259 18818 INDEX public payment_webhook_events_processed_status_next_retry_at_proce_idx e2e__20260809074
+4302; 1259 18652 INDEX public payment_webhook_events_provider_event_id_key e2e__20260809074
+4303; 1259 17761 INDEX public payment_webhook_events_provider_provider_payment_id_idx e2e__20260809074
+4304; 1259 17762 INDEX public payment_webhook_events_provider_provider_reference_idx e2e__20260809074
+4305; 1259 17764 INDEX public payment_webhook_events_whatsapp_delivery_order_id_received_at_i e2e__20260809074
+4042; 1259 16699 INDEX public permissions_code_key e2e__20260809074
+4069; 1259 17076 INDEX public products_brand_idx e2e__20260809074
+4070; 1259 16713 INDEX public products_categoryId_idx e2e__20260809074
+4071; 1259 16712 INDEX public products_code_key e2e__20260809074
+4072; 1259 17374 INDEX public products_currentStock_idx e2e__20260809074
+4073; 1259 16715 INDEX public products_isActive_idx e2e__20260809074
+4074; 1259 16714 INDEX public products_kind_idx e2e__20260809074
+4096; 1259 16725 INDEX public purchase_items_ingredientId_idx e2e__20260809074
+4099; 1259 16726 INDEX public purchase_items_productId_idx e2e__20260809074
+4088; 1259 17428 INDEX public purchases_cashSessionId_idx e2e__20260809074
+4089; 1259 16721 INDEX public purchases_number_key e2e__20260809074
+4090; 1259 17427 INDEX public purchases_paymentMethodId_idx e2e__20260809074
+4093; 1259 16723 INDEX public purchases_purchasedAt_idx e2e__20260809074
+4094; 1259 16724 INDEX public purchases_status_idx e2e__20260809074
+4095; 1259 16722 INDEX public purchases_supplierId_idx e2e__20260809074
+4084; 1259 16719 INDEX public recipe_items_ingredientId_idx e2e__20260809074
+4087; 1259 16720 INDEX public recipe_items_recipeId_ingredientId_key e2e__20260809074
+4083; 1259 16718 INDEX public recipes_productId_key e2e__20260809074
+4053; 1259 16705 INDEX public refresh_tokens_expiresAt_idx e2e__20260809074
+4056; 1259 16704 INDEX public refresh_tokens_userId_idx e2e__20260809074
+4049; 1259 16702 INDEX public role_permissions_permissionId_idx e2e__20260809074
+4052; 1259 16703 INDEX public role_permissions_roleId_permissionId_key e2e__20260809074
+4039; 1259 16698 INDEX public roles_name_key e2e__20260809074
+4184; 1259 17163 INDEX public sale_conversions_convertedAt_idx e2e__20260809074
+4185; 1259 17164 INDEX public sale_conversions_convertedById_idx e2e__20260809074
+4186; 1259 17162 INDEX public sale_conversions_orderTicketId_key e2e__20260809074
+4189; 1259 17161 INDEX public sale_conversions_saleId_key e2e__20260809074
+4116; 1259 16734 INDEX public sale_items_productId_idx e2e__20260809074
+4117; 1259 16735 INDEX public sale_payments_paymentMethodId_idx e2e__20260809074
+4118; 1259 18654 INDEX public sale_payments_payment_intent_id_key e2e__20260809074
+4105; 1259 16732 INDEX public sales_cashSessionId_idx e2e__20260809074
+4106; 1259 16946 INDEX public sales_channel_idx e2e__20260809074
+4107; 1259 16733 INDEX public sales_createdById_idx e2e__20260809074
+4108; 1259 16730 INDEX public sales_number_key e2e__20260809074
+4109; 1259 17033 INDEX public sales_orderTicketId_idx e2e__20260809074
+4110; 1259 17032 INDEX public sales_orderTicketId_key e2e__20260809074
+4113; 1259 16731 INDEX public sales_soldAt_idx e2e__20260809074
+4150; 1259 16744 INDEX public settings_key_key e2e__20260809074
+4352; 1259 17952 INDEX public sofia_auto_safe_decision_events_conversation_id_created_at_idx e2e__20260809074
+4353; 1259 17953 INDEX public sofia_auto_safe_decision_events_customer_memory_id_created_at_i e2e__20260809074
+4356; 1259 17954 INDEX public sofia_auto_safe_decision_events_prompt_version_id_created_at_id e2e__20260809074
+4357; 1259 17955 INDEX public sofia_auto_safe_decision_events_status_created_at_idx e2e__20260809074
+4405; 1259 18343 INDEX public sofia_command_approvals_approver_actor_id_granted_at_idx e2e__20260809074
+4406; 1259 18341 INDEX public sofia_command_approvals_audit_identity_key e2e__20260809074
+4407; 1259 18342 INDEX public sofia_command_approvals_command_id_status_expires_at_idx e2e__20260809074
+4410; 1259 18344 INDEX public sofia_command_approvals_status_expires_at_idx e2e__20260809074
+4411; 1259 18349 INDEX public sofia_command_attempts_approval_id_idx e2e__20260809074
+4412; 1259 18345 INDEX public sofia_command_attempts_command_id_attempt_number_key e2e__20260809074
+4413; 1259 18346 INDEX public sofia_command_attempts_command_id_started_at_idx e2e__20260809074
+4414; 1259 18348 INDEX public sofia_command_attempts_lease_expires_at_outcome_idx e2e__20260809074
+4415; 1259 18347 INDEX public sofia_command_attempts_outcome_started_at_idx e2e__20260809074
+4418; 1259 18350 INDEX public sofia_command_results_command_id_key e2e__20260809074
+4421; 1259 18351 INDEX public sofia_command_results_retention_until_idx e2e__20260809074
+4397; 1259 18339 INDEX public sofia_commands_actor_id_created_at_idx e2e__20260809074
+4398; 1259 18340 INDEX public sofia_commands_correlation_id_idx e2e__20260809074
+4401; 1259 18335 INDEX public sofia_commands_scope_command_type_idempotency_key_key e2e__20260809074
+4402; 1259 18336 INDEX public sofia_commands_status_expires_at_idx e2e__20260809074
+4403; 1259 18337 INDEX public sofia_commands_status_lease_expires_at_idx e2e__20260809074
+4404; 1259 18338 INDEX public sofia_commands_target_type_target_id_created_at_idx e2e__20260809074
+4332; 1259 17922 INDEX public sofia_commercial_catalog_items_linked_product_id_idx e2e__20260809074
+4335; 1259 17920 INDEX public sofia_commercial_catalog_items_slug_key e2e__20260809074
+4336; 1259 17921 INDEX public sofia_commercial_catalog_items_type_status_sort_order_idx e2e__20260809074
+4347; 1259 17928 INDEX public sofia_commercial_rule_events_conversation_id_created_at_idx e2e__20260809074
+4348; 1259 17929 INDEX public sofia_commercial_rule_events_customer_memory_id_created_at_idx e2e__20260809074
+4351; 1259 17930 INDEX public sofia_commercial_rule_events_rule_code_created_at_idx e2e__20260809074
+4342; 1259 17925 INDEX public sofia_conversation_memories_conversation_id_key e2e__20260809074
+4343; 1259 17926 INDEX public sofia_conversation_memories_customer_memory_id_idx e2e__20260809074
+4344; 1259 17927 INDEX public sofia_conversation_memories_expires_at_idx e2e__20260809074
+4337; 1259 18159 INDEX public sofia_customer_memories_customer_id_key e2e__20260809074
+4338; 1259 17924 INDEX public sofia_customer_memories_last_interaction_at_idx e2e__20260809074
+4339; 1259 17923 INDEX public sofia_customer_memories_phone_normalized_key e2e__20260809074
+4268; 1259 17651 INDEX public sofia_order_drafts_conversation_id_idx e2e__20260809074
+4269; 1259 18515 INDEX public sofia_order_drafts_conversation_id_status_expires_at_idx e2e__20260809074
+4270; 1259 18516 INDEX public sofia_order_drafts_customer_id_status_idx e2e__20260809074
+4271; 1259 17653 INDEX public sofia_order_drafts_customer_phone_idx e2e__20260809074
+4274; 1259 18517 INDEX public sofia_order_drafts_status_expires_at_idx e2e__20260809074
+4275; 1259 17652 INDEX public sofia_order_drafts_status_updated_at_idx e2e__20260809074
+4292; 1259 17736 INDEX public sofia_payment_events_actor_id_created_at_idx e2e__20260809074
+4293; 1259 17735 INDEX public sofia_payment_events_order_ticket_id_created_at_idx e2e__20260809074
+4296; 1259 17734 INDEX public sofia_payment_events_whatsapp_delivery_order_id_created_at_idx e2e__20260809074
+4330; 1259 17919 INDEX public sofia_prompt_versions_status_updated_at_idx e2e__20260809074
+4331; 1259 17918 INDEX public sofia_prompt_versions_version_key e2e__20260809074
+4179; 1259 17113 INDEX public stock_count_items_ingredientId_idx e2e__20260809074
+4182; 1259 17114 INDEX public stock_count_items_productId_idx e2e__20260809074
+4183; 1259 17112 INDEX public stock_count_items_sessionId_idx e2e__20260809074
+4178; 1259 17111 INDEX public stock_count_sessions_scope_createdAt_idx e2e__20260809074
+4155; 1259 16945 INDEX public supplier_notifications_status_createdAt_idx e2e__20260809074
+4156; 1259 16944 INDEX public supplier_notifications_supplierId_createdAt_idx e2e__20260809074
+4065; 1259 16711 INDEX public suppliers_name_idx e2e__20260809074
+4068; 1259 16710 INDEX public suppliers_taxId_key e2e__20260809074
+4239; 1259 17449 INDEX public table_groups_is_active_idx e2e__20260809074
+4240; 1259 17448 INDEX public table_groups_name_key e2e__20260809074
+4061; 1259 16709 INDEX public units_abbreviation_key e2e__20260809074
+4062; 1259 16708 INDEX public units_code_key e2e__20260809074
+4047; 1259 16700 INDEX public user_roles_roleId_idx e2e__20260809074
+4048; 1259 16701 INDEX public user_roles_userId_roleId_key e2e__20260809074
+4035; 1259 17077 INDEX public users_access_name_key e2e__20260809074
+4036; 1259 16697 INDEX public users_email_key e2e__20260809074
+4190; 1259 17188 INDEX public waiter_order_sync_receipts_client_mutation_id_key e2e__20260809074
+4191; 1259 17190 INDEX public waiter_order_sync_receipts_order_ticket_id_created_at_idx e2e__20260809074
+4194; 1259 17189 INDEX public waiter_order_sync_receipts_user_id_created_at_idx e2e__20260809074
+4250; 1259 17495 INDEX public waiter_table_assignments_table_id_is_active_idx e2e__20260809074
+4251; 1259 17496 INDEX public waiter_table_assignments_waiter_id_is_active_idx e2e__20260809074
+4252; 1259 17494 INDEX public waiter_table_assignments_waiter_id_table_id_is_active_key e2e__20260809074
+4245; 1259 17467 INDEX public waiter_table_group_assignments_table_group_id_is_active_idx e2e__20260809074
+4246; 1259 17468 INDEX public waiter_table_group_assignments_waiter_id_is_active_idx e2e__20260809074
+4247; 1259 17466 INDEX public waiter_table_group_assignments_waiter_id_table_group_id_is_acti e2e__20260809074
+4253; 1259 17648 INDEX public whatsapp_conversations_assigned_to_user_id_idx e2e__20260809074
+4254; 1259 18158 INDEX public whatsapp_conversations_customer_id_idx e2e__20260809074
+4255; 1259 17799 INDEX public whatsapp_conversations_mode_updated_at_idx e2e__20260809074
+4256; 1259 17646 INDEX public whatsapp_conversations_phone_idx e2e__20260809074
+4259; 1259 17798 INDEX public whatsapp_conversations_provider_provider_conversation_id_idx e2e__20260809074
+4260; 1259 17647 INDEX public whatsapp_conversations_status_updated_at_idx e2e__20260809074
+4276; 1259 17656 INDEX public whatsapp_delivery_orders_conversation_id_idx e2e__20260809074
+4277; 1259 17659 INDEX public whatsapp_delivery_orders_customer_phone_snapshot_idx e2e__20260809074
+4278; 1259 17700 INDEX public whatsapp_delivery_orders_manually_verified_by_id_idx e2e__20260809074
+4279; 1259 17759 INDEX public whatsapp_delivery_orders_online_payment_provider_provider_payme e2e__20260809074
+4280; 1259 17654 INDEX public whatsapp_delivery_orders_order_draft_id_key e2e__20260809074
+4281; 1259 17692 INDEX public whatsapp_delivery_orders_order_reference_key e2e__20260809074
+4282; 1259 17760 INDEX public whatsapp_delivery_orders_order_reference_provider_reference_idx e2e__20260809074
+4283; 1259 17655 INDEX public whatsapp_delivery_orders_order_ticket_id_key e2e__20260809074
+4284; 1259 17658 INDEX public whatsapp_delivery_orders_payment_status_updated_at_idx e2e__20260809074
+4287; 1259 17693 INDEX public whatsapp_delivery_orders_public_payment_token_expires_at_idx e2e__20260809074
+4288; 1259 17691 INDEX public whatsapp_delivery_orders_public_payment_token_key e2e__20260809074
+4289; 1259 17657 INDEX public whatsapp_delivery_orders_status_updated_at_idx e2e__20260809074
+4433; 1259 18454 INDEX public whatsapp_handoff_events_actor_id_created_at_idx e2e__20260809074
+4434; 1259 18453 INDEX public whatsapp_handoff_events_conversation_id_version_key e2e__20260809074
+4435; 1259 18455 INDEX public whatsapp_handoff_events_next_state_created_at_idx e2e__20260809074
+4306; 1259 18445 INDEX public whatsapp_inbound_events_account_id_event_kind_received_at_idx e2e__20260809074
+4307; 1259 18444 INDEX public whatsapp_inbound_events_account_id_provider_event_id_key e2e__20260809074
+4308; 1259 17806 INDEX public whatsapp_inbound_events_phone_received_at_idx e2e__20260809074
+4311; 1259 18819 INDEX public whatsapp_inbound_events_processing_status_next_retry_at_pro_idx e2e__20260809074
+4312; 1259 17807 INDEX public whatsapp_inbound_events_processing_status_received_at_idx e2e__20260809074
+4313; 1259 17804 INDEX public whatsapp_inbound_events_provider_event_hash_key e2e__20260809074
+4314; 1259 17803 INDEX public whatsapp_inbound_events_provider_event_id_key e2e__20260809074
+4315; 1259 17805 INDEX public whatsapp_inbound_events_provider_provider_message_id_idx e2e__20260809074
+4438; 1259 18456 INDEX public whatsapp_media_envelopes_message_id_key e2e__20260809074
+4441; 1259 18457 INDEX public whatsapp_media_envelopes_security_status_expires_at_idx e2e__20260809074
+4427; 1259 18450 INDEX public whatsapp_message_status_events_account_id_provider_message_id_o e2e__20260809074
+4428; 1259 18449 INDEX public whatsapp_message_status_events_account_id_provider_status_event e2e__20260809074
+4429; 1259 18451 INDEX public whatsapp_message_status_events_outbound_message_id_occurred_at_ e2e__20260809074
+4432; 1259 18452 INDEX public whatsapp_message_status_events_status_occurred_at_idx e2e__20260809074
+4261; 1259 17649 INDEX public whatsapp_messages_conversation_id_created_at_idx e2e__20260809074
+4262; 1259 17650 INDEX public whatsapp_messages_direction_created_at_idx e2e__20260809074
+4263; 1259 17802 INDEX public whatsapp_messages_idempotency_key_key e2e__20260809074
+4266; 1259 17800 INDEX public whatsapp_messages_provider_provider_message_id_idx e2e__20260809074
+4267; 1259 17801 INDEX public whatsapp_messages_status_created_at_idx e2e__20260809074
+4316; 1259 18447 INDEX public whatsapp_outbound_messages_account_id_provider_message_id_idx e2e__20260809074
+4317; 1259 17814 INDEX public whatsapp_outbound_messages_approved_by_id_idx e2e__20260809074
+4318; 1259 17810 INDEX public whatsapp_outbound_messages_conversation_id_created_at_idx e2e__20260809074
+4319; 1259 17809 INDEX public whatsapp_outbound_messages_idempotency_key_key e2e__20260809074
+4320; 1259 17811 INDEX public whatsapp_outbound_messages_inbound_message_id_idx e2e__20260809074
+4321; 1259 17808 INDEX public whatsapp_outbound_messages_local_message_id_key e2e__20260809074
+4324; 1259 17812 INDEX public whatsapp_outbound_messages_provider_provider_message_id_idx e2e__20260809074
+4325; 1259 18448 INDEX public whatsapp_outbound_messages_recipient_identity_hash_created_at_i e2e__20260809074
+4326; 1259 18446 INDEX public whatsapp_outbound_messages_secure_command_id_key e2e__20260809074
+4327; 1259 17813 INDEX public whatsapp_outbound_messages_status_next_retry_at_idx e2e__20260809074
+4422; 1259 18443 INDEX public whatsapp_provider_accounts_business_identity_hash_idx e2e__20260809074
+4425; 1259 18441 INDEX public whatsapp_provider_accounts_provider_external_account_hash_key e2e__20260809074
+4426; 1259 18442 INDEX public whatsapp_provider_accounts_provider_status_idx e2e__20260809074
+4540; 2606 16920 FK CONSTRAINT public audit_logs audit_logs_userId_fkey e2e__20260809074
+4533; 2606 16885 FK CONSTRAINT public cash_movements cash_movements_cashSessionId_fkey e2e__20260809074
+4534; 2606 16895 FK CONSTRAINT public cash_movements cash_movements_createdById_fkey e2e__20260809074
+4535; 2606 16890 FK CONSTRAINT public cash_movements cash_movements_paymentMethodId_fkey e2e__20260809074
+4529; 2606 16880 FK CONSTRAINT public cash_sessions cash_sessions_closedById_fkey e2e__20260809074
+4530; 2606 16875 FK CONSTRAINT public cash_sessions cash_sessions_openedById_fkey e2e__20260809074
+4531; 2606 17115 FK CONSTRAINT public cash_sessions cash_sessions_reopened_by_id_fkey e2e__20260809074
+4532; 2606 17120 FK CONSTRAINT public cash_sessions cash_sessions_reopened_from_session_id_fkey e2e__20260809074
+4611; 2606 18200 FK CONSTRAINT public crm_customer_campaign_deliveries crm_customer_campaign_deliveries_campaign_id_fkey e2e__20260809074
+4612; 2606 18205 FK CONSTRAINT public crm_customer_campaign_deliveries crm_customer_campaign_deliveries_customer_id_fkey e2e__20260809074
+4613; 2606 18210 FK CONSTRAINT public crm_customer_campaign_deliveries crm_customer_campaign_deliveries_identity_id_fkey e2e__20260809074
+4610; 2606 18195 FK CONSTRAINT public crm_customer_campaigns crm_customer_campaigns_segment_id_fkey e2e__20260809074
+4604; 2606 18165 FK CONSTRAINT public crm_customer_consents crm_customer_consents_customer_id_fkey e2e__20260809074
+4603; 2606 18160 FK CONSTRAINT public crm_customer_identities crm_customer_identities_customer_id_fkey e2e__20260809074
+4605; 2606 18170 FK CONSTRAINT public crm_customer_interactions crm_customer_interactions_customer_id_fkey e2e__20260809074
+4608; 2606 18190 FK CONSTRAINT public crm_customer_segment_memberships crm_customer_segment_memberships_customer_id_fkey e2e__20260809074
+4609; 2606 18185 FK CONSTRAINT public crm_customer_segment_memberships crm_customer_segment_memberships_segment_id_fkey e2e__20260809074
+4606; 2606 18175 FK CONSTRAINT public crm_customer_tag_assignments crm_customer_tag_assignments_customer_id_fkey e2e__20260809074
+4607; 2606 18180 FK CONSTRAINT public crm_customer_tag_assignments crm_customer_tag_assignments_tag_id_fkey e2e__20260809074
+4645; 2606 18895 FK CONSTRAINT public customer_service_case_events customer_service_case_events_actor_id_fkey e2e__20260809074
+4646; 2606 18890 FK CONSTRAINT public customer_service_case_events customer_service_case_events_case_id_fkey e2e__20260809074
+4637; 2606 18880 FK CONSTRAINT public customer_service_cases customer_service_cases_assigned_actor_id_fkey e2e__20260809074
+4638; 2606 18855 FK CONSTRAINT public customer_service_cases customer_service_cases_conversation_id_fkey e2e__20260809074
+4639; 2606 18850 FK CONSTRAINT public customer_service_cases customer_service_cases_customer_id_fkey e2e__20260809074
+4640; 2606 18875 FK CONSTRAINT public customer_service_cases customer_service_cases_delivery_issue_id_fkey e2e__20260809074
+4641; 2606 18860 FK CONSTRAINT public customer_service_cases customer_service_cases_order_checkout_id_fkey e2e__20260809074
+4642; 2606 18865 FK CONSTRAINT public customer_service_cases customer_service_cases_order_ticket_id_fkey e2e__20260809074
+4643; 2606 18870 FK CONSTRAINT public customer_service_cases customer_service_cases_payment_intent_id_fkey e2e__20260809074
+4644; 2606 18885 FK CONSTRAINT public customer_service_cases customer_service_cases_resolution_actor_id_fkey e2e__20260809074
+4562; 2606 18215 FK CONSTRAINT public delivery_customers delivery_customers_customer_id_fkey e2e__20260809074
+4565; 2606 17338 FK CONSTRAINT public delivery_issues delivery_issues_order_ticket_id_fkey e2e__20260809074
+4566; 2606 17343 FK CONSTRAINT public delivery_issues delivery_issues_reported_by_id_fkey e2e__20260809074
+4567; 2606 17348 FK CONSTRAINT public delivery_issues delivery_issues_resolved_by_id_fkey e2e__20260809074
+4563; 2606 17333 FK CONSTRAINT public delivery_location_inbox delivery_location_inbox_matched_customer_id_fkey e2e__20260809074
+4564; 2606 17328 FK CONSTRAINT public delivery_location_inbox delivery_location_inbox_matched_order_id_fkey e2e__20260809074
+4631; 2606 18825 FK CONSTRAINT public delivery_workflow_events delivery_workflow_events_actor_id_fkey e2e__20260809074
+4632; 2606 18820 FK CONSTRAINT public delivery_workflow_events delivery_workflow_events_order_ticket_id_fkey e2e__20260809074
+4543; 2606 17451 FK CONSTRAINT public dining_tables dining_tables_group_id_fkey e2e__20260809074
+4536; 2606 16905 FK CONSTRAINT public expenses expenses_cashSessionId_fkey e2e__20260809074
+4537; 2606 16910 FK CONSTRAINT public expenses expenses_createdById_fkey e2e__20260809074
+4538; 2606 16900 FK CONSTRAINT public expenses expenses_paymentMethodId_fkey e2e__20260809074
+4507; 2606 16785 FK CONSTRAINT public ingredients ingredients_unitId_fkey e2e__20260809074
+4518; 2606 16830 FK CONSTRAINT public inventory_movements inventory_movements_ingredientId_fkey e2e__20260809074
+4519; 2606 16840 FK CONSTRAINT public inventory_movements inventory_movements_performedById_fkey e2e__20260809074
+4520; 2606 16835 FK CONSTRAINT public inventory_movements inventory_movements_productId_fkey e2e__20260809074
+4633; 2606 18835 FK CONSTRAINT public notification_intents notification_intents_conversation_id_fkey e2e__20260809074
+4634; 2606 18830 FK CONSTRAINT public notification_intents notification_intents_customer_id_fkey e2e__20260809074
+4635; 2606 18840 FK CONSTRAINT public notification_intents notification_intents_outbound_message_id_fkey e2e__20260809074
+4636; 2606 18845 FK CONSTRAINT public notification_intents notification_intents_secure_command_id_fkey e2e__20260809074
+4568; 2606 17353 FK CONSTRAINT public operational_alerts operational_alerts_actor_id_fkey e2e__20260809074
+4569; 2606 17368 FK CONSTRAINT public operational_alerts operational_alerts_delivery_issue_id_fkey e2e__20260809074
+4570; 2606 17363 FK CONSTRAINT public operational_alerts operational_alerts_delivery_location_inbox_id_fkey e2e__20260809074
+4571; 2606 17358 FK CONSTRAINT public operational_alerts operational_alerts_resolved_by_id_fkey e2e__20260809074
+4624; 2606 18660 FK CONSTRAINT public order_checkouts order_checkouts_customer_id_fkey e2e__20260809074
+4625; 2606 18665 FK CONSTRAINT public order_checkouts order_checkouts_order_ticket_id_fkey e2e__20260809074
+4626; 2606 18655 FK CONSTRAINT public order_checkouts order_checkouts_sofia_draft_id_fkey e2e__20260809074
+4550; 2606 17054 FK CONSTRAINT public order_ticket_items order_ticket_items_orderTicketId_fkey e2e__20260809074
+4551; 2606 17059 FK CONSTRAINT public order_ticket_items order_ticket_items_productId_fkey e2e__20260809074
+4544; 2606 17237 FK CONSTRAINT public order_tickets order_tickets_assigned_rider_id_fkey e2e__20260809074
+4545; 2606 17192 FK CONSTRAINT public order_tickets order_tickets_assigned_waiter_id_fkey e2e__20260809074
+4546; 2606 17375 FK CONSTRAINT public order_tickets order_tickets_cashSessionId_fkey e2e__20260809074
+4547; 2606 17049 FK CONSTRAINT public order_tickets order_tickets_createdById_fkey e2e__20260809074
+4548; 2606 17220 FK CONSTRAINT public order_tickets order_tickets_delivery_customer_id_fkey e2e__20260809074
+4549; 2606 17039 FK CONSTRAINT public order_tickets order_tickets_tableId_fkey e2e__20260809074
+4627; 2606 18670 FK CONSTRAINT public payment_intents payment_intents_checkout_id_fkey e2e__20260809074
+4628; 2606 18675 FK CONSTRAINT public payment_links payment_links_payment_intent_id_fkey e2e__20260809074
+4629; 2606 18680 FK CONSTRAINT public payment_transitions payment_transitions_payment_intent_id_fkey e2e__20260809074
+4630; 2606 18685 FK CONSTRAINT public payment_transitions payment_transitions_webhook_event_id_fkey e2e__20260809074
+4590; 2606 18690 FK CONSTRAINT public payment_webhook_events payment_webhook_events_payment_intent_id_fkey e2e__20260809074
+4591; 2606 17765 FK CONSTRAINT public payment_webhook_events payment_webhook_events_whatsapp_delivery_order_id_fkey e2e__20260809074
+4505; 2606 16775 FK CONSTRAINT public products products_categoryId_fkey e2e__20260809074
+4506; 2606 16780 FK CONSTRAINT public products products_unitId_fkey e2e__20260809074
+4515; 2606 16820 FK CONSTRAINT public purchase_items purchase_items_ingredientId_fkey e2e__20260809074
+4516; 2606 16825 FK CONSTRAINT public purchase_items purchase_items_productId_fkey e2e__20260809074
+4517; 2606 16815 FK CONSTRAINT public purchase_items purchase_items_purchaseId_fkey e2e__20260809074
+4511; 2606 17434 FK CONSTRAINT public purchases purchases_cashSessionId_fkey e2e__20260809074
+4512; 2606 16810 FK CONSTRAINT public purchases purchases_createdById_fkey e2e__20260809074
+4513; 2606 17429 FK CONSTRAINT public purchases purchases_paymentMethodId_fkey e2e__20260809074
+4514; 2606 16805 FK CONSTRAINT public purchases purchases_supplierId_fkey e2e__20260809074
+4509; 2606 16800 FK CONSTRAINT public recipe_items recipe_items_ingredientId_fkey e2e__20260809074
+4510; 2606 16795 FK CONSTRAINT public recipe_items recipe_items_recipeId_fkey e2e__20260809074
+4508; 2606 16790 FK CONSTRAINT public recipes recipes_productId_fkey e2e__20260809074
+4504; 2606 16770 FK CONSTRAINT public refresh_tokens refresh_tokens_userId_fkey e2e__20260809074
+4539; 2606 16915 FK CONSTRAINT public reports_snapshots reports_snapshots_generatedById_fkey e2e__20260809074
+4502; 2606 16765 FK CONSTRAINT public role_permissions role_permissions_permissionId_fkey e2e__20260809074
+4503; 2606 16760 FK CONSTRAINT public role_permissions role_permissions_roleId_fkey e2e__20260809074
+4557; 2606 17175 FK CONSTRAINT public sale_conversions sale_conversions_convertedById_fkey e2e__20260809074
+4558; 2606 17170 FK CONSTRAINT public sale_conversions sale_conversions_orderTicketId_fkey e2e__20260809074
+4559; 2606 17165 FK CONSTRAINT public sale_conversions sale_conversions_saleId_fkey e2e__20260809074
+4524; 2606 16860 FK CONSTRAINT public sale_items sale_items_productId_fkey e2e__20260809074
+4525; 2606 16855 FK CONSTRAINT public sale_items sale_items_saleId_fkey e2e__20260809074
+4526; 2606 16870 FK CONSTRAINT public sale_payments sale_payments_paymentMethodId_fkey e2e__20260809074
+4527; 2606 18695 FK CONSTRAINT public sale_payments sale_payments_payment_intent_id_fkey e2e__20260809074
+4528; 2606 16865 FK CONSTRAINT public sale_payments sale_payments_saleId_fkey e2e__20260809074
+4521; 2606 16850 FK CONSTRAINT public sales sales_cashSessionId_fkey e2e__20260809074
+4522; 2606 16845 FK CONSTRAINT public sales sales_createdById_fkey e2e__20260809074
+4523; 2606 17034 FK CONSTRAINT public sales sales_orderTicketId_fkey e2e__20260809074
+4601; 2606 17956 FK CONSTRAINT public sofia_auto_safe_decision_events sofia_auto_safe_decision_events_customer_memory_id_fkey e2e__20260809074
+4602; 2606 17961 FK CONSTRAINT public sofia_auto_safe_decision_events sofia_auto_safe_decision_events_prompt_version_id_fkey e2e__20260809074
+4614; 2606 18352 FK CONSTRAINT public sofia_command_approvals sofia_command_approvals_command_id_fkey e2e__20260809074
+4615; 2606 18362 FK CONSTRAINT public sofia_command_attempts sofia_command_attempts_approval_id_fkey e2e__20260809074
+4616; 2606 18357 FK CONSTRAINT public sofia_command_attempts sofia_command_attempts_command_id_fkey e2e__20260809074
+4617; 2606 18367 FK CONSTRAINT public sofia_command_results sofia_command_results_command_id_fkey e2e__20260809074
+4600; 2606 17936 FK CONSTRAINT public sofia_commercial_rule_events sofia_commercial_rule_events_customer_memory_id_fkey e2e__20260809074
+4599; 2606 17931 FK CONSTRAINT public sofia_conversation_memories sofia_conversation_memories_customer_memory_id_fkey e2e__20260809074
+4598; 2606 18225 FK CONSTRAINT public sofia_customer_memories sofia_customer_memories_customer_id_fkey e2e__20260809074
+4581; 2606 17670 FK CONSTRAINT public sofia_order_drafts sofia_order_drafts_conversation_id_fkey e2e__20260809074
+4582; 2606 18518 FK CONSTRAINT public sofia_order_drafts sofia_order_drafts_customer_id_fkey e2e__20260809074
+4583; 2606 18523 FK CONSTRAINT public sofia_order_drafts sofia_order_drafts_delivery_quote_audit_id_fkey e2e__20260809074
+4588; 2606 17729 FK CONSTRAINT public sofia_payment_events sofia_payment_events_actor_id_fkey e2e__20260809074
+4589; 2606 17724 FK CONSTRAINT public sofia_payment_events sofia_payment_events_whatsapp_delivery_order_id_fkey e2e__20260809074
+4554; 2606 17140 FK CONSTRAINT public stock_count_items stock_count_items_ingredientId_fkey e2e__20260809074
+4555; 2606 17145 FK CONSTRAINT public stock_count_items stock_count_items_productId_fkey e2e__20260809074
+4556; 2606 17135 FK CONSTRAINT public stock_count_items stock_count_items_sessionId_fkey e2e__20260809074
+4552; 2606 17130 FK CONSTRAINT public stock_count_sessions stock_count_sessions_approvedById_fkey e2e__20260809074
+4553; 2606 17125 FK CONSTRAINT public stock_count_sessions stock_count_sessions_createdById_fkey e2e__20260809074
+4541; 2606 16952 FK CONSTRAINT public supplier_notifications supplier_notifications_createdById_fkey e2e__20260809074
+4542; 2606 16947 FK CONSTRAINT public supplier_notifications supplier_notifications_supplierId_fkey e2e__20260809074
+4499; 2606 16755 FK CONSTRAINT public user_roles user_roles_assignedById_fkey e2e__20260809074
+4500; 2606 16750 FK CONSTRAINT public user_roles user_roles_roleId_fkey e2e__20260809074
+4501; 2606 16745 FK CONSTRAINT public user_roles user_roles_userId_fkey e2e__20260809074
+4560; 2606 17202 FK CONSTRAINT public waiter_order_sync_receipts waiter_order_sync_receipts_order_ticket_id_fkey e2e__20260809074
+4561; 2606 17197 FK CONSTRAINT public waiter_order_sync_receipts waiter_order_sync_receipts_user_id_fkey e2e__20260809074
+4575; 2606 17507 FK CONSTRAINT public waiter_table_assignments waiter_table_assignments_assigned_by_id_fkey e2e__20260809074
+4576; 2606 17502 FK CONSTRAINT public waiter_table_assignments waiter_table_assignments_table_id_fkey e2e__20260809074
+4577; 2606 17497 FK CONSTRAINT public waiter_table_assignments waiter_table_assignments_waiter_id_fkey e2e__20260809074
+4572; 2606 17479 FK CONSTRAINT public waiter_table_group_assignments waiter_table_group_assignments_assigned_by_id_fkey e2e__20260809074
+4573; 2606 17474 FK CONSTRAINT public waiter_table_group_assignments waiter_table_group_assignments_table_group_id_fkey e2e__20260809074
+4574; 2606 17469 FK CONSTRAINT public waiter_table_group_assignments waiter_table_group_assignments_waiter_id_fkey e2e__20260809074
+4578; 2606 17660 FK CONSTRAINT public whatsapp_conversations whatsapp_conversations_assigned_to_user_id_fkey e2e__20260809074
+4579; 2606 18220 FK CONSTRAINT public whatsapp_conversations whatsapp_conversations_customer_id_fkey e2e__20260809074
+4584; 2606 17675 FK CONSTRAINT public whatsapp_delivery_orders whatsapp_delivery_orders_conversation_id_fkey e2e__20260809074
+4585; 2606 17695 FK CONSTRAINT public whatsapp_delivery_orders whatsapp_delivery_orders_manually_verified_by_id_fkey e2e__20260809074
+4586; 2606 17680 FK CONSTRAINT public whatsapp_delivery_orders whatsapp_delivery_orders_order_draft_id_fkey e2e__20260809074
+4587; 2606 17685 FK CONSTRAINT public whatsapp_delivery_orders whatsapp_delivery_orders_order_ticket_id_fkey e2e__20260809074
+4621; 2606 18493 FK CONSTRAINT public whatsapp_handoff_events whatsapp_handoff_events_actor_id_fkey e2e__20260809074
+4622; 2606 18488 FK CONSTRAINT public whatsapp_handoff_events whatsapp_handoff_events_conversation_id_fkey e2e__20260809074
+4592; 2606 18458 FK CONSTRAINT public whatsapp_inbound_events whatsapp_inbound_events_account_id_fkey e2e__20260809074
+4623; 2606 18498 FK CONSTRAINT public whatsapp_media_envelopes whatsapp_media_envelopes_message_id_fkey e2e__20260809074
+4618; 2606 18473 FK CONSTRAINT public whatsapp_message_status_events whatsapp_message_status_events_account_id_fkey e2e__20260809074
+4619; 2606 18483 FK CONSTRAINT public whatsapp_message_status_events whatsapp_message_status_events_message_id_fkey e2e__20260809074
+4620; 2606 18478 FK CONSTRAINT public whatsapp_message_status_events whatsapp_message_status_events_outbound_message_id_fkey e2e__20260809074
+4580; 2606 17665 FK CONSTRAINT public whatsapp_messages whatsapp_messages_conversation_id_fkey e2e__20260809074
+4593; 2606 18463 FK CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_account_id_fkey e2e__20260809074
+4594; 2606 17825 FK CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_approved_by_id_fkey e2e__20260809074
+4595; 2606 17815 FK CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_conversation_id_fkey e2e__20260809074
+4596; 2606 17820 FK CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_inbound_message_id_fkey e2e__20260809074
+4597; 2606 18468 FK CONSTRAINT public whatsapp_outbound_messages whatsapp_outbound_messages_secure_command_id_fkey e2e__20260809074

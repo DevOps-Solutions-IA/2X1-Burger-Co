@@ -1,0 +1,100 @@
+{
+  "status": "PASS",
+  "equal": true,
+  "source": {
+    "counts": {
+      "sales": 1,
+      "users": 7,
+      "orders": 2,
+      "payments": 1,
+      "products": 11,
+      "settings": 3,
+      "auditLogs": 0,
+      "cashSessions": 2,
+      "deliveryOrders": 1,
+      "whatsappInbound": 0,
+      "whatsappOutbound": 0,
+      "inventoryMovements": 0,
+      "whatsappConversations": 0
+    },
+    "schema": {
+      "tables": 86,
+      "indexes": 380,
+      "failedMigrations": 0,
+      "appliedMigrations": 37,
+      "unvalidatedConstraints": 0
+    },
+    "financial": {
+      "salesTotal": "4000.00",
+      "paymentsTotal": "4000.00",
+      "salesSubtotal": "4000.00",
+      "ordersSubtotal": "17000.00",
+      "cashClosingTotal": "10000.00",
+      "cashOpeningTotal": "10000.00",
+      "deliveryFeeTotal": "9000.00"
+    },
+    "inventory": {
+      "productStockTotal": "124.000",
+      "movementQuantityTotal": "0"
+    },
+    "logicalChecksums": {
+      "sales": "57935ced9ad804efe395143c7f9b126f",
+      "users": "9630accb215fee1e6a5da15c8433b2e6",
+      "orders": "611bebf8e0855d1c15df8ef9ada5fdf0",
+      "payments": "ea47c1289bb090747193ec0c8178134f",
+      "products": "5715dabf0583083a9784d9bdc479bb02",
+      "settings": "0f58cc1a69097a1e7eb01b59ceaa54e1",
+      "auditLogs": "d41d8cd98f00b204e9800998ecf8427e",
+      "cashSessions": "53168a5d3e637e17fec425e5a22c4d96",
+      "inventoryMovements": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  },
+  "restored": {
+    "counts": {
+      "sales": 1,
+      "users": 7,
+      "orders": 2,
+      "payments": 1,
+      "products": 11,
+      "settings": 3,
+      "auditLogs": 0,
+      "cashSessions": 2,
+      "deliveryOrders": 1,
+      "whatsappInbound": 0,
+      "whatsappOutbound": 0,
+      "inventoryMovements": 0,
+      "whatsappConversations": 0
+    },
+    "schema": {
+      "tables": 86,
+      "indexes": 380,
+      "failedMigrations": 0,
+      "appliedMigrations": 37,
+      "unvalidatedConstraints": 0
+    },
+    "financial": {
+      "salesTotal": "4000.00",
+      "paymentsTotal": "4000.00",
+      "salesSubtotal": "4000.00",
+      "ordersSubtotal": "17000.00",
+      "cashClosingTotal": "10000.00",
+      "cashOpeningTotal": "10000.00",
+      "deliveryFeeTotal": "9000.00"
+    },
+    "inventory": {
+      "productStockTotal": "124.000",
+      "movementQuantityTotal": "0"
+    },
+    "logicalChecksums": {
+      "sales": "57935ced9ad804efe395143c7f9b126f",
+      "users": "9630accb215fee1e6a5da15c8433b2e6",
+      "orders": "611bebf8e0855d1c15df8ef9ada5fdf0",
+      "payments": "ea47c1289bb090747193ec0c8178134f",
+      "products": "5715dabf0583083a9784d9bdc479bb02",
+      "settings": "0f58cc1a69097a1e7eb01b59ceaa54e1",
+      "auditLogs": "d41d8cd98f00b204e9800998ecf8427e",
+      "cashSessions": "53168a5d3e637e17fec425e5a22c4d96",
+      "inventoryMovements": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  }
+}

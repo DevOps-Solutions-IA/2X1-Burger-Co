@@ -1,0 +1,3270 @@
+{
+  "status": "PASS",
+  "controllers": 36,
+  "routes": 266,
+  "counts": {
+    "CAPABILITY_TOKEN": 4,
+    "JWT_AUTHENTICATED": 6,
+    "JWT_ROLES": 242,
+    "PROVIDER_SIGNATURE": 3,
+    "PUBLIC_EXPLICIT": 11
+  },
+  "unclassified": [],
+  "routesDetail": [
+    {
+      "method": "POST",
+      "path": "/delivery-location/search",
+      "controller": "DeliveryLocationController",
+      "handler": "search",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/delivery/delivery-location.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/delivery-location/resolve",
+      "controller": "DeliveryLocationController",
+      "handler": "resolve",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/delivery/delivery-location.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/delivery-pricing/estimate",
+      "controller": "DeliveryPricingController",
+      "handler": "estimate",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/delivery/delivery-pricing.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/audit",
+      "controller": "AuditController",
+      "handler": "list",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/audit/audit.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "controller": "AuthController",
+      "handler": "login",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/waiter-login",
+      "controller": "AuthController",
+      "handler": "waiterLogin",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/delivery-login",
+      "controller": "AuthController",
+      "handler": "deliveryLogin",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/rider-login",
+      "controller": "AuthController",
+      "handler": "riderLogin",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/debug-cookie-presence",
+      "controller": "AuthController",
+      "handler": "debugCookiePresence",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refresh",
+      "controller": "AuthController",
+      "handler": "refresh",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/logout",
+      "controller": "AuthController",
+      "handler": "logout",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me",
+      "controller": "AuthController",
+      "handler": "me",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/auth/auth.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/cash-register/current",
+      "controller": "CashRegisterController",
+      "handler": "getCurrent",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "cash.read",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/cash-register/history",
+      "controller": "CashRegisterController",
+      "handler": "history",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/cash-register/operational-log",
+      "controller": "CashRegisterController",
+      "handler": "getOperationalLog",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/cash-register/daily-summary",
+      "controller": "CashRegisterController",
+      "handler": "getDailySummary",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/cash-register/close-checklist",
+      "controller": "CashRegisterController",
+      "handler": "getCloseChecklist",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/cash-register/open",
+      "controller": "CashRegisterController",
+      "handler": "open",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/cash-register/close",
+      "controller": "CashRegisterController",
+      "handler": "close",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/cash-register/reopen",
+      "controller": "CashRegisterController",
+      "handler": "reopen",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/cash-register/movements/manual",
+      "controller": "CashRegisterController",
+      "handler": "createManualMovement",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/cash-register/cash-register.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/categories",
+      "controller": "CategoriesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "categories.read"
+      ],
+      "source": "apps/api/src/modules/categories/categories.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/categories",
+      "controller": "CategoriesController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/categories/categories.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/categories/:id",
+      "controller": "CategoriesController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/categories/categories.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/categories/:id",
+      "controller": "CategoriesController",
+      "handler": "remove",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/categories/categories.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/expenses",
+      "controller": "ExpensesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "expenses.read"
+      ],
+      "source": "apps/api/src/modules/expenses/expenses.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/expenses",
+      "controller": "ExpensesController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/expenses/expenses.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/expenses/:id",
+      "controller": "ExpensesController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/expenses/expenses.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "controller": "HealthController",
+      "handler": "check",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/health/health.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health/live",
+      "controller": "HealthController",
+      "handler": "live",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/health/health.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health/ready",
+      "controller": "HealthController",
+      "handler": "ready",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/health/health.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health/metrics",
+      "controller": "HealthController",
+      "handler": "metrics",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/modules/health/health.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health/observability",
+      "controller": "HealthController",
+      "handler": "observability",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/health/health.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/ingredients",
+      "controller": "IngredientsController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "ingredients.read"
+      ],
+      "source": "apps/api/src/modules/ingredients/ingredients.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/ingredients/:id",
+      "controller": "IngredientsController",
+      "handler": "findOne",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "ingredients.read"
+      ],
+      "source": "apps/api/src/modules/ingredients/ingredients.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/ingredients",
+      "controller": "IngredientsController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/ingredients/ingredients.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/ingredients/:id",
+      "controller": "IngredientsController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/ingredients/ingredients.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/ingredients/:id",
+      "controller": "IngredientsController",
+      "handler": "remove",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/ingredients/ingredients.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/stock",
+      "controller": "InventoryController",
+      "handler": "findStock",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "inventory.read"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/movements",
+      "controller": "InventoryController",
+      "handler": "findMovements",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "inventory.read"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/stock-counts",
+      "controller": "InventoryController",
+      "handler": "findStockCounts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/stock-counts/preview",
+      "controller": "InventoryController",
+      "handler": "previewStockCount",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/reorder-suggestions",
+      "controller": "InventoryController",
+      "handler": "getReorderSuggestions",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/inventory/adjustments",
+      "controller": "InventoryController",
+      "handler": "createAdjustment",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/inventory/stock-counts",
+      "controller": "InventoryController",
+      "handler": "createStockCount",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/inventory/inventory.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/integrations/payments/canonical-webhook/:provider",
+      "controller": "CanonicalPaymentWebhooksController",
+      "handler": "receive",
+      "policy": "PROVIDER_SIGNATURE",
+      "roles": [],
+      "source": "apps/api/src/modules/order-checkout/canonical-payment-webhooks.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/public/payments/:token",
+      "controller": "CanonicalPublicPaymentsController",
+      "handler": "get",
+      "policy": "CAPABILITY_TOKEN",
+      "roles": [],
+      "source": "apps/api/src/modules/order-checkout/canonical-public-payments.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/public/payments/:token/start-online",
+      "controller": "CanonicalPublicPaymentsController",
+      "handler": "startOnline",
+      "policy": "CAPABILITY_TOKEN",
+      "roles": [],
+      "source": "apps/api/src/modules/order-checkout/canonical-public-payments.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/waiter-active",
+      "controller": "OrdersController",
+      "handler": "findWaiterActive",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/delivery-active",
+      "controller": "OrdersController",
+      "handler": "findDeliveryActive",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/delivery-location-inbox",
+      "controller": "OrdersController",
+      "handler": "findDeliveryLocationInbox",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/delivery-location-inbox/:id/resolve",
+      "controller": "OrdersController",
+      "handler": "resolveDeliveryLocationInbox",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/operational-alerts",
+      "controller": "OrdersController",
+      "handler": "listOperationalAlerts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/orders/operational-alerts/:id",
+      "controller": "OrdersController",
+      "handler": "updateOperationalAlert",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders",
+      "controller": "OrdersController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id/sofia-payment-link",
+      "controller": "OrdersController",
+      "handler": "getSofiaPaymentLink",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/sofia-payment-link",
+      "controller": "OrdersController",
+      "handler": "generateSofiaPaymentLink",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id/sofia-payment-events",
+      "controller": "OrdersController",
+      "handler": "listSofiaPaymentEvents",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/orders/:id/sofia-payment-status",
+      "controller": "OrdersController",
+      "handler": "updateSofiaPaymentStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id/delivery-receipt",
+      "controller": "OrdersController",
+      "handler": "getDeliveryReceipt",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id/delivery-receipt-status",
+      "controller": "OrdersController",
+      "handler": "getDeliveryReceiptStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id/delivery-receipt-history",
+      "controller": "OrdersController",
+      "handler": "getDeliveryReceiptHistory",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/:id",
+      "controller": "OrdersController",
+      "handler": "findOne",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders",
+      "controller": "OrdersController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/orders/:id",
+      "controller": "OrdersController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/orders/:id/items",
+      "controller": "OrdersController",
+      "handler": "replaceItems",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/waiter-sync",
+      "controller": "OrdersController",
+      "handler": "syncWaiterOrder",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/claim",
+      "controller": "OrdersController",
+      "handler": "claim",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/claim-delivery",
+      "controller": "OrdersController",
+      "handler": "claimDelivery",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/assign-rider",
+      "controller": "OrdersController",
+      "handler": "assignRider",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/assign-delivery",
+      "controller": "OrdersController",
+      "handler": "assignDelivery",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/delivery-workflow",
+      "controller": "OrdersController",
+      "handler": "updateDeliveryWorkflow",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/orders/:id/delivery-status",
+      "controller": "OrdersController",
+      "handler": "patchDeliveryStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/checkout",
+      "controller": "OrdersController",
+      "handler": "checkout",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/:id/reopen",
+      "controller": "OrdersController",
+      "handler": "reopen",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/delivery-fee/estimate",
+      "controller": "OrdersController",
+      "handler": "estimateDeliveryFee",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/delivery-customers/search",
+      "controller": "OrdersController",
+      "handler": "findDeliveryCustomer",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/orders/customers/search",
+      "controller": "OrdersController",
+      "handler": "searchCustomers",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/customers/find-or-create",
+      "controller": "OrdersController",
+      "handler": "findOrCreateCustomer",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/orders/delivery-customers",
+      "controller": "OrdersController",
+      "handler": "upsertDeliveryCustomer",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter",
+        "delivery"
+      ],
+      "source": "apps/api/src/modules/orders/orders.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/payment-methods",
+      "controller": "PaymentMethodsController",
+      "handler": "findAll",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/payment-methods/payment-methods.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/products",
+      "controller": "ProductsController",
+      "handler": "findAll",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/products/sellable",
+      "controller": "ProductsController",
+      "handler": "findSellable",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/products/:id",
+      "controller": "ProductsController",
+      "handler": "findOne",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/products",
+      "controller": "ProductsController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/products/:id",
+      "controller": "ProductsController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/products/:id",
+      "controller": "ProductsController",
+      "handler": "remove",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/products/products.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/purchases",
+      "controller": "PurchasesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "purchases.read"
+      ],
+      "source": "apps/api/src/modules/purchases/purchases.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/purchases/:id",
+      "controller": "PurchasesController",
+      "handler": "findOne",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "purchases.read"
+      ],
+      "source": "apps/api/src/modules/purchases/purchases.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/purchases",
+      "controller": "PurchasesController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/purchases/purchases.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/recipes/:productId",
+      "controller": "RecipesController",
+      "handler": "findByProduct",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "recipes.read"
+      ],
+      "source": "apps/api/src/modules/recipes/recipes.controller.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/recipes/:productId",
+      "controller": "RecipesController",
+      "handler": "upsert",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/recipes/recipes.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily",
+      "controller": "ReportsController",
+      "handler": "getDaily",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/operational",
+      "controller": "ReportsController",
+      "handler": "getOperational",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/operational/pdf",
+      "controller": "ReportsController",
+      "handler": "getOperationalPdf",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/range",
+      "controller": "ReportsController",
+      "handler": "getRange",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/best-sellers",
+      "controller": "ReportsController",
+      "handler": "getBestSellers",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/sales-by-hour",
+      "controller": "ReportsController",
+      "handler": "getSalesByHour",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/product-margins",
+      "controller": "ReportsController",
+      "handler": "getProductMargins",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/ingredient-rotation",
+      "controller": "ReportsController",
+      "handler": "getIngredientRotation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/comparisons",
+      "controller": "ReportsController",
+      "handler": "getComparisons",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/inventory-summary",
+      "controller": "ReportsController",
+      "handler": "getInventorySummary",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/supply-alerts",
+      "controller": "ReportsController",
+      "handler": "getSupplyAlerts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily-closures",
+      "controller": "ReportsController",
+      "handler": "getDailyClosures",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily-closures/:id",
+      "controller": "ReportsController",
+      "handler": "getDailyClosure",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "reports.read"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily-closures/:id/pdf",
+      "controller": "ReportsController",
+      "handler": "getDailyClosurePdf",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/supplier-notifications",
+      "controller": "ReportsController",
+      "handler": "listSupplierNotifications",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/reports/supplier-notifications/manual",
+      "controller": "ReportsController",
+      "handler": "createSupplierNotification",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/reports/daily/:date/pdf",
+      "controller": "ReportsController",
+      "handler": "getDailyPdf",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/reports/reports.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/roles",
+      "controller": "RolesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/roles/roles.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/sales",
+      "controller": "SalesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "sales.read"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/sales/:id",
+      "controller": "SalesController",
+      "handler": "findOne",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "sales.read"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/sales/:id/receipt-pdf",
+      "controller": "SalesController",
+      "handler": "getReceiptPdf",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "sales.read"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/sales",
+      "controller": "SalesController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/sales/:id/convert-to-order",
+      "controller": "SalesController",
+      "handler": "convertToOrder",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/sales/:id/reopen-converted-order",
+      "controller": "SalesController",
+      "handler": "reopenConvertedOrder",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sales/sales.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/settings",
+      "controller": "SettingsController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/settings/settings.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/settings/operations-status",
+      "controller": "SettingsController",
+      "handler": "getOperationsStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/settings/settings.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/settings",
+      "controller": "SettingsController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/settings/settings.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/crm/customers",
+      "controller": "SofiaCrmController",
+      "handler": "listCustomers",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor",
+        "cashier"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/customers/search",
+      "controller": "SofiaCrmController",
+      "handler": "searchCustomers",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor",
+        "cashier"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/customers/resolve",
+      "controller": "SofiaCrmController",
+      "handler": "resolveCustomer",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/crm/customers/:customerId",
+      "controller": "SofiaCrmController",
+      "handler": "getCustomer",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor",
+        "cashier"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/customers/:customerId/consents/opt-in",
+      "controller": "SofiaCrmController",
+      "handler": "grantOptIn",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/customers/:customerId/consents/revoke",
+      "controller": "SofiaCrmController",
+      "handler": "revokeOptIn",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/crm/customers/:customerId/timeline",
+      "controller": "SofiaCrmController",
+      "handler": "listTimeline",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor",
+        "cashier"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/customers/:customerId/timeline",
+      "controller": "SofiaCrmController",
+      "handler": "recordInteraction",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/segments",
+      "controller": "SofiaCrmController",
+      "handler": "createSegment",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/campaigns",
+      "controller": "SofiaCrmController",
+      "handler": "createCampaign",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/crm/campaigns/:campaignId/send",
+      "controller": "SofiaCrmController",
+      "handler": "attemptCampaignSend",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/crm/sofia-crm.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/dev/sofia/payments/mock-webhook",
+      "controller": "SofiaDevPaymentsController",
+      "handler": "simulateMockWebhook",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia-payment-webhooks.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/public/sofia/payments/:token",
+      "controller": "SofiaPublicPaymentsController",
+      "handler": "getPayment",
+      "policy": "CAPABILITY_TOKEN",
+      "roles": [],
+      "source": "apps/api/src/modules/sofia/sofia-public-payments.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/public/sofia/payments/:token/select-method",
+      "controller": "SofiaPublicPaymentsController",
+      "handler": "selectPaymentMethod",
+      "policy": "CAPABILITY_TOKEN",
+      "roles": [],
+      "source": "apps/api/src/modules/sofia/sofia-public-payments.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/integrations/whatsapp/:provider/webhook",
+      "controller": "SofiaWhatsappWebhookController",
+      "handler": "receiveWhatsappWebhook",
+      "policy": "PROVIDER_SIGNATURE",
+      "roles": [],
+      "source": "apps/api/src/modules/sofia/sofia-whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/integrations/hermes/whatsapp/webhook",
+      "controller": "SofiaHermesWhatsappWebhookController",
+      "handler": "receiveHermesWebhook",
+      "policy": "PROVIDER_SIGNATURE",
+      "roles": [],
+      "source": "apps/api/src/modules/sofia/sofia-whatsapp.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/prompt/active",
+      "controller": "SofiaController",
+      "handler": "getActivePrompt",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/prompt/versions",
+      "controller": "SofiaController",
+      "handler": "listPromptVersions",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/catalog",
+      "controller": "SofiaController",
+      "handler": "listCatalog",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/catalog/:slug",
+      "controller": "SofiaController",
+      "handler": "findCatalogItem",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/sandbox/commercial-message",
+      "controller": "SofiaController",
+      "handler": "processCommercialSandbox",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/sandbox/auto-safe-evaluate",
+      "controller": "SofiaController",
+      "handler": "evaluateAutoSafe",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/ai/status",
+      "controller": "SofiaController",
+      "handler": "getAiStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/ai/health-check",
+      "controller": "SofiaController",
+      "handler": "healthCheckAi",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/ai/test",
+      "controller": "SofiaController",
+      "handler": "testAiProvider",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/whatsapp/status",
+      "controller": "SofiaController",
+      "handler": "getWhatsappStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/payment-settings",
+      "controller": "SofiaController",
+      "handler": "getPaymentSettings",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/sofia/payment-settings",
+      "controller": "SofiaController",
+      "handler": "updatePaymentSettings",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/agent/process",
+      "controller": "SofiaController",
+      "handler": "processAgentMessage",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/agent/recover-abandoned",
+      "controller": "SofiaController",
+      "handler": "recoverAbandonedDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/conversations",
+      "controller": "SofiaController",
+      "handler": "listConversations",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/conversations/inbox",
+      "controller": "SofiaController",
+      "handler": "getConversationsInbox",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/conversations/:id",
+      "controller": "SofiaController",
+      "handler": "findConversation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/mock-inbound",
+      "controller": "SofiaController",
+      "handler": "mockInbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/mock-outbound",
+      "controller": "SofiaController",
+      "handler": "mockOutbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/handoff",
+      "controller": "SofiaController",
+      "handler": "handoff",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/resolve",
+      "controller": "SofiaController",
+      "handler": "resolve",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/pause",
+      "controller": "SofiaController",
+      "handler": "pauseConversation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/resume",
+      "controller": "SofiaController",
+      "handler": "resumeConversation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/take-over",
+      "controller": "SofiaController",
+      "handler": "takeOverConversation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/conversations/:id/release",
+      "controller": "SofiaController",
+      "handler": "releaseConversation",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/outbound/:id/approve-send",
+      "controller": "SofiaController",
+      "handler": "approveOutbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/outbound/:id/cancel",
+      "controller": "SofiaController",
+      "handler": "cancelOutbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/outbound/:id/retry",
+      "controller": "SofiaController",
+      "handler": "retryOutbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/order-drafts",
+      "controller": "SofiaController",
+      "handler": "createDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/order-drafts",
+      "controller": "SofiaController",
+      "handler": "listDrafts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/order-drafts/:id",
+      "controller": "SofiaController",
+      "handler": "findDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/sofia/order-drafts/:id",
+      "controller": "SofiaController",
+      "handler": "updateDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/order-drafts/:id/confirm",
+      "controller": "SofiaController",
+      "handler": "confirmDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/order-drafts/:id/cancel",
+      "controller": "SofiaController",
+      "handler": "cancelDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/delivery-orders/from-draft/:draftId",
+      "controller": "SofiaController",
+      "handler": "createDeliveryOrderFromDraft",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/delivery-orders",
+      "controller": "SofiaController",
+      "handler": "listDeliveryOrders",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/delivery-orders/:id",
+      "controller": "SofiaController",
+      "handler": "findDeliveryOrder",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/admin/sofia/delivery-orders/:id/status",
+      "controller": "SofiaController",
+      "handler": "updateDeliveryOrderStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/summary",
+      "controller": "SofiaController",
+      "handler": "getMetricsSummary",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/auto-safe",
+      "controller": "SofiaController",
+      "handler": "getAutoSafeMetrics",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/conversations",
+      "controller": "SofiaController",
+      "handler": "getConversationMetrics",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/qr",
+      "controller": "SofiaController",
+      "handler": "getQrMetrics",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/safety",
+      "controller": "SofiaController",
+      "handler": "getSafetyMetrics",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics/export-sanitized",
+      "controller": "SofiaController",
+      "handler": "exportMetricsSanitized",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/learning/feedback",
+      "controller": "SofiaController",
+      "handler": "createLearningFeedback",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/learning/feedback",
+      "controller": "SofiaController",
+      "handler": "listLearningFeedback",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/learning/insights",
+      "controller": "SofiaController",
+      "handler": "getLearningInsights",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/privacy/status",
+      "controller": "SofiaController",
+      "handler": "getPrivacyStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/privacy/redact-preview",
+      "controller": "SofiaController",
+      "handler": "redactPreview",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/retention/status",
+      "controller": "SofiaController",
+      "handler": "getRetentionStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/retention/dry-run",
+      "controller": "SofiaController",
+      "handler": "retentionDryRun",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/retention/run",
+      "controller": "SofiaController",
+      "handler": "retentionRun",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/alerts",
+      "controller": "SofiaController",
+      "handler": "listSofiaAlerts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/alerts/check",
+      "controller": "SofiaController",
+      "handler": "checkSofiaAlerts",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/alerts/:id/ack",
+      "controller": "SofiaController",
+      "handler": "ackSofiaAlert",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/backups/status",
+      "controller": "SofiaController",
+      "handler": "getSofiaBackupsStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/backups/dry-run",
+      "controller": "SofiaController",
+      "handler": "runSofiaBackupDryRun",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/hardening/status",
+      "controller": "SofiaController",
+      "handler": "getSofiaHardeningStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/enterprise-status",
+      "controller": "SofiaController",
+      "handler": "getEnterpriseStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/dashboard/summary",
+      "controller": "SofiaController",
+      "handler": "getDashboardSummary",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/control/pause-global",
+      "controller": "SofiaController",
+      "handler": "pauseGlobal",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/control/resume-global",
+      "controller": "SofiaController",
+      "handler": "resumeGlobal",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/control/status",
+      "controller": "SofiaController",
+      "handler": "getControlStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/readiness",
+      "controller": "SofiaController",
+      "handler": "getReadiness",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/metrics",
+      "controller": "SofiaController",
+      "handler": "getGovernanceMetrics",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/security-status",
+      "controller": "SofiaController",
+      "handler": "getSecurityStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/runtime-safety",
+      "controller": "SofiaController",
+      "handler": "getRuntimeSafety",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/control/kill-switch/activate",
+      "controller": "SofiaController",
+      "handler": "activateKillSwitch",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/control/kill-switch/deactivate",
+      "controller": "SofiaController",
+      "handler": "deactivateKillSwitch",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/governance/events",
+      "controller": "SofiaController",
+      "handler": "getGovernanceEvents",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/governance/status",
+      "controller": "SofiaController",
+      "handler": "getGovernanceStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/governance/pause",
+      "controller": "SofiaController",
+      "handler": "pauseGovernance",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/governance/resume",
+      "controller": "SofiaController",
+      "handler": "resumeGovernance",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/governance/settings",
+      "controller": "SofiaController",
+      "handler": "updateGovernanceSettings",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/sofia.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/whatsapp/qr/status",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "getStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/whatsapp/qr/connect",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "connect",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/whatsapp/qr/code",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "getCode",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/whatsapp/qr/disconnect",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "disconnect",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/whatsapp/qr/logout",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "logout",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/whatsapp/qr/test-inbound",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "testInbound",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/sofia/whatsapp/qr/inbound-events",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "inboundEvents",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/admin/sofia/whatsapp/qr/test-send",
+      "controller": "SofiaWhatsappQrGatewayController",
+      "handler": "testSend",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/suppliers",
+      "controller": "SuppliersController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "suppliers.read"
+      ],
+      "source": "apps/api/src/modules/suppliers/suppliers.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/suppliers/:id",
+      "controller": "SuppliersController",
+      "handler": "findOne",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "suppliers.read"
+      ],
+      "source": "apps/api/src/modules/suppliers/suppliers.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/suppliers",
+      "controller": "SuppliersController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/suppliers/suppliers.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/suppliers/:id",
+      "controller": "SuppliersController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/suppliers/suppliers.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/suppliers/:id",
+      "controller": "SuppliersController",
+      "handler": "remove",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "inventory"
+      ],
+      "source": "apps/api/src/modules/suppliers/suppliers.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/table-groups",
+      "controller": "TableGroupsController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/table-groups",
+      "controller": "TableGroupsController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/table-groups/:id",
+      "controller": "TableGroupsController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/table-groups/:id",
+      "controller": "TableGroupsController",
+      "handler": "deactivate",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/table-groups/:id/tables",
+      "controller": "TableGroupsController",
+      "handler": "addTable",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/table-groups/:id/tables/:tableId",
+      "controller": "TableGroupsController",
+      "handler": "removeTable",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/table-groups.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/tables/waiter",
+      "controller": "TablesController",
+      "handler": "findWaiterView",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor",
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/tables/groups",
+      "controller": "TablesController",
+      "handler": "findTableGroups",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/tables/groups",
+      "controller": "TablesController",
+      "handler": "createTableGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/tables/groups/:id",
+      "controller": "TablesController",
+      "handler": "updateTableGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/tables/groups/:id",
+      "controller": "TablesController",
+      "handler": "deactivateTableGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/tables/groups/:id/tables",
+      "controller": "TablesController",
+      "handler": "addTableToGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/tables/groups/:id/tables/:tableId",
+      "controller": "TablesController",
+      "handler": "removeTableFromGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/tables/waiter-assignments",
+      "controller": "TablesController",
+      "handler": "findWaiterAssignments",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/tables/waiter-assignments/me",
+      "controller": "TablesController",
+      "handler": "findMyWaiterAssignments",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/tables/waiter-assignments",
+      "controller": "TablesController",
+      "handler": "createWaiterAssignment",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/tables/waiter-assignments/:id",
+      "controller": "TablesController",
+      "handler": "updateWaiterAssignment",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/tables/waiter-assignments/:id",
+      "controller": "TablesController",
+      "handler": "deactivateWaiterAssignment",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/tables",
+      "controller": "TablesController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/tables",
+      "controller": "TablesController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/tables/:id",
+      "controller": "TablesController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/tables/:id",
+      "controller": "TablesController",
+      "handler": "deleteTable",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/tables/:id/group",
+      "controller": "TablesController",
+      "handler": "assignTableGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/tables.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/waiter-assignments",
+      "controller": "WaiterAssignmentsController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/waiter-assignments.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/waiter-assignments/me",
+      "controller": "WaiterAssignmentsController",
+      "handler": "findMine",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "waiter"
+      ],
+      "source": "apps/api/src/modules/tables/waiter-assignments.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/waiter-assignments",
+      "controller": "WaiterAssignmentsController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/waiter-assignments.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/waiter-assignments/:id",
+      "controller": "WaiterAssignmentsController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/waiter-assignments.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/waiter-assignments/:id",
+      "controller": "WaiterAssignmentsController",
+      "handler": "deactivate",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/tables/waiter-assignments.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/units",
+      "controller": "UnitsController",
+      "handler": "findAll",
+      "policy": "JWT_AUTHENTICATED",
+      "roles": [],
+      "source": "apps/api/src/modules/units/units.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/users",
+      "controller": "UsersController",
+      "handler": "findAll",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/users/users.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/users",
+      "controller": "UsersController",
+      "handler": "create",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/users/users.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/users/:id",
+      "controller": "UsersController",
+      "handler": "update",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/users/users.controller.ts"
+    },
+    {
+      "method": "PATCH",
+      "path": "/users/:id/status",
+      "controller": "UsersController",
+      "handler": "updateStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/users/users.controller.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/:id",
+      "controller": "UsersController",
+      "handler": "remove",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin"
+      ],
+      "source": "apps/api/src/modules/users/users.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/session",
+      "controller": "WhatsappController",
+      "handler": "getSessionStatus",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/whatsapp/groups",
+      "controller": "WhatsappController",
+      "handler": "listGroups",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/session/refresh",
+      "controller": "WhatsappController",
+      "handler": "refreshSession",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/session/disconnect",
+      "controller": "WhatsappController",
+      "handler": "disconnectSession",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/daily-close-group/link",
+      "controller": "WhatsappController",
+      "handler": "linkDailyCloseGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/daily-close-group/select",
+      "controller": "WhatsappController",
+      "handler": "selectDailyCloseGroup",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/daily-close/:id/send",
+      "controller": "WhatsappController",
+      "handler": "sendDailyClose",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/sales/:id/send-receipt",
+      "controller": "WhatsappController",
+      "handler": "sendSaleReceipt",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/whatsapp/orders/:id/send-delivery-summary",
+      "controller": "WhatsappController",
+      "handler": "sendDeliveryOrderSummary",
+      "policy": "JWT_ROLES",
+      "roles": [
+        "admin",
+        "cashier",
+        "supervisor"
+      ],
+      "source": "apps/api/src/modules/whatsapp/whatsapp.controller.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/version",
+      "controller": "ReleaseController",
+      "handler": "getVersion",
+      "policy": "PUBLIC_EXPLICIT",
+      "roles": [],
+      "source": "apps/api/src/release/release.controller.ts"
+    }
+  ]
+}

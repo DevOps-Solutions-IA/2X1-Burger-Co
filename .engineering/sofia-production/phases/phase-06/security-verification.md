@@ -8,5 +8,9 @@
 - Location ambiguity: fails to manual review; no most-recent-order guessing.
 - Complaint remedies: refunds, discounts, coupons, replacements and compensation remain unauthorized.
 - Direct automated updated-receipt send: removed and replaced by a suppressed durable notification intent.
+- SecureCommand notification receipt: durable `SYSTEM` identity, policy-bound source/role and disabled execution stage.
+- Recovery actors: dedicated disabled technical identity; no automated event is attributed to an active operator.
+- Payment recovery startup: payment orchestration cannot validate without its durable recovery worker, including both accepted boolean encodings.
+- Independent architecture and test reviews: PASS after final corrections.
 
 Production remains closed. Remaining inherited hardening findings are tracked for Phase 7 and are not claimed resolved here.

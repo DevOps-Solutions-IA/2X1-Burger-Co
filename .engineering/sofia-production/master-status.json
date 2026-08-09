@@ -15,7 +15,11 @@
     "P7-SECURITY",
     "P7-MOCKS",
     "P7-RESILIENCE",
-    "P7-OBSERVABILITY"
+    "P7-OBSERVABILITY",
+    "P6-ARCH-FINAL-REVIEW",
+    "P6-TEST-FINAL-REVIEW",
+    "P7-SECURITY-REVALIDATION",
+    "P7-ARCH-REVALIDATION"
   ],
   "openPRs": [11],
   "ciStatus": "PHASE_6_LOCAL_CI_PASS_REMOTE_CORRECTED_HEAD_PENDING",
@@ -26,5 +30,5 @@
   "realBold": false,
   "autoWhatsapp": false,
   "ownerGates": [],
-  "lastUpdated": "2026-08-09T06:21:00Z"
+  "lastUpdated": "2026-08-09T07:46:15Z"
 }
