@@ -1,0 +1,60 @@
+{
+  "status": "PASS",
+  "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
+  "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
+  "evidenceCommitSha": "SEE_FINAL_PR_HEAD",
+  "runtimeFocusedValidationParentSha": "0cd1ebeabad943d5838e27ef5cfb74715e90cebd",
+  "validationLineage": "60af56e changes release/recovery/test code only; application runtime is unchanged from the focused parent",
+  "migrationFrontier": "37/37",
+  "gates": {
+    "frozenInstall": "PASS",
+    "productionDependencyAudit": "PASS_0_KNOWN_VULNERABILITIES",
+    "secretScan": "PASS",
+    "lintTypecheckBuild": "PASS",
+    "prismaValidate": "PASS",
+    "freshMigrations": "PASS_37_OF_37",
+    "legacyMigration": "PASS_13_AUTHORITIES_PRESERVED_0_REWRITES",
+    "phase6Focused": "PASS_219_OF_219",
+    "phase7FocusedTwice": "PASS_253_OF_253_EACH_RUN",
+    "postgresConcurrencyFaultLoad": "PASS_41_OF_41",
+    "phase5Regression": "PASS_15_OF_15",
+    "criticalRbacRegression": "PASS_92_OF_92",
+    "releaseSafety": "PASS_14_OF_14",
+    "architectureSecurityReview": "PASS_0_CRITICAL_0_HIGH",
+    "productionMockReachable": 0,
+    "productionSandboxReachable": 0,
+    "productionFakeSuccess": 0
+  },
+  "artifact": {
+    "buildId": "0.1.0-60af56e0eb96-1786280275",
+    "apiImageId": "sha256:375b4f58d7a9025d04e9b8a8ad1467cecb4fdd7028b534c8876fd70b287e6692",
+    "apiRuntimeRootfsDigest": "sha256:f7dd0b12ebb342b1c9860b153fee5a2f725294323e84a94e6522eb92f56f21a3",
+    "apiSbomDigest": "sha256:26f1511505a24a0597e42336f59788d24730dfcf072b57b182a0f89e3feb5aba",
+    "webImageId": "sha256:91a881f280dd99b9d5e51f3f9a2b5210bfa94419deaee112153cd3687a73effa",
+    "webRuntimeRootfsDigest": "sha256:9af09d9c812f1deaecfc02d581ebe8f21a5d24b36d4b0ea907e1a419f6e6e381",
+    "webSbomDigest": "sha256:8a8adac108cd954bae04c57689d9315740071172ab77bad5572979766ec99b0e",
+    "registryPushAuthorized": false
+  },
+  "ephemeralE2e": {
+    "status": "PASS",
+    "runId": "run-20260809131057-1b667d8b",
+    "contracts": 12,
+    "rbacRoleChecks": 70,
+    "playwright": "19/19",
+    "cleanup": "0_CONTAINERS_0_VOLUMES_0_NETWORKS"
+  },
+  "recovery": {
+    "status": "PASS",
+    "runId": "run-20260809132631-4cecf476",
+    "encryptedBackupSha256": "87912ca9da409f6d869e30eed4e7342daa854fe0ec6bf486fa784d769bf6af52",
+    "actualGpg": true,
+    "rpoSeconds": 0,
+    "rtoSeconds": 13.335,
+    "cleanup": "0_CONTAINERS_0_VOLUMES_0_NETWORKS_CRYPTO_REMOVED"
+  },
+  "remoteCi": "PENDING_FINAL_PR_HEAD",
+  "productionModified": false,
+  "realBold": false,
+  "autoWhatsapp": false,
+  "recordedAt": "2026-08-09T13:28:06Z"
+}

@@ -1,5 +1,7 @@
 # Phase 07 read-only pre-work
 
+Status: HISTORICAL / SUPERSEDED
+
 Source reviewed: `3d70b80dcd2678357906d9856e5bca9fb29834a1`.
 
 No Phase 7 branch or runtime edits were created. Production remains closed.
@@ -36,3 +38,6 @@ No Phase 7 branch or runtime edits were created. Production remains closed.
 - Reject SecureCommand self-approval for operational commands.
 
 No critical/high issue may remain unresolved before Phase 7 merge or production activation.
+
+This pre-work records findings against the Phase 5 baseline only. The Phase 7
+security review and executable tests supersede it for the release candidate.
