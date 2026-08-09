@@ -117,11 +117,11 @@ describe('CanonicalPaymentWebhookService', () => {
     const { service, repository, kitchen } = harness();
     repository.findIntentByProvider.mockResolvedValue(null);
     await expect(service.processBold({ rawPayload: {}, rawBody, headers: { 'x-bold-merchant-id': 'merchant-1' } })).resolves.toMatchObject({ processedStatus: 'REFERENCE_UNKNOWN' });
-    expect(repository.failWebhookClaim).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.completeWebhookClaim).toHaveBeenCalledWith(expect.objectContaining({
       webhookId: 'webhook-1',
-      errorCode: 'PAYMENT_WEBHOOK_REFERENCE_NOT_BOUND',
-      retryable: true,
+      result: expect.objectContaining({ processedStatus: 'REFERENCE_UNKNOWN' }),
     }));
+    expect(repository.failWebhookClaim).not.toHaveBeenCalled();
     expect(repository.transitionPayment).not.toHaveBeenCalled();
     expect(kitchen.evaluateAndMark).not.toHaveBeenCalled();
   });

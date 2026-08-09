@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import {
   OrderTicketType,
   PaymentIntentStatus,
+  Prisma,
   ProductKind,
   SofiaPaymentPreference,
 } from '@prisma/client';
@@ -143,7 +144,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       actorId,
     });
     const publicReference = prepared.publicPath!.split('/').pop()!;
-    jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
+    const providerCreateSpy = jest.spyOn(BoldPaymentProvider.prototype, 'createPayment').mockResolvedValueOnce({
       provider: 'BOLD',
       providerPaymentId: `provider-payment-${label}`,
       providerReference: `checkout_${checkout.id}`,
@@ -171,6 +172,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     return {
       checkout,
       intentId: prepared.paymentIntent.id,
+      providerCreateSpy,
       command: {
         rawPayload: payload,
         rawBody,
@@ -185,7 +187,8 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
   async function expireClaim(eventId: string) {
     await prisma.paymentWebhookEvent.update({
       where: { provider_eventId: { provider: 'BOLD', eventId } },
-      data: { processingLeaseExpiresAt: new Date(0) },
+      // Recovery is deliberately proven from normalized columns, not provider redelivery or raw payload.
+      data: { processingLeaseExpiresAt: new Date(0), rawPayload: Prisma.JsonNull },
     });
   }
 
@@ -217,6 +220,8 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
         toStatus: PaymentIntentStatus.SUCCEEDED,
       },
     })).toBe(1);
+    expect(await prisma.paymentIntent.count({ where: { checkoutId: input.checkoutId } })).toBe(1);
+    expect(await prisma.paymentLink.count({ where: { paymentIntentId: input.intentId } })).toBe(1);
     const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: input.checkoutId } });
     expect(checkout.status).toBe('KITCHEN_ELIGIBLE');
     expect(checkout.orderTicketId).toBeNull();
@@ -242,10 +247,15 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     })).toBe(0);
 
     await expireClaim('event-after-evidence');
-    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
-      processedStatus: 'PROCESSED',
-      paymentStatus: PaymentIntentStatus.SUCCEEDED,
+    const parseSpy = jest.spyOn(bold, 'parseWebhook');
+    const verifySpy = jest.spyOn(bold, 'verifyWebhookSignature');
+    await expect(service().recoverPendingBatch('restart-worker', new Date(), 10)).resolves.toMatchObject({
+      completed: 1,
+      failed: 0,
     });
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(verifySpy).not.toHaveBeenCalled();
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
     await expectSingleEffects({
       checkoutId: prepared.checkout.id,
       intentId: prepared.intentId,
@@ -267,14 +277,20 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     expect(await prisma.paymentTransition.count({
       where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
     })).toBe(1);
+    expect(await prisma.paymentWebhookEvent.findUniqueOrThrow({
+      where: { provider_eventId: { provider: 'BOLD', eventId: 'event-after-transition' } },
+    })).toMatchObject({ processedStatus: 'VALIDATED', deterministicResult: null });
     expect((await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } })).status)
       .toBe('PAYMENT_PENDING');
 
     await expireClaim('event-after-transition');
-    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
-      processedStatus: 'PROCESSED',
-      paymentStatus: PaymentIntentStatus.SUCCEEDED,
+    const parseSpy = jest.spyOn(bold, 'parseWebhook');
+    await expect(service().recoverPendingBatch('restart-worker', new Date(), 10)).resolves.toMatchObject({
+      completed: 1,
+      failed: 0,
     });
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
     await expectSingleEffects({
       checkoutId: prepared.checkout.id,
       intentId: prepared.intentId,
@@ -284,27 +300,30 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
 
   it('recovers after kitchen commit and before deterministic result without a duplicate kitchen effect', async () => {
     const prepared = await preparedWebhook('after-kitchen');
-    const crashingKitchen = proxy(kitchen, {
-      evaluateAndMark: async (...args: Parameters<KitchenEligibilityService['evaluateAndMark']>) => {
-        await kitchen.evaluateAndMark(...args);
-        throw new SimulatedProcessCrash('after kitchen');
-      },
-    });
     const crashingRepository = proxy(repository, {
+      completeWebhookClaim: async () => {
+        throw new SimulatedProcessCrash('after kitchen before deterministic result');
+      },
       failWebhookClaim: async () => undefined,
     });
 
-    await expect(service(crashingRepository, crashingKitchen).processBold(prepared.command))
+    await expect(service(crashingRepository).processBold(prepared.command))
       .rejects.toThrow(SimulatedProcessCrash);
     const afterCrash = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
     expect(afterCrash.status).toBe('KITCHEN_ELIGIBLE');
     expect(afterCrash.kitchenEligibleAt).not.toBeNull();
+    expect(await prisma.paymentWebhookEvent.findUniqueOrThrow({
+      where: { provider_eventId: { provider: 'BOLD', eventId: 'event-after-kitchen' } },
+    })).toMatchObject({ processedStatus: 'DOWNSTREAM_APPLIED', deterministicResult: null });
 
     await expireClaim('event-after-kitchen');
-    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
-      processedStatus: 'PROCESSED',
-      paymentStatus: PaymentIntentStatus.SUCCEEDED,
+    const parseSpy = jest.spyOn(bold, 'parseWebhook');
+    await expect(service().recoverPendingBatch('restart-worker', new Date(), 10)).resolves.toMatchObject({
+      completed: 1,
+      failed: 0,
     });
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
     await expectSingleEffects({
       checkoutId: prepared.checkout.id,
       intentId: prepared.intentId,
@@ -312,5 +331,69 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       expectedCheckoutVersion: afterCrash.version,
       expectedKitchenEligibleAt: afterCrash.kitchenEligibleAt,
     });
+  });
+
+  it('does not reclaim an active lease and reclaims it after expiry with one winner', async () => {
+    const prepared = await preparedWebhook('lease-reclaim');
+    const crashingRepository = proxy(repository, {
+      claimWebhookEvidence: async (...args: Parameters<PrismaOrderCheckoutRepository['claimWebhookEvidence']>) => {
+        const claim = await repository.claimWebhookEvidence(...args);
+        throw new SimulatedProcessCrash(`claimed ${claim.state}`);
+      },
+    });
+    await expect(service(crashingRepository).processBold(prepared.command)).rejects.toThrow(SimulatedProcessCrash);
+
+    await expect(service().recoverPendingBatch('active-worker', new Date(), 10)).resolves.toMatchObject({
+      candidates: 0,
+      completed: 0,
+    });
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+    })).toBe(0);
+
+    await expireClaim('event-lease-reclaim');
+    const recoveries = await Promise.all([
+      service().recoverPendingBatch('restart-a', new Date(), 10),
+      service().recoverPendingBatch('restart-b', new Date(), 10),
+    ]);
+    expect(recoveries.reduce((sum, entry) => sum + entry.completed, 0)).toBe(1);
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
+    await expectSingleEffects({
+      checkoutId: prepared.checkout.id,
+      intentId: prepared.intentId,
+      eventId: 'event-lease-reclaim',
+    });
+  });
+
+  it('closes an expired claim at the bounded attempt limit without a financial transition', async () => {
+    const prepared = await preparedWebhook('attempt-limit');
+    const crashingRepository = proxy(repository, {
+      claimWebhookEvidence: async (...args: Parameters<PrismaOrderCheckoutRepository['claimWebhookEvidence']>) => {
+        const claim = await repository.claimWebhookEvidence(...args);
+        throw new SimulatedProcessCrash(`claimed ${claim.state}`);
+      },
+    });
+    await expect(service(crashingRepository).processBold(prepared.command)).rejects.toThrow(SimulatedProcessCrash);
+    await prisma.paymentWebhookEvent.update({
+      where: { provider_eventId: { provider: 'BOLD', eventId: 'event-attempt-limit' } },
+      data: { processingAttempts: 5, processingLeaseExpiresAt: new Date(0) },
+    });
+
+    await expect(service().recoverPendingBatch('bounded-worker', new Date(), 10)).resolves.toMatchObject({
+      blocked: 1,
+      completed: 0,
+    });
+    expect(await prisma.paymentWebhookEvent.findUniqueOrThrow({
+      where: { provider_eventId: { provider: 'BOLD', eventId: 'event-attempt-limit' } },
+    })).toMatchObject({
+      processedStatus: 'FAILED',
+      processingAttempts: 5,
+      resultCode: 'PROCESSING_ATTEMPTS_EXHAUSTED',
+      retryable: false,
+    });
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+    })).toBe(0);
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
   });
 });

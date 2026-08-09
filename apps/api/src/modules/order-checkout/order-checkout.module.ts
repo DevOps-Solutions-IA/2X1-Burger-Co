@@ -9,6 +9,7 @@ import { KitchenEligibilityService } from './kitchen-eligibility.service';
 import { OrderCheckoutService } from './order-checkout.service';
 import { PaymentOrchestrationService } from './payment-orchestration.service';
 import { PaymentPublicReferenceService } from './payment-public-reference.service';
+import { PaymentWebhookRecoveryWorker } from './payment-webhook-recovery.worker';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
 
@@ -24,6 +25,7 @@ import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checko
     PaymentPublicReferenceService,
     PaymentOrchestrationService,
     CanonicalPaymentWebhookService,
+    PaymentWebhookRecoveryWorker,
     KitchenEligibilityService,
   ],
   exports: [
