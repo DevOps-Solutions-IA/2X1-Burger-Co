@@ -1,12 +1,15 @@
 {
   "currentPhase": "BACKEND_PRODUCTION_READY_PENDING_CONTROLLED_ACTIVATION",
-  "mainSha": "60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4",
+  "mainSha": "d9f73c01b4f3619091a77ad77dc04f48c626734b",
   "mainShaAtPhase07Merge": "60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4",
   "phase07BaseSha": "064a2706c099c75b6a4cd68eb916b037cd6dc302",
   "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
   "reviewedCodeHeadSha": "8c9a6c4bc36acac4a7698ea5e27e00ea34fdea75",
   "phase07FinalSha": "b16a08aefd447ce680fdbdacd5614ea06763163d",
   "phase07MergeSha": "60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4",
+  "finalClosurePr": 13,
+  "finalClosureMergeSha": "d9f73c01b4f3619091a77ad77dc04f48c626734b",
+  "finalCiRun": 31321031798,
   "productionSha": "NOT_VERIFIED_IN_THIS_PROGRAM",
   "migrationFrontier": 37,
   "activeAgents": [],
@@ -31,7 +34,7 @@
   "openPRs": [],
   "phase07Pr": 12,
   "phase07PrStatus": "MERGED",
-  "ciStatus": "PASS_RUN_31316328069",
+  "ciStatus": "PASS_RUN_31321031798",
   "testStatus": "LOCAL_CI_MIRROR_PASS_EXACT_ARTIFACT_E2E_AND_RECOVERY_PASS",
   "securityStatus": "PASS_0_CRITICAL_0_HIGH",
   "architectureStatus": "PASS_NO_DUPLICATE_AUTHORITIES",
@@ -58,5 +61,5 @@
     "real Bold credentials and activation",
     "automatic customer messaging activation"
   ],
-  "lastUpdated": "2026-08-09T14:12:19Z"
+  "lastUpdated": "2026-08-09T20:17:58Z"
 }
