@@ -18,7 +18,7 @@
     "P7-OBSERVABILITY"
   ],
   "openPRs": [11],
-  "ciStatus": "PHASE_6_LOCAL_CI_PASS_REMOTE_FINAL_HEAD_PENDING",
+  "ciStatus": "PHASE_6_LOCAL_CI_PASS_REMOTE_CORRECTED_HEAD_PENDING",
   "securityStatus": "PREACTIVATION_CRITICAL_HIGH_FIXES_REQUIRED",
   "mockCount": 9,
   "sandboxCount": 1,
@@ -26,5 +26,5 @@
   "realBold": false,
   "autoWhatsapp": false,
   "ownerGates": [],
-  "lastUpdated": "2026-08-09T05:32:39Z"
+  "lastUpdated": "2026-08-09T06:21:00Z"
 }
