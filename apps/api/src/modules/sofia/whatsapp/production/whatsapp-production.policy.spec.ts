@@ -10,7 +10,10 @@ import type { WhatsappProductionRepository } from './whatsapp-production.reposit
 describe('WhatsApp production policy services', () => {
   it('returns deterministic replay without a second claim', async () => {
     const claimInbound = jest.fn()
-      .mockResolvedValueOnce({ id: 'event-row', created: true, processingStatus: 'CLAIMED', deterministicResult: null })
+      .mockResolvedValueOnce({
+        id: 'event-row', created: true, disposition: 'ACQUIRED', attempt: 1, claimToken: 'claim-token',
+        leaseExpiresAt: new Date(Date.now() + 60_000), processingStatus: 'CLAIMED', deterministicResult: null,
+      })
       .mockResolvedValueOnce({ id: 'event-row', created: false, processingStatus: 'PROCESSED', deterministicResult: { code: 'OK' } });
     const service = new WhatsappInboundDeduplicator({ claimInbound } as unknown as WhatsappProductionRepository);
     const event = {

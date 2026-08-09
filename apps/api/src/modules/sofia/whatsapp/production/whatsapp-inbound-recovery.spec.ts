@@ -167,13 +167,18 @@ describe('WhatsApp inbound leased recovery', () => {
     }));
   });
 
-  it('passes the acquired lease token through the deduplicator completion context', async () => {
+  it('passes each acquired lease token through its immutable completion context', async () => {
     const completeInbound = jest.fn().mockResolvedValue(undefined);
     const repository = {
-      claimInbound: jest.fn().mockResolvedValue({
-        id: 'row-1', created: true, disposition: 'ACQUIRED', attempt: 1, claimToken: 'lease-token',
-        leaseExpiresAt: new Date(), processingStatus: 'CLAIMED', deterministicResult: null,
-      }),
+      claimInbound: jest.fn()
+        .mockResolvedValueOnce({
+          id: 'row-1', created: true, disposition: 'ACQUIRED', attempt: 1, claimToken: 'lease-token-a',
+          leaseExpiresAt: new Date(), processingStatus: 'CLAIMED', deterministicResult: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'row-1', created: false, disposition: 'ACQUIRED', attempt: 2, claimToken: 'lease-token-b',
+          leaseExpiresAt: new Date(), processingStatus: 'CLAIMED', deterministicResult: null,
+        }),
       completeInbound,
     };
     const deduplicator = new WhatsappInboundDeduplicator(repository as unknown as WhatsappProductionRepository);
@@ -184,8 +189,16 @@ describe('WhatsApp inbound leased recovery', () => {
       eventId: 'event-1', reasonCode: 'UNSUPPORTED', occurredAt: new Date(), payloadHash: 'payload',
     };
 
-    await deduplicator.claim(event, 'account-1');
-    await deduplicator.complete('row-1', 'PROCESSED', { code: 'OK' });
-    expect(completeInbound).toHaveBeenCalledWith('row-1', 'PROCESSED', { code: 'OK' }, undefined, 'lease-token');
+    const first = await deduplicator.claim(event, 'account-1');
+    const recovered = await deduplicator.claim(event, 'account-1');
+    if (first.state !== 'CLAIMED' || recovered.state !== 'CLAIMED') throw new Error('expected acquired claims');
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(recovered)).toBe(true);
+
+    await deduplicator.complete(first, 'PROCESSED', { worker: 'A' });
+    await deduplicator.complete(recovered, 'PROCESSED', { worker: 'B' });
+
+    expect(completeInbound).toHaveBeenNthCalledWith(1, 'row-1', 'PROCESSED', { worker: 'A' }, undefined, 'lease-token-a');
+    expect(completeInbound).toHaveBeenNthCalledWith(2, 'row-1', 'PROCESSED', { worker: 'B' }, undefined, 'lease-token-b');
   });
 });

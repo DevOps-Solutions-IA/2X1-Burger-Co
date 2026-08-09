@@ -7,6 +7,7 @@ import type { NormalizedDeliveryStatus, NormalizedWhatsappEvent, ProviderAccount
 const STATUS_MAP: Record<string, NormalizedDeliveryStatus> = {
   accepted: 'ACCEPTED', queued: 'ACCEPTED', sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED', error: 'FAILED', unknown: 'UNKNOWN',
 };
+const LOCAL_INGESTION_TIMESTAMP_KEYS = new Set(['receivedAt', 'received_at', 'ingestedAt']);
 
 @Injectable()
 export class WhatsappEventNormalizer {
@@ -106,9 +107,25 @@ export class WhatsappEventNormalizer {
 
   private hashCanonical(payload: Record<string, unknown>) {
     try {
-      return this.hash(JSON.stringify(this.sort(payload, 0, new WeakSet<object>())));
+      this.validateLocalIngestionTimestamps(payload);
+      const canonical = this.sort(payload, 0, new WeakSet<object>());
+      if (!canonical || typeof canonical !== 'object' || Array.isArray(canonical)) {
+        throw new Error('payload must be an object');
+      }
+      const semanticEntries = Object.entries(canonical).filter(([key]) => !LOCAL_INGESTION_TIMESTAMP_KEYS.has(key));
+      return this.hash(JSON.stringify(Object.fromEntries(semanticEntries)));
     } catch {
       throw new BadRequestException({ code: 'WHATSAPP_PAYLOAD_NOT_NORMALIZABLE' });
+    }
+  }
+
+  private validateLocalIngestionTimestamps(payload: Record<string, unknown>) {
+    for (const key of LOCAL_INGESTION_TIMESTAMP_KEYS) {
+      if (!(key in payload)) continue;
+      const value = payload[key];
+      if (typeof value !== 'string' || value.length > 64 || !Number.isFinite(new Date(value).getTime())) {
+        throw new Error('local ingestion timestamp invalid');
+      }
     }
   }
 

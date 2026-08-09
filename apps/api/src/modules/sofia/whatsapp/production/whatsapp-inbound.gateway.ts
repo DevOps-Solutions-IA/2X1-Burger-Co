@@ -6,6 +6,7 @@ import { WhatsappInboundDeduplicator } from './whatsapp-inbound-deduplicator';
 import { WhatsappInboundRateLimitPolicyService } from './whatsapp-inbound-rate-limit-policy.service';
 import { WhatsappProviderHealthService } from './whatsapp-provider-health.service';
 import type { ProviderAccountObservation } from './whatsapp-production.types';
+import type { WhatsappInboundClaimContext } from './whatsapp-production.repository';
 
 @Injectable()
 export class WhatsappInboundGateway {
@@ -39,7 +40,7 @@ export class WhatsappInboundGateway {
         reasonCode: rateLimit.reasonCode,
         retryAfterMs: rateLimit.retryAfterMs,
       };
-      await this.deduplicator.complete(claim.inboundEventId, response.processingStatus, response, rateLimit.reasonCode);
+      await this.deduplicator.complete(claim, response.processingStatus, response, rateLimit.reasonCode);
       return { event, account, claim, terminal: true, result: response };
     }
     if (event.kind === 'STATUS_EVENT') {
@@ -48,18 +49,18 @@ export class WhatsappInboundGateway {
         recipientIdentityHash: event.recipientIdentityHash, status: event.status, occurredAt: event.occurredAt, payloadHash: event.payloadHash,
       });
       const response = { processingStatus: result.duplicate ? 'STATUS_DUPLICATE' : 'STATUS_PROCESSED', status: event.status };
-      await this.deduplicator.complete(claim.inboundEventId, response.processingStatus, response);
+      await this.deduplicator.complete(claim, response.processingStatus, response);
       return { event, account, claim, terminal: true, result: response };
     }
     if (event.kind === 'UNSUPPORTED_EVENT') {
       const response = { processingStatus: 'UNSUPPORTED_ACKNOWLEDGED', reasonCode: event.reasonCode };
-      await this.deduplicator.complete(claim.inboundEventId, response.processingStatus, response);
+      await this.deduplicator.complete(claim, response.processingStatus, response);
       return { event, account, claim, terminal: true, result: response };
     }
     return { event, account, claim, terminal: false, result: null };
   }
 
-  complete(inboundEventId: string, processingStatus: string, result: unknown, errorCode?: string | null) {
-    return this.deduplicator.complete(inboundEventId, processingStatus, result, errorCode);
+  complete(claim: WhatsappInboundClaimContext, processingStatus: string, result: unknown, errorCode?: string | null) {
+    return this.deduplicator.complete(claim, processingStatus, result, errorCode);
   }
 }

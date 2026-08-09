@@ -695,7 +695,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         timestamp:
           Number.isFinite(providerTimestamp) && providerTimestamp > 0
             ? new Date(providerTimestamp * 1_000).toISOString()
-            : new Date().toISOString(),
+            : undefined,
+        receivedAt: new Date().toISOString(),
         rawSummaryJson: {
           source: 'REAL_BAILEYS_INBOUND',
           hasText: Boolean(text),
@@ -743,7 +744,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
             recipient,
             status,
             eventType: 'status',
-            timestamp: new Date().toISOString(),
+            receivedAt: new Date().toISOString(),
           },
           { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
           { trustedBaileysTransport: true },

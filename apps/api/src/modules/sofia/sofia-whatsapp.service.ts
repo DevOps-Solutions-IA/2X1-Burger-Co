@@ -137,6 +137,9 @@ export class SofiaWhatsappService {
     if (ingress.event.kind !== 'INBOUND_MESSAGE') {
       throw new BadRequestException({ code: 'WHATSAPP_EVENT_CLASSIFICATION_INVALID' });
     }
+    if (ingress.claim.state !== 'CLAIMED') {
+      throw new BadRequestException({ code: 'WHATSAPP_INBOUND_CLAIM_CONTEXT_INVALID' });
+    }
     parsed = {
       ...parsed,
       phone: ingress.event.sender,
@@ -145,7 +148,7 @@ export class SofiaWhatsappService {
     };
     try {
     if (!parsed.phone) {
-      await this.inboundGateway.complete(ingress.claim.inboundEventId, 'REJECTED', { processingStatus: 'REJECTED' }, 'WHATSAPP_PHONE_REQUIRED');
+      await this.inboundGateway.complete(ingress.claim, 'REJECTED', { processingStatus: 'REJECTED' }, 'WHATSAPP_PHONE_REQUIRED');
       throw new BadRequestException('El webhook WhatsApp no incluye teléfono válido.');
     }
     const eventHash = ingress.event.payloadHash;
@@ -208,7 +211,7 @@ export class SofiaWhatsappService {
         noWhatsappReal: true,
       };
       const receipt = sanitizeWhatsappInboundReceipt(response);
-      await this.inboundGateway.complete(inboundEvent.id, 'ALLOWLIST_REQUIRED', receipt, 'ALLOWLIST_REQUIRED');
+      await this.inboundGateway.complete(ingress.claim, 'ALLOWLIST_REQUIRED', receipt, 'ALLOWLIST_REQUIRED');
       return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     }
     const conversation = await this.getOrCreateWhatsappConversation(
@@ -251,11 +254,11 @@ export class SofiaWhatsappService {
       ...result,
     };
     const receipt = sanitizeWhatsappInboundReceipt(response);
-    await this.inboundGateway.complete(inboundEvent.id, result.processingStatus, receipt, result.errorMessage ?? null);
+    await this.inboundGateway.complete(ingress.claim, result.processingStatus, receipt, result.errorMessage ?? null);
     return options.trustedInternalValidation || process.env.NODE_ENV === 'test' ? response : receipt;
     } catch (error) {
       await this.inboundGateway.complete(
-        ingress.claim.inboundEventId,
+        ingress.claim,
         'FAILED',
         { processingStatus: 'FAILED' },
         this.sanitizeProviderError(error),

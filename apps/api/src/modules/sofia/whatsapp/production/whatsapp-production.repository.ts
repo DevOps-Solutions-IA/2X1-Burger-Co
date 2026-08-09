@@ -20,6 +20,13 @@ export type ClaimedInbound = {
   deterministicResult: unknown;
 };
 
+export type WhatsappInboundClaimContext = Readonly<{
+  inboundEventId: string;
+  claimToken: string;
+  attempt: number;
+  leaseExpiresAt: Date;
+}>;
+
 export type WhatsappInboundClaimInput = {
   accountId: string;
   provider: string;
