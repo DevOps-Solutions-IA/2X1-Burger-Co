@@ -8,6 +8,20 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../..'),
   generateBuildId: async () => process.env.RELEASE_BUILD_ID ?? 'development-untracked',
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  webpack(config, { dev, webpack }) {
+    if (!dev) {
+      config.optimization ??= {};
+      config.optimization.moduleIds = false;
+      config.plugins ??= [];
+      config.plugins.push(
+        new webpack.ids.DeterministicModuleIdsPlugin({
+          maxLength: 8,
+          failOnConflict: true,
+        }),
+      );
+    }
+    return config;
+  },
   async rewrites() {
     return [
       // Nginx is the canonical public proxy. This fallback also keeps the

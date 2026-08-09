@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: light;
+  --font-body: 'Montserrat Variable';
+  --font-heading: 'Poppins';
 }
 
 html {

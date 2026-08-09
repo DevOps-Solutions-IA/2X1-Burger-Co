@@ -1,19 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import { Montserrat, Poppins } from 'next/font/google';
+import '@fontsource-variable/montserrat';
+import '@fontsource/poppins/latin-500.css';
+import '@fontsource/poppins/latin-600.css';
+import '@fontsource/poppins/latin-700.css';
 import './globals.css';
 import { Providers } from '@/components/providers';
-
-const headingFont = Poppins({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--font-heading',
-});
-
-const bodyFont = Montserrat({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  variable: '--font-body',
-});
 
 export const metadata: Metadata = {
   title: '2x1 Burger Co | Centro operativo',
@@ -34,7 +25,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body className={`${headingFont.variable} ${bodyFont.variable} bg-surface font-sans text-ink antialiased`}>
+      <body className="bg-surface font-sans text-ink antialiased">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[9999] focus:rounded-2xl focus:bg-brand-500 focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-soft focus:outline-none"

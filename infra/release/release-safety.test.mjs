@@ -15,6 +15,9 @@ const ciWorkflow = path.join(root, '.github/workflows/ci.yml');
 const cdWorkflow = path.join(root, '.github/workflows/cd.yml');
 const apiDockerfile = path.join(root, 'infra/docker/Dockerfile.api');
 const webDockerfile = path.join(root, 'infra/docker/Dockerfile.web');
+const webNextConfig = path.join(root, 'apps/web/next.config.ts');
+const webLayout = path.join(root, 'apps/web/src/app/layout.tsx');
+const webPackage = path.join(root, 'apps/web/package.json');
 const commit = 'a'.repeat(40);
 const apiDigest = `sha256:${'b'.repeat(64)}`;
 const webDigest = `sha256:${'c'.repeat(64)}`;
@@ -110,6 +113,22 @@ test('artifact builds fail closed and dependency fetch retries are bounded', () 
     assert.match(source, /test "\$attempt" -lt 3 \|\| exit 1/);
     assert.match(source, /sleep "\$\(\(attempt \* 2\)\)"/);
   }
+});
+
+test('Web release inputs use collision-safe module IDs and vendored fonts', () => {
+  const config = readFileSync(webNextConfig, 'utf8');
+  assert.match(config, /DeterministicModuleIdsPlugin/);
+  assert.match(config, /maxLength:\s*8/);
+  assert.match(config, /failOnConflict:\s*true/);
+
+  const layout = readFileSync(webLayout, 'utf8');
+  assert.doesNotMatch(layout, /next\/font\/google/);
+  assert.match(layout, /@fontsource-variable\/montserrat/);
+  assert.match(layout, /@fontsource\/poppins\/latin-700\.css/);
+
+  const dependencies = JSON.parse(readFileSync(webPackage, 'utf8')).dependencies;
+  assert.equal(dependencies['@fontsource-variable/montserrat'], '5.3.0');
+  assert.equal(dependencies['@fontsource/poppins'], '5.3.0');
 });
 
 test('complete runtime digest includes packaged tmp and run content', () => {
