@@ -80,6 +80,11 @@ const envSchema = z
     BOLD_BASE_URL: z.string().url().default('https://integrations.api.bold.co'),
     BOLD_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
     BOLD_PAYMENT_LINK_TTL_MINUTES: z.coerce.number().int().positive().max(1440).default(20),
+    BOLD_EXPECTED_ACCOUNT_ID: z.string().min(1).optional(),
+    PHASE5_ORDER_CREATION_ENABLED: envBoolean.default(false),
+    PHASE5_PAYMENT_ORCHESTRATION_ENABLED: envBoolean.default(false),
+    PHASE5_KITCHEN_ENABLED: envBoolean.default(false),
+    PHASE5_TEST_OPERATIONAL_ENABLED: envBoolean.default(false),
     CRM_IDENTITY_HASH_SECRET: z.preprocess(
       (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
       z.string().min(32).optional(),
@@ -159,6 +164,28 @@ const envSchema = z
       }
       if (data.SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED) {
         reject('SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED', 'SOFIA_PROD_WHATSAPP_HANDLER_FORBIDDEN');
+      }
+      if (data.PHASE5_ORDER_CREATION_ENABLED) {
+        reject('PHASE5_ORDER_CREATION_ENABLED', 'PHASE5_PROD_ORDER_CREATION_FORBIDDEN');
+      }
+      if (data.PHASE5_PAYMENT_ORCHESTRATION_ENABLED) {
+        reject('PHASE5_PAYMENT_ORCHESTRATION_ENABLED', 'PHASE5_PROD_PAYMENT_MUTATION_FORBIDDEN');
+      }
+      if (data.PHASE5_KITCHEN_ENABLED) {
+        reject('PHASE5_KITCHEN_ENABLED', 'PHASE5_PROD_KITCHEN_MUTATION_FORBIDDEN');
+      }
+      if (data.PHASE5_TEST_OPERATIONAL_ENABLED) {
+        reject('PHASE5_TEST_OPERATIONAL_ENABLED', 'PHASE5_PROD_TEST_GATE_FORBIDDEN');
+      }
+      const boldBaseUrl = new URL(data.BOLD_BASE_URL);
+      if (
+        boldBaseUrl.protocol !== 'https:' ||
+        boldBaseUrl.hostname !== 'integrations.api.bold.co' ||
+        boldBaseUrl.username ||
+        boldBaseUrl.password ||
+        boldBaseUrl.port
+      ) {
+        reject('BOLD_BASE_URL', 'PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
       }
       if (data.WHATSAPP_QR_ENABLED && data.WHATSAPP_PROVIDER === 'qr_gateway') {
         if (!data.WHATSAPP_EXPECTED_ACCOUNT_ID || !data.WHATSAPP_EXPECTED_BUSINESS_IDENTITY || !data.WHATSAPP_EXPECTED_SESSION_OWNER) {

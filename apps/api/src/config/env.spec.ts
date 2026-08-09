@@ -17,6 +17,9 @@ describe('environment boolean parsing', () => {
       SOFIA_PRODUCTION_ENABLED: 'FALSE',
       DEEPSEEK_ENABLED: 'false',
       DELIVERY_EXTERNAL_PROVIDERS_ENABLED: '0',
+      PHASE5_ORDER_CREATION_ENABLED: 'false',
+      PHASE5_PAYMENT_ORCHESTRATION_ENABLED: 'false',
+      PHASE5_KITCHEN_ENABLED: 'false',
     });
 
     expect(env.WHATSAPP_QR_ALLOW_REAL_SEND).toBe(false);
@@ -25,6 +28,9 @@ describe('environment boolean parsing', () => {
     expect(env.SOFIA_PRODUCTION_ENABLED).toBe(false);
     expect(env.DEEPSEEK_ENABLED).toBe(false);
     expect(env.DELIVERY_EXTERNAL_PROVIDERS_ENABLED).toBe(false);
+    expect(env.PHASE5_ORDER_CREATION_ENABLED).toBe(false);
+    expect(env.PHASE5_PAYMENT_ORCHESTRATION_ENABLED).toBe(false);
+    expect(env.PHASE5_KITCHEN_ENABLED).toBe(false);
   });
 
   it('accepts explicit true values and rejects ambiguous strings', () => {
@@ -65,6 +71,10 @@ describe('production Sofia safety validation', () => {
     ['SOFIA_QR_PILOT_REAL_SEND', 'true', 'SOFIA_PROD_REAL_SEND_FORBIDDEN'],
     ['SOFIA_PRODUCTION_ENABLED', 'true', 'SOFIA_PROD_ACTIVATION_FORBIDDEN'],
     ['SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED', 'true', 'SOFIA_PROD_WHATSAPP_HANDLER_FORBIDDEN'],
+    ['PHASE5_ORDER_CREATION_ENABLED', 'true', 'PHASE5_PROD_ORDER_CREATION_FORBIDDEN'],
+    ['PHASE5_PAYMENT_ORCHESTRATION_ENABLED', 'true', 'PHASE5_PROD_PAYMENT_MUTATION_FORBIDDEN'],
+    ['PHASE5_KITCHEN_ENABLED', 'true', 'PHASE5_PROD_KITCHEN_MUTATION_FORBIDDEN'],
+    ['PHASE5_TEST_OPERATIONAL_ENABLED', 'true', 'PHASE5_PROD_TEST_GATE_FORBIDDEN'],
   ])('rejects %s=%s with a sanitized reason code', (key, value, reasonCode) => {
     const sensitiveMarker = 'must-not-appear-in-validation-errors';
     expect(() =>
@@ -99,5 +109,25 @@ describe('production Sofia safety validation', () => {
       WHATSAPP_EXPECTED_BUSINESS_IDENTITY: 'business-1',
       WHATSAPP_EXPECTED_SESSION_OWNER: 'session-1',
     }).SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED).toBe(false);
+  });
+
+  it('allows only the official Bold endpoint in production', () => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://sandbox.example.test',
+    })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+
+    expect(() => validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://user:password@integrations.api.bold.co',
+    })).toThrow('PHASE5_PROD_BOLD_ENDPOINT_FORBIDDEN');
+
+    expect(validateEnv({
+      ...requiredEnv,
+      NODE_ENV: 'production',
+      BOLD_BASE_URL: 'https://integrations.api.bold.co',
+    }).BOLD_BASE_URL).toBe('https://integrations.api.bold.co');
   });
 });

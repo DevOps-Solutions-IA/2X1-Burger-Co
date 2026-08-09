@@ -578,7 +578,7 @@ export class SalesService {
     dto: CreateSaleDto,
     actorId: string,
     cashSessionId: string,
-    options?: { orderTicketId?: string },
+    options?: { orderTicketId?: string; paymentIntentId?: string },
   ) {
     const paymentMethodIds = [...new Set(dto.payments.map((payment) => payment.paymentMethodId))];
     const paymentMethods = await tx.paymentMethod.findMany({
@@ -797,6 +797,25 @@ export class SalesService {
       throw new BadRequestException('El total de pagos debe coincidir con el total de la venta.');
     }
 
+    if (options?.paymentIntentId) {
+      if (normalizedPayments.length !== 1 || !options.orderTicketId) {
+        throw new ConflictException({ code: 'CANONICAL_PAYMENT_BINDING_INVALID' });
+      }
+      const paymentIntent = await tx.paymentIntent.findUnique({
+        where: { id: options.paymentIntentId },
+        include: { checkout: true },
+      });
+      if (
+        !paymentIntent ||
+        paymentIntent.status !== 'SUCCEEDED' ||
+        paymentIntent.currency !== 'COP' ||
+        !paymentIntent.amount.equals(adjustedSubtotal) ||
+        paymentIntent.checkout.orderTicketId !== options.orderTicketId
+      ) {
+        throw new ConflictException({ code: 'CANONICAL_PAYMENT_BINDING_INVALID' });
+      }
+    }
+
     const createdSale = await tx.sale.create({
       data: {
         number: saleNumber,
@@ -827,6 +846,7 @@ export class SalesService {
         payments: {
           create: normalizedPayments.map((payment) => ({
             paymentMethodId: payment.paymentMethodId,
+            paymentIntentId: options?.paymentIntentId,
             amount: payment.amount,
             receivedAmount: payment.receivedAmount,
             changeAmount: payment.changeAmount,

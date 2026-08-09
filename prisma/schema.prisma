@@ -208,6 +208,49 @@ enum SofiaPaymentPreference {
   PAY_AT_PICKUP
 }
 
+enum OrderCheckoutSource {
+  SOFIA
+  POS
+  DELIVERY
+  AUTHORIZED_OPERATOR
+}
+
+enum OrderCheckoutStatus {
+  CONFIRMED
+  PAYMENT_SELECTION_REQUIRED
+  PAYMENT_PENDING
+  PAYMENT_VERIFIED
+  KITCHEN_ELIGIBLE
+  ORDER_CREATED
+  CANCELLED
+  EXPIRED
+  FINANCIAL_REVIEW_REQUIRED
+}
+
+enum PaymentIntentProvider {
+  BOLD
+  CASH
+}
+
+enum PaymentIntentStatus {
+  CREATED
+  LINK_READY
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  CANCELLED
+  UNKNOWN_RESULT
+  FINANCIAL_REVIEW_REQUIRED
+}
+
+enum PaymentLinkStatus {
+  ACTIVE
+  OPENED
+  REVOKED
+  EXPIRED
+}
+
 enum SofiaCommandStatus {
   RECEIVED
   VALIDATED
@@ -766,18 +809,128 @@ model SaleItem {
 }
 
 model SalePayment {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   saleId          String
   paymentMethodId String
-  amount          Decimal       @db.Decimal(12, 2)
-  receivedAmount  Decimal?      @map("received_amount") @db.Decimal(12, 2)
-  changeAmount    Decimal?      @map("change_amount") @db.Decimal(12, 2)
-  createdAt       DateTime      @default(now())
-  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  paymentIntentId String?        @unique @map("payment_intent_id")
+  amount          Decimal        @db.Decimal(12, 2)
+  receivedAmount  Decimal?       @map("received_amount") @db.Decimal(12, 2)
+  changeAmount    Decimal?       @map("change_amount") @db.Decimal(12, 2)
+  createdAt       DateTime       @default(now())
+  sale            Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod   PaymentMethod  @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  paymentIntent   PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
 
   @@index([paymentMethodId])
   @@map("sale_payments")
+}
+
+model OrderCheckout {
+  id                String                 @id @default(cuid())
+  source            OrderCheckoutSource
+  sourceReference   String                 @map("source_reference")
+  idempotencyKey    String                 @map("idempotency_key")
+  sofiaDraftId      String?                @map("sofia_draft_id")
+  sofiaDraftVersion Int?                   @map("sofia_draft_version")
+  sofiaDraftHash    String?                @map("sofia_draft_hash")
+  confirmationHash  String?                @map("confirmation_hash")
+  customerId        String?                @map("customer_id")
+  customerSnapshot  Json?                  @map("customer_snapshot")
+  itemsSnapshot     Json                   @map("items_snapshot")
+  subtotal          Decimal                @db.Decimal(12, 2)
+  deliveryFee       Decimal                @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  total             Decimal                @db.Decimal(12, 2)
+  currency          String                 @default("COP")
+  fulfillment       OrderTicketType
+  paymentPreference SofiaPaymentPreference @map("payment_preference")
+  status            OrderCheckoutStatus    @default(CONFIRMED)
+  version           Int                    @default(1)
+  kitchenEligibleAt DateTime?              @map("kitchen_eligible_at")
+  orderTicketId     String?                @unique @map("order_ticket_id")
+  expiresAt         DateTime?              @map("expires_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  sofiaDraft        SofiaOrderDraft?       @relation(fields: [sofiaDraftId], references: [id], onDelete: SetNull)
+  customer          Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orderTicket       OrderTicket?           @relation(fields: [orderTicketId], references: [id], onDelete: SetNull)
+  paymentIntents    PaymentIntent[]
+
+  @@unique([source, idempotencyKey])
+  @@unique([sofiaDraftId, sofiaDraftVersion])
+  @@index([status, expiresAt])
+  @@index([customerId, createdAt])
+  @@index([source, sourceReference])
+  @@map("order_checkouts")
+}
+
+model PaymentIntent {
+  id                  String                @id @default(cuid())
+  checkoutId          String                @map("checkout_id")
+  attemptNumber       Int                   @map("attempt_number")
+  idempotencyKey      String                @map("idempotency_key")
+  provider            PaymentIntentProvider
+  amount              Decimal               @db.Decimal(12, 2)
+  currency            String                @default("COP")
+  status              PaymentIntentStatus   @default(CREATED)
+  providerPaymentId   String?               @map("provider_payment_id")
+  providerReference   String?               @map("provider_reference")
+  providerAccountHash String?               @map("provider_account_hash")
+  failureCode         String?               @map("failure_code")
+  expiresAt           DateTime?             @map("expires_at")
+  completedAt         DateTime?             @map("completed_at")
+  version             Int                   @default(1)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  checkout            OrderCheckout         @relation(fields: [checkoutId], references: [id], onDelete: Restrict)
+  links               PaymentLink[]
+  transitions         PaymentTransition[]
+  webhookEvents       PaymentWebhookEvent[]
+  salePayment         SalePayment?
+
+  @@unique([checkoutId, attemptNumber])
+  @@unique([provider, idempotencyKey])
+  @@unique([provider, providerPaymentId])
+  @@index([checkoutId, status])
+  @@index([status, expiresAt])
+  @@index([provider, providerReference])
+  @@map("payment_intents")
+}
+
+model PaymentLink {
+  id                String            @id @default(cuid())
+  paymentIntentId   String            @map("payment_intent_id")
+  tokenHash         String            @unique @map("token_hash")
+  providerReference String?           @map("provider_reference")
+  status            PaymentLinkStatus @default(ACTIVE)
+  expiresAt         DateTime          @map("expires_at")
+  openedAt          DateTime?         @map("opened_at")
+  revokedAt         DateTime?         @map("revoked_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  paymentIntent     PaymentIntent     @relation(fields: [paymentIntentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentIntentId, status])
+  @@index([status, expiresAt])
+  @@map("payment_links")
+}
+
+model PaymentTransition {
+  id                String               @id @default(cuid())
+  paymentIntentId   String               @map("payment_intent_id")
+  fromStatus        PaymentIntentStatus? @map("from_status")
+  toStatus          PaymentIntentStatus  @map("to_status")
+  reasonCode        String               @map("reason_code")
+  actorId           String?              @map("actor_id")
+  webhookEventId    String?              @unique @map("webhook_event_id")
+  idempotencyKey    String               @map("idempotency_key")
+  sanitizedMetadata Json?                @map("sanitized_metadata")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  paymentIntent     PaymentIntent        @relation(fields: [paymentIntentId], references: [id], onDelete: Restrict)
+  webhookEvent      PaymentWebhookEvent? @relation(fields: [webhookEventId], references: [id], onDelete: SetNull)
+
+  @@unique([paymentIntentId, idempotencyKey])
+  @@index([paymentIntentId, createdAt])
+  @@map("payment_transitions")
 }
 
 model PaymentMethod {
@@ -970,6 +1123,7 @@ model OrderTicket {
   deliveryLocationInboxEntries DeliveryLocationInbox[]
   deliveryIssues               DeliveryIssue[]
   whatsappDeliveryOrder        WhatsappDeliveryOrder?
+  orderCheckout                OrderCheckout?
 
   @@index([status, openedAt])
   @@index([tableId, status])
@@ -1116,6 +1270,7 @@ model SofiaOrderDraft {
   customer               Customer?              @relation("SofiaOrderDraftCustomer", fields: [customerId], references: [id], onDelete: SetNull)
   deliveryQuoteAudit     DeliveryPricingAudit?  @relation("SofiaOrderDraftDeliveryQuote", fields: [deliveryQuoteAuditId], references: [id], onDelete: SetNull)
   deliveryOrder          WhatsappDeliveryOrder?
+  orderCheckouts         OrderCheckout[]
 
   @@index([conversationId])
   @@index([conversationId, status, expiresAt])
@@ -1270,6 +1425,7 @@ model Customer {
   sofiaCustomerMemory   SofiaCustomerMemory?
   whatsappConversations WhatsappConversation[]
   sofiaOrderDrafts      SofiaOrderDraft[]           @relation("SofiaOrderDraftCustomer")
+  orderCheckouts        OrderCheckout[]
   deliveryCustomer      DeliveryCustomer?
 
   @@index([displayNameNormalized])
@@ -1538,8 +1694,9 @@ model SofiaPaymentEvent {
 model PaymentWebhookEvent {
   id                      String                 @id @default(cuid())
   whatsappDeliveryOrderId String?                @map("whatsapp_delivery_order_id")
+  paymentIntentId         String?                @map("payment_intent_id")
   provider                String
-  eventId                 String?                @unique @map("event_id")
+  eventId                 String?                @map("event_id")
   providerPaymentId       String?                @map("provider_payment_id")
   providerReference       String?                @map("provider_reference")
   orderReference          String?                @map("order_reference")
@@ -1548,12 +1705,18 @@ model PaymentWebhookEvent {
   amount                  Decimal?               @db.Decimal(12, 2)
   currency                String?
   signatureValid          Boolean                @default(false) @map("signature_valid")
+  payloadHash             String?                @map("payload_hash")
+  providerAccountHash     String?                @map("provider_account_hash")
   processedStatus         String                 @default("RECEIVED") @map("processed_status")
   rawPayload              Json?                  @map("raw_payload")
   receivedAt              DateTime               @default(now()) @map("received_at")
   processedAt             DateTime?              @map("processed_at")
   whatsappDeliveryOrder   WhatsappDeliveryOrder? @relation(fields: [whatsappDeliveryOrderId], references: [id], onDelete: SetNull)
+  paymentIntent           PaymentIntent?         @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+  paymentTransition       PaymentTransition?
 
+  @@unique([provider, eventId])
+  @@index([paymentIntentId, receivedAt])
   @@index([provider, providerPaymentId])
   @@index([provider, providerReference])
   @@index([orderReference, receivedAt])
@@ -1672,17 +1835,18 @@ model WaiterOrderSyncReceipt {
 }
 
 model OrderTicketItem {
-  id            String      @id @default(cuid())
-  orderTicketId String
-  productId     String
-  quantity      Decimal     @db.Decimal(10, 3)
-  unitPrice     Decimal     @db.Decimal(10, 2)
-  totalPrice    Decimal     @db.Decimal(12, 2)
-  notes         String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  orderTicket   OrderTicket @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
-  product       Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  id                String      @id @default(cuid())
+  orderTicketId     String
+  productId         String
+  quantity          Decimal     @db.Decimal(10, 3)
+  unitPrice         Decimal     @db.Decimal(10, 2)
+  totalPrice        Decimal     @db.Decimal(12, 2)
+  notes             String?
+  modifiersSnapshot Json        @default("[]") @map("modifiers_snapshot")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  orderTicket       OrderTicket @relation(fields: [orderTicketId], references: [id], onDelete: Cascade)
+  product           Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@index([orderTicketId])
   @@index([productId])

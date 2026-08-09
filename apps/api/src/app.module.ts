@@ -31,6 +31,7 @@ import { SofiaModule } from './modules/sofia/sofia.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { ReleaseModule } from './release/release.module';
 import { SecureCommandModule } from './modules/secure-command/secure-command.module';
+import { OrderCheckoutModule } from './modules/order-checkout/order-checkout.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { SecureCommandModule } from './modules/secure-command/secure-command.mod
     SofiaModule,
     ReleaseModule,
     SecureCommandModule,
+    OrderCheckoutModule,
   ],
 })
 export class AppModule implements NestModule {
