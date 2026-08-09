@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 function sha256(value) {
@@ -9,7 +10,7 @@ function sha256(value) {
 }
 
 function fileSha256(filePath) {
-  return sha256(readFileSync(filePath));
+  return execFileSync('sha256sum', ['--', filePath], { encoding: 'utf8' }).slice(0, 64);
 }
 
 const digestPattern = /^[a-f0-9]{64}$/u;
@@ -31,7 +32,7 @@ function commonMetadata({ backupPath, migrationListPath, createdAt }) {
   return {
     createdAt,
     encryptedFile: path.basename(backupPath),
-    encryptedSizeBytes: readFileSync(backupPath).byteLength,
+    encryptedSizeBytes: statSync(backupPath).size,
     encryptedSha256: fileSha256(backupPath),
     migrationCount: migrationNames.length,
     migrationDigest: sha256(`${migrationNames.join('\n')}\n`),
@@ -46,6 +47,7 @@ export function createBackupMetadata({
   createdAt,
   sourceSha,
   recipientFingerprint,
+  signingFingerprint,
   environment,
   formatVersion = 2,
 }) {
@@ -64,6 +66,7 @@ export function createBackupMetadata({
     if (
       !sourceShaPattern.test(sourceSha ?? '')
       || !fingerprintPattern.test(recipientFingerprint ?? '')
+      || !fingerprintPattern.test(signingFingerprint ?? '')
       || !environmentPattern.test(environment ?? '')
       || !databaseIdentityPath
     ) {
@@ -78,6 +81,7 @@ export function createBackupMetadata({
       ...common,
       sourceSha,
       recipientFingerprint,
+      signingFingerprint,
       environment,
       databaseIdentityHash: `sha256:${sha256(databaseIdentity)}`,
     };
@@ -94,13 +98,14 @@ export function readAndVerifyBackupMetadata({
   metadataPath = `${backupPath}.metadata.json`,
   expectedSourceSha,
   expectedRecipientFingerprint,
+  expectedSigningFingerprint,
   expectedEnvironment,
   expectedDatabaseIdentityHash,
   requireFormatVersion,
 }) {
   const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
   const commonInvalid = metadata.encryptedFile !== path.basename(backupPath)
-    || metadata.encryptedSizeBytes !== readFileSync(backupPath).byteLength
+    || metadata.encryptedSizeBytes !== statSync(backupPath).size
     || metadata.encryptedSha256 !== fileSha256(backupPath)
     || !Number.isSafeInteger(metadata.migrationCount)
     || metadata.migrationCount < 0
@@ -117,17 +122,25 @@ export function readAndVerifyBackupMetadata({
     if (!taggedDigestPattern.test(metadata.databaseIdentifier ?? '')) {
       throw new Error('Backup metadata verification failed.');
     }
-    if (expectedSourceSha || expectedRecipientFingerprint || expectedEnvironment || expectedDatabaseIdentityHash) {
+    if (
+      expectedSourceSha
+      || expectedRecipientFingerprint
+      || expectedSigningFingerprint
+      || expectedEnvironment
+      || expectedDatabaseIdentityHash
+    ) {
       throw new Error('Backup metadata v1 cannot satisfy release identity expectations.');
     }
   } else if (metadata.formatVersion === 2) {
     if (
       !sourceShaPattern.test(metadata.sourceSha ?? '')
       || !fingerprintPattern.test(metadata.recipientFingerprint ?? '')
+      || !fingerprintPattern.test(metadata.signingFingerprint ?? '')
       || !environmentPattern.test(metadata.environment ?? '')
       || !taggedDigestPattern.test(metadata.databaseIdentityHash ?? '')
       || (expectedSourceSha && metadata.sourceSha !== expectedSourceSha)
       || (expectedRecipientFingerprint && metadata.recipientFingerprint !== expectedRecipientFingerprint)
+      || (expectedSigningFingerprint && metadata.signingFingerprint !== expectedSigningFingerprint)
       || (expectedEnvironment && metadata.environment !== expectedEnvironment)
       || (expectedDatabaseIdentityHash && metadata.databaseIdentityHash !== expectedDatabaseIdentityHash)
     ) {
@@ -141,7 +154,15 @@ export function readAndVerifyBackupMetadata({
 
 const [command, backupPath, ...argumentsList] = process.argv.slice(2);
 if (command === 'create') {
-  const [migrationListPath, databaseIdentityPath, createdAt, sourceSha, recipientFingerprint, environment] = argumentsList;
+  const [
+    migrationListPath,
+    databaseIdentityPath,
+    createdAt,
+    sourceSha,
+    recipientFingerprint,
+    signingFingerprint,
+    environment,
+  ] = argumentsList;
   const { metadataPath } = createBackupMetadata({
     backupPath,
     migrationListPath,
@@ -149,21 +170,31 @@ if (command === 'create') {
     createdAt,
     sourceSha,
     recipientFingerprint,
+    signingFingerprint,
     environment,
   });
   process.stdout.write(`${metadataPath}\n`);
 } else if (command === 'verify') {
-  const [metadataPath, expectedSourceSha, expectedRecipientFingerprint, expectedEnvironment, expectedDatabaseIdentityHash, requiredVersion] = argumentsList;
+  const [
+    metadataPath,
+    expectedSourceSha,
+    expectedRecipientFingerprint,
+    expectedSigningFingerprint,
+    expectedEnvironment,
+    expectedDatabaseIdentityHash,
+    requiredVersion,
+  ] = argumentsList;
   const metadata = readAndVerifyBackupMetadata({
     backupPath,
     metadataPath,
     expectedSourceSha: expectedSourceSha || undefined,
     expectedRecipientFingerprint: expectedRecipientFingerprint || undefined,
+    expectedSigningFingerprint: expectedSigningFingerprint || undefined,
     expectedEnvironment: expectedEnvironment || undefined,
     expectedDatabaseIdentityHash: expectedDatabaseIdentityHash || undefined,
     requireFormatVersion: requiredVersion ? Number(requiredVersion) : undefined,
   });
-  process.stdout.write(`${metadata.migrationCount}\t${metadata.migrationDigest}\t${metadata.formatVersion}\t${metadata.sourceSha ?? ''}\t${metadata.recipientFingerprint ?? ''}\t${metadata.environment ?? ''}\t${metadata.databaseIdentityHash ?? metadata.databaseIdentifier}\n`);
+  process.stdout.write(`${metadata.migrationCount}\t${metadata.migrationDigest}\t${metadata.formatVersion}\t${metadata.sourceSha ?? ''}\t${metadata.recipientFingerprint ?? ''}\t${metadata.signingFingerprint ?? ''}\t${metadata.environment ?? ''}\t${metadata.databaseIdentityHash ?? metadata.databaseIdentifier}\n`);
 } else if (import.meta.url === `file://${process.argv[1]}`) {
   process.stderr.write('Usage: backup-metadata.mjs create|verify ...\n');
   process.exitCode = 1;
