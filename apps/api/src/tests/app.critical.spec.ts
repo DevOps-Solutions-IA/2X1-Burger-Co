@@ -4132,7 +4132,7 @@ describe('Critical business flows', () => {
     expect(await prisma.orderTicket.count()).toBe(orderTicketsBefore);
   });
 
-  it('keeps approved provider webhooks in manual reconciliation without marking Sofia orders paid', async () => {
+  it('hard-disables the legacy Sofia payment webhook without mutating financial state', async () => {
     const { accessToken } = await login();
     const soda = await prisma.product.findUniqueOrThrow({
       where: { code: 'CC-ORG-400' },
@@ -4210,7 +4210,12 @@ describe('Critical business flows', () => {
     expect(onlineRecord.providerPaymentId).toBeTruthy();
     expect(onlineRecord.providerReference).toBeTruthy();
 
-    const paidWebhook = await request(app.getHttpServer())
+    const webhookEventsBefore = await prisma.paymentWebhookEvent.count();
+    const sofiaPaymentEventsBefore = await prisma.sofiaPaymentEvent.count({
+      where: { whatsappDeliveryOrderId: onlineRecord.id },
+    });
+
+    await request(app.getHttpServer())
       .post('/integrations/payments/webhook/mock')
       .set('x-mock-payment-signature', 'mock-dev-signature')
       .send({
@@ -4223,84 +4228,22 @@ describe('Critical business flows', () => {
         amount: Number(onlineRecord.total),
         currency: 'COP',
       })
-      .expect(201);
-    expect(paidWebhook.body.processedStatus).toBe('PROVIDER_APPROVAL_REQUIRES_RECONCILIATION');
-    expect(paidWebhook.body.paymentStatus).toBe('MANUAL_REVIEW');
+      .expect(404);
 
-    const duplicateWebhook = await request(app.getHttpServer())
-      .post('/integrations/payments/webhook/mock')
-      .set('x-mock-payment-signature', 'mock-dev-signature')
-      .send({
-        eventId: 'mock-paid-critical-1',
-        providerPaymentId: onlineRecord.providerPaymentId,
-        providerReference: onlineRecord.providerReference,
-        orderReference: onlineRecord.orderReference,
-        status: 'PAID',
-        amount: Number(onlineRecord.total),
-        currency: 'COP',
-      })
-      .expect(201);
-    expect(duplicateWebhook.body.processedStatus).toBe('DUPLICATE_IGNORED');
-
-    const mismatchWebhook = await request(app.getHttpServer())
-      .post('/integrations/payments/webhook/mock')
-      .set('x-mock-payment-signature', 'mock-dev-signature')
-      .send({
-        eventId: 'mock-mismatch-critical-1',
-        providerPaymentId: onlineRecord.providerPaymentId,
-        providerReference: onlineRecord.providerReference,
-        orderReference: onlineRecord.orderReference,
-        status: 'PAID',
-        amount: Number(onlineRecord.total) + 1000,
-        currency: 'COP',
-      })
-      .expect(201);
-    expect(mismatchWebhook.body.paymentStatus).toBe('MANUAL_REVIEW');
-
-    const invalidSignature = await request(app.getHttpServer())
-      .post('/integrations/payments/webhook/mock')
-      .set('x-mock-payment-signature', 'bad-signature')
-      .send({
-        eventId: 'mock-invalid-critical-1',
-        providerPaymentId: onlineRecord.providerPaymentId,
-        providerReference: onlineRecord.providerReference,
-        orderReference: onlineRecord.orderReference,
-        status: 'PAID',
-        amount: Number(onlineRecord.total),
-        currency: 'COP',
-      })
-      .expect(201);
-    expect(invalidSignature.body.processedStatus).toBe('SIGNATURE_INVALID');
-
-    const validAfterForgedEvent = await request(app.getHttpServer())
-      .post('/integrations/payments/webhook/mock')
-      .set('x-mock-payment-signature', 'mock-dev-signature')
-      .send({
-        eventId: 'mock-invalid-critical-1',
-        providerPaymentId: onlineRecord.providerPaymentId,
-        providerReference: onlineRecord.providerReference,
-        orderReference: onlineRecord.orderReference,
-        status: 'PAID',
-        amount: Number(onlineRecord.total),
-        currency: 'COP',
-      })
-      .expect(201);
-    expect(validAfterForgedEvent.body.processedStatus).toBe('PROVIDER_APPROVAL_REQUIRES_RECONCILIATION');
-    expect(validAfterForgedEvent.body.paymentStatus).toBe('MANUAL_REVIEW');
-
-    const events = await prisma.sofiaPaymentEvent.findMany({
-      where: { whatsappDeliveryOrderId: onlineRecord.id },
-    });
-    expect(events.some((event) => event.eventType === 'WEBHOOK_APPROVAL_REQUIRES_RECONCILIATION')).toBe(true);
-    expect(events.some((event) => event.eventType === 'WEBHOOK_AMOUNT_MISMATCH')).toBe(true);
+    expect(await prisma.paymentWebhookEvent.count()).toBe(webhookEventsBefore);
+    expect(
+      await prisma.sofiaPaymentEvent.count({
+        where: { whatsappDeliveryOrderId: onlineRecord.id },
+      }),
+    ).toBe(sofiaPaymentEventsBefore);
 
     const reflectedOrder = await prisma.whatsappDeliveryOrder.findUniqueOrThrow({
       where: { id: onlineRecord.id },
     });
     expect(reflectedOrder.orderTicketId).toBeNull();
     expect(reflectedOrder.paymentMethod).toBe('ONLINE');
-    expect(reflectedOrder.paymentStatus).toBe('MANUAL_REVIEW');
-    expect(reflectedOrder.webhookEventCount).toBeGreaterThanOrEqual(2);
+    expect(reflectedOrder.paymentStatus).toBe('PENDING_ONLINE_PAYMENT');
+    expect(reflectedOrder.webhookEventCount).toBe(0);
     expect(reflectedOrder.onlinePaymentPaidAt).toBeNull();
 
     await request(app.getHttpServer())

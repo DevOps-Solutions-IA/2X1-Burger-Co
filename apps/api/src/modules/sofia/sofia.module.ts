@@ -56,7 +56,7 @@ import { SofiaTestOnlyGuard } from './runtime-safety/sofia-test-only.guard';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaController } from './sofia.controller';
 import { SofiaPaymentLinkService } from './sofia-payment-link.service';
-import { SofiaDevPaymentsController, SofiaPaymentWebhooksController } from './sofia-payment-webhooks.controller';
+import { SofiaDevPaymentsController } from './sofia-payment-webhooks.controller';
 import { SofiaPublicPaymentsController } from './sofia-public-payments.controller';
 import { SofiaService } from './sofia.service';
 import { SofiaHermesWhatsappWebhookController, SofiaWhatsappWebhookController } from './sofia-whatsapp.controller';
@@ -91,7 +91,6 @@ import { CustomerServiceModule } from '../customer-service/customer-service.modu
   controllers: [
     SofiaController,
     SofiaPublicPaymentsController,
-    SofiaPaymentWebhooksController,
     SofiaDevPaymentsController,
     SofiaWhatsappWebhookController,
     SofiaHermesWhatsappWebhookController,

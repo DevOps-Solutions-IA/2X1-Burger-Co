@@ -57,4 +57,15 @@ describe('Phase 5 architecture boundaries', () => {
     expect(audit).toContain("['CanonicalPaymentWebhooksController', 'PROVIDER_SIGNATURE']");
     expect(audit).toContain("['CanonicalPublicPaymentsController', 'CAPABILITY_TOKEN']");
   });
+
+  it('keeps the canonical webhook as the only registered payment-truth authority', () => {
+    const sofiaModule = source('../sofia/sofia.module.ts');
+    const legacyController = source('../sofia/sofia-payment-webhooks.controller.ts');
+    const audit = fs.readFileSync(path.resolve(root, '../../../../../infra/testing/rbac-source-audit.mjs'), 'utf8');
+
+    expect(sofiaModule).not.toContain('SofiaPaymentWebhooksController');
+    expect(legacyController).not.toContain("@Controller('integrations/payments/webhook')");
+    expect(audit).not.toContain('SofiaPaymentWebhooksController');
+    expect(source('order-checkout.module.ts')).toContain('CanonicalPaymentWebhooksController');
+  });
 });

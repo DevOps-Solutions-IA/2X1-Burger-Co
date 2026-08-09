@@ -8,7 +8,6 @@ const customPolicies = new Map([
   ['SofiaPublicPaymentsController', 'CAPABILITY_TOKEN'],
   ['SofiaWhatsappWebhookController', 'PROVIDER_SIGNATURE'],
   ['SofiaHermesWhatsappWebhookController', 'PROVIDER_SIGNATURE'],
-  ['SofiaPaymentWebhooksController', 'PROVIDER_SIGNATURE'],
   ['CanonicalPaymentWebhooksController', 'PROVIDER_SIGNATURE'],
   ['CanonicalPublicPaymentsController', 'CAPABILITY_TOKEN'],
 ]);
