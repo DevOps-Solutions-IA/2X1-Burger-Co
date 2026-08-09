@@ -9,6 +9,7 @@ import {
   type MarkNotificationDispatchedInput,
   type MarkNotificationFailureInput,
   type MarkNotificationPreDispatchFailureInput,
+  type MarkNotificationSuppressedInput,
   type NotificationClaimCandidate,
   type NotificationClaimResult,
   type NotificationMaintenanceCandidate,
@@ -277,8 +278,33 @@ export class PrismaNotificationIntentRepository extends NotificationIntentReposi
       {
         status: NotificationIntentStatus.COMMAND_PENDING,
         secureCommandId: input.secureCommandId,
+        outboundMessageId: input.outboundMessageId,
         claimOwnerHash: null,
         leaseExpiresAt: null,
+        version: { increment: 1 },
+      },
+    );
+  }
+
+  async markSuppressed(input: MarkNotificationSuppressedInput) {
+    return this.transition(
+      {
+        id: input.notificationIntentId,
+        version: input.expectedVersion,
+        status: NotificationIntentStatus.CLAIMED,
+        claimOwnerHash: input.claimOwnerHash,
+        leaseExpiresAt: { gt: input.now },
+      },
+      {
+        status: NotificationIntentStatus.SUPPRESSED,
+        policyOutcome: 'SUPPRESSED',
+        policyReason: input.reasonCode,
+        consentVersion: input.consentVersion,
+        handoffVersion: input.handoffVersion,
+        claimOwnerHash: null,
+        leaseExpiresAt: null,
+        completedAt: input.now,
+        lastErrorCode: null,
         version: { increment: 1 },
       },
     );

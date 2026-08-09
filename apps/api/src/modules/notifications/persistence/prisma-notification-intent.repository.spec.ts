@@ -210,6 +210,7 @@ describe('PrismaNotificationIntentRepository', () => {
       expectedVersion: 1,
       claimOwnerHash: 'c'.repeat(64),
       secureCommandId: 'command-1',
+      outboundMessageId: 'outbound-1',
       now,
     });
 
@@ -224,8 +225,43 @@ describe('PrismaNotificationIntentRepository', () => {
       data: expect.objectContaining({
         status: NotificationIntentStatus.COMMAND_PENDING,
         secureCommandId: 'command-1',
+        outboundMessageId: 'outbound-1',
         claimOwnerHash: null,
         leaseExpiresAt: null,
+      }),
+    });
+  });
+
+  it('suppresses only the active fenced claim and records current policy versions', async () => {
+    const { repository, notificationIntent } = harness();
+    notificationIntent.updateMany.mockResolvedValue({ count: 1 });
+    notificationIntent.findUnique.mockResolvedValue(intent({ status: NotificationIntentStatus.SUPPRESSED }));
+
+    await repository.markSuppressed({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 1,
+      claimOwnerHash: 'c'.repeat(64),
+      reasonCode: 'HUMAN_TAKEN',
+      consentVersion: 4,
+      handoffVersion: 8,
+      now,
+    });
+
+    expect(notificationIntent.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'notification-1',
+        version: 1,
+        status: NotificationIntentStatus.CLAIMED,
+        claimOwnerHash: 'c'.repeat(64),
+        leaseExpiresAt: { gt: now },
+      },
+      data: expect.objectContaining({
+        status: NotificationIntentStatus.SUPPRESSED,
+        policyOutcome: 'SUPPRESSED',
+        policyReason: 'HUMAN_TAKEN',
+        consentVersion: 4,
+        handoffVersion: 8,
+        completedAt: now,
       }),
     });
   });

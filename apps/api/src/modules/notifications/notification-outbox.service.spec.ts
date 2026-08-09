@@ -48,6 +48,7 @@ function harness() {
     findReconciliationCandidates: jest.fn(),
     findMaintenanceCandidates: jest.fn(),
     claim: jest.fn(),
+    markSuppressed: jest.fn(),
     markCommandPending: jest.fn(),
     markDispatched: jest.fn(),
     markSucceeded: jest.fn(),
@@ -156,6 +157,31 @@ describe('NotificationOutboxService', () => {
       now,
     });
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(service))).not.toContain('retryUnknownResult');
+  });
+
+  it('suppresses an active fenced claim with current policy evidence', async () => {
+    const { service, repository } = harness();
+    repository.markSuppressed.mockResolvedValue(intent({ status: NotificationIntentStatus.SUPPRESSED }));
+
+    await service.markSuppressed({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 2,
+      workerIdentity: 'worker-replica-1',
+      reasonCode: 'HUMAN_TAKEN',
+      consentVersion: 4,
+      handoffVersion: 8,
+      now,
+    });
+
+    expect(repository.markSuppressed).toHaveBeenCalledWith(expect.objectContaining({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 2,
+      reasonCode: 'HUMAN_TAKEN',
+      consentVersion: 4,
+      handoffVersion: 8,
+      now,
+    }));
+    expect(repository.markSuppressed.mock.calls[0]?.[0].claimOwnerHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('queries post-command reconciliation separately from send claims', async () => {

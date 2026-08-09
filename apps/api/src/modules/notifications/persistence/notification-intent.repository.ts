@@ -54,6 +54,13 @@ export type ClaimedNotificationIntentVersionInput = NotificationIntentVersionInp
 
 export type MarkNotificationCommandPendingInput = ClaimedNotificationIntentVersionInput & Readonly<{
   secureCommandId: string;
+  outboundMessageId: string;
+}>;
+
+export type MarkNotificationSuppressedInput = ClaimedNotificationIntentVersionInput & Readonly<{
+  reasonCode: string;
+  consentVersion: number | null;
+  handoffVersion: number | null;
 }>;
 
 export type MarkNotificationDispatchedInput = NotificationIntentVersionInput & Readonly<{
@@ -135,6 +142,7 @@ export abstract class NotificationIntentRepository {
     maxAttempts: number,
   ): Promise<readonly NotificationMaintenanceCandidate[]>;
   abstract claim(input: ClaimNotificationIntentInput): Promise<NotificationClaimResult>;
+  abstract markSuppressed(input: MarkNotificationSuppressedInput): Promise<NotificationIntent>;
   abstract markCommandPending(input: MarkNotificationCommandPendingInput): Promise<NotificationIntent>;
   abstract markDispatched(input: MarkNotificationDispatchedInput): Promise<NotificationIntent>;
   abstract markSucceeded(input: NotificationIntentVersionInput & Readonly<{ now: Date }>): Promise<NotificationIntent>;

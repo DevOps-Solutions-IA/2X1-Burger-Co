@@ -130,6 +130,7 @@ export class NotificationOutboxService {
     expectedVersion: number;
     workerIdentity: string;
     secureCommandId: string;
+    outboundMessageId: string;
     now?: Date;
   }>) {
     return this.repository.markCommandPending({
@@ -137,7 +138,30 @@ export class NotificationOutboxService {
       expectedVersion: input.expectedVersion,
       claimOwnerHash: this.workerHash(input.workerIdentity),
       secureCommandId: input.secureCommandId,
+      outboundMessageId: input.outboundMessageId,
       now: input.now ?? new Date(),
+    });
+  }
+
+  markSuppressed(input: Readonly<{
+    notificationIntentId: string;
+    expectedVersion: number;
+    workerIdentity: string;
+    reasonCode: string;
+    consentVersion: number | null;
+    handoffVersion: number | null;
+    now?: Date;
+  }>) {
+    const now = input.now ?? new Date();
+    if (!SAFE_COMPONENT.test(input.reasonCode)) throw new Error('NOTIFICATION_POLICY_REASON_INVALID');
+    return this.repository.markSuppressed({
+      notificationIntentId: input.notificationIntentId,
+      expectedVersion: input.expectedVersion,
+      claimOwnerHash: this.workerHash(input.workerIdentity),
+      reasonCode: input.reasonCode,
+      consentVersion: input.consentVersion,
+      handoffVersion: input.handoffVersion,
+      now,
     });
   }
 
