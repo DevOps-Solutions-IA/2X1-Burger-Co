@@ -54,6 +54,25 @@ describe('WhatsApp production security boundaries', () => {
     expect(JSON.stringify(event)).not.toContain('arbitraryProviderSecret');
   });
 
+  it('rejects provider contract mismatches and malformed sender identities', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    expect(() => normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1' }, parsed: { ...parsed, provider: 'hermes' }, account,
+    })).toThrow('Bad Request Exception');
+    expect(() => normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1' }, parsed: { ...parsed, phone: '123' }, account,
+    })).toThrow('Bad Request Exception');
+  });
+
+  it('rejects cyclic and excessively nested payloads before hashing', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const cyclic: Record<string, unknown> = { id: 'event-1' };
+    cyclic.self = cyclic;
+    expect(() => normalizer.normalize({ provider: 'qr_gateway', rawPayload: cyclic, parsed, account })).toThrow(
+      'Bad Request Exception',
+    );
+  });
+
   it('classifies status and unsupported events before conversational processing', () => {
     const normalizer = new WhatsappEventNormalizer();
     expect(normalizer.normalize({

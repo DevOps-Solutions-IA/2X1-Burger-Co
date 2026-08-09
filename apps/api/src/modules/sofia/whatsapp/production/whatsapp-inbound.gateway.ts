@@ -3,11 +3,14 @@ import type { ParsedWhatsappInbound, WhatsappProviderName } from '../whatsapp-pr
 import { WhatsappDeliveryStatusService } from './whatsapp-delivery-status.service';
 import { WhatsappEventNormalizer } from './whatsapp-event-normalizer';
 import { WhatsappInboundDeduplicator } from './whatsapp-inbound-deduplicator';
+import { WhatsappInboundRateLimitPolicyService } from './whatsapp-inbound-rate-limit-policy.service';
 import { WhatsappProviderHealthService } from './whatsapp-provider-health.service';
 import type { ProviderAccountObservation } from './whatsapp-production.types';
 
 @Injectable()
 export class WhatsappInboundGateway {
+  private readonly rateLimits = new WhatsappInboundRateLimitPolicyService();
+
   constructor(
     private readonly normalizer: WhatsappEventNormalizer,
     private readonly deduplicator: WhatsappInboundDeduplicator,
@@ -22,10 +25,23 @@ export class WhatsappInboundGateway {
     account?: ProviderAccountObservation;
   }) {
     const accountObservation = input.account ?? this.health.testObservation(input.provider as ProviderAccountObservation['provider']);
-    const account = await this.health.bind(accountObservation);
     const event = this.normalizer.normalize({ ...input, account: accountObservation });
+    const account = await this.health.bind(event.account);
     const claim = await this.deduplicator.claim(event, account.id);
     if (claim.state === 'DETERMINISTIC_REPLAY') return { event, account, claim, terminal: true, result: claim.replay };
+    const rateLimit = this.rateLimits.evaluate({
+      accountId: account.id,
+      senderIdentityHash: event.kind === 'INBOUND_MESSAGE' ? event.senderIdentityHash : null,
+    });
+    if (!rateLimit.allowed) {
+      const response = {
+        processingStatus: 'RATE_LIMITED',
+        reasonCode: rateLimit.reasonCode,
+        retryAfterMs: rateLimit.retryAfterMs,
+      };
+      await this.deduplicator.complete(claim.inboundEventId, response.processingStatus, response, rateLimit.reasonCode);
+      return { event, account, claim, terminal: true, result: response };
+    }
     if (event.kind === 'STATUS_EVENT') {
       const result = await this.statuses.apply({
         accountId: account.id, providerStatusEventId: event.eventId, providerMessageId: event.messageId,

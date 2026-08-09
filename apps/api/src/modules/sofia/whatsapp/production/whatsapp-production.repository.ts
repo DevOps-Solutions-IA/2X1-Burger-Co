@@ -3,26 +3,44 @@ import type { ConsentDecision, DeliveryStatusUpdate, ProviderAccountObservation 
 
 export const WHATSAPP_PRODUCTION_REPOSITORY = Symbol('WhatsappProductionRepository');
 
+export type WhatsappInboundClaimDisposition =
+  | 'ACQUIRED'
+  | 'IN_PROGRESS'
+  | 'DETERMINISTIC_REPLAY'
+  | 'ATTEMPTS_EXHAUSTED';
+
 export type ClaimedInbound = {
   id: string;
   created: boolean;
+  disposition: WhatsappInboundClaimDisposition;
+  attempt: number;
+  claimToken: string | null;
+  leaseExpiresAt: Date | null;
   processingStatus: string;
   deterministicResult: unknown;
 };
 
+export type WhatsappInboundClaimInput = {
+  accountId: string;
+  provider: string;
+  eventId: string;
+  messageId: string | null;
+  phone: string;
+  eventHash: string;
+  eventKind: WhatsappInboundEventKind;
+  normalizedPayloadHash: string;
+};
+
 export interface WhatsappProductionRepository {
   resolveAccount(observation: ProviderAccountObservation): Promise<{ id: string; status: string }>;
-  claimInbound(input: {
-    accountId: string;
-    provider: string;
-    eventId: string;
-    messageId: string | null;
-    phone: string;
-    eventHash: string;
-    eventKind: WhatsappInboundEventKind;
-    normalizedPayloadHash: string;
-  }): Promise<ClaimedInbound>;
-  completeInbound(id: string, processingStatus: string, result: unknown, errorCode?: string | null): Promise<void>;
+  claimInbound(input: WhatsappInboundClaimInput): Promise<ClaimedInbound>;
+  completeInbound(
+    id: string,
+    processingStatus: string,
+    result: unknown,
+    errorCode?: string | null,
+    claimToken?: string | null,
+  ): Promise<void>;
   consentDecision(customerId: string | null, purpose: 'SERVICE' | 'MARKETING'): Promise<ConsentDecision>;
   transitionHandoff(input: {
     conversationId: string;

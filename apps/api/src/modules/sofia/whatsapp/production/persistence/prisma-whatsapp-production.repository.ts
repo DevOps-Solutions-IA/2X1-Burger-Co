@@ -1,10 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { CustomerConsentStatus, Prisma, SofiaMemoryConsentState, type WhatsappDeliveryStatus } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { AuditService } from '../../../../audit/audit.service';
+import { normalizeWhatsappInboundClaimInput } from '../whatsapp-inbound-contracts';
 import type { ConsentDecision, DeliveryStatusUpdate, ProviderAccountObservation } from '../whatsapp-production.types';
-import type { WhatsappProductionRepository } from '../whatsapp-production.repository';
+import type { ClaimedInbound, WhatsappProductionRepository } from '../whatsapp-production.repository';
+
+const INBOUND_LEASE_MS = 2 * 60 * 1_000;
+const INBOUND_MAX_ATTEMPTS = 3;
+const INBOUND_CLAIM_VERSION = 1;
+
+type InboundClaimMetadata = {
+  claimVersion: number;
+  claimToken: string;
+  attempt: number;
+  leaseExpiresAt: string;
+};
 
 @Injectable()
 export class PrismaWhatsappProductionRepository implements WhatsappProductionRepository {
@@ -37,44 +49,163 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
     }
   }
 
-  async claimInbound(input: Parameters<WhatsappProductionRepository['claimInbound']>[0]) {
+  async claimInbound(
+    input: Parameters<WhatsappProductionRepository['claimInbound']>[0],
+  ): Promise<ClaimedInbound> {
+    const normalized = normalizeWhatsappInboundClaimInput(input);
+    const now = new Date();
+    const initialClaim = this.claimMetadata(1, now);
     try {
       const created = await this.prisma.whatsappInboundEvent.create({
         data: {
-          accountId: input.accountId,
-          provider: input.provider,
-          providerEventId: input.eventId,
-          providerMessageId: input.messageId,
-          phone: input.phone,
-          eventHash: input.eventHash,
-          normalizedPayloadHash: input.normalizedPayloadHash,
-          eventKind: input.eventKind,
+          accountId: normalized.accountId,
+          provider: normalized.provider,
+          providerEventId: normalized.eventId,
+          providerMessageId: normalized.messageId,
+          phone: normalized.phone,
+          eventHash: normalized.eventHash,
+          normalizedPayloadHash: normalized.normalizedPayloadHash,
+          eventKind: normalized.eventKind,
           rawPayload: { redacted: true },
           processingStatus: 'CLAIMED',
+          processedAt: new Date(initialClaim.leaseExpiresAt),
+          deterministicResult: initialClaim,
         },
         select: { id: true, processingStatus: true, deterministicResult: true },
       });
-      return { ...created, created: true };
+      return this.acquiredClaim(created.id, created.processingStatus, initialClaim, true);
     } catch (error) {
       if (!this.unique(error)) throw error;
-      const existing = await this.prisma.whatsappInboundEvent.findFirstOrThrow({
-        where: { accountId: input.accountId, providerEventId: input.eventId },
-        select: { id: true, processingStatus: true, deterministicResult: true },
-      });
-      return { ...existing, created: false };
     }
+
+    for (let contentionAttempt = 0; contentionAttempt < 4; contentionAttempt += 1) {
+      const existing = await this.prisma.whatsappInboundEvent.findFirst({
+        where: {
+          OR: [
+            { providerEventId: normalized.eventId },
+            { provider: normalized.provider, eventHash: normalized.eventHash },
+          ],
+        },
+        select: {
+          id: true,
+          accountId: true,
+          provider: true,
+          providerEventId: true,
+          eventHash: true,
+          processingStatus: true,
+          processedAt: true,
+          deterministicResult: true,
+        },
+      });
+      if (!existing) continue;
+      this.assertSameInbound(existing, normalized);
+
+      if (existing.processingStatus !== 'CLAIMED') {
+        return {
+          id: existing.id,
+          created: false,
+          disposition: existing.processingStatus === 'ATTEMPTS_EXHAUSTED'
+            ? 'ATTEMPTS_EXHAUSTED'
+            : 'DETERMINISTIC_REPLAY',
+          attempt: this.claimAttempt(existing.deterministicResult),
+          claimToken: null,
+          leaseExpiresAt: null,
+          processingStatus: existing.processingStatus,
+          deterministicResult: existing.deterministicResult,
+        };
+      }
+
+      const attempt = this.claimAttempt(existing.deterministicResult);
+      if (existing.processedAt && existing.processedAt.getTime() > now.getTime()) {
+        return {
+          id: existing.id,
+          created: false,
+          disposition: 'IN_PROGRESS',
+          attempt,
+          claimToken: null,
+          leaseExpiresAt: existing.processedAt,
+          processingStatus: existing.processingStatus,
+          deterministicResult: null,
+        };
+      }
+
+      if (attempt >= INBOUND_MAX_ATTEMPTS) {
+        const terminalResult = {
+          processingStatus: 'ATTEMPTS_EXHAUSTED',
+          reasonCode: 'WHATSAPP_INBOUND_ATTEMPTS_EXHAUSTED',
+          attempts: attempt,
+        };
+        const exhausted = await this.prisma.whatsappInboundEvent.updateMany({
+          where: { id: existing.id, processingStatus: 'CLAIMED', processedAt: existing.processedAt },
+          data: {
+            processingStatus: 'ATTEMPTS_EXHAUSTED',
+            processedAt: now,
+            errorMessage: 'WHATSAPP_INBOUND_ATTEMPTS_EXHAUSTED',
+            deterministicResult: terminalResult,
+          },
+        });
+        if (exhausted.count === 1) {
+          return {
+            id: existing.id,
+            created: false,
+            disposition: 'ATTEMPTS_EXHAUSTED',
+            attempt,
+            claimToken: null,
+            leaseExpiresAt: null,
+            processingStatus: 'ATTEMPTS_EXHAUSTED',
+            deterministicResult: terminalResult,
+          };
+        }
+        continue;
+      }
+
+      const recoveredClaim = this.claimMetadata(attempt + 1, now);
+      const recovered = await this.prisma.whatsappInboundEvent.updateMany({
+        where: { id: existing.id, processingStatus: 'CLAIMED', processedAt: existing.processedAt },
+        data: {
+          processedAt: new Date(recoveredClaim.leaseExpiresAt),
+          errorMessage: null,
+          deterministicResult: recoveredClaim,
+        },
+      });
+      if (recovered.count === 1) {
+        return this.acquiredClaim(existing.id, 'CLAIMED', recoveredClaim, false);
+      }
+    }
+
+    throw new Error('WHATSAPP_INBOUND_CLAIM_CONTENTION');
   }
 
-  async completeInbound(id: string, processingStatus: string, result: unknown, errorCode: string | null = null) {
-    await this.prisma.whatsappInboundEvent.update({
-      where: { id },
+  async completeInbound(
+    id: string,
+    processingStatus: string,
+    result: unknown,
+    errorCode: string | null = null,
+    claimToken: string | null = null,
+  ) {
+    const normalizedId = this.requiredBounded(id, 191, 'WHATSAPP_INBOUND_ID_INVALID');
+    const normalizedStatus = this.requiredBounded(processingStatus, 64, 'WHATSAPP_PROCESSING_STATUS_INVALID');
+    const tokenFilter = claimToken
+      ? { deterministicResult: { path: ['claimToken'], equals: claimToken } }
+      : {};
+    const completed = await this.prisma.whatsappInboundEvent.updateMany({
+      where: { id: normalizedId, processingStatus: 'CLAIMED', ...tokenFilter },
       data: {
-        processingStatus,
+        processingStatus: normalizedStatus,
         processedAt: new Date(),
         errorMessage: errorCode,
         deterministicResult: this.safeJson(result),
       },
     });
+    if (completed.count === 1) return;
+
+    const existing = await this.prisma.whatsappInboundEvent.findUnique({
+      where: { id: normalizedId },
+      select: { processingStatus: true },
+    });
+    if (!existing) throw new Error('WHATSAPP_INBOUND_NOT_FOUND');
+    if (existing.processingStatus !== 'CLAIMED') return;
+    throw new Error('WHATSAPP_INBOUND_LEASE_LOST');
   }
 
   async consentDecision(customerId: string | null, purpose: 'SERVICE' | 'MARKETING'): Promise<ConsentDecision> {
@@ -238,6 +369,72 @@ export class PrismaWhatsappProductionRepository implements WhatsappProductionRep
 
   private safeJson(value: unknown): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+  }
+
+  private claimMetadata(attempt: number, now: Date): InboundClaimMetadata {
+    return {
+      claimVersion: INBOUND_CLAIM_VERSION,
+      claimToken: randomUUID(),
+      attempt,
+      leaseExpiresAt: new Date(now.getTime() + INBOUND_LEASE_MS).toISOString(),
+    };
+  }
+
+  private acquiredClaim(
+    id: string,
+    processingStatus: string,
+    metadata: InboundClaimMetadata,
+    created: boolean,
+  ): ClaimedInbound {
+    return {
+      id,
+      created,
+      disposition: 'ACQUIRED',
+      attempt: metadata.attempt,
+      claimToken: metadata.claimToken,
+      leaseExpiresAt: new Date(metadata.leaseExpiresAt),
+      processingStatus,
+      deterministicResult: null,
+    };
+  }
+
+  private claimAttempt(value: Prisma.JsonValue | null): number {
+    if (!value || Array.isArray(value) || typeof value !== 'object') return 1;
+    const metadata = value as Record<string, Prisma.JsonValue>;
+    const attempt = metadata.attempt ?? metadata.attempts;
+    return typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0
+      ? Math.min(attempt, INBOUND_MAX_ATTEMPTS)
+      : 1;
+  }
+
+  private assertSameInbound(
+    existing: {
+      accountId: string | null;
+      provider: string;
+      providerEventId: string | null;
+      eventHash: string;
+    },
+    input: Parameters<WhatsappProductionRepository['claimInbound']>[0],
+  ) {
+    if (
+      existing.accountId !== input.accountId
+      || existing.provider !== input.provider
+      || existing.providerEventId !== input.eventId
+      || existing.eventHash !== input.eventHash
+    ) {
+      throw new Error('WHATSAPP_INBOUND_IDEMPOTENCY_CONFLICT');
+    }
+  }
+
+  private requiredBounded(value: unknown, maxLength: number, code: string) {
+    if (typeof value !== 'string') throw new Error(code);
+    const normalized = value.trim();
+    const hasControlCharacters = Array.from(normalized).some((character) => {
+      const characterCode = character.charCodeAt(0);
+      return characterCode <= 31 || characterCode === 127;
+    });
+    if (!normalized || normalized.length > maxLength || hasControlCharacters) throw new Error(code);
+    return normalized;
   }
 
   private hash(value: string) {
