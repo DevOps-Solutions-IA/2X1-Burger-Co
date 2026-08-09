@@ -8,6 +8,7 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '../..');
 const common = path.join(root, 'infra/scripts/common.sh');
 const verifier = path.join(root, 'infra/release/verify-runtime-identity.mjs');
+const artifactBuilder = path.join(root, 'infra/release/build-artifacts.sh');
 const commit = 'a'.repeat(40);
 const apiDigest = `sha256:${'b'.repeat(64)}`;
 const webDigest = `sha256:${'c'.repeat(64)}`;
@@ -62,4 +63,10 @@ test('runtime identity requires clean matching commits, build IDs and non-null d
   const missingDigest = spawnSync('node', [verifier, apiPath, webPath, commit, apiDigest, webDigest]);
   assert.notEqual(missingDigest.status, 0);
   assert.match(readFileSync(webPath, 'utf8'), /build-1/);
+});
+
+test('release builds bind BuildKit layer timestamps to the source commit epoch', () => {
+  const source = readFileSync(artifactBuilder, 'utf8');
+  assert.match(source, /--build-arg "SOURCE_DATE_EPOCH=\$EPOCH"/);
+  assert.match(source, /EPOCH="\$\(git -C "\$ROOT_DIR" show -s --format=%ct "\$COMMIT"\)"/);
 });

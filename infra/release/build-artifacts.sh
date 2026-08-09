@@ -31,6 +31,7 @@ cp "$TEMP_DIR/.release/sbom.cdx.json" "$OUTPUT_DIR/sbom.cdx.json"
 cp "$TEMP_DIR/.release/metadata-build.log" "$OUTPUT_DIR/metadata-build.log"
 
 COMMON_ARGS=(
+  --build-arg "SOURCE_DATE_EPOCH=$EPOCH"
   --build-arg "OCI_REVISION=$COMMIT"
   --build-arg "OCI_CREATED=$(node -p "require('$TEMP_DIR/.release/release-manifest.json').buildTimestamp")"
   --build-arg "OCI_VERSION=$(node -p "require('$TEMP_DIR/.release/release-manifest.json').releaseVersion")"
