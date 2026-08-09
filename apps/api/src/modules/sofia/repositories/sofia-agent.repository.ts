@@ -10,7 +10,7 @@ export class SofiaAgentRepository {
     return this.prisma.sofiaCustomerMemory.update({ where: { id: memoryId }, data: { customerId } });
   }
 
-  createMessage(input: { conversationId: string; direction: WhatsappMessageDirection; type: WhatsappMessageType; body?: string | null; transcript?: string | null; aiIntent?: string; confidence?: number; rawPayload?: Prisma.InputJsonValue }) {
+  createMessage(input: { conversationId: string; direction: WhatsappMessageDirection; type: WhatsappMessageType; provider: string; body?: string | null; transcript?: string | null; aiIntent?: string; confidence?: number; rawPayload?: Prisma.InputJsonValue }) {
     return this.prisma.whatsappMessage.create({ data: input });
   }
 
