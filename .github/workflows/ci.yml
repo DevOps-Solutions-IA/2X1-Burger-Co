@@ -85,11 +85,19 @@ jobs:
             src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts \
             src/modules/notifications/domain/notification-domain.spec.ts \
             src/modules/notifications/notification-intent-consumer.service.spec.ts \
+            src/modules/notifications/notification-outbound-materializer.spec.ts \
             src/modules/notifications/notification-outbox.service.spec.ts \
+            src/modules/notifications/notification-outbox.worker.spec.ts \
+            src/modules/notifications/notification-reconciliation-observer.spec.ts \
             src/modules/notifications/persistence/prisma-notification-intent.repository.spec.ts \
+            src/modules/order-checkout/canonical-payment-webhook.spec.ts \
             src/modules/order-checkout/canonical-payment-webhook-recovery.spec.ts \
+            src/modules/order-checkout/order-checkout.architecture.spec.ts \
+            src/modules/order-checkout/payment-webhook-recovery.worker.spec.ts \
             src/modules/order-checkout/persistence/prisma-order-checkout-webhook-recovery.spec.ts \
+            src/modules/sofia/complaint-source-reference.spec.ts \
             src/modules/sofia/whatsapp/production/persistence/prisma-whatsapp-handoff.repository.spec.ts \
+            src/modules/sofia/whatsapp/production/sofia-whatsapp-inbound-fault-recovery.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-rate-limit-policy.service.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-recovery.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-production.policy.spec.ts \
@@ -102,6 +110,8 @@ jobs:
             src/tests/phase6-persistence-concurrency.integration.spec.ts \
             src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts \
             src/modules/orders/orders.phase6-atomicity.integration.spec.ts \
+            src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
+            src/tests/whatsapp-production.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
       - name: Critical integration
