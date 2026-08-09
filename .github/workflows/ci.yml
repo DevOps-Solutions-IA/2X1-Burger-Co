@@ -215,7 +215,7 @@ jobs:
         env:
           RELEASE_OUTPUT_DIR: ${{ runner.temp }}/release-artifacts
         run: |
-          FIRST_RECORD="$(./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
+          FIRST_RECORD="$(RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           SECOND_RECORD="$(RELEASE_OUTPUT_DIR="${{ runner.temp }}/release-artifacts-repro" RELEASE_TAG_SUFFIX=-repro RELEASE_NO_CACHE=true ./infra/release/build-artifacts.sh "${{ github.sha }}" | tail -n 1)"
           node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
       - uses: actions/upload-artifact@v4
