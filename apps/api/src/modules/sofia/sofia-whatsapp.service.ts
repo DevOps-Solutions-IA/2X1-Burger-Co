@@ -505,7 +505,12 @@ export class SofiaWhatsappService {
             sandboxNow: typeof parsed.rawPayload.sandboxNow === 'string' ? parsed.rawPayload.sandboxNow : undefined,
           },
           actorId,
-          { recordInbound: false, recordOutbound: false, headers },
+          {
+            recordInbound: false,
+            recordOutbound: false,
+            headers,
+            sourceEventId: claim.inboundEventId,
+          },
         ),
       );
     }

@@ -40,6 +40,7 @@ import { SofiaService } from './sofia.service';
 import { SofiaAgentRepository } from './repositories/sofia-agent.repository';
 import { WhatsappHandoffService } from './whatsapp/production/whatsapp-handoff.service';
 import { CustomerServiceCaseService } from '../customer-service/customer-service-case.service';
+import { complaintSourceReference } from './complaint-source-reference';
 import type { CustomerServiceCaseCategory } from '../customer-service/persistence/customer-service-case.repository';
 
 type SofiaIntent =
@@ -187,12 +188,11 @@ export class SofiaAgentService {
 
   private async recordComplaintCase(input: {
     conversationId: string;
+    sourceEventId: string;
     normalized: string;
     message: string;
   }) {
-    const sourceReference = createHash('sha256')
-      .update(`sofia-complaint:v1\0${input.conversationId}\0${input.normalized}`, 'utf8')
-      .digest('hex');
+    const sourceReference = complaintSourceReference(input);
     const evidenceHash = createHash('sha256').update(input.message.normalize('NFKC'), 'utf8').digest('hex');
     const opened = await this.customerServiceCases.open({
       category: this.complaintCategory(input.normalized),
@@ -538,7 +538,12 @@ export class SofiaAgentService {
   async processInboundMessage(
     dto: ProcessSofiaAgentMessageDto,
     actorId: string,
-    options: { recordInbound?: boolean; recordOutbound?: boolean; headers?: HeaderMap } = {},
+    options: {
+      recordInbound?: boolean;
+      recordOutbound?: boolean;
+      headers?: HeaderMap;
+      sourceEventId: string;
+    },
   ) {
     return this.processMessage(dto, actorId, { ...options, source: 'WHATSAPP' });
   }
@@ -546,7 +551,13 @@ export class SofiaAgentService {
   private async processMessage(
     dto: ProcessSofiaAgentMessageDto,
     actorId: string,
-    options: { recordInbound?: boolean; recordOutbound?: boolean; source: 'SANDBOX' | 'WHATSAPP'; headers?: HeaderMap },
+    options: {
+      recordInbound?: boolean;
+      recordOutbound?: boolean;
+      source: 'SANDBOX' | 'WHATSAPP';
+      headers?: HeaderMap;
+      sourceEventId?: string;
+    },
   ) {
     const recordInbound = options.recordInbound ?? true;
     const recordOutbound = options.recordOutbound ?? true;
@@ -563,7 +574,13 @@ export class SofiaAgentService {
     const outsideHours = !this.isInsideBusinessHours(dto.sandboxNow);
     const handoff = classified.intent === 'ASK_HUMAN' || classified.confidence < 0.45;
     if (options.source === 'WHATSAPP' && dto.conversationId && this.isComplaint(normalized)) {
-      await this.recordComplaintCase({ conversationId: dto.conversationId, normalized, message });
+      if (!options.sourceEventId) throw new BadRequestException('El inbound WhatsApp requiere identidad de evento.');
+      await this.recordComplaintCase({
+        conversationId: dto.conversationId,
+        sourceEventId: options.sourceEventId,
+        normalized,
+        message,
+      });
     }
 
     const conversation = dto.conversationId
