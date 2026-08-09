@@ -54,6 +54,18 @@ describe('WhatsApp production security boundaries', () => {
     expect(JSON.stringify(event)).not.toContain('arbitraryProviderSecret');
   });
 
+  it('binds provider timestamps into deterministic payload identity', () => {
+    const normalizer = new WhatsappEventNormalizer();
+    const first = normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1', timestamp: '2026-08-08T12:00:00.000Z' }, parsed, account,
+    });
+    const changed = normalizer.normalize({
+      provider: 'qr_gateway', rawPayload: { id: 'event-1', timestamp: '2026-08-08T12:00:01.000Z' }, parsed, account,
+    });
+
+    expect(changed.payloadHash).not.toBe(first.payloadHash);
+  });
+
   it('rejects provider contract mismatches and malformed sender identities', () => {
     const normalizer = new WhatsappEventNormalizer();
     expect(() => normalizer.normalize({

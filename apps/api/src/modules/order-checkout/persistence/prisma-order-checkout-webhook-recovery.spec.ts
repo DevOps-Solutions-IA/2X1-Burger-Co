@@ -24,9 +24,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
 
   function harness(existing: unknown[] = []) {
     const tx = {
-      $queryRaw: jest.fn()
-        .mockResolvedValueOnce([{ pg_advisory_xact_lock: null }])
-        .mockResolvedValueOnce(existing),
+      $queryRaw: jest.fn().mockResolvedValueOnce(existing),
       $executeRaw: jest.fn().mockResolvedValue(1),
       paymentWebhookEvent: {
         create: jest.fn().mockResolvedValue({ id: 'webhook-1', paymentIntentId: 'intent-1' }),
@@ -73,7 +71,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
     expect(tx.paymentWebhookEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ processedStatus: 'PROCESSING', processedAt: null }),
     });
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('reclaims an expired processing lease and preserves transition knowledge', async () => {
@@ -87,7 +85,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
       attempt: 2,
     });
     expect(tx.paymentWebhookEvent.create).not.toHaveBeenCalled();
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('replays a completed deterministic result without taking another lease', async () => {
@@ -107,7 +105,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
       webhookId: 'webhook-1',
       result: deterministicResult,
     });
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('keeps pre-migration incomplete financial evidence blocked for incident review', async () => {
@@ -118,7 +116,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
       webhookId: 'webhook-1',
       reasonCode: 'LEGACY_AMBIGUOUS',
     });
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('closes an exhausted claim instead of retrying it again', async () => {
@@ -129,7 +127,7 @@ describe('PrismaOrderCheckoutRepository webhook recovery', () => {
       webhookId: 'webhook-1',
       reasonCode: 'ATTEMPTS_EXHAUSTED',
     });
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('finalizes only the lease owner and stores the deterministic result', async () => {

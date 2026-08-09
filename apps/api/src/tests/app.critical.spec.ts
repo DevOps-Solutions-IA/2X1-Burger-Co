@@ -383,6 +383,11 @@ describe('Critical business flows', () => {
     expect(assignedEntry.deliveryWorkflowStatus).toBe('ASSIGNED');
     expect(assignedEntry.assignedRiderId).toBe(deliveryUser.id);
 
+    await prisma.orderTicket.update({
+      where: { id: createResponse.body.id },
+      data: { status: 'SERVED', servedAt: new Date() },
+    });
+
     const transitResponse = await request(app.getHttpServer())
       .post(`/orders/${createResponse.body.id}/delivery-workflow`)
       .set('Authorization', `Bearer ${riderToken}`)
@@ -3313,16 +3318,7 @@ describe('Critical business flows', () => {
     expect(Number(updated.body.subtotal)).toBe(
       Number(burger.salePrice) + Number(soda.salePrice) * 2 + originalFee,
     );
-    expect(sendSpy).toHaveBeenCalledTimes(1);
-    expect(sendSpy).toHaveBeenCalledWith(
-      created.body.id,
-      expect.any(String),
-      expect.objectContaining({
-        updated: true,
-        reason: 'commercial_order_change',
-        idempotencyKey: `DELIVERY_RECEIPT_UPDATED_SENT:${created.body.id}:${updated.body.revision}`,
-      }),
-    );
+    expect(sendSpy).not.toHaveBeenCalled();
 
     const auditEntry = await prisma.auditLog.findFirst({
       where: {
@@ -3339,11 +3335,26 @@ describe('Critical business flows', () => {
       message: 'Pedido actualizado. Nueva cuenta generada con total vigente.',
     });
 
+    const suppressedIntent = await prisma.notificationIntent.findUnique({
+      where: {
+        aggregateType_sourceEventId_channel_purpose: {
+          aggregateType: 'ORDER_TICKET',
+          sourceEventId: `DELIVERY_RECEIPT_UPDATED_SENT:${created.body.id}:${updated.body.revision}`,
+          channel: 'WHATSAPP',
+          purpose: 'SERVICE',
+        },
+      },
+    });
+    expect(suppressedIntent).toMatchObject({
+      status: 'SUPPRESSED',
+      policyReason: 'AUTO_WHATSAPP_DISABLED',
+    });
+
     const sentAudit = await prisma.auditLog.findFirst({
       where: {
         entity: 'order_ticket',
         entityId: created.body.id,
-        action: 'DELIVERY_UPDATED_RECEIPT_SENT',
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_SUPPRESSED',
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -3352,8 +3363,8 @@ describe('Critical business flows', () => {
     expect(sentAudit?.newValues).toMatchObject({
       revision: updated.body.revision,
       receiptUpdated: true,
-      sendAttempted: true,
-      sendSucceeded: true,
+      sendAttempted: false,
+      sendSucceeded: false,
       phoneMasked: expect.stringMatching(/^\*+0505$/),
     });
     sendSpy.mockRestore();
@@ -3451,7 +3462,7 @@ describe('Critical business flows', () => {
     sendSpy.mockRestore();
   });
 
-  it('keeps commercial delivery update when updated receipt WhatsApp send fails', async () => {
+  it('keeps commercial delivery update while automatic WhatsApp remains suppressed', async () => {
     const { accessToken } = await login();
     const [burger, soda] = await Promise.all([
       prisma.product.findUniqueOrThrow({
@@ -3497,13 +3508,13 @@ describe('Critical business flows', () => {
       .expect(200);
 
     expect(Number(updated.body.subtotal)).toBe(Number(created.body.subtotal) + Number(soda.salePrice));
-    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).not.toHaveBeenCalled();
 
     const failedAudit = await prisma.auditLog.findFirst({
       where: {
         entity: 'order_ticket',
         entityId: created.body.id,
-        action: 'DELIVERY_UPDATED_RECEIPT_SEND_FAILED',
+        action: 'DELIVERY_UPDATED_RECEIPT_SEND_SUPPRESSED',
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -3512,7 +3523,7 @@ describe('Critical business flows', () => {
     expect(failedAudit?.newValues).toMatchObject({
       revision: updated.body.revision,
       receiptUpdated: true,
-      sendAttempted: true,
+      sendAttempted: false,
       sendSucceeded: false,
       phoneMasked: expect.stringMatching(/^\*+0808$/),
     });
@@ -4864,6 +4875,7 @@ describe('Critical business flows', () => {
 
       process.env.SOFIA_QR_PILOT_ALLOWED_PHONES = phone;
       const allowedMessageId = `qr-f5-allowed-${Date.now()}`;
+      const allowedTimestamp = new Date().toISOString();
       const allowed = await sofiaWhatsappService.processInboundWebhook(
         'qr_gateway',
         {
@@ -4873,7 +4885,7 @@ describe('Critical business flows', () => {
           phone,
           text: 'Qué trae el Maxi Family',
           messageType: 'TEXT',
-          timestamp: new Date().toISOString(),
+          timestamp: allowedTimestamp,
         },
         { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
         { trustedBaileysTransport: true },
@@ -4893,7 +4905,7 @@ describe('Critical business flows', () => {
           phone,
           text: 'Qué trae el Maxi Family',
           messageType: 'TEXT',
-          timestamp: new Date().toISOString(),
+          timestamp: allowedTimestamp,
         },
         { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
         { trustedBaileysTransport: true },

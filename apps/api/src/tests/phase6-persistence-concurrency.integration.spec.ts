@@ -8,6 +8,7 @@ import {
 import { CustomerServiceCaseService } from '../modules/customer-service/customer-service-case.service';
 import { DeliveryWorkflowService } from '../modules/delivery-operations/delivery-workflow.service';
 import { NotificationOutboxService } from '../modules/notifications/notification-outbox.service';
+import { PrismaOrderCheckoutRepository } from '../modules/order-checkout/persistence/prisma-order-checkout.repository';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeTestApp, createTestApp } from './helpers/test-app';
 import { resetDatabase, seedTestData } from './helpers/test-data';
@@ -116,5 +117,57 @@ describe('Phase 6 PostgreSQL concurrency authorities', () => {
     expect(await prisma.paymentTransition.count()).toBe(0);
     expect(await prisma.inventoryMovement.count()).toBe(0);
     expect(await prisma.cashMovement.count()).toBe(0);
+  });
+
+  it.each([
+    ['provider event identity', 'phase6-concurrent-event'],
+    ['payload identity without an event id', null],
+  ])('serializes concurrent payment webhook claims by %s', async (_scenario, eventId) => {
+    const repository = new PrismaOrderCheckoutRepository(prisma);
+    const evidence = {
+      paymentIntentId: null,
+      provider: 'BOLD',
+      eventId,
+      providerPaymentId: null,
+      providerReference: null,
+      eventType: 'PAYMENT',
+      status: 'PENDING',
+      amount: 30_000,
+      currency: 'COP',
+      signatureValid: true,
+      payloadHash: eventId ? 'phase6-event-payload-hash' : 'phase6-null-event-payload-hash',
+      providerAccountHash: 'phase6-provider-account-hash',
+      processedStatus: 'RECEIVED',
+      rawPayload: { status: 'PENDING' },
+      maxAttempts: 3,
+    };
+
+    const claims = await Promise.all(Array.from({ length: 8 }, (_, index) => repository.claimWebhookEvidence({
+      ...evidence,
+      leaseOwnerHash: `phase6-worker-${index}`,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    })));
+
+    expect(claims.filter((claim) => claim.state === 'CLAIMED')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.state === 'ACTIVE')).toHaveLength(7);
+    expect(await prisma.paymentWebhookEvent.count({
+      where: eventId
+        ? { provider: 'BOLD', eventId }
+        : { provider: 'BOLD', eventId: null, payloadHash: evidence.payloadHash },
+    })).toBe(1);
+    expect(await prisma.paymentWebhookEvent.findFirstOrThrow({
+      where: eventId
+        ? { provider: 'BOLD', eventId }
+        : { provider: 'BOLD', eventId: null, payloadHash: evidence.payloadHash },
+    })).toMatchObject({ processingAttempts: 1, processedStatus: 'PROCESSING' });
+
+    if (eventId) {
+      await expect(repository.claimWebhookEvidence({
+        ...evidence,
+        payloadHash: `${evidence.payloadHash}-changed`,
+        leaseOwnerHash: 'phase6-conflicting-worker',
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      })).resolves.toMatchObject({ state: 'IDENTITY_CONFLICT' });
+    }
   });
 });

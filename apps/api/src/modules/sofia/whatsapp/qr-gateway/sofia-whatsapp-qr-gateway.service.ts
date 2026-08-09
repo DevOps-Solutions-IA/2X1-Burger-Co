@@ -390,7 +390,6 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       mediaUrl: input.mediaUrl,
       mediaMimeType: input.mediaMimeType,
       transcript: input.transcript,
-      timestamp: new Date().toISOString(),
       rawSummaryJson: {
         source: 'F5_TEST_INBOUND',
         hasText: Boolean(input.text),

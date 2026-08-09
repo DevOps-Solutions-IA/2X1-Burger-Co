@@ -442,7 +442,7 @@ export class PrismaOrderCheckoutRepository {
   }): Promise<WebhookClaimResult> {
     return this.prisma.$transaction(async (tx) => {
       const identity = `${input.provider}:${input.eventId ?? input.payloadHash}`;
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${identity}, 0))`;
 
       const identityFilter = input.eventId
         ? Prisma.sql`provider = ${input.provider} AND event_id = ${input.eventId}`
