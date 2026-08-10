@@ -43,3 +43,23 @@ test('canary deployment renders a complete fail-closed environment before Docker
     assert.match(rendered, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
 });
+
+test('canary deployment waits for bounded service health before smoke', () => {
+  const deploy = readFileSync('infra/release/canary-deploy.sh', 'utf8');
+  assert.match(
+    deploy,
+    /docker compose[^\n]*up -d --force-recreate \\\n\s+--wait --wait-timeout 120 canary-api canary-web/,
+  );
+  for (const binding of [
+    'export CANARY_API_IMAGE="$API_DIGEST"',
+    'export CANARY_WEB_IMAGE="$WEB_DIGEST"',
+    'export CANARY_API_DIGEST="$API_DIGEST"',
+    'export CANARY_WEB_DIGEST="$WEB_DIGEST"',
+    'export RELEASE_BUILD_ID="$BUILD_ID"',
+  ]) {
+    assert.ok(deploy.includes(binding), `missing explicit release binding: ${binding}`);
+  }
+  assert.match(deploy, /INITIALIZED_FILE="\$STATE_DIR\/database-initialized"/);
+  assert.match(deploy, /if \[\[ ! -f "\$INITIALIZED_FILE" \]\]; then/);
+  assert.match(deploy, /tsx prisma\/seed\.ts/);
+});
