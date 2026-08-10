@@ -143,17 +143,13 @@ export class AuthController {
     const token =
       dto.refreshToken ??
       request.cookies?.[this.configService.get('REFRESH_TOKEN_COOKIE_NAME', { infer: true })];
-    try {
-      const result = await this.authService.refresh(token, request);
-      this.attachRefreshCookie(response, result.refreshToken);
-      return {
-        accessToken: result.accessToken,
-        user: result.user,
-      };
-    } catch (error) {
-      this.clearRefreshCookie(response);
-      throw error;
-    }
+    // A stale rejected refresh must not clear a newer cookie issued by a concurrent login.
+    const result = await this.authService.refresh(token, request);
+    this.attachRefreshCookie(response, result.refreshToken);
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+    };
   }
 
   @UseGuards(JwtAuthGuard)

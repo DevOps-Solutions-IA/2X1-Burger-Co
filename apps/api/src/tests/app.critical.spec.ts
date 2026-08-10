@@ -1357,6 +1357,13 @@ describe('Critical business flows', () => {
     expect(refreshResponse.status).toBe(401);
   });
 
+  it('rejected anonymous refresh cannot clear a concurrently issued login cookie', async () => {
+    const refreshResponse = await request(app.getHttpServer()).post('/auth/refresh').send({});
+
+    expect(refreshResponse.status).toBe(401);
+    expect(refreshResponse.headers['set-cookie']).toBeUndefined();
+  });
+
   it('create purchase updates stock', async () => {
     const { accessToken } = await login();
     const supplier = await prisma.supplier.findFirstOrThrow();
