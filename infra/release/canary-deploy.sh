@@ -6,6 +6,7 @@ COMPOSE_FILE="$ROOT_DIR/infra/release/docker-compose.canary.yml"
 ARTIFACT_RECORD="${1:?Usage: canary-deploy.sh <artifact-record.json> [state-dir]}"
 STATE_DIR="${2:-/tmp/inventory-fastfood-canary}"
 ENV_FILE="$STATE_DIR/canary.env"
+INITIALIZED_FILE="$STATE_DIR/database-initialized"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
@@ -66,6 +67,14 @@ RELEASE_BUILD_ID=$BUILD_ID
 EOF
 chmod 600 "$ENV_FILE"
 
+# Shell variables take precedence over --env-file in Compose. Rebind release
+# identity explicitly so a prior baseline verification cannot pin stale images.
+export CANARY_API_IMAGE="$API_DIGEST"
+export CANARY_WEB_IMAGE="$WEB_DIGEST"
+export CANARY_API_DIGEST="$API_DIGEST"
+export CANARY_WEB_DIGEST="$WEB_DIGEST"
+export RELEASE_BUILD_ID="$BUILD_ID"
+
 if [[ "${CANARY_CONFIG_ONLY:-false}" == true ]]; then
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet
   printf '%s\n' "$ENV_FILE"
@@ -74,9 +83,15 @@ fi
 
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-postgres
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
-  sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma && apps/api/node_modules/.bin/tsx prisma/seed.ts'
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 120 \
-  canary-api canary-web
+  sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma'
+if [[ ! -f "$INITIALIZED_FILE" ]]; then
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
+    sh -lc 'apps/api/node_modules/.bin/tsx prisma/seed.ts'
+  : >"$INITIALIZED_FILE"
+  chmod 600 "$INITIALIZED_FILE"
+fi
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --force-recreate \
+  --wait --wait-timeout 120 canary-api canary-web
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
 cp "$ARTIFACT_RECORD" "$STATE_DIR/current-artifact.json"
 printf '%s\n' "$ENV_FILE"
