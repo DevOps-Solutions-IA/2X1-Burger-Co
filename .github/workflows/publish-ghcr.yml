@@ -184,12 +184,24 @@ jobs:
           create_provenance() {
             local output="$1"
             jq -n --arg builder "$BUILDER_ID" --arg source "$SOURCE_REPOSITORY" --arg commit "$RELEASE_COMMIT" '{
-              buildDefinition: {
-                buildType: "https://github.com/DevOps-Solutions-IA/2X1-Burger-Co/ghcr-release-candidate/v1",
-                externalParameters: { source: { uri: $source, digest: { gitCommit: $commit } } },
-                internalParameters: {}, resolvedDependencies: []
+              builder: { id: $builder },
+              buildType: "https://github.com/DevOps-Solutions-IA/2X1-Burger-Co/ghcr-release-candidate/v1",
+              invocation: {
+                configSource: {
+                  uri: $source,
+                  digest: { gitCommit: $commit },
+                  entryPoint: ".github/workflows/publish-ghcr.yml"
+                },
+                parameters: {},
+                environment: {}
               },
-              runDetails: { builder: { id: $builder }, metadata: { invocationId: env.GITHUB_RUN_ID } }
+              buildConfig: {},
+              metadata: {
+                buildInvocationId: env.GITHUB_RUN_ID,
+                completeness: { parameters: true, environment: false, materials: true },
+                reproducible: true
+              },
+              materials: [{ uri: $source, digest: { gitCommit: $commit } }]
             }' >"$output"
           }
           create_provenance "$RUNNER_TEMP/provenance.json"
