@@ -70,7 +70,6 @@ services:
       RELEASE_ARTIFACT_DIGEST: ${EPHEMERAL_API_DIGEST:?required}
     volumes:
       - ${EPHEMERAL_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
-      - ${EPHEMERAL_FIXTURES_FILE:?required}:/app/infra/testing/ephemeral-fixtures.ts:ro
 
   ephemeral-api:
     image: ${EPHEMERAL_API_IMAGE:?required}
