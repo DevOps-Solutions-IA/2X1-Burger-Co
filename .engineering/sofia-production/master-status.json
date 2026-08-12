@@ -1,6 +1,6 @@
 {
-  "currentPhase": "BACKEND_PRODUCTION_READY_PENDING_CONTROLLED_ACTIVATION",
-  "mainSha": "d9f73c01b4f3619091a77ad77dc04f48c626734b",
+  "currentPhase": "PRODUCTION_CORE_DEPLOYED_SAFELY_PENDING_FEATURE_ACTIVATION",
+  "mainSha": "291d541f408d14b3c9b66942583dc6a8c7522bcb",
   "mainShaAtPhase07Merge": "60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4",
   "phase07BaseSha": "064a2706c099c75b6a4cd68eb916b037cd6dc302",
   "runtimeCandidateSha": "60af56e0eb9635152c99437e301a38a76b4f1007",
@@ -10,7 +10,11 @@
   "finalClosurePr": 13,
   "finalClosureMergeSha": "d9f73c01b4f3619091a77ad77dc04f48c626734b",
   "finalCiRun": 31321031798,
-  "productionSha": "NOT_VERIFIED_IN_THIS_PROGRAM",
+  "releaseCandidateSha": "291d541f408d14b3c9b66942583dc6a8c7522bcb",
+  "productionSha": "291d541f408d14b3c9b66942583dc6a8c7522bcb",
+  "productionApiImage": "ghcr.io/devops-solutions-ia/2x1-burger-co-api@sha256:e32088d15bc8ed385fb4942315e60dff94aa1dd0c5a07ca195a33dccf0a0e62d",
+  "productionWebImage": "ghcr.io/devops-solutions-ia/2x1-burger-co-web@sha256:59445f98eec492c99e5ecdf3065a3c901fef0d736e8b85e6844e4ba3a7b841ac",
+  "productionMigrationFrontier": 37,
   "migrationFrontier": 37,
   "activeAgents": [],
   "completedAgents": [
@@ -34,7 +38,8 @@
   "openPRs": [],
   "phase07Pr": 12,
   "phase07PrStatus": "MERGED",
-  "ciStatus": "PASS_RUN_31321031798",
+  "ciStatus": "PASS_RUN_31643203916",
+  "ghcrPublicationStatus": "PASS_RUN_31645550036",
   "testStatus": "LOCAL_CI_MIRROR_PASS_EXACT_ARTIFACT_E2E_AND_RECOVERY_PASS",
   "securityStatus": "PASS_0_CRITICAL_0_HIGH",
   "architectureStatus": "PASS_NO_DUPLICATE_AUTHORITIES",
@@ -43,23 +48,18 @@
   "mockCount": 0,
   "sandboxCount": 0,
   "fakeSuccessCount": 0,
-  "productionDeployed": false,
+  "productionDeployed": true,
   "realBold": false,
   "autoWhatsapp": false,
   "ownerGates": [
     "legal and security approval for PII retention and processing",
-    "controlled production backup and isolated restore",
-    "production migration and deployment",
-    "registry artifact promotion and immutable digest approval",
     "secret store and rotation",
     "production alert routing",
-    "staging and receive-only canary",
-    "rollback authority and rollback trigger ownership",
-    "post-release observation window and incident ownership",
     "real WhatsApp account and QR session",
+    "receive-only WhatsApp canary with exact account binding",
     "commercial allowlist and physical inbound validation",
     "real Bold credentials and activation",
     "automatic customer messaging activation"
   ],
-  "lastUpdated": "2026-08-09T20:17:58Z"
+  "lastUpdated": "2026-08-12T23:41:58Z"
 }
