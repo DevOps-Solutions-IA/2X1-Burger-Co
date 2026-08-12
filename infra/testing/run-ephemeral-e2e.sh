@@ -133,7 +133,6 @@ EPHEMERAL_WEB_IMAGE=$WEB_IMAGE
 EPHEMERAL_API_DIGEST=$API_DIGEST
 EPHEMERAL_WEB_DIGEST=$WEB_DIGEST
 EPHEMERAL_RELEASE_MANIFEST=$MANIFEST_FILE
-EPHEMERAL_FIXTURES_FILE=$ROOT_DIR/infra/testing/ephemeral-fixtures.ts
 EPHEMERAL_JWT_ACCESS_SECRET=e2e-access-$RUN_ID-strong-synthetic-value
 EPHEMERAL_JWT_REFRESH_SECRET=e2e-refresh-$RUN_ID-different-strong-synthetic-value
 EPHEMERAL_ADMIN_EMAIL=admin.e2e@invalid.local
@@ -179,8 +178,19 @@ MIGRATION_START="$(date +%s)"
 MIGRATION_SECONDS=$(( $(date +%s) - MIGRATION_START ))
 
 SEED_START="$(date +%s)"
-"${compose[@]}" run --rm ephemeral-tools /app/apps/api/node_modules/.bin/tsx prisma/seed.ts >"$EVIDENCE_DIR/base-seed.log" 2>&1
-"${compose[@]}" run --rm ephemeral-tools /app/apps/api/node_modules/.bin/tsx infra/testing/ephemeral-fixtures.ts >"$EVIDENCE_DIR/fixture-seed.log" 2>&1
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME?schema=public" \
+TEST_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME?schema=public" \
+EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" \
+ADMIN_EMAIL=admin.e2e@invalid.local ADMIN_PASSWORD='Admin-E2E-2300!' \
+CASHIER_PASSWORD='Cashier-E2E-2300!' INVENTORY_PASSWORD='Inventory-E2E-2300!' \
+WAITER_PASSWORD='Waiter-E2E-2300!' DELIVERY_PASSWORD='Delivery-E2E-2300!' \
+WAITER_ACCESS_NAME='E2E Waiter' WAITER_ACCESS_CODE=W230001 \
+DELIVERY_ACCESS_NAME='E2E Rider' DELIVERY_ACCESS_CODE=D230001 \
+  pnpm --dir apps/api exec tsx "$ROOT_DIR/prisma/seed.ts" >"$EVIDENCE_DIR/base-seed.log" 2>&1
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME?schema=public" \
+TEST_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME?schema=public" \
+EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" ADMIN_EMAIL=admin.e2e@invalid.local \
+  pnpm --dir apps/api exec tsx "$ROOT_DIR/infra/testing/ephemeral-fixtures.ts" >"$EVIDENCE_DIR/fixture-seed.log" 2>&1
 SEED_SECONDS=$(( $(date +%s) - SEED_START ))
 
 MIGRATION_COUNT="$("${compose[@]}" exec -T ephemeral-postgres psql -U "$DB_USER" -d "$DB_NAME" -Atc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"

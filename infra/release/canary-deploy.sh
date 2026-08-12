@@ -85,8 +85,19 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-postgres
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
   sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma'
 if [[ ! -f "$INITIALIZED_FILE" ]]; then
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
-    sh -lc 'apps/api/node_modules/.bin/tsx prisma/seed.ts'
+  PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema "$ROOT_DIR/prisma/schema.prisma"
+  read_env_value() {
+    sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1
+  }
+  CANARY_DB="$(read_env_value CANARY_POSTGRES_DB)"
+  CANARY_DB_USER="$(read_env_value CANARY_POSTGRES_USER)"
+  CANARY_DB_PASSWORD="$(read_env_value CANARY_POSTGRES_PASSWORD)"
+  CANARY_DB_PORT="$(read_env_value CANARY_POSTGRES_PORT)"
+  CANARY_ADMIN_EMAIL="$(read_env_value CANARY_ADMIN_EMAIL)"
+  CANARY_ADMIN_PASSWORD="$(read_env_value CANARY_ADMIN_PASSWORD)"
+  DATABASE_URL="postgresql://$CANARY_DB_USER:$CANARY_DB_PASSWORD@127.0.0.1:$CANARY_DB_PORT/$CANARY_DB?schema=public" \
+  ADMIN_EMAIL="$CANARY_ADMIN_EMAIL" ADMIN_PASSWORD="$CANARY_ADMIN_PASSWORD" \
+    pnpm --dir "$ROOT_DIR/apps/api" exec tsx "$ROOT_DIR/prisma/seed.ts"
   : >"$INITIALIZED_FILE"
   chmod 600 "$INITIALIZED_FILE"
 fi

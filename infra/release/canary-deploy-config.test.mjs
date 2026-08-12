@@ -61,5 +61,7 @@ test('canary deployment waits for bounded service health before smoke', () => {
   }
   assert.match(deploy, /INITIALIZED_FILE="\$STATE_DIR\/database-initialized"/);
   assert.match(deploy, /if \[\[ ! -f "\$INITIALIZED_FILE" \]\]; then/);
-  assert.match(deploy, /tsx prisma\/seed\.ts/);
+  assert.match(deploy, /PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate/);
+  assert.match(deploy, /pnpm --dir "\$ROOT_DIR\/apps\/api" exec tsx "\$ROOT_DIR\/prisma\/seed\.ts"/);
+  assert.doesNotMatch(deploy, /canary-migrate[^\n]*tsx/);
 });

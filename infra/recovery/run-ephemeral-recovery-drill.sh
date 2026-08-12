@@ -115,7 +115,6 @@ RECOVERY_WEB_DIGEST=$WEB_DIGEST
 RECOVERY_EXPECTED_MIGRATION_COUNT=$EXPECTED_MIGRATION_COUNT
 RECOVERY_RELEASE_MANIFEST=$MANIFEST_FILE
 RECOVERY_STATUS_FILE=$STATUS_FILE
-RECOVERY_FIXTURES_FILE=$ROOT_DIR/infra/testing/ephemeral-fixtures.ts
 RECOVERY_JWT_ACCESS_SECRET=recovery-access-$RUN_ID-strong-synthetic-value
 RECOVERY_JWT_REFRESH_SECRET=recovery-refresh-$RUN_ID-different-strong-synthetic-value
 RECOVERY_ADMIN_EMAIL=admin.e2e@invalid.local
@@ -142,8 +141,19 @@ compose=(docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$CO
 "${compose[@]}" up -d source-db restore-db >"$EVIDENCE_DIR/databases-start.log" 2>&1
 
 "${compose[@]}" run --rm source-tools /app/node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma >"$EVIDENCE_DIR/source-migrations.log" 2>&1
-"${compose[@]}" run --rm source-tools /app/apps/api/node_modules/.bin/tsx prisma/seed.ts >"$EVIDENCE_DIR/source-seed.log" 2>&1
-"${compose[@]}" run --rm source-tools /app/apps/api/node_modules/.bin/tsx infra/testing/ephemeral-fixtures.ts >"$EVIDENCE_DIR/source-fixtures.log" 2>&1
+PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma \
+  >"$EVIDENCE_DIR/source-prisma-generate.log" 2>&1
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
+TEST_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
+EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" \
+ADMIN_EMAIL=admin.e2e@invalid.local ADMIN_PASSWORD='Admin-E2E-2300!' \
+CASHIER_PASSWORD='Cashier-E2E-2300!' INVENTORY_PASSWORD='Inventory-E2E-2300!' \
+WAITER_PASSWORD='Waiter-E2E-2300!' DELIVERY_PASSWORD='Delivery-E2E-2300!' \
+  pnpm --dir apps/api exec tsx "$ROOT_DIR/prisma/seed.ts" >"$EVIDENCE_DIR/source-seed.log" 2>&1
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
+TEST_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
+EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" ADMIN_EMAIL=admin.e2e@invalid.local \
+  pnpm --dir apps/api exec tsx "$ROOT_DIR/infra/testing/ephemeral-fixtures.ts" >"$EVIDENCE_DIR/source-fixtures.log" 2>&1
 
 "${compose[@]}" exec -T source-db psql -U "$DB_USER" -d "$SOURCE_DB" -At <infra/recovery/reconciliation.sql >"$EVIDENCE_DIR/source-reconciliation.json"
 jq -e --argjson expected "$EXPECTED_MIGRATION_COUNT" \

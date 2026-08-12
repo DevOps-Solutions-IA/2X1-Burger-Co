@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, GoneException, NotFoundException } from '@nestjs/common';
 import { ProductsCatalogReadAdapter } from '../modules/products/catalog-read.adapter';
 import { DomainAvailabilityAdapter } from '../modules/inventory/product-availability.adapter';
 import { AuthoritativeDeliveryQuoteAdapter } from '../delivery/delivery-quote.adapter';
@@ -123,13 +123,12 @@ describe('Phase 1 authoritative domain contracts', () => {
     expect(sofia).not.toHaveProperty('createDeliveryOrder');
   });
 
-  it('sanitizes payment reads and enforces role access', async () => {
-    const payments = { getOperationalLink: jest.fn().mockResolvedValue({ paymentStatus: 'PENDING', paymentMethod: null, provider: 'BOLD', expiresAt: new Date('2026-01-01'), publicPaymentUrl: 'private-link' }) };
+  it('keeps the retired legacy payment read fail-closed and enforces role access', async () => {
+    const payments = { getOperationalLink: jest.fn(() => { throw new GoneException({ code: 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED' }); }) };
     const adapter = new SofiaPaymentReadAdapter(payments as never);
-    const result = await adapter.readOrderPayment('o1', actor);
-    expect(result).toMatchObject({ paymentStatus: 'PENDING', linkAvailable: true });
-    expect(result).not.toHaveProperty('publicPaymentUrl');
+    await expect(adapter.readOrderPayment('o1', actor)).rejects.toBeInstanceOf(GoneException);
     await expect(adapter.readOrderPayment('o1', { ...actor, roles: ['waiter'] })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(payments.getOperationalLink).toHaveBeenCalledTimes(1);
   });
 
   it('delegates redacted audit persistence and preserves transaction clients', async () => {

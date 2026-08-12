@@ -81,7 +81,6 @@ services:
       RELEASE_ARTIFACT_DIGEST: ${RECOVERY_API_DIGEST:?required}
     volumes:
       - ${RECOVERY_RELEASE_MANIFEST:?required}:/app/release-manifest.json:ro
-      - ${RECOVERY_FIXTURES_FILE:?required}:/app/infra/testing/ephemeral-fixtures.ts:ro
 
   restore-tools:
     image: ${RECOVERY_API_IMAGE:?required}
