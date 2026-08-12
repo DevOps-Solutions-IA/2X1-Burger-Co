@@ -78,6 +78,7 @@ jobs:
             infra/release/generate-image-sbom.test.mjs \
             infra/release/migration-attestation.test.mjs \
             infra/release/normalize-next-build.test.mjs \
+            infra/release/publish-ghcr-contract.test.mjs \
             infra/release/release-safety.test.mjs \
             infra/release/restore-validation.test.mjs \
             infra/release/rollback-drill.test.mjs \

@@ -1,0 +1,223 @@
+name: Publish GHCR Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact authorized source commit to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ghcr-release-candidate-${{ inputs.release_commit }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      AUTHORIZED_RELEASE_COMMIT: 8b4020e852e6774fdd6e3ff93221b9628a399cae
+      API_REPOSITORY: ghcr.io/devops-solutions-ia/2x1-burger-co-api
+      WEB_REPOSITORY: ghcr.io/devops-solutions-ia/2x1-burger-co-web
+      SOURCE_REPOSITORY: https://github.com/DevOps-Solutions-IA/2X1-Burger-Co
+      COSIGN_CERTIFICATE_IDENTITY: https://github.com/DevOps-Solutions-IA/2X1-Burger-Co/.github/workflows/publish-ghcr.yml@refs/heads/main
+      COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+    steps:
+      - name: Validate publication authority
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          test "$RELEASE_COMMIT" = "$AUTHORIZED_RELEASE_COMMIT"
+          test "$WORKFLOW_REF" = refs/heads/main
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_commit }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.16.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: Validate candidate source and dependencies
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          pnpm install --frozen-lockfile
+          pnpm audit --prod --audit-level=low
+          ./infra/release/secret-scan.sh
+
+      - name: Build candidate twice and verify canonical reproducibility
+        id: build
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          FIRST_OUTPUT_ROOT: ${{ runner.temp }}/candidate-a
+          SECOND_OUTPUT_ROOT: ${{ runner.temp }}/candidate-b
+        run: |
+          set -euo pipefail
+          RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
+          export RELEASE_REPRODUCIBILITY_SECRET
+          FIRST_OUTPUT="$(RELEASE_OUTPUT_DIR="$FIRST_OUTPUT_ROOT" ./infra/release/build-artifacts.sh "$RELEASE_COMMIT")"
+          FIRST_RECORD="${FIRST_OUTPUT##*$'\n'}"
+          SECOND_OUTPUT="$(RELEASE_OUTPUT_DIR="$SECOND_OUTPUT_ROOT" RELEASE_TAG_SUFFIX=-repro ./infra/release/build-artifacts.sh "$RELEASE_COMMIT")"
+          SECOND_RECORD="${SECOND_OUTPUT##*$'\n'}"
+          node infra/release/verify-artifact-reproducibility.mjs "$FIRST_RECORD" "$SECOND_RECORD"
+          test "$(jq -r '.manifest.commitSha' "$FIRST_RECORD")" = "$RELEASE_COMMIT"
+          {
+            printf 'record=%s\n' "$FIRST_RECORD"
+            printf 'api_tag=%s\n' "$(jq -r '.api.tag' "$FIRST_RECORD")"
+            printf 'web_tag=%s\n' "$(jq -r '.web.tag' "$FIRST_RECORD")"
+            printf 'api_content_digest=%s\n' "$(jq -r '.api.contentDigest' "$FIRST_RECORD")"
+            printf 'web_content_digest=%s\n' "$(jq -r '.web.contentDigest' "$FIRST_RECORD")"
+          } >>"$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish or verify immutable candidate identities
+        id: publish
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          API_LOCAL_TAG: ${{ steps.build.outputs.api_tag }}
+          WEB_LOCAL_TAG: ${{ steps.build.outputs.web_tag }}
+          API_CONTENT_DIGEST: ${{ steps.build.outputs.api_content_digest }}
+          WEB_CONTENT_DIGEST: ${{ steps.build.outputs.web_content_digest }}
+        run: |
+          set -euo pipefail
+          CREATED="$(git show -s --format=%cI "$RELEASE_COMMIT")"
+          CANDIDATE_TAG="sha-${RELEASE_COMMIT:0:12}"
+
+          publish_or_reuse() {
+            local local_tag="$1" repository="$2" title="$3" expected_content="$4"
+            local remote_tag="$repository:$CANDIDATE_TAG" digest_ref actual_content
+            if docker manifest inspect "$remote_tag" >/dev/null 2>&1; then
+              docker pull "$remote_tag" >/dev/null
+            else
+              docker build --no-cache --build-arg BASE_IMAGE="$local_tag" \
+                --label "org.opencontainers.image.source=$SOURCE_REPOSITORY" \
+                --label "org.opencontainers.image.revision=$RELEASE_COMMIT" \
+                --label "org.opencontainers.image.created=$CREATED" \
+                --label "org.opencontainers.image.title=$title" \
+                -t "$remote_tag" - <<'DOCKERFILE'
+          ARG BASE_IMAGE=scratch
+          FROM ${BASE_IMAGE}
+          DOCKERFILE
+              docker push "$remote_tag" >/dev/null
+              docker pull "$remote_tag" >/dev/null
+            fi
+            digest_ref="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$remote_tag" \
+              | grep -E "^${repository//@/\\@}@sha256:[a-f0-9]{64}$" | head -n 1)"
+            test -n "$digest_ref"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$digest_ref")" = "$SOURCE_REPOSITORY"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$digest_ref")" = "$RELEASE_COMMIT"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.created"}}' "$digest_ref")" = "$CREATED"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$digest_ref")" = "$title"
+            actual_content="$(docker run --rm --network none --entrypoint node \
+              -v "$PWD/infra/release/runtime-artifact-digest.mjs:/tmp/runtime-artifact-digest.mjs:ro" \
+              "$digest_ref" /tmp/runtime-artifact-digest.mjs filesystem /app)"
+            test "$actual_content" = "$expected_content"
+            printf '%s' "$digest_ref"
+          }
+
+          API_IMAGE="$(publish_or_reuse "$API_LOCAL_TAG" "$API_REPOSITORY" '2X1 Burger Co API' "$API_CONTENT_DIGEST")"
+          WEB_IMAGE="$(publish_or_reuse "$WEB_LOCAL_TAG" "$WEB_REPOSITORY" '2X1 Burger Co Web' "$WEB_CONTENT_DIGEST")"
+          printf 'api_image=%s\nweb_image=%s\n' "$API_IMAGE" "$WEB_IMAGE" >>"$GITHUB_OUTPUT"
+
+      - name: Scan API image for unresolved high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.publish.outputs.api_image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Scan Web image for unresolved high or critical vulnerabilities
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.publish.outputs.web_image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: false
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Sign and attest published candidate digests
+        env:
+          API_IMAGE: ${{ steps.publish.outputs.api_image }}
+          WEB_IMAGE: ${{ steps.publish.outputs.web_image }}
+          ARTIFACT_RECORD: ${{ steps.build.outputs.record }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          BUILDER_ID="$COSIGN_CERTIFICATE_IDENTITY"
+          create_provenance() {
+            local output="$1"
+            jq -n --arg builder "$BUILDER_ID" --arg source "$SOURCE_REPOSITORY" --arg commit "$RELEASE_COMMIT" '{
+              buildDefinition: {
+                buildType: "https://github.com/DevOps-Solutions-IA/2X1-Burger-Co/ghcr-release-candidate/v1",
+                externalParameters: { source: { uri: $source, digest: { gitCommit: $commit } } },
+                internalParameters: {}, resolvedDependencies: []
+              },
+              runDetails: { builder: { id: $builder }, metadata: { invocationId: env.GITHUB_RUN_ID } }
+            }' >"$output"
+          }
+          create_provenance "$RUNNER_TEMP/provenance.json"
+          for binding in "api:$API_IMAGE" "web:$WEB_IMAGE"; do
+            role="${binding%%:*}"
+            image="${binding#*:}"
+            cosign sign --yes "$image"
+            cosign attest --yes --type cyclonedx --predicate "$(dirname "$ARTIFACT_RECORD")/${role}-sbom.cdx.json" "$image"
+            cosign attest --yes --type slsaprovenance --predicate "$RUNNER_TEMP/provenance.json" "$image"
+            cosign verify --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" "$image" >/dev/null
+            cosign verify-attestation --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" --type cyclonedx "$image" >/dev/null
+            cosign verify-attestation --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" --type slsaprovenance "$image" >/dev/null
+          done
+
+      - name: Record sanitized publication evidence
+        env:
+          API_IMAGE: ${{ steps.publish.outputs.api_image }}
+          WEB_IMAGE: ${{ steps.publish.outputs.web_image }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/publication-evidence"
+          jq -n --arg releaseCommit "$RELEASE_COMMIT" --arg apiImage "$API_IMAGE" --arg webImage "$WEB_IMAGE" \
+            '{releaseCommit: $releaseCommit, apiImage: $apiImage, webImage: $webImage, scan: "HIGH_CRITICAL_PASS", pullByDigest: true, signed: true, sbomAttested: true, provenanceAttested: true}' \
+            >"$RUNNER_TEMP/publication-evidence/result.json"
+          cp "$(dirname '${{ steps.build.outputs.record }}')"/*-sbom.cdx.json "$RUNNER_TEMP/publication-evidence/"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ghcr-publication-${{ inputs.release_commit }}
+          path: ${{ runner.temp }}/publication-evidence
+          if-no-files-found: error
+          retention-days: 30
