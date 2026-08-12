@@ -233,10 +233,8 @@ IFS=$'\t' read -r EXPECTED_MIGRATION_COUNT EXPECTED_MIGRATION_DIGEST METADATA_FO
 [[ "$METADATA_FORMAT_VERSION" == "1" || "$METADATA_FORMAT_VERSION" == "2" ]] \
   || fail "Backup metadata format is invalid."
 
-info "Validating decrypted archive structure through a plaintext-free stream"
-decrypt_backup_stream \
-  | docker compose exec -T "$POSTGRES_SERVICE" env PGPASSWORD="$DB_PASSWORD" \
-      pg_restore --list >/dev/null
+info "Validating the complete decrypted stream without retaining plaintext"
+decrypt_backup_stream >/dev/null
 
 VALIDATION_DB_EXISTS="$(database_exists "$VALIDATION_DB")"
 [[ "$VALIDATION_DB_EXISTS" == "0" ]] || fail "Generated validation database already exists."
