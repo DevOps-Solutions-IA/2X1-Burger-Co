@@ -21,8 +21,14 @@ RUN find /app -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
 FROM deps AS runtime-deps
 ARG SOURCE_DATE_EPOCH
-RUN rm -f /app/node_modules/.modules.yaml /app/node_modules/.pnpm-workspace-state-v1.json && \
-    find /app/node_modules -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+RUN pnpm --filter @inventory-fastfood/api deploy --prod --legacy /runtime && \
+    mkdir -p /runtime/prisma && \
+    cp /app/prisma/schema.prisma /runtime/prisma/schema.prisma && \
+    cd /runtime && \
+    PRISMA_GENERATE_SKIP_AUTOINSTALL=1 node /runtime/node_modules/prisma/build/index.js \
+      generate --schema /runtime/prisma/schema.prisma && \
+    rm -f /runtime/node_modules/.modules.yaml /runtime/node_modules/.pnpm-workspace-state-v1.json && \
+    find /runtime -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
 
 FROM deps AS build
 ARG SOURCE_DATE_EPOCH
@@ -47,8 +53,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV RELEASE_MANIFEST_PATH=/app/release-manifest.json
 ENV RELEASE_BUILD_ID=$RELEASE_BUILD_ID
-COPY --from=runtime-deps /app/node_modules ./node_modules
-COPY --from=runtime-deps /app/apps/api/node_modules ./apps/api/node_modules
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-v1.22.22 && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+COPY --from=runtime-deps /runtime/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY prisma/schema.prisma ./prisma/schema.prisma
 COPY prisma/migrations ./prisma/migrations

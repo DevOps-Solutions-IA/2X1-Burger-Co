@@ -24,7 +24,6 @@ jobs:
       packages: write
       id-token: write
     env:
-      AUTHORIZED_RELEASE_COMMIT: 8b4020e852e6774fdd6e3ff93221b9628a399cae
       API_REPOSITORY: ghcr.io/devops-solutions-ia/2x1-burger-co-api
       WEB_REPOSITORY: ghcr.io/devops-solutions-ia/2x1-burger-co-web
       SOURCE_REPOSITORY: https://github.com/DevOps-Solutions-IA/2X1-Burger-Co
@@ -34,11 +33,12 @@ jobs:
       - name: Validate publication authority
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
           WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
-          test "$RELEASE_COMMIT" = "$AUTHORIZED_RELEASE_COMMIT"
+          test "$RELEASE_COMMIT" = "$WORKFLOW_COMMIT"
           test "$WORKFLOW_REF" = refs/heads/main
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

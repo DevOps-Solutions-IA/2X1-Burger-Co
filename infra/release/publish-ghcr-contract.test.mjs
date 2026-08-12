@@ -8,8 +8,9 @@ const workflow = readFileSync(path.join(root, '.github/workflows/publish-ghcr.ym
 
 test('publication is manual, main-bound and restricted to the authorized release candidate', () => {
   assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /AUTHORIZED_RELEASE_COMMIT: 8b4020e852e6774fdd6e3ff93221b9628a399cae/);
-  assert.match(workflow, /test "\$RELEASE_COMMIT" = "\$AUTHORIZED_RELEASE_COMMIT"/);
+  assert.match(workflow, /WORKFLOW_COMMIT: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /test "\$RELEASE_COMMIT" = "\$WORKFLOW_COMMIT"/);
+  assert.doesNotMatch(workflow, /AUTHORIZED_RELEASE_COMMIT/);
   assert.match(workflow, /test "\$WORKFLOW_REF" = refs\/heads\/main/);
   assert.match(workflow, /ref: \$\{\{ inputs\.release_commit \}\}/);
   assert.doesNotMatch(workflow, /\bpush:\s*(?:\n|$)/);

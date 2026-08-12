@@ -115,6 +115,23 @@ test('artifact builds fail closed and dependency fetch retries are bounded', () 
   }
 });
 
+test('runtime images contain only application dependencies and no package managers', () => {
+  const apiSource = readFileSync(apiDockerfile, 'utf8');
+  const webSource = readFileSync(webDockerfile, 'utf8');
+
+  assert.match(apiSource, /pnpm --filter @inventory-fastfood\/api deploy --prod --legacy \/runtime/);
+  assert.match(apiSource, /node \/runtime\/node_modules\/prisma\/build\/index\.js/);
+  assert.match(apiSource, /cp \/app\/prisma\/schema\.prisma \/runtime\/prisma\/schema\.prisma/);
+  assert.match(apiSource, /generate --schema \/runtime\/prisma\/schema\.prisma/);
+  assert.match(apiSource, /COPY --from=runtime-deps \/runtime\/node_modules \.\/node_modules/);
+  assert.doesNotMatch(apiSource, /COPY --from=runtime-deps \/app\/node_modules/);
+
+  for (const source of [apiSource, webSource]) {
+    assert.match(source, /rm -rf \/usr\/local\/lib\/node_modules\/npm \/usr\/local\/lib\/node_modules\/corepack \/opt\/yarn-v1\.22\.22/);
+    assert.match(source, /rm -f \/usr\/local\/bin\/npm \/usr\/local\/bin\/npx \/usr\/local\/bin\/corepack/);
+  }
+});
+
 test('Web release inputs use collision-safe module IDs and vendored fonts', () => {
   const config = readFileSync(webNextConfig, 'utf8');
   assert.match(config, /DeterministicModuleIdsPlugin/);
