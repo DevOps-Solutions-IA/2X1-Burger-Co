@@ -141,6 +141,8 @@ compose=(docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$CO
 "${compose[@]}" up -d source-db restore-db >"$EVIDENCE_DIR/databases-start.log" 2>&1
 
 "${compose[@]}" run --rm source-tools /app/node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma >"$EVIDENCE_DIR/source-migrations.log" 2>&1
+PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema prisma/schema.prisma \
+  >"$EVIDENCE_DIR/source-prisma-generate.log" 2>&1
 DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
 TEST_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$SOURCE_DB_PORT/$SOURCE_DB?schema=public" \
 EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" \

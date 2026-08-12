@@ -85,6 +85,7 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d canary-postgres
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm canary-migrate \
   sh -lc './node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma'
 if [[ ! -f "$INITIALIZED_FILE" ]]; then
+  PRISMA_GENERATE_SKIP_AUTOINSTALL=1 pnpm exec prisma generate --schema "$ROOT_DIR/prisma/schema.prisma"
   read_env_value() {
     sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1
   }
