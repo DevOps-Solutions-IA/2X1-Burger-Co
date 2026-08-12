@@ -47,8 +47,8 @@ validate_root_owned_secret_file() {
 }
 
 STAGING_PROTECTED_CONFIG_PATH="${STAGING_PROTECTED_CONFIG_PATH:-}"
-COSIGN_VERIFICATION_KEY_PATH="${COSIGN_VERIFICATION_KEY_PATH:-}"
-ARTIFACT_SIGNING_KEY_FINGERPRINT="${ARTIFACT_SIGNING_KEY_FINGERPRINT:-}"
+COSIGN_CERTIFICATE_IDENTITY="${COSIGN_CERTIFICATE_IDENTITY:-}"
+COSIGN_OIDC_ISSUER="${COSIGN_OIDC_ISSUER:-}"
 EXPECTED_SLSA_BUILDER_ID="${EXPECTED_SLSA_BUILDER_ID:-}"
 EXPECTED_SOURCE_REPOSITORY="${EXPECTED_SOURCE_REPOSITORY:-}"
 BACKUP_GPG_RECIPIENT="${BACKUP_GPG_RECIPIENT:-}"
@@ -57,17 +57,13 @@ BACKUP_GNUPGHOME="${BACKUP_GNUPGHOME:-}"
 BACKUP_DATABASE_IDENTITY_HASH="${BACKUP_DATABASE_IDENTITY_HASH:-}"
 
 validate_root_owned_secret_file "$STAGING_PROTECTED_CONFIG_PATH" "Protected staging runtime configuration"
-validate_root_owned_config_file "$COSIGN_VERIFICATION_KEY_PATH" "Cosign verification key"
 [[ "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")" && \
    "$(realpath "$STAGING_PROTECTED_CONFIG_PATH")" != "$(realpath "$STAGING_PATH")/"* ]] \
   || fail "Protected staging runtime configuration must remain outside the checkout."
-[[ "$(realpath "$COSIGN_VERIFICATION_KEY_PATH")" != "$(realpath "$STAGING_PATH")" && \
-   "$(realpath "$COSIGN_VERIFICATION_KEY_PATH")" != "$(realpath "$STAGING_PATH")/"* ]] \
-  || fail "Cosign verification key must remain outside the checkout."
-[[ "$ARTIFACT_SIGNING_KEY_FINGERPRINT" =~ ^sha256:[a-f0-9]{64}$ ]] \
-  || fail "Artifact signing key fingerprint is required."
-[[ "sha256:$(sha256sum "$COSIGN_VERIFICATION_KEY_PATH" | awk '{print $1}')" == "$ARTIFACT_SIGNING_KEY_FINGERPRINT" ]] \
-  || fail "Cosign verification key does not match the protected fingerprint."
+[[ "$COSIGN_CERTIFICATE_IDENTITY" =~ ^https://github\.com/[A-Za-z0-9._/-]+@refs/heads/main$ ]] \
+  || fail "Cosign certificate identity is invalid."
+[[ "$COSIGN_OIDC_ISSUER" == "https://token.actions.githubusercontent.com" ]] \
+  || fail "Cosign OIDC issuer is invalid."
 [[ "$EXPECTED_SLSA_BUILDER_ID" =~ ^[A-Za-z0-9:/@._+-]{3,512}$ ]] \
   || fail "Expected SLSA builder identity is invalid."
 [[ "$EXPECTED_SOURCE_REPOSITORY" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] \
@@ -254,10 +250,13 @@ verify_external_artifact() {
   local sbom_output="$ARTIFACT_VERIFY_DIR/${slot}-sbom-attestation.json"
   local provenance_output="$ARTIFACT_VERIFY_DIR/${slot}-provenance-attestation.json"
 
-  cosign verify --key "$COSIGN_VERIFICATION_KEY_PATH" "$image" >"$signature_output"
-  cosign verify-attestation --key "$COSIGN_VERIFICATION_KEY_PATH" --type cyclonedx \
+  cosign verify --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+    --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" "$image" >"$signature_output"
+  cosign verify-attestation --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+    --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" --type cyclonedx \
     "$image" >"$sbom_output"
-  cosign verify-attestation --key "$COSIGN_VERIFICATION_KEY_PATH" --type slsaprovenance \
+  cosign verify-attestation --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+    --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" --type slsaprovenance \
     "$image" >"$provenance_output"
   verify_attestation_contract "$sbom_output" "$digest" cyclonedx "$expected_commit"
   verify_attestation_contract "$provenance_output" "$digest" slsaprovenance "$expected_commit"
@@ -283,7 +282,7 @@ verify_release_image() {
   label_source="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")"
   label_title="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$image")"
   [[ "$label_revision" == "$expected_commit" ]] || fail "Artifact revision label does not match the release commit."
-  [[ "$label_source" == "inventory-fastfood-system" ]] || fail "Artifact source label is invalid."
+  [[ "$label_source" == "$EXPECTED_SOURCE_REPOSITORY" ]] || fail "Artifact source label is invalid."
   [[ "$label_title" == "$expected_title" ]] || fail "Artifact role label is invalid."
 
   # Extract only: the unverified image is never started or given network, mounts, secrets, or DB access.
