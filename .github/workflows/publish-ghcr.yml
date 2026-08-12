@@ -147,25 +147,30 @@ jobs:
           WEB_IMAGE="$(publish_or_reuse "$WEB_LOCAL_TAG" "$WEB_REPOSITORY" '2X1 Burger Co Web' "$WEB_CONTENT_DIGEST")"
           printf 'api_image=%s\nweb_image=%s\n' "$API_IMAGE" "$WEB_IMAGE" >>"$GITHUB_OUTPUT"
 
-      - name: Scan API image for unresolved high or critical vulnerabilities
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: ${{ steps.publish.outputs.api_image }}
-          format: table
-          exit-code: '1'
-          ignore-unfixed: false
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-
-      - name: Scan Web image for unresolved high or critical vulnerabilities
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: ${{ steps.publish.outputs.web_image }}
-          format: table
-          exit-code: '1'
-          ignore-unfixed: false
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
+      - name: Scan images for unresolved high or critical vulnerabilities
+        env:
+          API_IMAGE: ${{ steps.publish.outputs.api_image }}
+          WEB_IMAGE: ${{ steps.publish.outputs.web_image }}
+          TRIVY_IMAGE: aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/publication-evidence"
+          for binding in "api:$API_IMAGE" "web:$WEB_IMAGE"; do
+            role="${binding%%:*}"
+            image="${binding#*:}"
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$RUNNER_TEMP/publication-evidence:/evidence" \
+              "$TRIVY_IMAGE" image \
+              --format json \
+              --output "/evidence/${role}-trivy.json" \
+              --exit-code 1 \
+              --ignore-unfixed=false \
+              --vuln-type os,library \
+              --severity HIGH,CRITICAL \
+              "$image"
+            test "$(wc -c <"$RUNNER_TEMP/publication-evidence/${role}-trivy.json")" -le 16777216
+          done
 
       - name: Sign and attest published candidate digests
         env:
@@ -209,7 +214,6 @@ jobs:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/publication-evidence"
           jq -n --arg releaseCommit "$RELEASE_COMMIT" --arg apiImage "$API_IMAGE" --arg webImage "$WEB_IMAGE" \
             '{releaseCommit: $releaseCommit, apiImage: $apiImage, webImage: $webImage, scan: "HIGH_CRITICAL_PASS", pullByDigest: true, signed: true, sbomAttested: true, provenanceAttested: true}' \
             >"$RUNNER_TEMP/publication-evidence/result.json"

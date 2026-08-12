@@ -47,10 +47,14 @@ test('published images preserve runtime content and bind all required OCI labels
 });
 
 test('high and critical findings fail publication before keyless signing and attestations', () => {
-  assert.equal((workflow.match(/aquasecurity\/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8/g) ?? []).length, 2);
-  assert.equal((workflow.match(/severity: HIGH,CRITICAL/g) ?? []).length, 2);
-  assert.equal((workflow.match(/exit-code: '1'/g) ?? []).length, 2);
-  const lastScan = workflow.lastIndexOf('Scan Web image');
+  assert.match(workflow, /TRIVY_IMAGE: aquasec\/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436/);
+  assert.match(workflow, /--exit-code 1/);
+  assert.match(workflow, /--ignore-unfixed=false/);
+  assert.match(workflow, /--vuln-type os,library/);
+  assert.match(workflow, /--severity HIGH,CRITICAL/);
+  assert.match(workflow, /-v \/var\/run\/docker\.sock:\/var\/run\/docker\.sock/);
+  assert.doesNotMatch(workflow, /aquasecurity\/trivy-action|aquasecurity\/setup-trivy/);
+  const lastScan = workflow.lastIndexOf('--severity HIGH,CRITICAL');
   const signing = workflow.indexOf('cosign sign --yes');
   assert.ok(lastScan > 0 && signing > lastScan);
   assert.match(workflow, /cosign attest --yes --type cyclonedx/);
