@@ -49,27 +49,30 @@ test('artifacts are pulled and inspected before backup or migration without star
   assert.match(deploy, /baseline-api\.json/);
 });
 
-test('external artifact trust requires a protected cosign key, digest signature, CycloneDX and SLSA attestations', () => {
+test('external artifact trust requires GitHub OIDC identity, digest signature, CycloneDX and SLSA attestations', () => {
   for (const variable of [
-    'STAGING_COSIGN_PUBLIC_KEY_PATH',
-    'STAGING_ARTIFACT_SIGNING_KEY_FINGERPRINT',
+    'STAGING_COSIGN_CERTIFICATE_IDENTITY',
+    'STAGING_COSIGN_OIDC_ISSUER',
     'STAGING_EXPECTED_BUILDER_ID',
     'STAGING_EXPECTED_SOURCE_REPOSITORY',
   ]) {
     assert.match(workflow, new RegExp(`vars\\.${variable}`));
   }
-  assert.match(deploy, /validate_root_owned_config_file "\$COSIGN_VERIFICATION_KEY_PATH" "Cosign verification key"/);
   assert.match(deploy, /must be owned by root/);
   assert.match(deploy, /must not be writable by group or other users/);
   assert.match(deploy, /fail "\$description must have mode 600\."/);
-  assert.match(deploy, /sha256sum "\$COSIGN_VERIFICATION_KEY_PATH"/);
-  assert.match(deploy, /cosign verify --key "\$COSIGN_VERIFICATION_KEY_PATH" "\$image"/);
-  assert.match(deploy, /cosign verify-attestation --key "\$COSIGN_VERIFICATION_KEY_PATH" --type cyclonedx/);
-  assert.match(deploy, /cosign verify-attestation --key "\$COSIGN_VERIFICATION_KEY_PATH" --type slsaprovenance/);
+  assert.match(deploy, /Cosign certificate identity is invalid/);
+  assert.match(deploy, /Cosign OIDC issuer is invalid/);
+  assert.match(deploy, /cosign verify --certificate-identity "\$COSIGN_CERTIFICATE_IDENTITY"/);
+  assert.match(deploy, /--certificate-oidc-issuer "\$COSIGN_OIDC_ISSUER" "\$image"/);
+  assert.match(deploy, /cosign verify-attestation --certificate-identity "\$COSIGN_CERTIFICATE_IDENTITY"/);
+  assert.match(deploy, /--type cyclonedx/);
+  assert.match(deploy, /--type slsaprovenance/);
   assert.match(deploy, /subject\.digest\?\.sha256 === expectedDigest/);
   assert.match(deploy, /builderId === expectedBuilder/);
   assert.match(deploy, /Object\.values\(value\.digest\).*digest === expectedCommit/s);
   assert.match(deploy, /hasBoundSource\(predicate\)/);
+  assert.match(deploy, /label_source" == "\$EXPECTED_SOURCE_REPOSITORY"/);
 });
 
 test('protected staging config and backup custody values are wired explicitly and fail closed', () => {
