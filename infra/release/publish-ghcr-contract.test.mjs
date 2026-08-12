@@ -60,6 +60,10 @@ test('high and critical findings fail publication before keyless signing and att
   assert.ok(lastScan > 0 && signing > lastScan);
   assert.match(workflow, /cosign attest --yes --type cyclonedx/);
   assert.match(workflow, /cosign attest --yes --type slsaprovenance/);
+  assert.match(workflow, /builder: \{ id: \$builder \}/);
+  assert.match(workflow, /configSource: \{/);
+  assert.match(workflow, /materials: \[\{ uri: \$source, digest: \{ gitCommit: \$commit \} \}\]/);
+  assert.doesNotMatch(workflow, /runDetails: \{ builder:/);
   assert.match(workflow, /cosign verify --certificate-identity/);
 });
 
