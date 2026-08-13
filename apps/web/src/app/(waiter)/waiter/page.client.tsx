@@ -2,117 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LogOut, Minus, Plus, RefreshCw, ShoppingBag, UtensilsCrossed, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { StatusBanner } from '@/components/ui/status-banner';
 import { ApiError, apiFetch, subscribeOperationalStream } from '@/lib/api';
-import { formatCurrency, formatNumber as _formatNumber, matchesSearch as _matchesSearch } from '@/lib/format';
+import { formatNumber as _formatNumber, matchesSearch as _matchesSearch } from '@/lib/format';
 import { getOperationalOrderDisplayCode as _g } from '@/lib/order-display';
 import { expireCurrentSession, useAuth } from '@/features/auth/auth-provider';
 import { CacheStorage, TTL } from '@/lib/cache-storage';
-
-type TableStatus = 'FREE' | 'OCCUPIED' | 'RESERVED' | 'PAYMENT_PENDING' | 'OUT_OF_SERVICE';
-type OrderStatus = 'OPEN' | 'IN_PREPARATION' | 'SERVED' | 'PAYMENT_PENDING';
-type ProductBrand = 'HOUSE' | 'COCA_COLA' | 'OTHER';
-
-type DiningTable = {
-  id: string;
-  label: string;
-  area: string | null;
-  groupId?: string | null;
-  group?: {
-    id: string;
-    name: string;
-    area: string | null;
-    color: string | null;
-    isActive: boolean;
-  } | null;
-  capacity: number;
-  status: TableStatus;
-  isActive: boolean;
-  orderTickets?: Array<{
-    id: string;
-    number: string;
-    status: OrderStatus | 'PAID' | 'CANCELLED';
-    subtotal: number | string;
-    updatedAt: string;
-    _count: {
-      items: number;
-    };
-  }>;
-};
-
-type Product = {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-  kind: 'PREPARED' | 'DIRECT_STOCK';
-  brand: ProductBrand;
-  salePrice: number | string;
-  currentStock: number | string;
-  stockMin: number | string;
-  category: {
-    id: string;
-    name: string;
-  };
-};
-
-type ActiveOrder = {
-  id: string;
-  number: string;
-  revision: number;
-  status: OrderStatus | 'PAID' | 'CANCELLED';
-  type?: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'COUNTER';
-  tableId: string | null;
-  customerName: string | null;
-  customerPhone: string | null;
-  notes: string | null;
-  subtotal: number | string;
-  updatedAt: string;
-  createdById: string;
-  assignedWaiterId: string | null;
-  waiterNameSnapshot?: string | null;
-  waiterAccessNameSnapshot?: string | null;
-  assignedAt: string | null;
-  createdBy: {
-    id: string;
-    fullName: string;
-  };
-  assignedWaiter: {
-    id: string;
-    fullName: string;
-  } | null;
-  items: Array<{
-    productId: string;
-    quantity: number | string;
-    unitPrice: number | string;
-    product: {
-      name: string;
-      code: string;
-      kind: Product['kind'];
-      currentStock: number | string;
-      category: {
-        name: string;
-      };
-    };
-  }>;
-};
-
-type CartItem = {
-  productId: string;
-  name: string;
-  code: string;
-  categoryName: string;
-  kind: Product['kind'];
-  price: number;
-  stock: number;
-  quantity: number;
-};
+import { WaiterComposerSurface } from '@/features/waiter/waiter-composer-surface';
+import { WaiterHomeSurface } from '@/features/waiter/waiter-home-surface';
+import { useDocumentVisibility } from '@/features/waiter/use-document-visibility';
+import type { ActiveOrder, CartItem, DiningTable, OrderStatus, Product, ProductBrand } from '@/features/waiter/waiter-types';
 
 type WaiterView = 'home' | 'compose';
 type WaiterOrderScope = 'MINE' | 'ALL';
@@ -294,14 +195,6 @@ function _getOrderStatusMeta(status: OrderStatus | 'PAID' | 'CANCELLED') {
   }
 }
 
-function getTableStatusMeta(activeOrder: ActiveOrder | null) {
-  if (activeOrder) {
-    return { label: 'Con servicio', tone: 'info' as const };
-  }
-
-  return { label: 'Libre', tone: 'success' as const };
-}
-
 function toEditableOrderStatus(status: ActiveOrder['status']): OrderStatus {
   if (status === 'PAID' || status === 'CANCELLED') {
     return 'PAYMENT_PENDING';
@@ -390,11 +283,12 @@ export default function WaiterClientPage() {
   const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const [isFlushingQueue, setIsFlushingQueue] = useState(false);
   const hadOpenCashRef = useRef(false);
+  const isDocumentVisible = useDocumentVisibility();
 
   const tables = useQuery({
     queryKey: ['tables', 'waiter'],
     queryFn: () => apiFetch<DiningTable[]>('/tables/waiter'),
-    refetchInterval: 30000,
+    refetchInterval: isDocumentVisible ? 30000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -404,7 +298,7 @@ export default function WaiterClientPage() {
   const activeOrders = useQuery({
     queryKey: ['orders-active', 'waiter'],
     queryFn: () => apiFetch<ActiveOrder[]>('/orders/waiter-active'),
-    refetchInterval: 30000,
+    refetchInterval: isDocumentVisible ? 30000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -416,7 +310,7 @@ export default function WaiterClientPage() {
   const waiterAlerts = useQuery({
     queryKey: ['operational-alerts', 'waiter'],
     queryFn: () => apiFetch<WaiterOperationalAlert[]>('/orders/operational-alerts?module=waiters'),
-    refetchInterval: 10000,
+    refetchInterval: isDocumentVisible ? 10000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -428,11 +322,13 @@ export default function WaiterClientPage() {
   const products = useQuery({
     queryKey: ['products', 'sellable'],
     queryFn: () => apiFetch<Product[]>('/products/sellable'),
+    enabled: viewMode === 'compose' && Boolean(selectedTableId),
   });
   const currentCash = useQuery({
     queryKey: ['cash-current'],
     queryFn: () => apiFetch<CurrentCashSession | null>('/cash-register/current'),
-    refetchInterval: 4000,
+    refetchInterval: isDocumentVisible ? 4000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const availableTables = useMemo(
@@ -1502,281 +1398,87 @@ export default function WaiterClientPage() {
   return (
     <div
       className="space-y-4 p-3.5 sm:space-y-5 sm:p-5 lg:p-6"
-      style={{ paddingBottom: viewMode === 'compose' ? 'max(5.75rem, calc(env(safe-area-inset-bottom) + 5rem))' : 'max(1rem, env(safe-area-inset-bottom))' }}
+      style={{
+        paddingBottom:
+          viewMode === 'compose'
+            ? 'max(5.75rem, calc(env(safe-area-inset-bottom) + 5rem))'
+            : 'max(1rem, env(safe-area-inset-bottom))',
+      }}
     >
-      {viewMode === 'home' ? (
-        <>
-          <div className="-mx-3.5 -mt-3.5 mb-4 rounded-b-2xl bg-black px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5 lg:-mx-6 lg:-mt-6 lg:px-6">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <Image src="/brand/sidebar-logo.png" alt="2X1 Burger Co." width={40} height={40} className="h-10 w-10 rounded-xl object-contain" />
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-400">Servicio de mesas</p>
-                  <h1 className="truncate text-lg font-extrabold leading-tight text-white">{user?.fullName ?? 'Mesero'}</h1>
-                  <p className="mt-0.5 text-xs text-stone-300">Turno {shiftStartedLabel} · {serviceMetrics.free} mesas libres</p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {!isOnline ? <span className="rounded-full bg-red-500/20 px-2.5 py-1 text-[11px] font-bold text-red-300">Sin red</span> : null}
-                <span className={`hidden rounded-full px-2.5 py-1 text-[11px] font-bold sm:inline-flex ${cashState.className}`}>
-                  {cashState.label}
-                </span>
-                <button
-                  type="button"
-                  onClick={async () => { await logout(); window.location.href = '/waiter/login'; }}
-                  className="ml-1 flex h-11 w-11 items-center justify-center rounded-xl text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400/30"
-                  aria-label="Cerrar sesión de mesero"
-                >
-                  <LogOut className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 sm:hidden">
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${cashState.className}`}>{cashState.label}</span>
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-stone-200">
-                {streamStatus === 'open' ? 'Actualización en vivo' : streamStatus === 'connecting' ? 'Reconectando' : 'Sin canal en vivo'}
-              </span>
-            </div>
-          </div>
-
-          {!isOnline ? (
-            <StatusBanner tone="warning" title="Trabajando sin conexión" description={pendingQueueCount ? `${pendingQueueCount} cambio(s) permanecen en cola hasta recuperar red.` : 'La última información guardada sigue visible. Los cambios seguros se sincronizarán al volver la red.'} />
-          ) : null}
-
-          {operationalDataUnavailable ? (
-            <StatusBanner
-              tone="danger"
-              title="Información operativa incompleta"
-              description="No asumimos que una mesa esté libre ni que la caja esté cerrada cuando un servicio no responde. Reintenta antes de guardar."
-              action={
-                <Button variant="secondary" size="sm" className="min-h-11" onClick={() => void retryOperationalData()} disabled={tables.isFetching || activeOrders.isFetching || currentCash.isFetching || waiterAlerts.isFetching}>
-                  <RefreshCw className={`h-4 w-4 ${tables.isFetching || activeOrders.isFetching || currentCash.isFetching || waiterAlerts.isFetching ? 'animate-spin' : ''}`} />
-                  Reintentar
-                </Button>
-              }
-            />
-          ) : null}
-
-          {!currentCash.isError && !currentCash.isLoading && !currentCash.data ? (
-            <StatusBanner tone="warning" title="La caja esta cerrada" description="Abre caja para registrar pedidos." />
-          ) : null}
-
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-600" aria-label="Resumen de mesas">
-            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-emerald-800"><span className="h-2 w-2 rounded-full bg-emerald-500" />{serviceMetrics.free} libres</span>
-            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-amber-50 px-3 text-amber-800"><span className="h-2 w-2 rounded-full bg-amber-500" />{serviceMetrics.inService} en servicio</span>
-            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-brand-50 px-3 text-brand-800"><span className="h-2 w-2 rounded-full bg-brand-500" />{serviceMetrics.myTables} mías</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" aria-busy={tables.isLoading}>
-            {tables.isLoading && tables.data === undefined
-              ? Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="min-h-[7.5rem] animate-pulse rounded-2xl border border-stone-200 bg-stone-100" aria-hidden="true" />
-                ))
-              : null}
-            {!tables.isLoading && !tables.isError && !visibleTables.length ? (
-              <div className="col-span-2 rounded-2xl border border-dashed border-stone-200 bg-white p-5 text-center sm:col-span-3 lg:col-span-4">
-                <UtensilsCrossed className="mx-auto h-6 w-6 text-stone-400" />
-                <p className="mt-2 text-sm font-extrabold text-ink">No tienes mesas asignadas</p>
-                <p className="mt-1 text-sm text-stone-500">Consulta con el administrador del turno.</p>
-              </div>
-            ) : null}
-
-            {visibleTables.map((table) => {
-              const activeOrder = tableOrderMap.get(table.id) ?? null;
-              const tableStatus = getTableStatusMeta(activeOrder);
-              return (
-                <button key={table.id} type="button" onClick={() => openComposer(table.id)}
-                  data-testid={`waiter-table-${table.label.toLowerCase().replace(/\s+/g, '-')}`}
-                  className={`group relative flex min-h-[7.5rem] flex-col overflow-hidden rounded-2xl border text-left transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${table.id === selectedTableId ? 'border-brand-300 bg-brand-50/40 ring-1 ring-brand-200 shadow-sm' : 'border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm'}`}>
-                  <div className="h-1 w-full shrink-0" style={{ backgroundColor: activeOrder ? (table.group?.color ?? '#e7e5e4') : 'transparent' }} />
-                  <div className="flex flex-1 flex-col items-center justify-center px-3 py-3 text-center">
-                    <p className="text-[1.5rem] font-black leading-none text-ink">{table.label}</p>
-                    <span className={`mt-1.5 inline-block rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${activeOrder ? (tableStatus.tone === 'info' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700') : 'bg-emerald-100 text-emerald-700'}`}>
-                      {activeOrder ? 'Con servicio' : 'Libre'}
-                    </span>
-                    {activeOrder ? (
-                      <p className="mt-2 text-[17px] font-extrabold text-ink tabular-nums">{formatCurrency(activeOrder.subtotal)}</p>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </>
+      {viewMode === 'compose' && selectedTable ? (
+        <WaiterComposerSurface
+          selectedTable={selectedTable}
+          selectedOrder={selectedOrder}
+          cashState={cashState}
+          cashOpen={Boolean(currentCash.data)}
+          cashLoading={currentCash.isLoading}
+          cashError={currentCash.isError}
+          categories={composeCategories}
+          selectedCategory={composeCategory}
+          products={composeFilteredProducts}
+          productsLoading={products.isLoading}
+          productsFetching={products.isFetching}
+          productsError={products.isError}
+          cart={cart}
+          notes={notes}
+          saving={saveOrder.isPending}
+          saveFeedback={saveFeedback}
+          onClose={() => {
+            setViewMode('home');
+            setSelectedTableId('');
+            setCart([]);
+          }}
+          onRetryCash={() => void currentCash.refetch()}
+          onRetryProducts={() => void products.refetch()}
+          onCategoryChange={setComposeCategory}
+          onAddProduct={(product) =>
+            setCart((current) => addCartItem(current, product, `Sin stock para ${product.name}`))
+          }
+          onClearCart={() => setCart([])}
+          onUpdateQuantity={updateQuantity}
+          onNotesChange={setNotes}
+          onSave={() => {
+            if (!selectedTableId) {
+              toast.error('Selecciona una mesa');
+              return;
+            }
+            saveOrder.mutate();
+          }}
+        />
       ) : (
-        <>
-          <div className="-mx-3.5 -mt-3.5 mb-4 rounded-t-2xl bg-black px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => { setViewMode('home'); setSelectedTableId(''); setCart([]); }}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-stone-200 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400/30"
-                  aria-label="Cerrar comanda y volver a las mesas"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-                <div>
-                  <h1 className="text-[1.2rem] font-extrabold text-white">{selectedTable?.label ?? 'Mesa'}</h1>
-                  <p className="text-xs text-stone-300">
-                    {selectedOrder ? `Comanda ${selectedOrder.number} · ${formatCurrency(selectedOrder.subtotal)}` : 'Nueva comanda'}
-                  </p>
-                </div>
-              </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${cashState.className}`}>
-                {cashState.label}
-              </span>
-            </div>
-          </div>
-
-          {currentCash.isError ? (
-            <StatusBanner
-              tone="danger"
-              title="No podemos confirmar el estado de caja"
-              description="La comanda permanece en este dispositivo, pero guardar está bloqueado hasta recuperar el estado real."
-              action={<Button variant="secondary" size="sm" className="min-h-11" onClick={() => void currentCash.refetch()}>Reintentar</Button>}
-            />
-          ) : !currentCash.isLoading && !currentCash.data ? (
-            <StatusBanner tone="warning" title="Caja cerrada" description="Abre caja para guardar pedidos." />
-          ) : null}
-
-          <div
-            className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar"
-            role="region"
-            aria-label="Categorías de productos"
-            tabIndex={0}
-          >
-            {composeCategories.map((cat) => (
-              <button key={cat} type="button" onClick={() => { setComposeCategory(cat); }}
-                aria-pressed={composeCategory === cat}
-                className={`min-h-11 shrink-0 rounded-full px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${
-                  composeCategory === cat ? 'bg-brand-500 text-ink shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
-                }`}>
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {products.isError ? (
-            <StatusBanner
-              tone="danger"
-              title="Catálogo no disponible"
-              description="No mostramos productos ni precios de memoria. Recupera el catálogo antes de agregar artículos."
-              action={<Button variant="secondary" size="sm" className="min-h-11" onClick={() => void products.refetch()} disabled={products.isFetching}>Reintentar</Button>}
-            />
-          ) : products.isLoading ? (
-            <div className="grid grid-cols-2 gap-2" aria-label="Cargando productos" aria-busy="true">
-              {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-xl bg-stone-100" aria-hidden="true" />)}
-            </div>
-          ) : composeFilteredProducts.length > 0 ? (
-            <div className={`${composeFilteredProducts.length > 10 ? 'max-h-[26rem] overflow-y-auto no-scrollbar rounded-xl' : ''}`}>
-              <div className="grid gap-2 grid-cols-2 pr-0.5">
-                {composeFilteredProducts.map((product) => (
-                  <button key={product.id} type="button"
-                    onClick={() => setCart((c) => addCartItem(c, product, `Sin stock para ${product.name}`))}
-                    disabled={!product.isActive || (product.kind === 'DIRECT_STOCK' && Number(product.currentStock) <= 0)}
-                    className="min-h-24 rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 disabled:opacity-40">
-                    <p className="line-clamp-2 text-sm font-extrabold leading-tight text-ink">{product.name}</p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <p className="text-sm font-black text-brand-900 tabular-nums">{formatCurrency(product.salePrice)}</p>
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-ink" aria-hidden="true"><Plus className="h-4 w-4" /></span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-6 text-center">
-              <ShoppingBag className="mx-auto h-6 w-6 text-stone-400" />
-              <p className="mt-2 text-sm font-bold text-stone-600">No hay productos en esta categoría</p>
-            </div>
-          )}
-
-          {cart.length > 0 ? (
-            <div className="mt-4 rounded-2xl border border-brand-200 bg-brand-50/30 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-extrabold text-ink">Comanda</p>
-                  <p className="text-xs text-stone-500">{cart.length} artículos · Mesa {selectedTable?.label}</p>
-                </div>
-                <button type="button" onClick={() => setCart([])} className="min-h-11 rounded-xl px-3 text-sm font-bold text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100">Limpiar</button>
-              </div>
-              <div className="space-y-1.5">
-                {cart.map((item, i) => (
-                  <div key={`${item.productId}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 shadow-sm">
-                    <span className="min-w-0 flex-1 text-sm font-bold text-ink">{item.name}</span>
-                    <span className="text-sm font-extrabold text-ink tabular-nums">{formatCurrency(item.price * item.quantity)}</span>
-                    <div className="flex w-full items-center justify-between border-t border-stone-100 pt-2">
-                      <span className="text-xs font-semibold text-stone-500">Cantidad</span>
-                      <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                          className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-600 hover:border-stone-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
-                          aria-label={`Quitar una unidad de ${item.name}`}><Minus className="h-4 w-4" /></button>
-                        <span className="w-7 text-center text-sm font-bold tabular-nums" aria-label={`${item.quantity} unidades`}>{item.quantity}</span>
-                        <button type="button" onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                          className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-500 text-ink hover:bg-brand-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
-                          aria-label={`Agregar una unidad de ${item.name}`}><Plus className="h-4 w-4" /></button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center justify-between border-t border-brand-100 pt-3">
-                <span className="text-[12px] font-extrabold uppercase tracking-[0.1em] text-stone-500">Total</span>
-                <span className="text-[1.2rem] font-black text-ink tabular-nums">
-                  {formatCurrency(cart.reduce((sum, item) => sum + item.price * item.quantity, 0))}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-stone-300 bg-stone-50/50 p-6 text-center">
-              <p className="text-[13px] font-bold text-stone-600">Carrito vacio</p>
-              <p className="mt-1 text-xs text-stone-600">Agrega productos desde el menu</p>
-            </div>
-          )}
-
-          <div className="mt-4">
-            <label htmlFor="waiter-order-notes" className="mb-2 block text-sm font-bold text-ink">Instrucciones de preparación</label>
-            <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-              {['Sin cebolla', 'Sin salsas', 'Bien asada', 'Para llevar'].map((n) => (
-                <button key={n} type="button" onClick={() => setNotes((prev) => prev.includes(n) ? prev.replace(n, '').trim() : `${prev} ${n}`.trim())}
-                  aria-pressed={notes.includes(n)}
-                  className={`min-h-11 rounded-full px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${notes.includes(n) ? 'bg-brand-500 text-ink' : 'border border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="relative">
-              <input id="waiter-order-notes" type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
-                placeholder="Instrucciones especiales..."
-                className="min-h-11 w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 pr-12 text-base font-medium text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100" />
-              {notes ? (
-                <button type="button" onClick={() => setNotes('')} className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" aria-label="Borrar instrucciones">
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <Button type="button" disabled={!cart.length || saveOrder.isPending || !currentCash.data} data-testid="waiter-save-order"
-            onClick={() => {
-              if (!selectedTableId) { toast.error('Selecciona una mesa'); return; }
-              saveOrder.mutate();
-            }}
-            className="mt-4 w-full rounded-2xl py-6 text-[14px] font-extrabold shadow-md">
-            {saveOrder.isPending ? 'Guardando...' : selectedOrder ? 'Actualizar comanda' : 'Guardar comanda'}
-          </Button>
-
-          {saveFeedback === 'saved' ? (
-            <div role="status" className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-center text-sm font-bold text-emerald-800" data-testid="waiter-save-success-banner">
-              Comanda guardada. POS ya puede verla.
-            </div>
-          ) : saveFeedback === 'error' ? (
-            <div role="alert" className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-center text-sm font-bold text-red-800" data-testid="waiter-save-error-banner">
-              No pudimos guardar. Intenta nuevamente.
-            </div>
-          ) : null}
-        </>
+        <WaiterHomeSurface
+          waiterName={user?.fullName ?? 'Mesero'}
+          shiftStartedLabel={shiftStartedLabel}
+          serviceMetrics={serviceMetrics}
+          isOnline={isOnline}
+          pendingQueueCount={pendingQueueCount}
+          streamStatus={streamStatus}
+          cashState={cashState}
+          cashOpen={Boolean(currentCash.data)}
+          operationalDataUnavailable={operationalDataUnavailable}
+          visibleTables={visibleTables}
+          tableOrderMap={tableOrderMap}
+          selectedTableId={selectedTableId}
+          tables={{
+            isError: tables.isError,
+            isFetching: tables.isFetching,
+            isLoading: tables.isLoading,
+            hasData: tables.data !== undefined,
+          }}
+          allQueriesFetching={
+            tables.isFetching ||
+            activeOrders.isFetching ||
+            currentCash.isFetching ||
+            waiterAlerts.isFetching
+          }
+          onOpenComposer={openComposer}
+          onRetry={() => void retryOperationalData()}
+          onLogout={() => {
+            void logout().then(() => {
+              window.location.href = '/waiter/login';
+            });
+          }}
+        />
       )}
     </div>
   );
