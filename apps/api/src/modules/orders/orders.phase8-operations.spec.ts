@@ -9,9 +9,10 @@ describe('OrdersService Phase 8 kitchen authority', () => {
     fullName: 'Operador',
     sessionVersion: 1,
     roles: ['supervisor'],
-    permissions: [],
+    permissions: ['orders.update'],
   };
   const waiter = { ...supervisor, sub: 'waiter-1', roles: ['waiter'] };
+  const supervisorWithoutPermission = { ...supervisor, permissions: [] };
 
   function harness(order: { status: OrderTicketStatus; revision: number }, updateCount = 1) {
     const updated = {
@@ -134,13 +135,16 @@ describe('OrdersService Phase 8 kitchen authority', () => {
     expect(race.tx.orderTicket.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
-  it('rejects waiter kitchen transitions before reading or mutating an order', async () => {
+  it.each([
+    ['waiter with permission', waiter],
+    ['supervisor without permission', supervisorWithoutPermission],
+  ])('rejects %s kitchen transitions before reading or mutating an order', async (_case, actor) => {
     const { prisma, service, tx } = harness({ status: OrderTicketStatus.OPEN, revision: 4 });
 
     await expect(service.transitionKitchen(
       'order-1',
       { action: 'START_PREPARATION', expectedRevision: 4 },
-      waiter,
+      actor,
     )).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prisma.orderTicket.findUnique).not.toHaveBeenCalled();

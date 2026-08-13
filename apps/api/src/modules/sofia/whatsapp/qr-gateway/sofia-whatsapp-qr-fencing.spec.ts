@@ -1,4 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
+import type { AuthUser } from '../../../../common/types/auth-user.type';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { AuditService } from '../../../audit/audit.service';
 import type { SofiaWhatsappService } from '../../sofia-whatsapp.service';
@@ -31,6 +32,15 @@ type FencingSubject = {
 };
 
 describe('SofiaWhatsappQrGatewayService fencing boundaries', () => {
+  const operator: AuthUser = {
+    sub: 'operator',
+    email: 'operator@example.test',
+    fullName: 'Operator',
+    sessionVersion: 1,
+    roles: ['supervisor'],
+    permissions: ['settings.update'],
+  };
+
   function subject(): FencingSubject {
     return new SofiaWhatsappQrGatewayService(
       {} as PrismaService,
@@ -97,7 +107,7 @@ describe('SofiaWhatsappQrGatewayService fencing boundaries', () => {
     jest.spyOn(service, 'saveSessionState').mockResolvedValue(undefined);
     jest.spyOn(service, 'getStatus').mockResolvedValue({ status: 'LOGGED_OUT' });
 
-    await (service as unknown as SofiaWhatsappQrGatewayService).logout('operator');
+    await (service as unknown as SofiaWhatsappQrGatewayService).logout(operator);
 
     expect(ordering).toEqual([
       'fence-start',

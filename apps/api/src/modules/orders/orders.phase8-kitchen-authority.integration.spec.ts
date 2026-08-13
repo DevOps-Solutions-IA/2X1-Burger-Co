@@ -31,6 +31,7 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
   function actor(
     user: { id: string; email: string; fullName: string },
     roles: string[],
+    permissions: string[] = [],
   ): AuthUser {
     return {
       sub: user.id,
@@ -38,7 +39,7 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
       fullName: user.fullName,
       sessionVersion: 0,
       roles,
-      permissions: [],
+      permissions,
     };
   }
 
@@ -70,7 +71,8 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
     return {
       seed,
       order,
-      admin: actor(seed.adminUser, ['admin']),
+      admin: actor(seed.adminUser, ['admin'], ['orders.update']),
+      adminWithoutPermission: actor(seed.adminUser, ['admin']),
       waiter: actor(seed.waiterUser, ['waiter']),
     };
   }
@@ -173,6 +175,20 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
     expect(await prisma.waiterOrderSyncReceipt.count({
       where: { clientMutationId: `p8-kitchen-bypass-${context.order.id}` },
     })).toBe(0);
+  });
+
+  it('rejects a privileged role without orders.update before reading the order', async () => {
+    const context = await fixture(OrderTicketStatus.OPEN);
+    const findUnique = jest.spyOn(prisma.orderTicket, 'findUnique');
+
+    await expect(orders.transitionKitchen(
+      context.order.id,
+      { action: 'START_PREPARATION', expectedRevision: context.order.revision },
+      context.adminWithoutPermission,
+    )).rejects.toMatchObject({ response: { code: 'KITCHEN_TRANSITION_FORBIDDEN' } });
+
+    expect(findUnique).not.toHaveBeenCalled();
+    findUnique.mockRestore();
   });
 
   it.each([

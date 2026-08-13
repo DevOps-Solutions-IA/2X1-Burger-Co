@@ -8,6 +8,15 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const optionalTrimmedString = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim() || undefined : value),
+  z.string().optional(),
+);
+
+function retainedCrmHashKeys(value: string | undefined): string[] {
+  return value ? value.split(',').map((key) => key.trim()) : [];
+}
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -89,14 +98,9 @@ const envSchema = z
     NOTIFICATION_OUTBOX_WORKER_ENABLED: envBoolean.default(false),
     PHASE5_KITCHEN_ENABLED: envBoolean.default(false),
     PHASE5_TEST_OPERATIONAL_ENABLED: envBoolean.default(false),
-    CRM_IDENTITY_HASH_SECRET: z.preprocess(
-      (value) => (typeof value === 'string' ? value.trim() || undefined : value),
-      z.string().min(32).optional(),
-    ),
-    CRM_IDENTITY_HASH_SECRET_PREVIOUS: z.preprocess(
-      (value) => (typeof value === 'string' ? value.trim() || undefined : value),
-      z.string().min(32).optional(),
-    ),
+    CRM_IDENTITY_HASH_SECRET: optionalTrimmedString.pipe(z.string().min(32).optional()),
+    CRM_IDENTITY_HASH_SECRET_PREVIOUS: optionalTrimmedString.pipe(z.string().min(32).optional()),
+    CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: optionalTrimmedString,
     SOFIA_AI_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.82),
     SOFIA_AI_LOG_PROMPTS: envBoolean.default(false),
     SOFIA_AI_REDACT_PERSONAL_DATA: envBoolean.default(true),
@@ -158,19 +162,34 @@ const envSchema = z
         path: ['PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED'],
       });
     }
-    if (data.CRM_IDENTITY_HASH_SECRET_PREVIOUS && !data.CRM_IDENTITY_HASH_SECRET) {
+    const retainedHashKeys = retainedCrmHashKeys(data.CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS);
+    const previousHashKeys = [
+      ...(data.CRM_IDENTITY_HASH_SECRET_PREVIOUS ? [data.CRM_IDENTITY_HASH_SECRET_PREVIOUS] : []),
+      ...retainedHashKeys,
+    ];
+    if (previousHashKeys.length && !data.CRM_IDENTITY_HASH_SECRET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'CRM_IDENTITY_HASH_CURRENT_REQUIRED_FOR_ROTATION',
         path: ['CRM_IDENTITY_HASH_SECRET'],
       });
     }
-    if (data.CRM_IDENTITY_HASH_SECRET_PREVIOUS
-      && data.CRM_IDENTITY_HASH_SECRET_PREVIOUS === data.CRM_IDENTITY_HASH_SECRET) {
+    if (retainedHashKeys.some((key) => key.length < 32)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'CRM_IDENTITY_HASH_ROTATION_KEY_INVALID',
+        path: ['CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS'],
+      });
+    }
+    const fullHashKeyRing = [
+      ...(data.CRM_IDENTITY_HASH_SECRET ? [data.CRM_IDENTITY_HASH_SECRET] : []),
+      ...previousHashKeys,
+    ];
+    if (new Set(fullHashKeyRing).size !== fullHashKeyRing.length) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER',
-        path: ['CRM_IDENTITY_HASH_SECRET_PREVIOUS'],
+        path: ['CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS'],
       });
     }
     if (data.NODE_ENV === 'production') {

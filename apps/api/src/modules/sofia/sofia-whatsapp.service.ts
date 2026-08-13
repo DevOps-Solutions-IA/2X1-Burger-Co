@@ -7,6 +7,7 @@ import {
 import { createHash } from 'node:crypto';
 import { SofiaAgentService } from './sofia-agent.service';
 import { SofiaCrmService } from './crm/sofia-crm.service';
+import { TrustedCrmCustomerResolutionCapability } from './crm/crm-customer-resolution.capability';
 import { SofiaRuntimeSafetyService } from './runtime-safety/sofia-runtime-safety.service';
 import { WhatsappProviderFactory } from './whatsapp/whatsapp-provider.factory';
 import { ParsedWhatsappInbound, WhatsappMode, WhatsappProviderName } from './whatsapp/whatsapp-provider.adapter';
@@ -787,7 +788,7 @@ export class SofiaWhatsappService {
       const actorId = await this.systemActorId();
       return await this.crmService.resolveOrCreateByPhone(
         { phone: parsed.phone, displayName: parsed.customerName ?? undefined },
-        actorId,
+        TrustedCrmCustomerResolutionCapability.issue(actorId, 'WHATSAPP_INBOUND'),
       );
     } catch (error) {
       this.logger.warn(`CRM identity link unavailable: ${this.sanitizeProviderError(error)}`);

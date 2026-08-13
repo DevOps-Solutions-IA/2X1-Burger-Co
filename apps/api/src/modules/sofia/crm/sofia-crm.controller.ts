@@ -49,8 +49,8 @@ export class SofiaCrmController {
   @Post('customers/resolve')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  resolveCustomer(@Body() dto: ResolveCustomerByPhoneDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.resolveOrCreateByPhone(dto, actorId);
+  resolveCustomer(@Body() dto: ResolveCustomerByPhoneDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.resolveOrCreateByPhone(dto, actor);
   }
 
   @Get('customers/:customerId')
@@ -65,9 +65,9 @@ export class SofiaCrmController {
   grantOptIn(
     @Param('customerId') customerId: string,
     @Body() dto: CustomerConsentDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.grantOptIn(customerId, dto, actorId);
+    return this.crmService.grantOptIn(customerId, dto, actor);
   }
 
   @Post('customers/:customerId/consents/revoke')
@@ -76,9 +76,9 @@ export class SofiaCrmController {
   revokeOptIn(
     @Param('customerId') customerId: string,
     @Body() dto: CustomerConsentDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.revokeOptIn(customerId, dto, actorId);
+    return this.crmService.revokeOptIn(customerId, dto, actor);
   }
 
   @Get('customers/:customerId/timeline')
@@ -103,16 +103,16 @@ export class SofiaCrmController {
   recordInteraction(
     @Param('customerId') customerId: string,
     @Body() dto: CreateCustomerInteractionDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.recordInteraction(customerId, dto, actorId);
+    return this.crmService.recordInteraction(customerId, dto, actor);
   }
 
   @Post('segments')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createSegment(@Body() dto: CreateCustomerSegmentDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createSegment(dto, actorId);
+  createSegment(@Body() dto: CreateCustomerSegmentDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createSegment(dto, actor);
   }
 
   @Get('segments')
@@ -130,8 +130,8 @@ export class SofiaCrmController {
   @Post('tags')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createTag(@Body() dto: CreateCustomerTagDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createTag(dto, actorId);
+  createTag(@Body() dto: CreateCustomerTagDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createTag(dto, actor);
   }
 
   @Post('customers/:customerId/tags')
@@ -140,9 +140,9 @@ export class SofiaCrmController {
   assignTag(
     @Param('customerId') customerId: string,
     @Body() dto: AssignCustomerTagDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.assignTag(customerId, dto.tagId, actorId);
+    return this.crmService.assignTag(customerId, dto.tagId, actor);
   }
 
   @Get('pipelines')
@@ -154,8 +154,8 @@ export class SofiaCrmController {
   @Post('pipelines')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createPipeline(@Body() dto: CreateCrmPipelineDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createPipeline(dto, actorId);
+  createPipeline(@Body() dto: CreateCrmPipelineDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createPipeline(dto, actor);
   }
 
   @Get('leads')
@@ -167,8 +167,8 @@ export class SofiaCrmController {
   @Post('leads')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createLead(@Body() dto: CreateCrmLeadDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createLead(dto, actorId);
+  createLead(@Body() dto: CreateCrmLeadDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createLead(dto, actor);
   }
 
   @Get('leads/:leadId')
@@ -183,9 +183,9 @@ export class SofiaCrmController {
   transitionLead(
     @Param('leadId') leadId: string,
     @Body() dto: TransitionCrmLeadDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.transitionLead(leadId, dto, actorId);
+    return this.crmService.transitionLead(leadId, dto, actor);
   }
 
   @Get('tasks')
@@ -197,8 +197,8 @@ export class SofiaCrmController {
   @Post('tasks')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createTask(@Body() dto: CreateCrmTaskDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createTask(dto, actorId);
+  createTask(@Body() dto: CreateCrmTaskDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createTask(dto, actor);
   }
 
   @Patch('tasks/:taskId')
@@ -207,9 +207,9 @@ export class SofiaCrmController {
   updateTask(
     @Param('taskId') taskId: string,
     @Body() dto: UpdateCrmTaskDto,
-    @CurrentUser('sub') actorId: string,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.crmService.updateTask(taskId, dto, actorId);
+    return this.crmService.updateTask(taskId, dto, actor);
   }
 
   @Get('notes')
@@ -221,21 +221,21 @@ export class SofiaCrmController {
   @Post('notes')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createNote(@Body() dto: CreateCrmNoteDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createNote(dto, actorId);
+  createNote(@Body() dto: CreateCrmNoteDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createNote(dto, actor);
   }
 
   @Post('campaigns')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  createCampaign(@Body() dto: CreateCustomerCampaignDto, @CurrentUser('sub') actorId: string) {
-    return this.crmService.createDraftCampaign(dto, actorId);
+  createCampaign(@Body() dto: CreateCustomerCampaignDto, @CurrentUser() actor: AuthUser) {
+    return this.crmService.createDraftCampaign(dto, actor);
   }
 
   @Post('campaigns/:campaignId/send')
   @Roles('admin', 'supervisor')
   @Permissions('orders.update')
-  attemptCampaignSend(@Param('campaignId') campaignId: string, @CurrentUser('sub') actorId: string) {
-    return this.crmService.attemptCampaignSend(campaignId, actorId);
+  attemptCampaignSend(@Param('campaignId') campaignId: string, @CurrentUser() actor: AuthUser) {
+    return this.crmService.attemptCampaignSend(campaignId, actor);
   }
 }

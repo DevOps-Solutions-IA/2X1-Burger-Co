@@ -25,6 +25,7 @@ import {
 } from './dto/crm.dto';
 import { opaqueCrmReference, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
 import { resolveCrmHashSecrets } from './crm-hash-secrets';
+import { acquireCrmHashWriteFence } from './crm-advisory-lock';
 
 export type UnifiedTimelineAccess = Readonly<{
   paymentFacts: boolean;
@@ -89,8 +90,12 @@ export class Phase8CrmRepository {
     private readonly auditService: AuditService,
   ) {}
 
-  private opaqueReferences(namespace: string, value: string): readonly [string, ...string[]] {
-    return resolveCrmHashSecrets(this.configService)
+  private opaqueReferences(
+    namespace: string,
+    value: string,
+    secrets = resolveCrmHashSecrets(this.configService),
+  ): readonly [string, ...string[]] {
+    return secrets
       .map((secret) => opaqueCrmReference(secret, namespace, value)) as [string, ...string[]];
   }
 
@@ -101,49 +106,70 @@ export class Phase8CrmRepository {
   private async findReferenceReplay<T>(
     references: readonly string[],
     lookup: (reference: string) => Promise<T | null>,
-    promote?: (row: T, currentReference: string) => Promise<T>,
-  ): Promise<T | null> {
+  ): Promise<{ row: T; generation: number } | null> {
     for (const [index, reference] of references.entries()) {
       const row = await lookup(reference);
-      if (row) return index > 0 && promote ? promote(row, references[0]!) : row;
+      if (row) return { row, generation: index };
     }
     return null;
   }
 
   private async promoteLeadReference(
     client: PrismaService | Prisma.TransactionClient,
-    row: { id: string },
+    row: { id: string; sourceReference: string },
     sourceReference: string,
     actorId: string,
   ) {
-    const promoted = await client.crmLead.update({ where: { id: row.id }, data: { sourceReference } });
-    await this.auditService.log({
-      actorId,
-      action: 'CRM_REFERENCE_HASH_ROTATED',
-      module: 'sofia.crm',
-      entity: 'CrmLead',
-      entityId: row.id,
-      after: { hashVersion: 'CURRENT' },
-    }, client);
-    return promoted;
+    const promoted = await client.crmLead.updateMany({
+      where: { id: row.id, sourceReference: row.sourceReference },
+      data: { sourceReference },
+    });
+    if (promoted.count === 1) {
+      const winner = await client.crmLead.findUniqueOrThrow({ where: { id: row.id } });
+      await this.auditService.log({
+        actorId,
+        action: 'CRM_REFERENCE_HASH_ROTATED',
+        module: 'sofia.crm',
+        entity: 'CrmLead',
+        entityId: row.id,
+        after: { hashVersion: 'CURRENT' },
+      }, client);
+      return winner;
+    }
+    const winner = await client.crmLead.findUnique({ where: { id: row.id } });
+    if (!winner || winner.sourceReference !== sourceReference) {
+      throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+    }
+    return winner;
   }
 
   private async promoteTaskReference(
     client: PrismaService | Prisma.TransactionClient,
-    row: { id: string },
+    row: { id: string; sourceReference: string },
     sourceReference: string,
     actorId: string,
   ) {
-    const promoted = await client.crmTask.update({ where: { id: row.id }, data: { sourceReference } });
-    await this.auditService.log({
-      actorId,
-      action: 'CRM_REFERENCE_HASH_ROTATED',
-      module: 'sofia.crm',
-      entity: 'CrmTask',
-      entityId: row.id,
-      after: { hashVersion: 'CURRENT' },
-    }, client);
-    return promoted;
+    const promoted = await client.crmTask.updateMany({
+      where: { id: row.id, sourceReference: row.sourceReference },
+      data: { sourceReference },
+    });
+    if (promoted.count === 1) {
+      const winner = await client.crmTask.findUniqueOrThrow({ where: { id: row.id } });
+      await this.auditService.log({
+        actorId,
+        action: 'CRM_REFERENCE_HASH_ROTATED',
+        module: 'sofia.crm',
+        entity: 'CrmTask',
+        entityId: row.id,
+        after: { hashVersion: 'CURRENT' },
+      }, client);
+      return winner;
+    }
+    const winner = await client.crmTask.findUnique({ where: { id: row.id } });
+    if (!winner || winner.sourceReference !== sourceReference) {
+      throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+    }
+    return winner;
   }
 
   async listPipelines(input: ListCrmPipelinesDto) {
@@ -260,17 +286,19 @@ export class Phase8CrmRepository {
 
   async createLead(input: CreateCrmLeadDto, actorId: string) {
     const title = sanitizeTimelineText(input.title.trim()).slice(0, 160);
-    const sourceReferences = this.opaqueReferences(`lead:${input.source}`, input.sourceReference);
+    const hashSecrets = resolveCrmHashSecrets(this.configService);
+    const sourceReferences = this.opaqueReferences(`lead:${input.source}`, input.sourceReference, hashSecrets);
     const sourceReference = sourceReferences[0];
-    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
-      this.prisma.crmLead.findUnique({
-        where: { source_sourceReference: { source: input.source, sourceReference: reference } },
-      })
-    ), (row, currentReference) => this.promoteLeadReference(this.prisma, row, currentReference, actorId));
-    if (existing) return this.leadCreateReplay(existing, input, title, sourceReferences);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await acquireCrmHashWriteFence(
+          tx, hashSecrets, 'lead-source-reference', [input.source, input.sourceReference],
+        );
+        const existing = await this.resolveLeadCreateReplay(
+          tx, input, title, sourceReferences, sourceReference, actorId,
+        );
+        if (existing) return existing;
         const [customer, pipeline, stage] = await Promise.all([
           tx.customer.findUnique({ where: { id: input.customerId }, select: { id: true } }),
           tx.crmPipeline.findUnique({ where: { id: input.pipelineId }, select: { id: true, status: true } }),
@@ -295,6 +323,7 @@ export class Phase8CrmRepository {
         await tx.crmLeadStageHistory.create({
           data: {
             leadId: lead.id,
+            pipelineId: input.pipelineId,
             version: 0,
             idempotencyKey: this.opaqueReference('lead:create', `${input.source}:${sourceReference}`),
             fromStageId: null,
@@ -318,13 +347,16 @@ export class Phase8CrmRepository {
       });
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const raced = await this.findReferenceReplay(sourceReferences, (reference) => (
-        this.prisma.crmLead.findUnique({
-          where: { source_sourceReference: { source: input.source, sourceReference: reference } },
-        })
-      ), (row, currentReference) => this.promoteLeadReference(this.prisma, row, currentReference, actorId));
+      const raced = await this.prisma.$transaction(async (tx) => {
+        await acquireCrmHashWriteFence(
+          tx, hashSecrets, 'lead-source-reference', [input.source, input.sourceReference],
+        );
+        return this.resolveLeadCreateReplay(
+          tx, input, title, sourceReferences, sourceReference, actorId,
+        );
+      });
       if (!raced) throw error;
-      return this.leadCreateReplay(raced, input, title, sourceReferences);
+      return raced;
     }
   }
 
@@ -339,7 +371,7 @@ export class Phase8CrmRepository {
             where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
           })
         ));
-        if (replay) return this.leadTransitionReplay(tx, replay, input, actorId, metadata);
+        if (replay) return this.leadTransitionReplay(tx, replay.row, input, actorId, metadata);
 
         const current = await tx.crmLead.findUnique({ where: { id: leadId } });
         if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
@@ -365,6 +397,7 @@ export class Phase8CrmRepository {
         await tx.crmLeadStageHistory.create({
           data: {
             leadId,
+            pipelineId: current.pipelineId,
             version: input.expectedVersion + 1,
             idempotencyKey,
             fromStageId: current.currentStageId,
@@ -398,7 +431,7 @@ export class Phase8CrmRepository {
         })
       ));
       if (!replay) throw error;
-      return this.leadTransitionReplay(this.prisma, replay, input, actorId, metadata);
+      return this.leadTransitionReplay(this.prisma, replay.row, input, actorId, metadata);
     }
   }
 
@@ -429,21 +462,23 @@ export class Phase8CrmRepository {
 
   async createTask(input: CreateCrmTaskDto, actorId: string) {
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
-    const sourceReferences = this.opaqueReferences(`task:${source}`, input.sourceReference);
+    const hashSecrets = resolveCrmHashSecrets(this.configService);
+    const sourceReferences = this.opaqueReferences(`task:${source}`, input.sourceReference, hashSecrets);
     const sourceReference = sourceReferences[0];
     const normalized = {
       title: sanitizeTimelineText(input.title.trim()).slice(0, 160),
       description: input.description ? sanitizeTimelineText(input.description.trim()).slice(0, 1_000) : null,
       dueAt: input.dueAt ? new Date(input.dueAt) : null,
     };
-    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
-      this.prisma.crmTask.findUnique({
-        where: { source_sourceReference: { source, sourceReference: reference } },
-      })
-    ), (row, currentReference) => this.promoteTaskReference(this.prisma, row, currentReference, actorId));
-    if (existing) return this.taskCreateReplay(existing, input, normalized);
     try {
       const task = await this.prisma.$transaction(async (tx) => {
+        await acquireCrmHashWriteFence(
+          tx, hashSecrets, 'task-source-reference', [source, input.sourceReference],
+        );
+        const existing = await this.resolveTaskCreateReplay(
+          tx, input, source, normalized, sourceReferences, sourceReference, actorId,
+        );
+        if (existing) return existing;
         await this.assertCustomerBindings(tx, input.customerId, input.leadId, input.customerServiceCaseId);
         const created = await tx.crmTask.create({
           data: {
@@ -468,18 +503,21 @@ export class Phase8CrmRepository {
           entityId: created.id,
           after: { type: created.type, status: created.status, priority: created.priority },
         }, tx);
-        return created;
+        return { state: 'CREATED' as const, task: created };
       });
-      return { state: 'CREATED' as const, task };
+      return task;
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const raced = await this.findReferenceReplay(sourceReferences, (reference) => (
-        this.prisma.crmTask.findUnique({
-          where: { source_sourceReference: { source, sourceReference: reference } },
-        })
-      ), (row, currentReference) => this.promoteTaskReference(this.prisma, row, currentReference, actorId));
+      const raced = await this.prisma.$transaction(async (tx) => {
+        await acquireCrmHashWriteFence(
+          tx, hashSecrets, 'task-source-reference', [source, input.sourceReference],
+        );
+        return this.resolveTaskCreateReplay(
+          tx, input, source, normalized, sourceReferences, sourceReference, actorId,
+        );
+      });
       if (!raced) throw error;
-      return this.taskCreateReplay(raced, input, normalized);
+      return raced;
     }
   }
 
@@ -560,11 +598,12 @@ export class Phase8CrmRepository {
       })
     ));
     if (existing) {
-      if (existing.customerId !== input.customerId || existing.leadId !== (input.leadId ?? null)
-        || existing.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || existing.contentHash !== contentHash) {
+      if (existing.row.customerId !== input.customerId || existing.row.leadId !== (input.leadId ?? null)
+        || existing.row.customerServiceCaseId !== (input.customerServiceCaseId ?? null)
+        || existing.row.contentHash !== contentHash) {
         throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
       }
-      return { state: 'DETERMINISTIC_REPLAY' as const, note: existing };
+      return { state: 'DETERMINISTIC_REPLAY' as const, note: existing.row };
     }
     try {
       const note = await this.prisma.$transaction(async (tx) => {
@@ -600,11 +639,12 @@ export class Phase8CrmRepository {
         })
       ));
       if (!raced) throw error;
-      if (raced.customerId !== input.customerId || raced.leadId !== (input.leadId ?? null)
-        || raced.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || raced.contentHash !== contentHash) {
+      if (raced.row.customerId !== input.customerId || raced.row.leadId !== (input.leadId ?? null)
+        || raced.row.customerServiceCaseId !== (input.customerServiceCaseId ?? null)
+        || raced.row.contentHash !== contentHash) {
         throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
       }
-      return { state: 'DETERMINISTIC_REPLAY' as const, note: raced };
+      return { state: 'DETERMINISTIC_REPLAY' as const, note: raced.row };
     }
   }
 
@@ -792,6 +832,45 @@ export class Phase8CrmRepository {
           .some((source) => source.length === take),
       },
     };
+  }
+
+  private async resolveLeadCreateReplay(
+    tx: Prisma.TransactionClient,
+    input: CreateCrmLeadDto,
+    title: string,
+    sourceReferences: readonly string[],
+    currentReference: string,
+    actorId: string,
+  ) {
+    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
+      tx.crmLead.findUnique({
+        where: { source_sourceReference: { source: input.source, sourceReference: reference } },
+      })
+    ));
+    if (!existing) return null;
+    const replay = this.leadCreateReplay(existing.row, input, title, sourceReferences);
+    if (existing.generation === 0) return replay;
+    const lead = await this.promoteLeadReference(tx, existing.row, currentReference, actorId);
+    return this.leadCreateReplay(lead, input, title, sourceReferences);
+  }
+
+  private async resolveTaskCreateReplay(
+    tx: Prisma.TransactionClient,
+    input: CreateCrmTaskDto,
+    source: string,
+    normalized: { title: string; description: string | null; dueAt: Date | null },
+    sourceReferences: readonly string[],
+    currentReference: string,
+    actorId: string,
+  ) {
+    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
+      tx.crmTask.findUnique({ where: { source_sourceReference: { source, sourceReference: reference } } })
+    ));
+    if (!existing) return null;
+    const replay = this.taskCreateReplay(existing.row, input, normalized);
+    if (existing.generation === 0) return replay;
+    const task = await this.promoteTaskReference(tx, existing.row, currentReference, actorId);
+    return this.taskCreateReplay(task, input, normalized);
   }
 
   private leadCreateReplay(row: {

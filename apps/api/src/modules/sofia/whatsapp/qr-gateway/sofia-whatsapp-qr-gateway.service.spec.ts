@@ -1,4 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
+import type { AuthUser } from '../../../../common/types/auth-user.type';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { AuditService } from '../../../audit/audit.service';
 import type { SofiaWhatsappService } from '../../sofia-whatsapp.service';
@@ -16,6 +17,15 @@ describe('SofiaWhatsappQrGatewayService governance gate', () => {
     {} as SofiaWhatsappService,
     {} as SofiaWhatsappQrGatewayProvider,
   );
+  const actor = (roles: string[], permissions: string[]): AuthUser => ({
+    sub: 'operator-id',
+    email: 'operator@example.test',
+    fullName: 'Operator',
+    sessionVersion: 1,
+    roles,
+    permissions,
+  });
+  const authorizedOperator = actor(['supervisor'], ['settings.update']);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -35,7 +45,7 @@ describe('SofiaWhatsappQrGatewayService governance gate', () => {
   });
 
   it('does not bootstrap Baileys when governance has not approved real QR', async () => {
-    await expect(service.connect('operator-id')).rejects.toMatchObject({
+    await expect(service.connect(authorizedOperator)).rejects.toMatchObject({
       response: expect.objectContaining({ reason: 'QR_GOVERNANCE_NOT_APPROVED' }),
     });
 
@@ -56,7 +66,7 @@ describe('SofiaWhatsappQrGatewayService governance gate', () => {
       { key, value },
     ]);
 
-    await expect(service.connect('operator-id')).rejects.toMatchObject({
+    await expect(service.connect(authorizedOperator)).rejects.toMatchObject({
       response: expect.objectContaining({ reason }),
     });
   });
@@ -75,14 +85,31 @@ describe('SofiaWhatsappQrGatewayService governance gate', () => {
       key === configKey ? value : baseConfig?.(key),
     );
 
-    await expect(service.connect('operator-id')).rejects.toMatchObject({
+    await expect(service.connect(authorizedOperator)).rejects.toMatchObject({
       response: expect.objectContaining({ reason }),
     });
+  });
+
+  it.each([
+    ['connect', (unauthorized: AuthUser) => service.connect(unauthorized)],
+    ['disconnect', (unauthorized: AuthUser) => service.disconnect(unauthorized)],
+    ['logout', (unauthorized: AuthUser) => service.logout(unauthorized)],
+  ])('blocks direct %s calls without role and permission', async (_operation, mutation) => {
+    await expect(mutation(actor(['admin'], []))).rejects.toMatchObject({
+      response: { code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' },
+    });
+    await expect(mutation(actor(['cashier'], ['settings.update']))).rejects.toMatchObject({
+      response: { code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' },
+    });
+
+    expect(settingFindMany).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
   });
 });
 
 describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
   const safeValues: Record<string, unknown> = {
+    NODE_ENV: 'test',
     WHATSAPP_QR_ENABLED: true,
     WHATSAPP_QR_ALLOW_RECEIVE: true,
     WHATSAPP_QR_SANDBOX_ONLY: false,
@@ -117,6 +144,53 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     );
     return { instance, processInboundWebhook, auditLog };
   }
+
+  const testOperator: AuthUser = {
+    sub: 'test-operator',
+    email: 'test-operator@example.test',
+    fullName: 'Test Operator',
+    sessionVersion: 1,
+    roles: ['supervisor'],
+    permissions: ['settings.update'],
+  };
+
+  it('rejects direct test-inbound and test-send service calls outside explicit test mode', async () => {
+    const { instance, processInboundWebhook, auditLog } = subject({ NODE_ENV: 'production' });
+
+    await expect(instance.testInbound({ phone: '573109876543', text: 'Hola' }, testOperator))
+      .rejects.toMatchObject({ response: { code: 'SOFIA_TEST_ONLY_ROUTE_UNAVAILABLE' } });
+    await expect(instance.testSend({ to: '573109876543', body: 'Hola' }, testOperator))
+      .rejects.toMatchObject({ response: { code: 'SOFIA_TEST_ONLY_ROUTE_UNAVAILABLE' } });
+    expect(processInboundWebhook).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('requires operator role and capability even in explicit test mode', async () => {
+    const { instance, processInboundWebhook } = subject();
+    const unauthorized = { ...testOperator, roles: ['cashier'] };
+
+    await expect(instance.testInbound({ phone: '573109876543', text: 'Hola' }, unauthorized))
+      .rejects.toMatchObject({ response: { code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' } });
+    expect(processInboundWebhook).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a malformed direct-service actor', async () => {
+    const { instance, processInboundWebhook } = subject();
+
+    await expect(instance.testInbound(
+      { phone: '573109876543', text: 'Hola' },
+      { sub: 'forged-actor' } as AuthUser,
+    )).rejects.toMatchObject({ response: { code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' } });
+    expect(processInboundWebhook).not.toHaveBeenCalled();
+  });
+
+  it('allows bounded direct test inbound only for an authorized operator in test mode', async () => {
+    const { instance, processInboundWebhook } = subject();
+
+    await expect(instance.testInbound({ phone: '573109876543', text: 'Hola' }, testOperator))
+      .resolves.toMatchObject({ processingStatus: 'SUGGESTED_ONLY', noWhatsappReal: true });
+    expect(processInboundWebhook).toHaveBeenCalledTimes(1);
+  });
 
   function authorizeLease(instance: SofiaWhatsappQrGatewayService, fencingToken = 1) {
     const internal = instance as unknown as {

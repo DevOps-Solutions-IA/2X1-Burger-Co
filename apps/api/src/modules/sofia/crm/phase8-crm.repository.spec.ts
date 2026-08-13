@@ -1,4 +1,5 @@
 import {
+  CrmLeadSource,
   CrmLeadStatus,
   CrmPipelineStageOutcome,
   CrmTaskPriority,
@@ -12,6 +13,18 @@ import { opaqueCrmReference } from './crm-privacy';
 import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
 
 describe('Phase8CrmRepository', () => {
+  function fencedClient<T extends object>(client: T): T & {
+    $executeRaw: jest.Mock;
+    setting: { findUnique: jest.Mock; upsert: jest.Mock };
+  } {
+    return Object.assign(client, {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      setting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'crm-generation-fence' }),
+      },
+    });
+  }
   const config = {
     get: jest.fn((key: string) => key === 'CRM_IDENTITY_HASH_SECRET'
       ? 'crm-test-only-identity-hash-secret'
@@ -28,7 +41,7 @@ describe('Phase8CrmRepository', () => {
   const noteFindUnique = jest.fn();
   const noteCreate = jest.fn();
   const customerFindUnique = jest.fn();
-  const tx = {
+  const tx = fencedClient({
     crmLead: {
       findUnique: leadFindUnique,
       findUniqueOrThrow: leadFindUniqueOrThrow,
@@ -39,7 +52,7 @@ describe('Phase8CrmRepository', () => {
     crmNote: { create: noteCreate },
     customer: { findUnique: customerFindUnique },
     customerServiceCase: { findUnique: jest.fn() },
-  };
+  });
   const prisma = {
     $transaction: jest.fn((operation: unknown) => (
       typeof operation === 'function' ? operation(tx) : Promise.all(operation as Promise<unknown>[])
@@ -101,6 +114,51 @@ describe('Phase8CrmRepository', () => {
     } finally {
       process.env.NODE_ENV = previousNodeEnv;
     }
+  });
+
+  it('rejects a conflicting retained-key lead replay before promotion or audit', async () => {
+    const currentSecret = 'crm-current-identity-hash-secret-0000001';
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
+    const sourceReference = opaqueCrmReference(
+      retainedSecret,
+      `lead:${CrmLeadSource.AUTHORIZED_OPERATOR}`,
+      'lead-before-rotation',
+    );
+    const leadUpdateMany = jest.fn();
+    const replayClient = fencedClient({
+      crmLead: {
+        findUnique: jest.fn(({ where }) => Promise.resolve(
+          where.source_sourceReference.sourceReference === sourceReference
+            ? {
+                id: 'lead-before-rotation', customerId: 'customer-001', pipelineId: 'pipeline-001',
+                currentStageId: 'stage-001', sourceReference, title: 'Original title', ownerId: null,
+              }
+            : null,
+        )),
+        updateMany: leadUpdateMany,
+      },
+    });
+    const transaction = jest.fn((operation) => operation(replayClient));
+    const replayRepository = new Phase8CrmRepository({
+      $transaction: transaction,
+      crmLead: replayClient.crmLead,
+    } as unknown as PrismaService, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: currentSecret,
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retainedSecret,
+      })[key]),
+    } as unknown as ConfigService, audit);
+
+    await expect(replayRepository.createLead({
+      customerId: 'customer-001', pipelineId: 'pipeline-001', currentStageId: 'stage-001',
+      source: CrmLeadSource.AUTHORIZED_OPERATOR, sourceReference: 'lead-before-rotation',
+      title: 'Conflicting title',
+    }, 'actor-1')).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({
+      code: 'CRM_IDEMPOTENCY_CONFLICT',
+    }));
+    expect(leadUpdateMany).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(auditLog).not.toHaveBeenCalled();
   });
 
   it('updates the lead once and appends the matching immutable version event', async () => {
@@ -198,9 +256,10 @@ describe('Phase8CrmRepository', () => {
     }), tx);
   });
 
-  it('recognizes a note replay under the previous secret without rewriting append-only evidence', async () => {
+  it('recognizes a note replay under any retained secret without rewriting append-only evidence', async () => {
     const previousSecret = 'crm-previous-identity-hash-secret-000001';
-    const previousReference = opaqueCrmReference(previousSecret, 'note:AUTHORIZED_OPERATOR', 'note-before-rotation');
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
+    const previousReference = opaqueCrmReference(retainedSecret, 'note:AUTHORIZED_OPERATOR', 'note-before-rotation');
     const noteUpdate = jest.fn();
     const existing = {
       id: 'note-before-rotation', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
@@ -215,7 +274,7 @@ describe('Phase8CrmRepository', () => {
     } as unknown as PrismaService, {
       get: jest.fn((key: string) => ({
         CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
-        CRM_IDENTITY_HASH_SECRET_PREVIOUS: previousSecret,
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: `${previousSecret},${retainedSecret}`,
       })[key]),
     } as unknown as ConfigService, audit);
 
@@ -223,8 +282,49 @@ describe('Phase8CrmRepository', () => {
       customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR',
       sourceReference: 'note-before-rotation', body: 'Seguimiento',
     }, 'actor-1')).resolves.toMatchObject({ state: 'DETERMINISTIC_REPLAY', note: existing });
-    expect(noteLookup).toHaveBeenCalledTimes(2);
+    expect(noteLookup).toHaveBeenCalledTimes(3);
     expect(noteUpdate).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('rejects a conflicting retained-key note replay without append or audit', async () => {
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
+    const previousReference = opaqueCrmReference(
+      retainedSecret,
+      'note:AUTHORIZED_OPERATOR',
+      'note-conflict-before-rotation',
+    );
+    const noteUpdate = jest.fn();
+    const transaction = jest.fn();
+    const noteRepository = new Phase8CrmRepository({
+      $transaction: transaction,
+      crmNote: {
+        findUnique: jest.fn(({ where }) => Promise.resolve(
+          where.source_sourceReference.sourceReference === previousReference
+            ? {
+                id: 'note-conflict-before-rotation', customerId: 'customer-001', leadId: null,
+                customerServiceCaseId: null, sourceReference: previousReference,
+                body: 'Original', contentHash: 'not-the-replayed-content-hash',
+              }
+            : null,
+        )),
+        update: noteUpdate,
+      },
+    } as unknown as PrismaService, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retainedSecret,
+      })[key]),
+    } as unknown as ConfigService, audit);
+
+    await expect(noteRepository.createNote({
+      customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR',
+      sourceReference: 'note-conflict-before-rotation', body: 'Conflicting',
+    }, 'actor-1')).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({
+      code: 'CRM_IDEMPOTENCY_CONFLICT',
+    }));
+    expect(noteUpdate).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
     expect(auditLog).not.toHaveBeenCalled();
   });
 
@@ -235,6 +335,7 @@ describe('Phase8CrmRepository', () => {
       sanitizedDescription: null, assignedToId: null, dueAt: null,
     });
     const taskRepository = new Phase8CrmRepository({
+      $transaction: jest.fn((operation) => operation(fencedClient({ crmTask: { findUnique: taskFindUnique } }))),
       crmTask: { findUnique: taskFindUnique },
     } as unknown as PrismaService, config, audit);
 
@@ -244,33 +345,51 @@ describe('Phase8CrmRepository', () => {
     }, 'actor-1')).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({ code: 'CRM_IDEMPOTENCY_CONFLICT' }));
   });
 
-  it('recognizes a task replay hashed with the bounded previous CRM secret', async () => {
+  it('recognizes and promotes a task replay hashed with the oldest retained CRM secret', async () => {
     const previousSecret = 'crm-previous-identity-hash-secret-000001';
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
     const previousReference = opaqueCrmReference(
-      previousSecret,
+      retainedSecret,
       'task:AUTHORIZED_OPERATOR',
       'task-before-rotation',
     );
-    const taskFindUnique = jest.fn(({ where }) => Promise.resolve(
-      where.source_sourceReference.sourceReference === previousReference
-        ? {
-            id: 'task-before-rotation', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
-            type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
-            sanitizedDescription: null, assignedToId: null, dueAt: null,
-          }
-        : null,
-    ));
-    const taskUpdate = jest.fn(({ data }) => Promise.resolve({
+    const currentReference = opaqueCrmReference(
+      'crm-current-identity-hash-secret-0000001',
+      'task:AUTHORIZED_OPERATOR',
+      'task-before-rotation',
+    );
+    let stored = {
       id: 'task-before-rotation', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
-      sanitizedDescription: null, assignedToId: null, dueAt: null, ...data,
-    }));
+      sanitizedDescription: null, assignedToId: null, dueAt: null, sourceReference: previousReference,
+    };
+    const taskFindUnique = jest.fn(({ where }) => Promise.resolve(
+      where.id === stored.id
+        || where.source_sourceReference?.sourceReference === stored.sourceReference
+        ? stored
+        : null,
+    ));
+    const taskUpdateMany = jest.fn(({ where, data }) => {
+      if (where.id !== stored.id || where.sourceReference !== stored.sourceReference) {
+        return Promise.resolve({ count: 0 });
+      }
+      stored = { ...stored, ...data };
+      return Promise.resolve({ count: 1 });
+    });
+    const replayClient = fencedClient({
+      crmTask: {
+        findUnique: taskFindUnique,
+        findUniqueOrThrow: jest.fn(() => Promise.resolve(stored)),
+        updateMany: taskUpdateMany,
+      },
+    });
     const rotatingRepository = new Phase8CrmRepository({
-      crmTask: { findUnique: taskFindUnique, update: taskUpdate },
+      $transaction: jest.fn((operation) => operation(replayClient)),
+      crmTask: replayClient.crmTask,
     } as unknown as PrismaService, {
       get: jest.fn((key: string) => ({
         CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
-        CRM_IDENTITY_HASH_SECRET_PREVIOUS: previousSecret,
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: `${previousSecret},${retainedSecret}`,
       })[key]),
     } as unknown as ConfigService, audit);
 
@@ -278,15 +397,113 @@ describe('Phase8CrmRepository', () => {
       customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR', sourceReference: 'task-before-rotation',
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
     }, 'actor-1')).resolves.toMatchObject({ state: 'DETERMINISTIC_REPLAY' });
-    expect(taskFindUnique).toHaveBeenCalledTimes(2);
-    expect(taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'task-before-rotation' },
-      data: { sourceReference: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    expect(taskFindUnique).toHaveBeenCalledTimes(3);
+    expect(taskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-before-rotation', sourceReference: previousReference },
+      data: { sourceReference: currentReference },
     }));
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
       action: 'CRM_REFERENCE_HASH_ROTATED',
       entity: 'CrmTask',
     }), expect.anything());
+  });
+
+  it('lets a compare-and-set loser reread the promoted task without a second audit', async () => {
+    const currentSecret = 'crm-current-identity-hash-secret-0000001';
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
+    const previousReference = opaqueCrmReference(
+      retainedSecret,
+      'task:AUTHORIZED_OPERATOR',
+      'task-concurrent-rotation',
+    );
+    const currentReference = opaqueCrmReference(
+      currentSecret,
+      'task:AUTHORIZED_OPERATOR',
+      'task-concurrent-rotation',
+    );
+    const previous = {
+      id: 'task-concurrent-rotation', customerId: 'customer-001', leadId: null,
+      customerServiceCaseId: null, type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM,
+      title: 'Follow up', sanitizedDescription: null, assignedToId: null, dueAt: null,
+      sourceReference: previousReference,
+    };
+    const winner = { ...previous, sourceReference: currentReference };
+    const taskFindUnique = jest.fn(({ where }) => Promise.resolve(
+      where.id === winner.id
+        ? winner
+        : where.source_sourceReference?.sourceReference === previousReference
+          ? previous
+          : null,
+    ));
+    const taskUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const replayClient = fencedClient({
+      crmTask: { findUnique: taskFindUnique, updateMany: taskUpdateMany },
+    });
+    const replayRepository = new Phase8CrmRepository({
+      $transaction: jest.fn((operation) => operation(replayClient)),
+      crmTask: replayClient.crmTask,
+    } as unknown as PrismaService, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: currentSecret,
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retainedSecret,
+      })[key]),
+    } as unknown as ConfigService, audit);
+
+    await expect(replayRepository.createTask({
+      customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR',
+      sourceReference: 'task-concurrent-rotation', type: CrmTaskType.TASK,
+      priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
+    }, 'actor-1')).resolves.toMatchObject({
+      state: 'DETERMINISTIC_REPLAY',
+      task: { sourceReference: currentReference },
+    });
+    expect(taskUpdateMany).toHaveBeenCalledTimes(1);
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('rejects a conflicting retained-key task replay with zero mutation or audit', async () => {
+    const retainedSecret = 'crm-retained-identity-hash-secret-000001';
+    const previousReference = opaqueCrmReference(
+      retainedSecret,
+      'task:AUTHORIZED_OPERATOR',
+      'task-conflict-before-rotation',
+    );
+    const taskUpdate = jest.fn();
+    const replayClient = fencedClient({
+      crmTask: {
+        findUnique: jest.fn(({ where }) => Promise.resolve(
+          where.source_sourceReference.sourceReference === previousReference
+            ? {
+                id: 'task-conflict-before-rotation', customerId: 'customer-001', leadId: null,
+                customerServiceCaseId: null, type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM,
+                title: 'Original', sanitizedDescription: null, assignedToId: null, dueAt: null,
+              }
+            : null,
+        )),
+        update: taskUpdate,
+      },
+    });
+    const transaction = jest.fn((operation) => operation(replayClient));
+    const taskRepository = new Phase8CrmRepository({
+      $transaction: transaction,
+      crmTask: replayClient.crmTask,
+    } as unknown as PrismaService, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retainedSecret,
+      })[key]),
+    } as unknown as ConfigService, audit);
+
+    await expect(taskRepository.createTask({
+      customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR',
+      sourceReference: 'task-conflict-before-rotation', type: CrmTaskType.TASK,
+      priority: CrmTaskPriority.MEDIUM, title: 'Conflicting',
+    }, 'actor-1')).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({
+      code: 'CRM_IDEMPOTENCY_CONFLICT',
+    }));
+    expect(taskUpdate).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(auditLog).not.toHaveBeenCalled();
   });
 
   it('recovers a lost task-update response only from the exact next semantic state', async () => {

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CustomerCampaignDeliveryStatus,
@@ -36,6 +42,8 @@ import {
 import { maskPhone, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
 import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
 import { resolveCrmHashSecrets } from './crm-hash-secrets';
+import { TrustedCrmCustomerResolutionCapability } from './crm-customer-resolution.capability';
+import { acquireCrmHashWriteFence } from './crm-advisory-lock';
 
 export const CAMPAIGN_SEND_BLOCK_REASON = 'BAILEYS_PROACTIVE_OUTREACH_DISABLED';
 
@@ -59,86 +67,52 @@ export class SofiaCrmService {
     private readonly phase8Repository: Phase8CrmRepository,
   ) {}
 
-  async resolveOrCreateByPhone(dto: ResolveCustomerByPhoneDto, actorId: string) {
+  async resolveOrCreateByPhone(
+    dto: ResolveCustomerByPhoneDto,
+    principal: AuthUser | TrustedCrmCustomerResolutionCapability,
+  ) {
+    const actorId = this.customerResolutionActorId(principal);
     const phone = normalizePhone(dto.phone);
     if (!phone) throw new BadRequestException('El telefono no es valido para Colombia.');
-    const valueHashes = this.identityHashes(phone);
+    const hashSecrets = resolveCrmHashSecrets(this.configService);
+    const valueHashes = this.identityHashes(phone, hashSecrets);
     const valueHash = valueHashes[0];
-    let existing = null;
-    let matchedHash = valueHash;
-    for (const candidateHash of valueHashes) {
-      existing = await this.prisma.customerIdentity.findUnique({
-        where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash: candidateHash } },
+    const displayName = dto.displayName?.trim() || null;
+    return this.prisma.$transaction(async (tx) => {
+      await acquireCrmHashWriteFence(tx, hashSecrets, 'customer-phone', [phone]);
+      const identities = await tx.customerIdentity.findMany({
+        where: { type: CustomerIdentityType.PHONE, valueHash: { in: [...valueHashes] } },
         include: { customer: { include: customerSummaryInclude } },
       });
-      if (existing) {
-        matchedHash = candidateHash;
-        break;
-      }
-    }
+      const customerIds = new Set(identities.map(({ customerId }) => customerId));
+      if (customerIds.size > 1) throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
 
-    if (existing) {
-      if (matchedHash !== valueHash) {
-        try {
-          const promoted = await this.prisma.customerIdentity.updateMany({
-            where: { id: existing.id, valueHash: matchedHash },
-            data: { valueHash },
-          });
-          if (promoted.count === 1) {
-            await this.auditService.log({
-              actorId,
-              action: 'CRM_IDENTITY_HASH_ROTATED',
-              module: 'sofia.crm',
-              entity: 'CustomerIdentity',
-              entityId: existing.id,
-              after: { hashVersion: 'CURRENT' },
-            });
-          } else {
-            const winner = await this.prisma.customerIdentity.findUnique({
-              where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
-              select: { customerId: true },
-            });
-            if (winner?.customerId !== existing.customerId) {
-              throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
-            }
-          }
-        } catch (error) {
-          if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
-          const winner = await this.prisma.customerIdentity.findUnique({
-            where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
-            select: { customerId: true },
-          });
-          if (winner?.customerId !== existing.customerId) {
-            throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
-          }
-        }
-      }
-      const displayName = dto.displayName?.trim();
-      const shouldUpdateName = Boolean(displayName && displayName !== existing.customer.displayName);
-      const customer = shouldUpdateName
-        ? await this.prisma.customer.update({
-            where: { id: existing.customerId },
-            data: { displayName, displayNameNormalized: normalizeSearchText(displayName) },
-            include: customerSummaryInclude,
-          })
-        : existing.customer;
-      if (shouldUpdateName) {
+      if (identities.length) {
+        const matched = identities.find(({ valueHash: hash }) => hash === valueHash) ?? identities[0]!;
+        await this.promotePhoneIdentity(tx, matched, valueHashes, valueHash, actorId);
+        const customer = await tx.customer.findUniqueOrThrow({
+          where: { id: matched.customerId },
+          include: customerSummaryInclude,
+        });
+        const shouldUpdateName = Boolean(displayName && displayName !== customer.displayName);
+        if (!shouldUpdateName) return this.serializeCustomerSummary(customer);
+        const updated = await tx.customer.update({
+          where: { id: customer.id },
+          data: { displayName, displayNameNormalized: normalizeSearchText(displayName) },
+          include: customerSummaryInclude,
+        });
         await this.auditService.log({
           actorId,
           action: 'CRM_CUSTOMER_PROFILE_UPDATED',
           module: 'sofia.crm',
           entity: 'Customer',
-          entityId: customer.id,
+          entityId: updated.id,
           after: { displayNameUpdated: true },
-        });
+        }, tx);
+        return this.serializeCustomerSummary(updated);
       }
-      return this.serializeCustomerSummary(customer);
-    }
 
-    const displayName = dto.displayName?.trim() || null;
-    let customer;
-    try {
-      customer = await this.prisma.customer.create({
+      const customer = await tx.customer.create({
         data: {
           displayName,
           displayNameNormalized: displayName ? normalizeSearchText(displayName) : null,
@@ -153,27 +127,16 @@ export class SofiaCrmService {
         },
         include: customerSummaryInclude,
       });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const racedIdentity = await this.prisma.customerIdentity.findUnique({
-          where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
-          include: { customer: { include: customerSummaryInclude } },
-        });
-        if (racedIdentity) return this.serializeCustomerSummary(racedIdentity.customer);
-      }
-      throw error;
-    }
-
-    await this.auditService.log({
-      actorId,
-      action: 'CRM_CUSTOMER_CREATED',
-      module: 'sofia.crm',
-      entity: 'Customer',
-      entityId: customer.id,
-      after: { identityType: 'PHONE', identityMasked: maskPhone(phone) },
+      await this.auditService.log({
+        actorId,
+        action: 'CRM_CUSTOMER_CREATED',
+        module: 'sofia.crm',
+        entity: 'Customer',
+        entityId: customer.id,
+        after: { identityType: 'PHONE', identityMasked: maskPhone(phone) },
+      }, tx);
+      return this.serializeCustomerSummary(customer);
     });
-
-    return this.serializeCustomerSummary(customer);
   }
 
   async listCustomers(dto: ListCustomersDto, options: { allowPhoneSearch?: boolean } = {}) {
@@ -271,7 +234,9 @@ export class SofiaCrmService {
     };
   }
 
-  async grantOptIn(customerId: string, dto: CustomerConsentDto, actorId: string) {
+  async grantOptIn(customerId: string, dto: CustomerConsentDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     const source = dto.source.trim();
     const evidenceHash = this.hashEvidence(dto.evidence);
     try {
@@ -302,7 +267,9 @@ export class SofiaCrmService {
     }
   }
 
-  async revokeOptIn(customerId: string, dto: CustomerConsentDto, actorId: string) {
+  async revokeOptIn(customerId: string, dto: CustomerConsentDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     const source = dto.source.trim();
     const evidenceHash = this.hashEvidence(dto.evidence);
     try {
@@ -359,7 +326,9 @@ export class SofiaCrmService {
     };
   }
 
-  async recordInteraction(customerId: string, dto: CreateCustomerInteractionDto, actorId: string) {
+  async recordInteraction(customerId: string, dto: CreateCustomerInteractionDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     await this.assertCustomer(customerId);
     const interaction = await this.prisma.customerInteraction.create({
       data: {
@@ -377,7 +346,9 @@ export class SofiaCrmService {
     return this.serializeInteraction(interaction);
   }
 
-  async createSegment(dto: CreateCustomerSegmentDto, actorId: string) {
+  async createSegment(dto: CreateCustomerSegmentDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     const customerIds = [...new Set(dto.customerIds ?? [])];
     const name = dto.name.trim();
     const segment = await this.prisma.customerSegment.create({
@@ -405,7 +376,9 @@ export class SofiaCrmService {
     return segment;
   }
 
-  async createDraftCampaign(dto: CreateCustomerCampaignDto, actorId: string) {
+  async createDraftCampaign(dto: CreateCustomerCampaignDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     const campaign = await this.prisma.customerCampaign.create({
       data: {
         name: dto.name.trim(),
@@ -428,7 +401,9 @@ export class SofiaCrmService {
     return campaign;
   }
 
-  async attemptCampaignSend(campaignId: string, actorId: string) {
+  async attemptCampaignSend(campaignId: string, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
+    const actorId = actor.sub;
     const campaign = await this.prisma.customerCampaign.findUnique({
       where: { id: campaignId },
       include: {
@@ -512,9 +487,10 @@ export class SofiaCrmService {
     return this.phase8Repository.listPipelines(dto);
   }
 
-  async createPipeline(dto: CreateCrmPipelineDto, actorId: string) {
+  async createPipeline(dto: CreateCrmPipelineDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.createPipeline(dto, actorId);
+      return await this.phase8Repository.createPipeline(dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -532,17 +508,19 @@ export class SofiaCrmService {
     }
   }
 
-  async createLead(dto: CreateCrmLeadDto, actorId: string) {
+  async createLead(dto: CreateCrmLeadDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.createLead(dto, actorId);
+      return await this.phase8Repository.createLead(dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
   }
 
-  async transitionLead(leadId: string, dto: TransitionCrmLeadDto, actorId: string) {
+  async transitionLead(leadId: string, dto: TransitionCrmLeadDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.transitionLead(leadId, dto, actorId);
+      return await this.phase8Repository.transitionLead(leadId, dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -552,17 +530,19 @@ export class SofiaCrmService {
     return this.phase8Repository.listTasks(dto);
   }
 
-  async createTask(dto: CreateCrmTaskDto, actorId: string) {
+  async createTask(dto: CreateCrmTaskDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.createTask(dto, actorId);
+      return await this.phase8Repository.createTask(dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
   }
 
-  async updateTask(taskId: string, dto: UpdateCrmTaskDto, actorId: string) {
+  async updateTask(taskId: string, dto: UpdateCrmTaskDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.updateTask(taskId, dto, actorId);
+      return await this.phase8Repository.updateTask(taskId, dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -572,9 +552,10 @@ export class SofiaCrmService {
     return this.phase8Repository.listNotes(dto);
   }
 
-  async createNote(dto: CreateCrmNoteDto, actorId: string) {
+  async createNote(dto: CreateCrmNoteDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.createNote(dto, actorId);
+      return await this.phase8Repository.createNote(dto, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -584,17 +565,19 @@ export class SofiaCrmService {
     return this.phase8Repository.listTags(dto);
   }
 
-  async createTag(dto: CreateCustomerTagDto, actorId: string) {
+  async createTag(dto: CreateCustomerTagDto, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      return await this.phase8Repository.createTag(dto.name, actorId);
+      return await this.phase8Repository.createTag(dto.name, actor.sub);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
   }
 
-  async assignTag(customerId: string, tagId: string, actorId: string) {
+  async assignTag(customerId: string, tagId: string, actor: AuthUser) {
+    this.assertOperatorMutationAccess(actor);
     try {
-      const result = await this.phase8Repository.assignTag(customerId, tagId, actorId);
+      const result = await this.phase8Repository.assignTag(customerId, tagId, actor.sub);
       return result.customer;
     } catch (error) {
       return this.mapPersistenceError(error);
@@ -625,6 +608,24 @@ export class SofiaCrmService {
     if (!customer) throw new NotFoundException('Cliente CRM no encontrado.');
   }
 
+  private customerResolutionActorId(
+    principal: AuthUser | TrustedCrmCustomerResolutionCapability,
+  ): string {
+    if (principal instanceof TrustedCrmCustomerResolutionCapability) return principal.actorId;
+    this.assertOperatorMutationAccess(principal);
+    return principal.sub;
+  }
+
+  private assertOperatorMutationAccess(actor: AuthUser) {
+    const hasAllowedRole = Array.isArray(actor?.roles)
+      && actor.roles.some((role) => role === 'admin' || role === 'supervisor');
+    const hasCapability = Array.isArray(actor?.permissions)
+      && actor.permissions.includes('orders.update');
+    if (!actor?.sub || !hasAllowedRole || !hasCapability) {
+      throw new ForbiddenException({ code: 'CRM_PHASE8_MUTATION_FORBIDDEN' });
+    }
+  }
+
   private mapPersistenceError(error: unknown): never {
     if (!(error instanceof CrmPersistenceError)) throw error;
     if (error.code === 'CRM_NOT_FOUND') throw new NotFoundException('Recurso CRM no encontrado.');
@@ -648,9 +649,48 @@ export class SofiaCrmService {
     return createHash('sha256').update(evidence, 'utf8').digest('hex');
   }
 
-  private identityHashes(normalizedPhone: string): readonly [string, ...string[]] {
-    return resolveCrmHashSecrets(this.configService)
+  private identityHashes(
+    normalizedPhone: string,
+    secrets = resolveCrmHashSecrets(this.configService),
+  ): readonly [string, ...string[]] {
+    return secrets
       .map((secret) => createHmac('sha256', secret).update(`PHONE:${normalizedPhone}`, 'utf8').digest('hex')) as [string, ...string[]];
+  }
+
+  private async promotePhoneIdentity(
+    tx: Prisma.TransactionClient,
+    matched: { id: string; customerId: string; valueHash: string },
+    valueHashes: readonly [string, ...string[]],
+    currentHash: string,
+    actorId: string,
+  ): Promise<void> {
+    if (matched.valueHash === currentHash) return;
+    try {
+      const promoted = await tx.customerIdentity.updateMany({
+        where: { id: matched.id, valueHash: matched.valueHash },
+        data: { valueHash: currentHash },
+      });
+      if (promoted.count === 1) {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_IDENTITY_HASH_ROTATED',
+          module: 'sofia.crm',
+          entity: 'CustomerIdentity',
+          entityId: matched.id,
+          after: { hashVersion: 'CURRENT' },
+        }, tx);
+        return;
+      }
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+    }
+    const winner = await tx.customerIdentity.findUnique({
+      where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash: currentHash } },
+      select: { customerId: true, valueHash: true },
+    });
+    if (winner?.customerId !== matched.customerId || !valueHashes.includes(winner.valueHash)) {
+      throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
+    }
   }
 
   private async auditConsent(

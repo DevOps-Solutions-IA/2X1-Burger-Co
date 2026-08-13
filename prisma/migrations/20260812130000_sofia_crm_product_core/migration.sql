@@ -55,6 +55,7 @@ CREATE TABLE "crm_leads" (
 CREATE TABLE "crm_lead_stage_history" (
     "id" TEXT NOT NULL,
     "lead_id" TEXT NOT NULL,
+    "pipeline_id" TEXT NOT NULL,
     "version" INTEGER NOT NULL,
     "idempotency_key" TEXT NOT NULL,
     "from_stage_id" TEXT,
@@ -115,6 +116,9 @@ CREATE INDEX "crm_leads_pipeline_id_current_stage_id_status_idx" ON "crm_leads"(
 CREATE INDEX "crm_leads_customer_id_updated_at_idx" ON "crm_leads"("customer_id", "updated_at");
 CREATE INDEX "crm_leads_owner_id_status_updated_at_idx" ON "crm_leads"("owner_id", "status", "updated_at");
 CREATE UNIQUE INDEX "crm_leads_source_source_reference_key" ON "crm_leads"("source", "source_reference");
+CREATE UNIQUE INDEX "crm_leads_id_customer_id_key" ON "crm_leads"("id", "customer_id");
+CREATE UNIQUE INDEX "crm_leads_id_pipeline_id_key" ON "crm_leads"("id", "pipeline_id");
+CREATE UNIQUE INDEX "customer_service_cases_id_customer_id_key" ON "customer_service_cases"("id", "customer_id");
 CREATE INDEX "crm_lead_stage_history_lead_id_created_at_idx" ON "crm_lead_stage_history"("lead_id", "created_at");
 CREATE INDEX "crm_lead_stage_history_to_stage_id_created_at_idx" ON "crm_lead_stage_history"("to_stage_id", "created_at");
 CREATE UNIQUE INDEX "crm_lead_stage_history_lead_id_version_key" ON "crm_lead_stage_history"("lead_id", "version");
@@ -137,15 +141,29 @@ ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_customer_id_fkey" FOREIGN KEY 
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_pipeline_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_current_stage_id_pipeline_id_fkey" FOREIGN KEY ("current_stage_id", "pipeline_id") REFERENCES "crm_pipeline_stages"("id", "pipeline_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "crm_leads"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_from_stage_id_fkey" FOREIGN KEY ("from_stage_id") REFERENCES "crm_pipeline_stages"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_to_stage_id_fkey" FOREIGN KEY ("to_stage_id") REFERENCES "crm_pipeline_stages"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_lead_id_pipeline_id_fkey" FOREIGN KEY ("lead_id", "pipeline_id") REFERENCES "crm_leads"("id", "pipeline_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_from_stage_id_pipeline_id_fkey" FOREIGN KEY ("from_stage_id", "pipeline_id") REFERENCES "crm_pipeline_stages"("id", "pipeline_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_to_stage_id_pipeline_id_fkey" FOREIGN KEY ("to_stage_id", "pipeline_id") REFERENCES "crm_pipeline_stages"("id", "pipeline_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "crm_customers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "crm_leads"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_customer_service_case_id_fkey" FOREIGN KEY ("customer_service_case_id") REFERENCES "customer_service_cases"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_lead_id_customer_id_fkey" FOREIGN KEY ("lead_id", "customer_id") REFERENCES "crm_leads"("id", "customer_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_customer_service_case_id_customer_id_fkey" FOREIGN KEY ("customer_service_case_id", "customer_id") REFERENCES "customer_service_cases"("id", "customer_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_tasks" ADD CONSTRAINT "crm_tasks_assigned_to_id_fkey" FOREIGN KEY ("assigned_to_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
 ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "crm_customers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "crm_leads"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_customer_service_case_id_fkey" FOREIGN KEY ("customer_service_case_id") REFERENCES "customer_service_cases"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_lead_id_customer_id_fkey" FOREIGN KEY ("lead_id", "customer_id") REFERENCES "crm_leads"("id", "customer_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_customer_service_case_id_customer_id_fkey" FOREIGN KEY ("customer_service_case_id", "customer_id") REFERENCES "customer_service_cases"("id", "customer_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_notes" ADD CONSTRAINT "crm_notes_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+
+CREATE FUNCTION "prevent_phase8_crm_evidence_mutation"() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'PHASE8_CRM_EVIDENCE_APPEND_ONLY';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "crm_lead_stage_history_append_only"
+BEFORE UPDATE OR DELETE ON "crm_lead_stage_history"
+FOR EACH ROW EXECUTE FUNCTION "prevent_phase8_crm_evidence_mutation"();
+
+CREATE TRIGGER "crm_notes_append_only"
+BEFORE UPDATE OR DELETE ON "crm_notes"
+FOR EACH ROW EXECUTE FUNCTION "prevent_phase8_crm_evidence_mutation"();

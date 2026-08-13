@@ -41,6 +41,60 @@ describe('environment boolean parsing', () => {
     })).toThrow('CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER');
   });
 
+  it('accepts an ordered multi-generation CRM hash key ring', () => {
+    const current = 'crm-current-hash-secret-at-least-32-characters';
+    const previous = 'crm-previous-hash-secret-at-least-32-characters';
+    const retained = [
+      'crm-retained-hash-secret-generation-two-0001',
+      'crm-retained-hash-secret-generation-three-01',
+    ].join(',');
+
+    expect(validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: previous,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retained,
+    })).toMatchObject({
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: previous,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retained,
+    });
+  });
+
+  it.each([
+    ['short retained key', 'short'],
+    ['empty retained key', 'crm-retained-hash-secret-generation-one-0001,,crm-retained-hash-secret-generation-two-0002'],
+  ])('rejects an invalid CRM hash ring member: %s', (_case, retained) => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: 'crm-current-hash-secret-at-least-32-characters',
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: retained,
+    })).toThrow('CRM_IDENTITY_HASH_ROTATION_KEY_INVALID');
+  });
+
+  it('rejects duplicate CRM hash keys across every retained generation', () => {
+    const current = 'crm-current-hash-secret-at-least-32-characters';
+    const retained = 'crm-retained-hash-secret-generation-one-0001';
+
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: `${retained},${retained}`,
+    })).toThrow('CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER');
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: current,
+    })).toThrow('CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER');
+  });
+
+  it('requires a current CRM hash key when retained generations are configured', () => {
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS_KEYS: 'crm-retained-hash-secret-generation-one-0001',
+    })).toThrow('CRM_IDENTITY_HASH_CURRENT_REQUIRED_FOR_ROTATION');
+  });
+
   it('preserves explicit false values for operational safety flags', () => {
     const env = validateEnv({
       ...requiredEnv,

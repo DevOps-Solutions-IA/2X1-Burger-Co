@@ -839,7 +839,7 @@ export class OrdersService {
   }
 
   async transitionKitchen(id: string, dto: KitchenTransitionDto, actor: AuthUser) {
-    if (!this.isPrivilegedOrderOperator(actor)) {
+    if (!this.isPrivilegedOrderOperator(actor) || !actor.permissions.includes('orders.update')) {
       throw new ForbiddenException({ code: 'KITCHEN_TRANSITION_FORBIDDEN' });
     }
 

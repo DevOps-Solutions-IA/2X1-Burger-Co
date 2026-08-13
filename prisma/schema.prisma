@@ -1746,6 +1746,8 @@ model CrmLead {
   notes           CrmNote[]
 
   @@unique([source, sourceReference])
+  @@unique([id, customerId])
+  @@unique([id, pipelineId])
   @@index([pipelineId, currentStageId, status])
   @@index([customerId, updatedAt])
   @@index([ownerId, status, updatedAt])
@@ -1755,6 +1757,7 @@ model CrmLead {
 model CrmLeadStageHistory {
   id                String            @id @default(cuid())
   leadId            String            @map("lead_id")
+  pipelineId        String            @map("pipeline_id")
   version           Int
   idempotencyKey    String            @map("idempotency_key")
   fromStageId       String?           @map("from_stage_id")
@@ -1765,10 +1768,10 @@ model CrmLeadStageHistory {
   reasonCode        String            @map("reason_code")
   sanitizedMetadata Json?             @map("sanitized_metadata")
   createdAt         DateTime          @default(now()) @map("created_at")
-  lead              CrmLead           @relation(fields: [leadId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  fromStage         CrmPipelineStage? @relation("CrmLeadStageHistoryFromStage", fields: [fromStageId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  toStage           CrmPipelineStage  @relation("CrmLeadStageHistoryToStage", fields: [toStageId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  actor             User?             @relation("CrmLeadStageHistoryActor", fields: [actorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  lead              CrmLead           @relation(fields: [leadId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  fromStage         CrmPipelineStage? @relation("CrmLeadStageHistoryFromStage", fields: [fromStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  toStage           CrmPipelineStage  @relation("CrmLeadStageHistoryToStage", fields: [toStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  actor             User?             @relation("CrmLeadStageHistoryActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([leadId, version])
   @@unique([leadId, idempotencyKey])
@@ -1797,8 +1800,8 @@ model CrmTask {
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
   customer              Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  lead                  CrmLead?             @relation(fields: [leadId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  lead                  CrmLead?             @relation(fields: [leadId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
   assignedTo            User?                @relation("CrmTaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@unique([source, sourceReference])
@@ -1822,9 +1825,9 @@ model CrmNote {
   authorId              String?              @map("author_id")
   createdAt             DateTime             @default(now()) @map("created_at")
   customer              Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  lead                  CrmLead?             @relation(fields: [leadId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  author                User?                @relation("CrmNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  lead                  CrmLead?             @relation(fields: [leadId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  author                User?                @relation("CrmNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([source, sourceReference])
   @@index([customerId, createdAt])
@@ -2490,6 +2493,7 @@ model CustomerServiceCase {
   crmNotes          CrmNote[]
 
   @@unique([source, sourceReference])
+  @@unique([id, customerId])
   @@index([status, createdAt])
   @@index([category, status])
   @@index([customerId, createdAt])

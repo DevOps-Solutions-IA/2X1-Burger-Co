@@ -24,7 +24,7 @@ export class SofiaWhatsappQrGatewayController {
   @Post('connect')
   @Permissions('settings.update')
   connect(@CurrentUser() actor: AuthUser) {
-    return this.qrGatewayService.connect(actor.sub);
+    return this.qrGatewayService.connect(actor);
   }
 
   @Get('code')
@@ -35,20 +35,20 @@ export class SofiaWhatsappQrGatewayController {
   @Post('disconnect')
   @Permissions('settings.update')
   disconnect(@CurrentUser() actor: AuthUser) {
-    return this.qrGatewayService.disconnect(actor.sub);
+    return this.qrGatewayService.disconnect(actor);
   }
 
   @Post('logout')
   @Permissions('settings.update')
   logout(@CurrentUser() actor: AuthUser) {
-    return this.qrGatewayService.logout(actor.sub);
+    return this.qrGatewayService.logout(actor);
   }
 
   @Post('test-inbound')
   @Permissions('settings.update')
   @UseGuards(SofiaTestOnlyGuard)
-  testInbound(@Body() dto: SofiaWhatsappQrTestInboundDto) {
-    return this.qrGatewayService.testInbound(dto);
+  testInbound(@Body() dto: SofiaWhatsappQrTestInboundDto, @CurrentUser() actor: AuthUser) {
+    return this.qrGatewayService.testInbound(dto, actor);
   }
 
   @Get('inbound-events')
@@ -59,7 +59,7 @@ export class SofiaWhatsappQrGatewayController {
   @Post('test-send')
   @Permissions('settings.update')
   @UseGuards(SofiaTestOnlyGuard)
-  testSend(@Body() dto: SofiaWhatsappQrTestSendDto) {
-    return this.qrGatewayService.testSend(dto);
+  testSend(@Body() dto: SofiaWhatsappQrTestSendDto, @CurrentUser() actor: AuthUser) {
+    return this.qrGatewayService.testSend(dto, actor);
   }
 }

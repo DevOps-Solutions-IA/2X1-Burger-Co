@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type {
@@ -10,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import QRCode from 'qrcode';
+import type { AuthUser } from '../../../../common/types/auth-user.type';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AuditService } from '../../../audit/audit.service';
 import { SofiaWhatsappService } from '../../sofia-whatsapp.service';
@@ -230,7 +238,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async connect(actorId: string) {
+  async connect(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = false;
     const runtimeGate = await this.getQrRuntimeGate();
     if (!runtimeGate.allowed) {
@@ -338,7 +348,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async disconnect(actorId: string) {
+  async disconnect(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
@@ -363,7 +375,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return this.getStatus();
   }
 
-  async logout(actorId: string) {
+  async logout(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
@@ -404,6 +418,16 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return this.getStatus();
   }
 
+  private assertSessionMutationAccess(actor: AuthUser) {
+    const hasAllowedRole = Array.isArray(actor?.roles)
+      && actor.roles.some((role) => role === 'admin' || role === 'supervisor');
+    const hasCapability = Array.isArray(actor?.permissions)
+      && actor.permissions.includes('settings.update');
+    if (!actor?.sub || !hasAllowedRole || !hasCapability) {
+      throw new ForbiddenException({ code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' });
+    }
+  }
+
   async testInbound(input: {
     phone: string;
     text?: string;
@@ -413,7 +437,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     mediaUrl?: string;
     mediaMimeType?: string;
     transcript?: string;
-  }) {
+  }, actor: AuthUser) {
+    this.assertTestMutationAccess(actor);
     if (!input.phone) throw new BadRequestException('phone es requerido para inbound QR.');
 
     const externalMessageId =
@@ -508,7 +533,11 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async testSend(input: { to?: string; phone?: string; body?: string; text?: string }) {
+  async testSend(
+    input: { to?: string; phone?: string; body?: string; text?: string },
+    actor: AuthUser,
+  ) {
+    this.assertTestMutationAccess(actor);
     const to = input.to ?? input.phone ?? '';
     const body = input.body ?? input.text ?? '';
     if (!to || !body)
@@ -516,7 +545,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         'phone/text o to/body son requeridos para validar bloqueo de envío QR.',
       );
 
-    await this.audit('SOFIA_QR_REAL_SEND_BLOCKED', 'system', {
+    await this.audit('SOFIA_QR_REAL_SEND_BLOCKED', actor.sub, {
       reason: 'BLOCKED_REAL_SEND_DISABLED',
     });
 
@@ -526,6 +555,13 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       sent: false,
       realSendingEnabled: false,
     };
+  }
+
+  private assertTestMutationAccess(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    if (this.configService.get<string>('NODE_ENV') !== 'test') {
+      throw new NotFoundException({ code: 'SOFIA_TEST_ONLY_ROUTE_UNAVAILABLE' });
+    }
   }
 
   /* ================================================================ */
