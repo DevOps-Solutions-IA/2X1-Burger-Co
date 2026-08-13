@@ -36,8 +36,13 @@ describe('GlobalSearchService', () => {
     caseFindMany.mockResolvedValue([]);
   });
 
-  it('returns no domain results when the actor lacks every search permission', async () => {
-    const result = await service.search({ q: 'cliente', limit: 5 }, actor([]));
+  it.each([
+    ['inventory', ['orders.read', 'reports.read']],
+    ['waiter', ['orders.read']],
+    ['delivery', ['orders.read']],
+    ['unknown', ['orders.read', 'reports.read']],
+  ])('does not let the %s role escalate search access through permissions', async (role, permissions) => {
+    const result = await service.search({ q: 'cliente', limit: 5 }, actor(permissions, [role]));
 
     expect(result.items).toEqual([]);
     expect(customerFindMany).not.toHaveBeenCalled();
@@ -57,7 +62,7 @@ describe('GlobalSearchService', () => {
       },
     ]);
 
-    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor(['orders.read']));
+    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor([], ['cashier']));
 
     expect(result.items).toContainEqual({
       kind: 'CUSTOMER',
@@ -75,7 +80,7 @@ describe('GlobalSearchService', () => {
     expect(JSON.stringify(result)).not.toContain('valueHash');
   });
 
-  it('does not expose provider references or financial hashes in payment results', async () => {
+  it.each(['admin', 'supervisor'])('allows %s to search payments without exposing sensitive evidence', async (role) => {
     paymentFindMany.mockResolvedValue([
       {
         id: 'payment-intent-long-reference',
@@ -86,7 +91,7 @@ describe('GlobalSearchService', () => {
       },
     ]);
 
-    const result = await service.search({ q: 'payment', limit: 5 }, actor(['reports.read']));
+    const result = await service.search({ q: 'payment', limit: 5 }, actor([], [role]));
 
     expect(result.items).toEqual([
       expect.objectContaining({
@@ -100,13 +105,94 @@ describe('GlobalSearchService', () => {
     expect(result.items[0]).not.toHaveProperty('payloadHash');
   });
 
-  it('allows an elevated role to search all authorized domains', async () => {
-    await service.search({ q: 'abc', limit: 3 }, actor([], ['supervisor']));
+  it.each(['admin', 'supervisor'])('allows %s to search every canonical domain', async (role) => {
+    await service.search({ q: 'abc', limit: 3 }, actor([], [role]));
 
     expect(customerFindMany).toHaveBeenCalledTimes(1);
     expect(orderFindMany).toHaveBeenCalledTimes(1);
     expect(paymentFindMany).toHaveBeenCalledTimes(1);
     expect(conversationFindMany).toHaveBeenCalledTimes(1);
+    expect(caseFindMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { permissions: [] },
+    { permissions: ['orders.read'] },
+    { permissions: ['reports.read'] },
+    { permissions: ['orders.read', 'reports.read'] },
+  ])('never exposes restricted domains to a cashier with permissions $permissions', async ({ permissions }) => {
+    paymentFindMany.mockResolvedValue([
+      {
+        id: 'payment-secret',
+        status: 'SUCCEEDED',
+        provider: 'BOLD',
+        amount: new Prisma.Decimal(25_000),
+        currency: 'COP',
+      },
+    ]);
+    caseFindMany.mockResolvedValue([
+      {
+        id: 'case-secret',
+        category: 'PAYMENT_PROBLEM',
+        status: 'HUMAN_REQUIRED',
+        sanitizedSummary: 'Resumen restringido',
+      },
+    ]);
+
+    const result = await service.search({ q: 'restricted', limit: 5 }, actor(permissions, ['cashier']));
+
+    expect(result.items).toEqual([]);
+    expect(paymentFindMany).not.toHaveBeenCalled();
+    expect(caseFindMany).not.toHaveBeenCalled();
+    expect(customerFindMany).toHaveBeenCalledTimes(1);
+    expect(orderFindMany).toHaveBeenCalledTimes(1);
+    expect(conversationFindMany).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain('payment-secret');
+    expect(JSON.stringify(result)).not.toContain('case-secret');
+    expect(JSON.stringify(result)).not.toContain('Resumen restringido');
+  });
+
+  it('preserves operational customer, order, and conversation search for cashiers', async () => {
+    customerFindMany.mockResolvedValue([
+      {
+        id: 'customer-1',
+        displayName: 'Cliente Uno',
+        status: 'ACTIVE',
+        identities: [{ valueMasked: '*** 3047', isPrimary: true }],
+      },
+    ]);
+    orderFindMany.mockResolvedValue([
+      {
+        id: 'order-1',
+        number: 'ORD-1',
+        customerName: 'Cliente Uno',
+        status: 'OPEN',
+        type: 'TAKEAWAY',
+      },
+    ]);
+    conversationFindMany.mockResolvedValue([
+      {
+        id: 'conversation-1',
+        customerName: 'Cliente Uno',
+        status: 'SOFIA_ACTIVE',
+        customer: { identities: [{ valueMasked: '*** 3047', isPrimary: true }] },
+      },
+    ]);
+
+    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor([], ['cashier']));
+
+    expect(result.items.map((item) => item.kind)).toEqual(['CUSTOMER', 'ORDER', 'CONVERSATION']);
+    expect(paymentFindMany).not.toHaveBeenCalled();
+    expect(caseFindMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps restricted access when an elevated actor also has a lower-privilege role', async () => {
+    await service.search({ q: 'abc', limit: 3 }, actor([], ['cashier', 'supervisor']));
+
+    expect(customerFindMany).toHaveBeenCalledTimes(1);
+    expect(orderFindMany).toHaveBeenCalledTimes(1);
+    expect(conversationFindMany).toHaveBeenCalledTimes(1);
+    expect(paymentFindMany).toHaveBeenCalledTimes(1);
     expect(caseFindMany).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,26 +15,27 @@ export interface SearchResult {
   href: string;
 }
 
+const OPERATIONAL_SEARCH_ROLES = new Set(['admin', 'supervisor', 'cashier']);
+const RESTRICTED_SEARCH_ROLES = new Set(['admin', 'supervisor']);
+
 @Injectable()
 export class GlobalSearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   async search(dto: GlobalSearchDto, actor: AuthUser) {
     const query = dto.q.trim();
-    const permissions = new Set(actor.permissions ?? []);
-    const elevated = actor.roles.some((role) => role === 'admin' || role === 'supervisor');
-    const canReadOrders = elevated || permissions.has('orders.read');
-    const canReadPayments = elevated || permissions.has('reports.read');
+    const canReadOperationalDomains = actor.roles.some((role) => OPERATIONAL_SEARCH_ROLES.has(role));
+    const canReadRestrictedDomains = actor.roles.some((role) => RESTRICTED_SEARCH_ROLES.has(role));
     const tasks: Array<Promise<SearchResult[]>> = [];
 
-    if (canReadOrders) {
+    if (canReadOperationalDomains) {
       tasks.push(this.customers(query, dto.limit));
       tasks.push(this.orders(query, dto.limit));
       tasks.push(this.conversations(query, dto.limit));
-      tasks.push(this.cases(query, dto.limit));
     }
-    if (canReadPayments) {
+    if (canReadRestrictedDomains) {
       tasks.push(this.payments(query, dto.limit));
+      tasks.push(this.cases(query, dto.limit));
     }
 
     const groups = await Promise.all(tasks);
