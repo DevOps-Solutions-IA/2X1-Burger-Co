@@ -1,17 +1,9 @@
 'use client';
 
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const focusableSelector = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
+import { useAccessibleModal } from '@/components/use-accessible-modal';
 
 export function DetailDialog({
   open,
@@ -34,54 +26,12 @@ export function DetailDialog({
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const frame = window.requestAnimationFrame(() => {
-      const first = panelRef.current?.querySelector<HTMLElement>(focusableSelector);
-      (first ?? panelRef.current)?.focus();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.body.style.overflow = previousOverflow;
-      previousFocusRef.current?.focus();
-    };
-  }, [open]);
+  const { panelRef, handleKeyDown } = useAccessibleModal<HTMLDivElement>(open, onClose);
 
   if (!open) return null;
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (event.key !== 'Tab' || !panelRef.current) return;
-    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(focusableSelector));
-    if (focusable.length === 0) {
-      event.preventDefault();
-      panelRef.current.focus();
-      return;
-    }
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/45 p-0 backdrop-blur-[2px] motion-reduce:backdrop-blur-none sm:items-center sm:p-4">
+    <div data-modal-root className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/45 p-0 backdrop-blur-[2px] motion-reduce:backdrop-blur-none sm:items-center sm:p-4">
       <button type="button" className="absolute inset-0 cursor-default" aria-label={closeLabel} onClick={onClose} />
       <div
         ref={panelRef}
