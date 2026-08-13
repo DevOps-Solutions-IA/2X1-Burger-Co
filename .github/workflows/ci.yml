@@ -195,6 +195,7 @@ jobs:
             src/modules/sofia/sofia-inbox-bounds.spec.ts \
             src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.spec.ts \
             src/tests/phase8-crm-concurrency.integration.spec.ts \
+            src/tests/phase8-permission-intersection.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
           pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
