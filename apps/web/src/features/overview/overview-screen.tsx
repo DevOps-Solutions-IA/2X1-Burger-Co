@@ -27,8 +27,7 @@ import { useAuth } from '@/features/auth/auth-provider';
 import { canAccessRoute } from '@/features/auth/access-control';
 import { ApiError } from '@/lib/api';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/format';
-import type { OperationalOrder } from './contracts';
-import type { OperationalReport } from './contracts';
+import { describeCustomerAutomation, type OperationalOrder, type OperationalReport } from './contracts';
 import {
   useObservabilitySnapshot,
   useOperationalReport,
@@ -110,6 +109,7 @@ export function OverviewScreen() {
       + (health.metrics.operational.paymentWebhooks.financialReviewRequired ?? 0)
     : null;
   const isReady = health?.status === 'READY';
+  const automationStatus = health ? describeCustomerAutomation(health.metrics.effectiveFlags) : null;
   const greetingName = user?.fullName?.split(' ')[0];
 
   return (
@@ -319,8 +319,8 @@ export function OverviewScreen() {
           <ReadinessSurface
             title="Automatización de clientes"
             description="Envío, auto reply y mutaciones permanecen gobernados."
-            state={health ? flagsRemainClosed(health.metrics.effectiveFlags) ? 'blocked' : 'degraded' : 'unknown'}
-            details={health ? 'Envío WhatsApp y auto reply desactivados' : 'No se pudo verificar el estado efectivo'}
+            state={automationStatus?.state ?? 'unknown'}
+            details={automationStatus?.details ?? 'No se pudo verificar el estado efectivo'}
             action={<Bot className="h-5 w-5 text-muted" aria-hidden="true" />}
           />
         </div>
@@ -449,13 +449,4 @@ function queryStatus(query: { isLoading: boolean; isError: boolean; error: unkno
 function queryErrorDescription(error: unknown) {
   if (error instanceof ApiError && error.status === 403) return 'Tu rol no permite consultar el reporte operacional.';
   return error instanceof Error ? error.message : 'No pudimos verificar la fuente operacional.';
-}
-
-function flagsRemainClosed(flags: {
-  realSendingEnabled: boolean;
-  autoReplyEnabled: boolean;
-  autoSafeEnabled: boolean;
-  productionEnabled: boolean;
-}) {
-  return !flags.realSendingEnabled && !flags.autoReplyEnabled && !flags.autoSafeEnabled;
 }

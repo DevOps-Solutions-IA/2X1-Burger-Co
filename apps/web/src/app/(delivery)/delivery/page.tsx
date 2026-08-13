@@ -11,6 +11,7 @@ import { SectionTitle } from '@/components/ui/section-title';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 import { apiFetch, subscribeOperationalStream } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { CacheStorage, TTL } from '@/lib/cache-storage';
@@ -174,6 +175,12 @@ export default function DeliveryPanelPage() {
   const previousOrdersRef = useRef<Map<string, DeliveryOrder>>(new Map());
   const hasSeenLiveDataRef = useRef(false);
   const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  const canUpdateDelivery = canPerformAction(
+    user?.permissions,
+    'delivery.update',
+    user?.roles,
+    ['admin', 'supervisor', 'cashier', 'delivery'],
+  );
 
   const initialDeliveries = useMemo(() => {
     if (typeof window === 'undefined' || !user?.sub) {
@@ -222,11 +229,13 @@ export default function DeliveryPanelPage() {
       workflowStatus: DeliveryWorkflowStatus;
       notes?: string;
       issueType?: DeliveryIssueType;
-    }) =>
-      apiFetch(`/orders/${orderId}/delivery-workflow`, {
+    }) => {
+      if (!canUpdateDelivery) throw new Error('No tienes permiso para actualizar entregas.');
+      return apiFetch(`/orders/${orderId}/delivery-workflow`, {
         method: 'POST',
         body: JSON.stringify({ workflowStatus, notes, issueType }),
-      }),
+      });
+    },
     onSuccess: async (_, variables) => {
       toast.success(
         variables.workflowStatus === 'ASSIGNED'
@@ -394,6 +403,14 @@ export default function DeliveryPanelPage() {
         description="Toma pedidos, confirma avances y sigue cada entrega."
         status={<Badge tone="info">{summary.total} activos</Badge>}
       />
+
+      {!canUpdateDelivery ? (
+        <StatusBanner
+          tone="info"
+          title="Modo consulta"
+          description="Puedes revisar tus entregas, pero esta sesión no tiene la capacidad delivery.update para cambiar el flujo."
+        />
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard compact label="A mi cargo" value={deliveryMetric(summary.mine)} hint="Pedidos asignados a esta sesión" icon={<UserRound className="h-5 w-5" />} />
@@ -584,7 +601,7 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {canTake ? (
+                {canUpdateDelivery && canTake ? (
                   <Button
                     size="sm"
                     className="min-h-11 w-full justify-center"
@@ -596,7 +613,7 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {isMine && order.deliveryWorkflowStatus === 'ASSIGNED' ? (
+                {canUpdateDelivery && isMine && order.deliveryWorkflowStatus === 'ASSIGNED' ? (
                   <Button
                     size="sm"
                     className="min-h-11 w-full justify-center"
@@ -608,7 +625,7 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {isMine && order.deliveryWorkflowStatus === 'IN_TRANSIT' ? (
+                {canUpdateDelivery && isMine && order.deliveryWorkflowStatus === 'IN_TRANSIT' ? (
                   <>
                     <Button
                       size="sm"

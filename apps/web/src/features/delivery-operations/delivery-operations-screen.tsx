@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 import { ApiError, apiFetch, apiFetchBlob, subscribeOperationalStream } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
@@ -201,8 +202,25 @@ export function DeliveryOperationsScreen() {
   const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  const canManageAssignments = Boolean(user?.roles.some((role) => role === 'admin' || role === 'supervisor' || role === 'cashier'));
-  const canReviewLocations = canManageAssignments;
+  const canManageAssignments = canPerformAction(
+    user?.permissions,
+    'delivery.assign',
+    user?.roles,
+    ['admin', 'supervisor', 'cashier'],
+  );
+  const canUpdateDelivery = canPerformAction(
+    user?.permissions,
+    'delivery.update',
+    user?.roles,
+    ['admin', 'supervisor', 'cashier', 'delivery'],
+  );
+  const canUpdateAlerts = canPerformAction(
+    user?.permissions,
+    'orders.update',
+    user?.roles,
+    ['admin', 'supervisor', 'cashier', 'delivery'],
+  );
+  const canReviewLocations = canUpdateDelivery;
 
   const deliveries = useQuery({
     queryKey: ['delivery-admin-orders'],
@@ -254,10 +272,13 @@ export function DeliveryOperationsScreen() {
   };
 
   const assignRider = useMutation({
-    mutationFn: ({ orderId, riderId }: { orderId: string; riderId: string }) => apiFetch(`/orders/${orderId}/assign-rider`, {
-      method: 'POST',
-      body: JSON.stringify({ riderId }),
-    }),
+    mutationFn: ({ orderId, riderId }: { orderId: string; riderId: string }) => {
+      if (!canManageAssignments) throw new Error('No tienes permiso para asignar domiciliarios.');
+      return apiFetch(`/orders/${orderId}/assign-rider`, {
+        method: 'POST',
+        body: JSON.stringify({ riderId }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Domiciliario asignado');
       await refreshOperationalData();
@@ -265,11 +286,13 @@ export function DeliveryOperationsScreen() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible asignar el domiciliario'),
   });
   const updateWorkflow = useMutation({
-    mutationFn: (input: { orderId: string; workflowStatus: DeliveryWorkflowStatus; notes?: string; issueType?: DeliveryIssueType }) =>
-      apiFetch(`/orders/${input.orderId}/delivery-workflow`, {
+    mutationFn: (input: { orderId: string; workflowStatus: DeliveryWorkflowStatus; notes?: string; issueType?: DeliveryIssueType }) => {
+      if (!canUpdateDelivery) throw new Error('No tienes permiso para actualizar el flujo de entrega.');
+      return apiFetch(`/orders/${input.orderId}/delivery-workflow`, {
         method: 'POST',
         body: JSON.stringify({ workflowStatus: input.workflowStatus, notes: input.notes, issueType: input.issueType }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Estado logístico actualizado');
       setIssueNote('');
@@ -278,11 +301,13 @@ export function DeliveryOperationsScreen() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible actualizar el reparto'),
   });
   const resolveLocation = useMutation({
-    mutationFn: ({ inboxId, orderId, ignore }: { inboxId: string; orderId?: string; ignore?: boolean }) =>
-      apiFetch<{ order?: { id: string } | null }>(`/orders/delivery-location-inbox/${inboxId}/resolve`, {
+    mutationFn: ({ inboxId, orderId, ignore }: { inboxId: string; orderId?: string; ignore?: boolean }) => {
+      if (!canUpdateDelivery) throw new Error('No tienes permiso para resolver ubicaciones logísticas.');
+      return apiFetch<{ order?: { id: string } | null }>(`/orders/delivery-location-inbox/${inboxId}/resolve`, {
         method: 'POST',
         body: JSON.stringify({ orderId, ignore }),
-      }),
+      });
+    },
     onSuccess: async (result) => {
       toast[result && 'order' in result && result.order === null ? 'warning' : 'success'](
         result && 'order' in result && result.order === null
@@ -294,8 +319,10 @@ export function DeliveryOperationsScreen() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible procesar la ubicación'),
   });
   const updateAlert = useMutation({
-    mutationFn: ({ alertId, status }: { alertId: string; status: 'ACKNOWLEDGED' | 'RESOLVED' }) =>
-      apiFetch(`/orders/operational-alerts/${alertId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    mutationFn: ({ alertId, status }: { alertId: string; status: 'ACKNOWLEDGED' | 'RESOLVED' }) => {
+      if (!canUpdateAlerts) throw new Error('No tienes permiso para actualizar alertas operativas.');
+      return apiFetch(`/orders/operational-alerts/${alertId}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    },
     onSuccess: async () => queryClient.refetchQueries({ queryKey: ['operational-alerts', 'deliveries'], type: 'active' }),
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No fue posible actualizar la alerta'),
   });
@@ -354,6 +381,9 @@ export function DeliveryOperationsScreen() {
   const deliveryRiders = (riders.data ?? []).filter((rider) => rider.isActive && rider.roles.some((role) => role.name === 'delivery'));
   const openAlerts = (alerts.data ?? []).filter((alert) => alert.status !== 'RESOLVED');
   const pendingLocations = locationInbox.data ?? [];
+  const deliveriesAvailable = deliveries.isSuccess && Boolean(deliveries.data);
+  const alertsAvailable = alerts.isSuccess && Boolean(alerts.data);
+  const locationsAvailable = canReviewLocations && locationInbox.isSuccess && Boolean(locationInbox.data);
 
   return (
     <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="deliveries-page">
@@ -365,12 +395,21 @@ export function DeliveryOperationsScreen() {
         actions={<Button type="button" variant="secondary" onClick={() => void refreshOperationalData()} disabled={deliveries.isFetching}>Actualizar datos</Button>}
       />
 
+      {!canManageAssignments && !canUpdateDelivery && !canUpdateAlerts ? (
+        <QueryState
+          status="permission_denied"
+          title="Modo consulta"
+          description="Puedes revisar la operación, pero tu sesión no tiene capacidades para asignar, cambiar estados ni resolver alertas."
+          data-testid="deliveries-read-only"
+        />
+      ) : null}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Resumen logístico">
-        <MetricSurface density="compact" label="Pendientes" value={summary.pending} context="Sin asignación" icon={<Clock3 className="h-5 w-5" />} unavailable={deliveries.isError} />
-        <MetricSurface density="compact" label="Asignados" value={summary.assigned} context="Con responsable" icon={<UserRound className="h-5 w-5" />} unavailable={deliveries.isError} />
-        <MetricSurface density="compact" label="En tránsito" value={summary.inTransit} context="Entrega activa" icon={<Navigation className="h-5 w-5" />} unavailable={deliveries.isError} />
-        <MetricSurface density="compact" label="Novedades" value={summary.issue} context={`${openAlerts.length} alertas abiertas`} icon={<AlertTriangle className="h-5 w-5" />} unavailable={deliveries.isError || alerts.isError} />
-        <MetricSurface density="compact" label="Ubicaciones por revisar" value={pendingLocations.length} context="Solo apoyo logístico" icon={<MapPinned className="h-5 w-5" />} unavailable={!canReviewLocations || locationInbox.isError} />
+        <MetricSurface density="compact" label="Pendientes" value={deliveriesAvailable ? summary.pending : undefined} context="Sin asignación" icon={<Clock3 className="h-5 w-5" />} unavailable={!deliveriesAvailable} />
+        <MetricSurface density="compact" label="Asignados" value={deliveriesAvailable ? summary.assigned : undefined} context="Con responsable" icon={<UserRound className="h-5 w-5" />} unavailable={!deliveriesAvailable} />
+        <MetricSurface density="compact" label="En tránsito" value={deliveriesAvailable ? summary.inTransit : undefined} context="Entrega activa" icon={<Navigation className="h-5 w-5" />} unavailable={!deliveriesAvailable} />
+        <MetricSurface density="compact" label="Novedades" value={deliveriesAvailable && alertsAvailable ? summary.issue : undefined} context={alertsAvailable ? `${openAlerts.length} alertas abiertas` : 'Alertas sin verificar'} icon={<AlertTriangle className="h-5 w-5" />} unavailable={!deliveriesAvailable || !alertsAvailable} />
+        <MetricSurface density="compact" label="Ubicaciones por revisar" value={locationsAvailable ? pendingLocations.length : undefined} context="Solo apoyo logístico" icon={<MapPinned className="h-5 w-5" />} unavailable={!locationsAvailable} />
       </section>
 
       <section className="rounded-2xl border border-brand-200 bg-brand-50 p-4" data-testid="deliveries-sofia-ops-summary">
@@ -392,6 +431,8 @@ export function DeliveryOperationsScreen() {
         setLocationSelection={setLocationSelection}
         resolveLocation={resolveLocation}
         updateAlert={updateAlert}
+        canUpdateAlerts={canUpdateAlerts}
+        canUpdateDelivery={canUpdateDelivery}
         onRetry={() => void refreshOperationalData()}
       />
 
@@ -472,6 +513,7 @@ export function DeliveryOperationsScreen() {
               riderValue={riderSelection[selectedOrder.id] ?? selectedOrder.assignedRiderId ?? ''}
               setRiderValue={(value) => setRiderSelection((current) => ({ ...current, [selectedOrder.id]: value }))}
               canManageAssignments={canManageAssignments}
+              canUpdateDelivery={canUpdateDelivery}
               assignmentDirectoryAvailable={!riders.isError && riders.isEnabled}
               assignRider={assignRider}
               updateWorkflow={updateWorkflow}
@@ -552,6 +594,8 @@ function OperationalReview({
   setLocationSelection,
   resolveLocation,
   updateAlert,
+  canUpdateAlerts,
+  canUpdateDelivery,
   onRetry,
 }: {
   alerts: OperationalAlert[];
@@ -562,6 +606,8 @@ function OperationalReview({
   setLocationSelection: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   resolveLocation: ReturnType<typeof useMutation<unknown, Error, { inboxId: string; orderId?: string; ignore?: boolean }>>;
   updateAlert: ReturnType<typeof useMutation<unknown, Error, { alertId: string; status: 'ACKNOWLEDGED' | 'RESOLVED' }>>;
+  canUpdateAlerts: boolean;
+  canUpdateDelivery: boolean;
   onRetry: () => void;
 }) {
   if (alerts.length === 0 && locations.length === 0 && alertsStatus === 'ready' && locationsStatus === 'ready') return null;
@@ -588,8 +634,8 @@ function OperationalReview({
                       <p className="mt-1 text-sm leading-5 text-muted">{alert.message}</p>
                     </div>
                     <div className="flex shrink-0 gap-2">
-                      {alert.status === 'OPEN' ? <Button size="sm" variant="secondary" onClick={() => updateAlert.mutate({ alertId: alert.id, status: 'ACKNOWLEDGED' })}>Revisada</Button> : null}
-                      <Button size="sm" variant="ghost" onClick={() => updateAlert.mutate({ alertId: alert.id, status: 'RESOLVED' })}>Resolver</Button>
+                      {alert.status === 'OPEN' ? <Button size="sm" variant="secondary" onClick={() => updateAlert.mutate({ alertId: alert.id, status: 'ACKNOWLEDGED' })} disabled={!canUpdateAlerts}>Revisada</Button> : null}
+                      <Button size="sm" variant="ghost" onClick={() => updateAlert.mutate({ alertId: alert.id, status: 'RESOLVED' })} disabled={!canUpdateAlerts}>Resolver</Button>
                     </div>
                   </div>
                 </article>
@@ -615,14 +661,14 @@ function OperationalReview({
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <label className="min-w-0 flex-1 text-xs font-semibold text-muted">
                         Pedido logístico
-                        <Select className="mt-1" value={selected} onChange={(event) => setLocationSelection((current) => ({ ...current, [item.id]: event.target.value }))}>
+                        <Select className="mt-1" value={selected} onChange={(event) => setLocationSelection((current) => ({ ...current, [item.id]: event.target.value }))} disabled={!canUpdateDelivery}>
                           <option value="">Selecciona un pedido</option>
                           {item.candidateOrders.map((order) => <option key={order.id} value={order.id}>{order.number} · {order.customerName ?? 'Sin nombre'}</option>)}
                         </Select>
                       </label>
                       <div className="flex items-end gap-2">
-                        <Button size="sm" onClick={() => resolveLocation.mutate({ inboxId: item.id, orderId: selected })} disabled={!selected || resolveLocation.isPending}>Aplicar</Button>
-                        <Button size="sm" variant="ghost" onClick={() => resolveLocation.mutate({ inboxId: item.id, ignore: true })} disabled={resolveLocation.isPending}>Ignorar</Button>
+                        <Button size="sm" onClick={() => resolveLocation.mutate({ inboxId: item.id, orderId: selected })} disabled={!canUpdateDelivery || !selected || resolveLocation.isPending}>Aplicar</Button>
+                        <Button size="sm" variant="ghost" onClick={() => resolveLocation.mutate({ inboxId: item.id, ignore: true })} disabled={!canUpdateDelivery || resolveLocation.isPending}>Ignorar</Button>
                       </div>
                     </div>
                   </article>
@@ -646,6 +692,7 @@ function DeliveryDetail({
   riderValue,
   setRiderValue,
   canManageAssignments,
+  canUpdateDelivery,
   assignmentDirectoryAvailable,
   assignRider,
   updateWorkflow,
@@ -664,6 +711,7 @@ function DeliveryDetail({
   riderValue: string;
   setRiderValue: (value: string) => void;
   canManageAssignments: boolean;
+  canUpdateDelivery: boolean;
   assignmentDirectoryAvailable: boolean;
   assignRider: ReturnType<typeof useMutation<unknown, Error, { orderId: string; riderId: string }>>;
   updateWorkflow: ReturnType<typeof useMutation<unknown, Error, { orderId: string; workflowStatus: DeliveryWorkflowStatus; notes?: string; issueType?: DeliveryIssueType }>>;
@@ -777,15 +825,15 @@ function DeliveryDetail({
       <section className="p-4 sm:p-5" aria-labelledby="delivery-flow-title">
         <h3 id="delivery-flow-title" className="text-xs font-semibold uppercase tracking-wider text-muted">Transición operativa</h3>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'ASSIGNED' })} disabled={updateWorkflow.isPending || !order.assignedRiderId || workflow === 'ASSIGNED' || workflow === 'IN_TRANSIT' || workflow === 'DELIVERED'}><UserRound className="h-4 w-4" aria-hidden="true" />Confirmar asignación</Button>
-          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'IN_TRANSIT' })} disabled={updateWorkflow.isPending || !canTransit}><Navigation className="h-4 w-4" aria-hidden="true" />Marcar en tránsito</Button>
-          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'DELIVERED' })} disabled={updateWorkflow.isPending || !canDeliver} data-testid="deliveries-delivered-button"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Marcar entregado</Button>
+          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'ASSIGNED' })} disabled={!canUpdateDelivery || updateWorkflow.isPending || !order.assignedRiderId || workflow === 'ASSIGNED' || workflow === 'IN_TRANSIT' || workflow === 'DELIVERED'}><UserRound className="h-4 w-4" aria-hidden="true" />Confirmar asignación</Button>
+          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'IN_TRANSIT' })} disabled={!canUpdateDelivery || updateWorkflow.isPending || !canTransit}><Navigation className="h-4 w-4" aria-hidden="true" />Marcar en tránsito</Button>
+          <Button variant="secondary" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'DELIVERED' })} disabled={!canUpdateDelivery || updateWorkflow.isPending || !canDeliver} data-testid="deliveries-delivered-button"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Marcar entregado</Button>
         </div>
         <div className="mt-4 rounded-xl border border-line bg-canvas p-3">
           <div className="grid gap-3 lg:grid-cols-[0.8fr_1.6fr_auto] lg:items-end">
             <label className="text-sm font-semibold text-ink">Tipo de novedad<Select className="mt-1" value={issueType} onChange={(event) => setIssueType(event.target.value as DeliveryIssueType)}>{Object.entries(issueLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label>
             <label className="text-sm font-semibold text-ink">Detalle operativo<Textarea className="mt-1 min-h-11" rows={2} maxLength={240} value={issueNote} onChange={(event) => setIssueNote(event.target.value)} placeholder="Describe el hecho sin prometer compensaciones" /></label>
-            <Button variant="secondary" className="text-signal-danger" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'ISSUE', issueType, notes: issueNote.trim() || undefined })} disabled={updateWorkflow.isPending} data-testid="deliveries-incident-button"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Registrar novedad</Button>
+            <Button variant="secondary" className="text-signal-danger" onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'ISSUE', issueType, notes: issueNote.trim() || undefined })} disabled={!canUpdateDelivery || updateWorkflow.isPending} data-testid="deliveries-incident-button"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Registrar novedad</Button>
           </div>
         </div>
       </section>

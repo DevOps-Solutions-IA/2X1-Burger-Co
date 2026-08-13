@@ -2,6 +2,31 @@ import { z } from 'zod';
 
 export const commercialValueSchema = z.union([z.number(), z.string()]);
 
+export type CustomerAutomationFlags = {
+  realSendingEnabled: boolean;
+  autoReplyEnabled: boolean;
+  autoSafeEnabled: boolean;
+  productionEnabled: boolean;
+};
+
+export function describeCustomerAutomation(flags: CustomerAutomationFlags) {
+  const enabled = [
+    flags.productionEnabled && 'Producción habilitada',
+    flags.realSendingEnabled && 'WhatsApp outbound habilitado',
+    flags.autoReplyEnabled && 'Auto reply habilitado',
+    flags.autoSafeEnabled && 'Auto Safe habilitado',
+  ].filter(Boolean) as string[];
+
+  if (enabled.length > 0) {
+    return { state: 'degraded' as const, details: enabled.join(' · ') };
+  }
+
+  return {
+    state: 'blocked' as const,
+    details: 'Producción, WhatsApp outbound, auto reply y Auto Safe deshabilitados',
+  };
+}
+
 const bestSellerSchema = z.object({
   productName: z.string(),
   quantity: commercialValueSchema,
@@ -59,9 +84,9 @@ export const operationalReportSchema = z.object({
     itemsSold: commercialValueSchema,
     pendingCount: z.number().optional(),
     canceledCount: z.number().optional(),
-    byPaymentMethod: z.array(reportBreakdownSchema).default([]),
-    byChannel: z.array(reportBreakdownSchema).default([]),
-    bestSellers: z.array(bestSellerSchema).default([]),
+    byPaymentMethod: z.array(reportBreakdownSchema),
+    byChannel: z.array(reportBreakdownSchema),
+    bestSellers: z.array(bestSellerSchema),
   }).passthrough(),
   purchases: z.object({
     total: commercialValueSchema,
@@ -77,12 +102,12 @@ export const operationalReportSchema = z.object({
     netProfit: commercialValueSchema,
   }).passthrough(),
   replenishment: z.object({
-    lowStock: z.array(stockAlertSchema).default([]),
-    criticalStock: z.array(stockAlertSchema).default([]),
-    outOfStock: z.array(stockAlertSchema).default([]),
-    productLowStock: z.array(stockAlertSchema).default([]),
-    productCriticalStock: z.array(stockAlertSchema).default([]),
-    productOutOfStock: z.array(stockAlertSchema).default([]),
+    lowStock: z.array(stockAlertSchema),
+    criticalStock: z.array(stockAlertSchema),
+    outOfStock: z.array(stockAlertSchema),
+    productLowStock: z.array(stockAlertSchema),
+    productCriticalStock: z.array(stockAlertSchema),
+    productOutOfStock: z.array(stockAlertSchema),
   }).passthrough(),
   operations: z.object({
     activeOrdersCount: z.number(),

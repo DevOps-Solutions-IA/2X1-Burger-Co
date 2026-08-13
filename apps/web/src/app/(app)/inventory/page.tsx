@@ -19,6 +19,8 @@ import { FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type StockStatus = 'NORMAL' | 'LOW' | 'CRITICAL' | 'OUT_OF_STOCK';
 type InventoryItemType = 'PRODUCT' | 'INGREDIENT';
@@ -129,6 +131,7 @@ const quickAdjustments = [
 ];
 
 export default function InventoryPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const today = new Date().toISOString().slice(0, 10);
@@ -148,6 +151,7 @@ export default function InventoryPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ movementType: string; label: string } | null>(null);
   const editItemId = searchParams?.get('edit') ?? null;
   const editItemType = searchParams?.get('itemType') as InventoryItemType | null;
+  const canAdjust = canPerformAction(user?.permissions, 'inventory.adjust', user?.roles, ['admin', 'inventory']);
 
   const stock = useQuery({
     queryKey: ['inventory-stock'],
@@ -203,8 +207,9 @@ export default function InventoryPage() {
   const isAdjustmentQuantityValid = !Number.isNaN(adjustmentQuantityNum) && adjustmentQuantityNum > 0;
 
   const createAdjustment = useMutation<unknown, Error, string>({
-    mutationFn: (movementTypeValue = 'ADJUSTMENT') =>
-      apiFetch('/inventory/adjustments', {
+    mutationFn: (movementTypeValue = 'ADJUSTMENT') => {
+      if (!canAdjust) throw new Error('No tienes permiso para ajustar inventario.');
+      return apiFetch('/inventory/adjustments', {
         method: 'POST',
         body: JSON.stringify({
           ...(adjustmentItemType === 'PRODUCT' ? { productId: adjustmentItemId } : { ingredientId: adjustmentItemId }),
@@ -213,7 +218,8 @@ export default function InventoryPage() {
           notes: adjustmentNotes || undefined,
           movementType: movementTypeValue,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Inventario actualizado');
       setAdjustmentQuantity('');
@@ -224,8 +230,9 @@ export default function InventoryPage() {
   });
 
   const registerStockCount = useMutation({
-    mutationFn: () =>
-      apiFetch('/inventory/stock-counts', {
+    mutationFn: () => {
+      if (!canAdjust) throw new Error('No tienes permiso para registrar conteos.');
+      return apiFetch('/inventory/stock-counts', {
         method: 'POST',
         body: JSON.stringify({
           scope,
@@ -237,7 +244,8 @@ export default function InventoryPage() {
             reason: 'Conteo',
           })),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Conteo guardado y diferencias aplicadas');
       setCountNotes('');
@@ -299,6 +307,8 @@ export default function InventoryPage() {
           ) : <StatusBadge status="UNKNOWN" label="Estado sin verificar" />
         }
       />
+
+      {!canAdjust ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar existencias, alertas e historial, pero no ajustar stock ni aplicar conteos." /> : null}
 
       {criticalAlerts.length ? (
         <StatusBanner
@@ -381,7 +391,7 @@ export default function InventoryPage() {
                 <Button
                   key={quick.label}
                   variant="secondary"
-                  disabled={!adjustmentItemId || createAdjustment.isPending}
+                  disabled={!canAdjust || !adjustmentItemId || createAdjustment.isPending}
                   onClick={() => {
                     setConfirmDialog({ movementType: quick.movementType, label: quick.label });
                   }}
@@ -390,7 +400,7 @@ export default function InventoryPage() {
                 </Button>
               ))}
             </div>
-            <Button disabled={!adjustmentItemId || !isAdjustmentQuantityValid || createAdjustment.isPending} onClick={() => createAdjustment.mutate('ADJUSTMENT')}>
+            <Button disabled={!canAdjust || !adjustmentItemId || !isAdjustmentQuantityValid || createAdjustment.isPending} onClick={() => createAdjustment.mutate('ADJUSTMENT')}>
               Aplicar ajuste
             </Button>
           </div>
@@ -548,7 +558,7 @@ export default function InventoryPage() {
             ))}
           </div>
           <div className="mt-4 flex justify-end">
-            <Button disabled={registerStockCount.isPending || !(stockCountPreview.data?.items ?? []).length} onClick={() => registerStockCount.mutate()}>
+            <Button disabled={!canAdjust || registerStockCount.isPending || !(stockCountPreview.data?.items ?? []).length} onClick={() => registerStockCount.mutate()}>
               {registerStockCount.isPending ? 'Aplicando...' : 'Guardar conteo'}
             </Button>
           </div>

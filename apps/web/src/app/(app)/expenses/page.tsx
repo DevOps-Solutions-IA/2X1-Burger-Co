@@ -15,6 +15,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { DetailDialog, FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatDate, matchesSearch } from '@/lib/format';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 const commonConcepts = [
   'Gas',
@@ -82,12 +84,14 @@ function getExpenseErrors(form: {
 }
 
 export default function ExpensesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [form, setForm] = useState(blankExpenseForm);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const canCreate = canPerformAction(user?.permissions, 'expenses.create', user?.roles, ['admin', 'cashier', 'supervisor']);
 
   const expenses = useQuery({
     queryKey: ['expenses'],
@@ -124,6 +128,7 @@ export default function ExpensesPage() {
 
   const createExpense = useMutation({
     mutationFn: () => {
+      if (!canCreate) return Promise.reject(new Error('No tienes permiso para registrar gastos.'));
       if (!expenseSourcesReady) {
         return Promise.reject(new Error('No se puede registrar el gasto sin verificar las fuentes financieras requeridas.'));
       }
@@ -185,6 +190,8 @@ export default function ExpensesPage() {
           : <StatusBadge status="UNKNOWN" label={dailySummary.data ? 'Resumen desactualizado' : 'Resumen sin verificar'} />}
       />
 
+      {!canCreate ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar el historial financiero, pero no registrar gastos." /> : null}
+
       <div className="grid gap-3 md:grid-cols-3">
         <MetricSurface density="compact" label="Gastos del día" value={dailySummary.data ? formatCurrency(dailySummary.data.expenses?.total) : undefined} context="Impacto directo" icon={<PiggyBank className="h-5 w-5" />} unavailable={!dailySummary.data} />
         <MetricSurface density="compact" label="Registros" value={dailySummary.data ? String(dailySummary.data.expenses?.count ?? 0) : undefined} context="Egresos cargados" icon={<PiggyBank className="h-5 w-5" />} unavailable={!dailySummary.data} />
@@ -207,7 +214,7 @@ export default function ExpensesPage() {
               <h2 className="text-[15px] font-extrabold text-ink">Registrar gasto</h2>
               <p className="mt-0.5 text-[12px] text-stone-600">Cada egreso afecta el cierre diario.</p>
             </div>
-            <Button type="button" variant="secondary" size="sm" onClick={resetForm}>Nuevo registro</Button>
+            <Button type="button" variant="secondary" size="sm" onClick={resetForm} disabled={!canCreate}>Nuevo registro</Button>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-1.5">
@@ -218,6 +225,7 @@ export default function ExpensesPage() {
                 className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${form.concept === concept ? 'bg-ink text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
                 onClick={() => setForm((c) => ({ ...c, concept, classification: concept }))}
                 data-testid="expense-category-chip"
+                disabled={!canCreate}
               >
                 {concept}
               </button>
@@ -247,7 +255,7 @@ export default function ExpensesPage() {
             <Field label="Descripción" hint="Contexto operativo del egreso.">
               <Textarea value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} className="min-h-[5rem]" placeholder="Ej. Compra urgente de servilletas turno noche" />
             </Field>
-            <Button data-testid="expense-submit" type="submit" className="w-full" disabled={createExpense.isPending || !expenseSourcesReady}>
+            <Button data-testid="expense-submit" type="submit" className="w-full" disabled={!canCreate || createExpense.isPending || !expenseSourcesReady}>
               {createExpense.isPending ? 'Registrando...' : 'Guardar gasto'}
             </Button>
           </form>

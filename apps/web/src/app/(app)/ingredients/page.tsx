@@ -21,6 +21,8 @@ import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber, matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { focusFirstInvalidField } from '@/lib/form-accessibility';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type Ingredient = {
   id: string;
@@ -71,6 +73,7 @@ const catalogTabs = [
 ] as const;
 
 export default function IngredientsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
@@ -80,6 +83,10 @@ export default function IngredientsPage() {
   const [form, setForm] = useState<IngredientForm>(initialForm);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const editIngredientId = searchParams?.get('edit') ?? null;
+  const canCreate = canPerformAction(user?.permissions, 'ingredients.create', user?.roles, ['admin', 'inventory']);
+  const canUpdate = canPerformAction(user?.permissions, 'ingredients.update', user?.roles, ['admin', 'inventory']);
+  const canDelete = canPerformAction(user?.permissions, 'ingredients.update', user?.roles, ['admin', 'inventory']);
+  const canManage = canCreate || canUpdate;
 
   const ingredients = useQuery({
     queryKey: ['ingredients'],
@@ -119,6 +126,7 @@ export default function IngredientsPage() {
       ).length,
     };
   }, [ingredients.data]);
+  const metricsAvailable = ingredients.isSuccess && Boolean(ingredients.data);
 
   const formErrors = useMemo(() => {
     const errors: Partial<Record<keyof IngredientForm, string>> = {};
@@ -140,6 +148,7 @@ export default function IngredientsPage() {
 
   const saveIngredient = useMutation({
     mutationFn: async () => {
+      if (selectedIngredient ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar insumos.');
       if (Object.keys(formErrors).length > 0) throw new Error('Corrige los campos marcados antes de guardar.');
       const payload = {
         ...form,
@@ -172,11 +181,13 @@ export default function IngredientsPage() {
   });
 
   const toggleIngredientStatus = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
-      apiFetch(`/ingredients/${id}`, {
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => {
+      if (!canUpdate) throw new Error('No tienes permiso para cambiar insumos.');
+      return apiFetch(`/ingredients/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
-      }),
+      });
+    },
     onSuccess: async (_, variables) => {
       toast.success(variables.isActive ? 'Insumo activado' : 'Insumo desactivado');
       await queryClient.invalidateQueries({ queryKey: ['ingredients'] });
@@ -186,10 +197,12 @@ export default function IngredientsPage() {
   });
 
   const deleteIngredient = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/ingredients/${id}`, {
+    mutationFn: (id: string) => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar insumos.');
+      return apiFetch(`/ingredients/${id}`, {
         method: 'DELETE',
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Insumo eliminado');
       setSelectedIngredient(null);
@@ -237,18 +250,18 @@ export default function IngredientsPage() {
           : ingredients.isSuccess
             ? <StatusBadge status={metrics.low ? 'PENDING' : 'ACTIVE'} label={`${metrics.low} en alerta`} />
             : <StatusBadge status="PENDING" label="Verificando insumos" />}
-        actions={
+        actions={canCreate ? (
           <Button type="button" variant="secondary" onClick={() => { setSelectedIngredient(null); setForm(initialForm); setSubmitAttempted(false); }}>
             Nuevo insumo
           </Button>
-        }
+        ) : undefined}
       />
 
       <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
 
       <div className="grid gap-3 md:grid-cols-2">
-        <MetricSurface density="compact" label="Activos" value={formatNumber(metrics.active)} context="Disponibles para recetas" icon={<ChefHat className="h-5 w-5" />} unavailable={ingredients.isError} />
-        <MetricSurface density="compact" label="Stock en alerta" value={formatNumber(metrics.low)} context="En o bajo el mínimo" icon={<ShieldAlert className="h-5 w-5" />} unavailable={ingredients.isError} status={metrics.low > 0 ? <StatusBadge status="PENDING" label="Atención" /> : undefined} />
+        <MetricSurface density="compact" label="Activos" value={metricsAvailable ? formatNumber(metrics.active) : undefined} context="Disponibles para recetas" icon={<ChefHat className="h-5 w-5" />} unavailable={!metricsAvailable} />
+        <MetricSurface density="compact" label="Stock en alerta" value={metricsAvailable ? formatNumber(metrics.low) : undefined} context="En o bajo el mínimo" icon={<ShieldAlert className="h-5 w-5" />} unavailable={!metricsAvailable} status={metricsAvailable && metrics.low > 0 ? <StatusBadge status="PENDING" label="Atención" /> : undefined} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -292,7 +305,8 @@ export default function IngredientsPage() {
                   <button
                     type="button"
                     className={`rounded-xl border px-3 py-2 text-left flex-1 min-w-0 transition ${isSelected ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-200 shadow-sm border-l-[3px] border-l-brand-400' : 'border-transparent hover:bg-stone-50/50'}`}
-                    onClick={() => { setSelectedIngredient(ingredient); setForm({ code: ingredient.code, name: ingredient.name, unitId: ingredient.unitId, description: ingredient.description ?? '', costPrice: String(Number(ingredient.costPrice ?? 0)), currentStock: String(Number(ingredient.currentStock)), stockMin: String(Number(ingredient.stockMin)), stockMax: String(Number(ingredient.stockMax ?? 0)), isActive: ingredient.isActive }); }}
+                    onClick={() => { if (canUpdate) { setSelectedIngredient(ingredient); setForm({ code: ingredient.code, name: ingredient.name, unitId: ingredient.unitId, description: ingredient.description ?? '', costPrice: String(Number(ingredient.costPrice ?? 0)), currentStock: String(Number(ingredient.currentStock)), stockMin: String(Number(ingredient.stockMin)), stockMax: String(Number(ingredient.stockMax ?? 0)), isActive: ingredient.isActive }); } }}
+                    disabled={!canUpdate}
                     data-testid="ingredient-card"
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -322,15 +336,15 @@ export default function IngredientsPage() {
                   </button>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <Button type="button" variant="secondary" size="sm" className="text-[11px]"
+                    {canUpdate ? <Button type="button" variant="secondary" size="sm" className="text-[11px]"
                       onClick={() => toggleIngredientStatus.mutate({ id: ingredient.id, isActive: !ingredient.isActive })}>
                       {ingredient.isActive ? 'Desactivar' : 'Activar'}
-                    </Button>
-                    <button type="button" className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    </Button> : null}
+                    {canDelete ? <button type="button" className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                       disabled={deleteIngredient.isPending}
                       onClick={() => setConfirmDelete({ id: ingredient.id, name: ingredient.name })} aria-label={`Eliminar ${ingredient.name}`}>
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    </button> : null}
                   </div>
                 </div>
               );
@@ -339,7 +353,7 @@ export default function IngredientsPage() {
           </QueryState>
         </Card>
 
-        <Card>
+        {canManage ? <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-stone-100 p-2.5 text-stone-600">
               <ChefHat className="h-5 w-5" />
@@ -427,7 +441,7 @@ export default function IngredientsPage() {
               <Button type="submit" className="flex-1" disabled={saveIngredient.isPending || units.isLoading || units.isError || (submitAttempted && Object.keys(formErrors).length > 0)}>
                 {saveIngredient.isPending ? 'Guardando insumo...' : selectedIngredient ? 'Guardar cambios del insumo' : 'Crear insumo'}
               </Button>
-              {selectedIngredient ? (
+              {selectedIngredient && canDelete ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -452,9 +466,9 @@ export default function IngredientsPage() {
               ) : null}
             </div>
           </form>
-        </Card>
+        </Card> : <Card><QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar insumos y stock, pero no crear ni modificar el catálogo." /></Card>}
       </div>
-      {confirmDelete ? (
+      {confirmDelete && canDelete ? (
         <ConfirmDialog
           open
           title="Eliminar insumo"

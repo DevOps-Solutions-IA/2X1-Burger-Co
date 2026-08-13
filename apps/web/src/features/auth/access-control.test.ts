@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canAccessRoute, canMutateCrm, resolveDefaultRoute } from './access-control';
+import {
+  canAccessRoute,
+  canMutateCrm,
+  canPerformAction,
+  canReadSofiaAlerts,
+  canReadSofiaGovernance,
+  resolveDefaultRoute,
+} from './access-control';
 
 test('financial and support routes align permission and backend role policy', () => {
   assert.equal(canAccessRoute('/payments', ['reports.read'], ['cashier']), false);
@@ -23,6 +30,28 @@ test('CRM is readable by cashiers but mutations require an authorized operator r
   assert.equal(canMutateCrm(['supervisor'], []), false);
   assert.equal(canMutateCrm(['supervisor'], ['orders.update']), true);
   assert.equal(canMutateCrm(['admin'], ['orders.update']), true);
+});
+
+test('operational actions require both their write capability and allowed role', () => {
+  assert.equal(canPerformAction(['delivery.read'], 'delivery.update', ['supervisor'], ['admin', 'supervisor']), false);
+  assert.equal(canPerformAction(['delivery.update'], 'delivery.update', ['inventory'], ['admin', 'supervisor']), false);
+  assert.equal(canPerformAction(['delivery.update'], 'delivery.update', ['supervisor'], ['admin', 'supervisor']), true);
+  assert.equal(canPerformAction(['categories.update'], 'categories.update', ['inventory'], ['admin', 'inventory']), true);
+  assert.equal(canPerformAction(undefined, 'categories.update', ['admin'], ['admin', 'inventory']), false);
+  assert.equal(canPerformAction(['products.update'], 'products.update', ['inventory'], ['admin', 'inventory']), true);
+  assert.equal(canPerformAction(['ingredients.update'], 'ingredients.update', ['inventory'], ['admin', 'inventory']), true);
+  assert.equal(canPerformAction(['suppliers.update'], 'suppliers.update', ['inventory'], ['admin', 'inventory']), true);
+  assert.equal(canPerformAction(['tables.update'], 'tables.update', ['supervisor'], ['admin', 'supervisor']), true);
+});
+
+test('Sofia keeps operational access separate from settings-only governance capabilities', () => {
+  assert.equal(canAccessRoute('/sofia', ['orders.read'], ['cashier']), true);
+  assert.equal(canAccessRoute('/activation-control', ['orders.read'], ['cashier']), false);
+  assert.equal(canReadSofiaGovernance(['orders.read']), false);
+  assert.equal(canReadSofiaAlerts(['orders.read'], ['cashier']), false);
+  assert.equal(canReadSofiaGovernance(['settings.read']), true);
+  assert.equal(canReadSofiaAlerts(['settings.read'], ['supervisor']), true);
+  assert.equal(canReadSofiaAlerts(['settings.read'], ['cashier']), false);
 });
 
 test('generic permissions never expose operational modules to inventory', () => {

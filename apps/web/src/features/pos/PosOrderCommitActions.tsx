@@ -11,6 +11,8 @@ type PosOrderCommitActionsProps = {
   savePending: boolean;
   cancelPending: boolean;
   checkoutPending: boolean;
+  canWrite: boolean;
+  canCheckout: boolean;
   orderTotal: number;
   onResetWorkspace: () => void;
   onSaveOrder: () => void;
@@ -26,6 +28,8 @@ export function PosOrderCommitActions({
   savePending,
   cancelPending,
   checkoutPending,
+  canWrite,
+  canCheckout,
   orderTotal,
   onResetWorkspace,
   onSaveOrder,
@@ -41,7 +45,7 @@ export function PosOrderCommitActions({
         <Button
           type="button"
           className="w-full font-bold"
-          disabled={!hasCartItems || orderIssues.length > 0 || savePending}
+          disabled={!canWrite || !hasCartItems || orderIssues.length > 0 || savePending}
           onClick={onSaveOrder}
           data-testid="pos-delivery-save"
         >
@@ -49,7 +53,7 @@ export function PosOrderCommitActions({
         </Button>
       </div>
       <CancelOrderButton
-        disabled={!hasActiveOrder || cancelPending}
+        disabled={!canWrite || !hasActiveOrder || cancelPending}
         isPending={cancelPending}
         onConfirm={onCancelOrder}
       />
@@ -58,7 +62,7 @@ export function PosOrderCommitActions({
           <CheckoutOrderButton
             data-testid="pos-checkout-order"
             className="w-full"
-            disabled={checkoutIssues.length > 0 || checkoutPending}
+            disabled={!canCheckout || checkoutIssues.length > 0 || checkoutPending}
             isPending={checkoutPending}
             orderTotal={orderTotal}
             onConfirm={onCheckoutOrder}

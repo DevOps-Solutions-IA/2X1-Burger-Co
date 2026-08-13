@@ -27,6 +27,8 @@ import { PosPageHeader } from '@/features/pos/PosPageHeader';
 import { PosPaymentPanel } from '@/features/pos/PosPaymentPanel';
 import { PosProductBrowser } from '@/features/pos/PosProductBrowser';
 import { usePosCheckoutOrchestrator } from '@/features/pos/hooks/usePosCheckoutOrchestrator';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 import {
   buildPriceInput,
   createPaymentRow,
@@ -80,6 +82,10 @@ type OperationalReport = {
 };
 
 export default function PosPage() {
+  const { user } = useAuth();
+  const canCreateOrder = canPerformAction(user?.permissions, 'orders.create', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canUpdateOrder = canPerformAction(user?.permissions, 'orders.update', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canCheckoutOrder = canPerformAction(user?.permissions, 'orders.checkout', user?.roles, ['admin', 'cashier', 'supervisor']);
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -1098,6 +1104,9 @@ export default function PosPage() {
 
   const saveOrder = useMutation({
     mutationFn: async () => {
+      if (activeOrderId ? !canUpdateOrder : !canCreateOrder) {
+        throw new Error('No tienes permiso para guardar esta comanda.');
+      }
       if (!operationalSourcesReady) {
         throw new Error('No se puede guardar la comanda sin verificar las fuentes operativas requeridas.');
       }
@@ -1181,13 +1190,15 @@ export default function PosPage() {
   });
 
   const cancelOrder = useMutation({
-    mutationFn: () =>
-      activeOrderId
+    mutationFn: () => {
+      if (!canUpdateOrder) return Promise.reject(new Error('No tienes permiso para cancelar comandas.'));
+      return activeOrderId
         ? apiFetch(`/orders/${activeOrderId}`, {
             method: 'PATCH',
             body: JSON.stringify({ status: 'CANCELLED' }),
           })
-        : Promise.reject(new Error('No hay comanda activa')),
+        : Promise.reject(new Error('No hay comanda activa'));
+    },
     onSuccess: async () => {
       toast.success('Comanda cancelada');
       resetWorkspace();
@@ -1231,6 +1242,14 @@ export default function PosPage() {
           clearWorkspaceContext();
         }}
       />
+
+      {!canCreateOrder && !canUpdateOrder && !canCheckoutOrder ? (
+        <StatusBanner
+          tone="info"
+          title="Modo consulta"
+          description="Puedes revisar productos y comandas, pero no abrir, modificar, cancelar ni cobrar pedidos."
+        />
+      ) : null}
 
       <PosOperationalMetrics
         isCashOpen={Boolean(currentCash.data)}
@@ -1435,11 +1454,17 @@ export default function PosPage() {
             savePending={saveOrder.isPending}
             cancelPending={cancelOrder.isPending}
             checkoutPending={checkoutOrder.isPending}
+            canWrite={activeOrderId ? canUpdateOrder : canCreateOrder}
+            canCheckout={canCheckoutOrder}
             orderTotal={baseSaleTotal}
             onResetWorkspace={() => resetWorkspace()}
             onSaveOrder={() => saveOrder.mutate()}
             onCancelOrder={() => cancelOrder.mutate()}
             onCheckoutOrder={() => {
+              if (!canCheckoutOrder) {
+                toast.error('No tienes permiso para cobrar esta comanda.');
+                return;
+              }
               if (!operationalSourcesReady) {
                 toast.error('No se puede cobrar sin verificar las fuentes operativas requeridas.');
                 return;

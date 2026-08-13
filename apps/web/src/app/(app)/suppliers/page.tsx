@@ -13,6 +13,8 @@ import { DetailDialog, FilterBar, PageHeader, QueryState, StatusBadge } from '@/
 import { apiFetch } from '@/lib/api';
 import { matchesSearch } from '@/lib/format';
 import { focusFirstInvalidField } from '@/lib/form-accessibility';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type Supplier = {
   id: string;
@@ -49,6 +51,7 @@ const initialForm: SupplierForm = {
 };
 
 export default function SuppliersPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
@@ -56,6 +59,10 @@ export default function SuppliersPage() {
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ supplier: Supplier; action: 'toggle' | 'delete' } | null>(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const canCreate = canPerformAction(user?.permissions, 'suppliers.create', user?.roles, ['admin', 'inventory']);
+  const canUpdate = canPerformAction(user?.permissions, 'suppliers.update', user?.roles, ['admin', 'inventory']);
+  const canDelete = canPerformAction(user?.permissions, 'suppliers.update', user?.roles, ['admin', 'inventory']);
+  const canManage = canCreate || canUpdate;
 
   const suppliers = useQuery({
     queryKey: ['suppliers'],
@@ -75,6 +82,7 @@ export default function SuppliersPage() {
 
   const saveSupplier = useMutation({
     mutationFn: async () => {
+      if (selectedSupplier ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar proveedores.');
       if (selectedSupplier) {
         return apiFetch(`/suppliers/${selectedSupplier.id}`, {
           method: 'PATCH',
@@ -97,11 +105,13 @@ export default function SuppliersPage() {
   });
 
   const toggleStatus = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
-      apiFetch(`/suppliers/${id}`, {
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => {
+      if (!canUpdate) throw new Error('No tienes permiso para cambiar proveedores.');
+      return apiFetch(`/suppliers/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
-      }),
+      });
+    },
     onSuccess: async (_, variables) => {
       toast.success(variables.isActive ? 'Proveedor activado' : 'Proveedor desactivado');
       await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
@@ -109,10 +119,12 @@ export default function SuppliersPage() {
   });
 
   const deleteSupplier = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/suppliers/${id}`, {
+    mutationFn: (id: string) => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar proveedores.');
+      return apiFetch(`/suppliers/${id}`, {
         method: 'DELETE',
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Proveedor eliminado');
       await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
@@ -135,11 +147,11 @@ export default function SuppliersPage() {
         status={suppliers.data && !suppliers.isError
           ? <StatusBadge status="ACTIVE" label={`${suppliers.data.length} proveedores`} tone="info" />
           : <StatusBadge status="UNKNOWN" label={suppliers.data ? 'Directorio desactualizado' : 'Directorio sin verificar'} />}
-        actions={
+        actions={canCreate ? (
           <Button type="button" variant="secondary" onClick={() => { setSelectedSupplier(null); setForm(initialForm); setSubmitAttempted(false); }} data-testid="supplier-form">
             Nuevo proveedor
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
@@ -180,11 +192,11 @@ export default function SuppliersPage() {
                     {supplier.contactName || 'Sin contacto'} &middot; {supplier.phone || 'Sin teléfono'}
                   </p>
                 </button>
-                <Button type="button" variant="secondary" size="sm" className="shrink-0"
+                {canUpdate ? <Button type="button" variant="secondary" size="sm" className="shrink-0"
                   onClick={() => setConfirmAction({ supplier, action: 'toggle' })}
                   data-testid={supplier.isActive ? 'supplier-deactivate-button' : 'supplier-activate-button'}>
                   {supplier.isActive ? 'Desactivar' : 'Activar'}
-                </Button>
+                </Button> : null}
               </div>
             ))}
             </QueryState>
@@ -192,7 +204,7 @@ export default function SuppliersPage() {
         </Card>
 
         {/* RIGHT: Form */}
-        <Card data-testid="supplier-form">
+        {canManage ? <Card data-testid="supplier-form">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-stone-100 p-2.5 text-stone-600"><Truck className="h-5 w-5" /></div>
             <div>
@@ -233,7 +245,7 @@ export default function SuppliersPage() {
               ) : null}
             </div>
           </form>
-        </Card>
+        </Card> : <Card><QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar proveedores, pero no crear ni modificar el directorio." /></Card>}
       </div>
 
       <DetailDialog
@@ -254,13 +266,13 @@ export default function SuppliersPage() {
               {detailSupplier.address ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Direccion</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.address}</p></div> : null}
               {detailSupplier.notes ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Notas</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.notes}</p></div> : null}
             </div>
-            <div className="mt-5 flex gap-2">
-              <Button size="sm" className="flex-1" onClick={() => { setSelectedSupplier(detailSupplier); setForm({ name: detailSupplier.name, taxId: detailSupplier.taxId ?? '', contactName: detailSupplier.contactName ?? '', phone: detailSupplier.phone ?? '', email: detailSupplier.email ?? '', address: detailSupplier.address ?? '', notes: detailSupplier.notes ?? '', isActive: detailSupplier.isActive }); setDetailSupplier(null); }}>Editar</Button>
-              <Button size="sm" variant="secondary" className="flex-1" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'toggle' }); setDetailSupplier(null); }}>
+            {canUpdate || canDelete ? <div className="mt-5 flex gap-2">
+              {canUpdate ? <Button size="sm" className="flex-1" onClick={() => { setSelectedSupplier(detailSupplier); setForm({ name: detailSupplier.name, taxId: detailSupplier.taxId ?? '', contactName: detailSupplier.contactName ?? '', phone: detailSupplier.phone ?? '', email: detailSupplier.email ?? '', address: detailSupplier.address ?? '', notes: detailSupplier.notes ?? '', isActive: detailSupplier.isActive }); setDetailSupplier(null); }}>Editar</Button> : null}
+              {canUpdate ? <Button size="sm" variant="secondary" className="flex-1" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'toggle' }); setDetailSupplier(null); }}>
                 {detailSupplier.isActive ? 'Desactivar' : 'Activar'}
-              </Button>
-              <Button size="sm" variant="secondary" className="flex-1 text-red-700" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'delete' }); setDetailSupplier(null); }} data-testid="supplier-delete-button">Eliminar</Button>
-            </div>
+              </Button> : null}
+              {canDelete ? <Button size="sm" variant="secondary" className="flex-1 text-red-700" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'delete' }); setDetailSupplier(null); }} data-testid="supplier-delete-button">Eliminar</Button> : null}
+            </div> : null}
           </>
         ) : null}
       </DetailDialog>

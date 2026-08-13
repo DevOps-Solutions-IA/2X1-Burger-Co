@@ -15,6 +15,8 @@ import { QueryState } from '@/components/product/query-state';
 import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
 import { focusFirstInvalidField } from '@/lib/form-accessibility';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type RecipeRow = { ingredientId: string; quantity: string };
 
@@ -48,10 +50,12 @@ const catalogTabs = [
 ] as const;
 
 export default function RecipesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [productId, setProductId] = useState('');
   const [rows, setRows] = useState<RecipeRow[]>([{ ingredientId: '', quantity: '1' }]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const canUpdate = canPerformAction(user?.permissions, 'recipes.update', user?.roles, ['admin', 'inventory']);
 
   const formErrors = useMemo(() => {
     const errors: { productId?: string; rows?: Record<number, { ingredientId?: string; quantity?: string }> } = {};
@@ -108,8 +112,9 @@ export default function RecipesPage() {
   }, [recipe.data]);
 
   const saveRecipe = useMutation({
-    mutationFn: () =>
-      apiFetch<Recipe>(`/recipes/${productId}`, {
+    mutationFn: () => {
+      if (!canUpdate) throw new Error('No tienes permiso para modificar recetas.');
+      return apiFetch<Recipe>(`/recipes/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({
           items: rows.map((row) => ({
@@ -117,7 +122,8 @@ export default function RecipesPage() {
             quantity: Number(row.quantity),
           })),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Receta guardada');
       await queryClient.invalidateQueries({ queryKey: ['recipe', productId] });
@@ -139,6 +145,8 @@ export default function RecipesPage() {
           ? <StatusBadge status="ACTIVE" label={`${preparedProducts.length} configurables`} />
           : <StatusBadge status="UNKNOWN" label="Recetas sin verificar" tone="neutral" />}
       />
+
+      {!canUpdate ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes consultar la composición vigente, pero no modificar recetas." /> : null}
 
       <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
 
@@ -187,7 +195,7 @@ export default function RecipesPage() {
                 <div key={`${index}-${row.ingredientId}`} className="rounded-2xl border border-stone-200 bg-stone-50 p-3.5">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <StatusBadge status="RECIPE_ITEM" label={`Insumo ${index + 1}`} />
-                    {rows.length > 1 ? (
+                    {canUpdate && rows.length > 1 ? (
                       <button
                         type="button"
                         className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-danger transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
@@ -240,11 +248,11 @@ export default function RecipesPage() {
               ))}
 
               <div className="flex gap-3">
-                <Button type="button" variant="secondary" disabled={ingredients.isLoading} onClick={() => setRows((current) => [...current, { ingredientId: '', quantity: '1' }])}>
+                <Button type="button" variant="secondary" disabled={!canUpdate || ingredients.isLoading} onClick={() => setRows((current) => [...current, { ingredientId: '', quantity: '1' }])}>
                   <Plus className="mr-2 h-4 w-4" />
                   Agregar insumo
                 </Button>
-                <Button type="submit" className="flex-1" disabled={catalogLoading || saveRecipe.isPending || (submitAttempted && !isFormValid)}>
+                <Button type="submit" className="flex-1" disabled={!canUpdate || catalogLoading || saveRecipe.isPending || (submitAttempted && !isFormValid)}>
                   {saveRecipe.isPending ? 'Guardando receta...' : 'Guardar receta'}
                 </Button>
               </div>

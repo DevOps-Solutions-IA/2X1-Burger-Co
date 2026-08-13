@@ -54,6 +54,24 @@ export function hasAllowedRole(roles: string[] | undefined, allowedRoles?: reado
   return (roles ?? []).some((role) => allowedRoles.includes(role));
 }
 
+export function canPerformAction(
+  permissions: string[] | undefined,
+  requiredPermission: string,
+  roles?: string[],
+  allowedRoles?: readonly string[],
+) {
+  return hasPermission(permissions, requiredPermission)
+    && hasAllowedRole(roles, allowedRoles);
+}
+
+export function canReadSofiaGovernance(permissions: string[] | undefined) {
+  return hasPermission(permissions, 'settings.read');
+}
+
+export function canReadSofiaAlerts(permissions: string[] | undefined, roles: string[] | undefined) {
+  return canPerformAction(permissions, 'settings.read', roles, ['admin', 'supervisor']);
+}
+
 const CRM_MUTATION_ROLES = ['admin', 'supervisor'] as const;
 
 const DEFAULT_ROUTE_BY_ROLE = [

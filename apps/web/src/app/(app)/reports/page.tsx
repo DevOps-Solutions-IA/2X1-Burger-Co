@@ -15,7 +15,7 @@ import { apiFetch, getStoredAccessToken, resolveApiUrl } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { useAuth } from '@/features/auth/auth-provider';
-import { hasPermission } from '@/features/auth/access-control';
+import { canPerformAction, hasPermission } from '@/features/auth/access-control';
 
 type ReportMode = 'CURRENT_SESSION' | 'CUSTOM_RANGE';
 
@@ -150,10 +150,7 @@ type ComparisonBlock = z.infer<typeof comparisonBlockSchema>;
 export default function ReportsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canManageSupply = Boolean(
-    user?.roles.some((role) => ['admin', 'inventory'].includes(role))
-    && hasPermission(user?.permissions, 'suppliers.update'),
-  );
+  const canManageSupply = canPerformAction(user?.permissions, 'suppliers.update', user?.roles, ['admin', 'inventory']);
   const canExportReports = hasPermission(user?.permissions, 'reports.pdf');
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
   const [reportMode, setReportMode] = useState<ReportMode>('CURRENT_SESSION');
@@ -233,12 +230,13 @@ export default function ReportsPage() {
   };
 
   const generateSupplierMessage = useMutation({
-    mutationFn: async (supplierId: string) => generatedSupplierNotificationSchema.parse(
-      await apiFetch<unknown>('/reports/supplier-notifications/manual', {
+    mutationFn: async (supplierId: string) => {
+      if (!canManageSupply) throw new Error('No tienes permiso para preparar comunicaciones a proveedores.');
+      return generatedSupplierNotificationSchema.parse(await apiFetch<unknown>('/reports/supplier-notifications/manual', {
         method: 'POST',
         body: JSON.stringify({ supplierId }),
-      }),
-    ),
+      }));
+    },
     onSuccess: async (notification) => {
       toast.success('Mensaje preparado');
       if (notification.whatsappLink) {

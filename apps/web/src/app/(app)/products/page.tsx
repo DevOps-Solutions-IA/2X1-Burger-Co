@@ -21,6 +21,8 @@ import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber, matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { focusFirstInvalidField } from '@/lib/form-accessibility';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type Product = {
   id: string;
@@ -121,6 +123,7 @@ function mapProductToForm(product: Product): ProductForm {
 }
 
 export default function ProductsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
@@ -132,6 +135,10 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductForm>(initialForm);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const editProductId = searchParams?.get('edit') ?? null;
+  const canCreate = canPerformAction(user?.permissions, 'products.create', user?.roles, ['admin', 'inventory']);
+  const canUpdate = canPerformAction(user?.permissions, 'products.update', user?.roles, ['admin', 'inventory']);
+  const canDelete = canPerformAction(user?.permissions, 'products.update', user?.roles, ['admin', 'inventory']);
+  const canManage = canCreate || canUpdate;
 
   const formErrors = useMemo(() => {
     const errors: Record<string, string> = {};
@@ -205,9 +212,11 @@ export default function ProductsPage() {
       ).length,
     };
   }, [products.data]);
+  const metricsAvailable = products.isSuccess && Boolean(products.data);
 
   const saveProduct = useMutation({
     mutationFn: async () => {
+      if (selectedProduct ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar productos.');
       if (Object.keys(formErrors).length > 0) {
         throw new Error('Corrige los campos marcados antes de guardar.');
       }
@@ -246,11 +255,13 @@ export default function ProductsPage() {
   });
 
   const toggleProductStatus = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
-      apiFetch(`/products/${id}`, {
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => {
+      if (!canUpdate) throw new Error('No tienes permiso para cambiar productos.');
+      return apiFetch(`/products/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
-      }),
+      });
+    },
     onSuccess: async (_, variables) => {
       toast.success(variables.isActive ? 'Producto activado' : 'Producto desactivado');
       await Promise.all([
@@ -263,10 +274,12 @@ export default function ProductsPage() {
   });
 
   const deleteProduct = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/products/${id}`, {
+    mutationFn: (id: string) => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar productos.');
+      return apiFetch(`/products/${id}`, {
         method: 'DELETE',
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Producto eliminado');
       setSelectedProduct(null);
@@ -309,20 +322,20 @@ export default function ProductsPage() {
           : products.isSuccess
             ? <StatusBadge status="ACTIVE" label={`${metrics.active} activos`} />
             : <StatusBadge status="PENDING" label="Verificando catálogo" />}
-        actions={
+        actions={canCreate ? (
           <Button type="button" variant="secondary" onClick={() => { setSelectedProduct(null); setForm(initialForm); setSubmitAttempted(false); }}>
             Nuevo producto
           </Button>
-        }
+        ) : undefined}
       />
 
       <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricSurface density="compact" label="Activos" value={formatNumber(metrics.active)} context="En catálogo" icon={<Package2 className="h-5 w-5" />} unavailable={products.isError} />
-        <MetricSurface density="compact" label="Preparados" value={formatNumber(metrics.prepared)} context="Gobernados por receta" icon={<Sparkles className="h-5 w-5" />} unavailable={products.isError} />
-        <MetricSurface density="compact" label="Stock directo" value={formatNumber(metrics.direct)} context="Con existencia propia" icon={<Boxes className="h-5 w-5" />} unavailable={products.isError} />
-        <MetricSurface density="compact" label="Stock bajo" value={formatNumber(metrics.lowStock)} context="Requiere revisión" icon={<Boxes className="h-5 w-5" />} unavailable={products.isError} status={metrics.lowStock > 0 ? <StatusBadge status="PENDING" label="Atención" /> : undefined} />
+        <MetricSurface density="compact" label="Activos" value={metricsAvailable ? formatNumber(metrics.active) : undefined} context="En catálogo" icon={<Package2 className="h-5 w-5" />} unavailable={!metricsAvailable} />
+        <MetricSurface density="compact" label="Preparados" value={metricsAvailable ? formatNumber(metrics.prepared) : undefined} context="Gobernados por receta" icon={<Sparkles className="h-5 w-5" />} unavailable={!metricsAvailable} />
+        <MetricSurface density="compact" label="Stock directo" value={metricsAvailable ? formatNumber(metrics.direct) : undefined} context="Con existencia propia" icon={<Boxes className="h-5 w-5" />} unavailable={!metricsAvailable} />
+        <MetricSurface density="compact" label="Stock bajo" value={metricsAvailable ? formatNumber(metrics.lowStock) : undefined} context="Requiere revisión" icon={<Boxes className="h-5 w-5" />} unavailable={!metricsAvailable} status={metricsAvailable && metrics.lowStock > 0 ? <StatusBadge status="PENDING" label="Atención" /> : undefined} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -397,7 +410,8 @@ export default function ProductsPage() {
                   <button
                     type="button"
                     className={`rounded-xl border px-3 py-2.5 text-left transition ${isSelected ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-200 shadow-sm border-l-[3px] border-l-brand-400' : 'border-transparent hover:bg-stone-50/50'}`}
-                    onClick={() => { setSelectedProduct(product); setForm(mapProductToForm(product)); }}
+                    onClick={() => { if (canUpdate) { setSelectedProduct(product); setForm(mapProductToForm(product)); } }}
+                    disabled={!canUpdate}
                     data-testid="product-card"
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -432,16 +446,16 @@ export default function ProductsPage() {
 
                   <div className="flex items-start justify-end">
                     <div className="flex items-center gap-1.5">
-                      <Button type="button" variant="secondary" size="sm" className="text-[11px]"
+                      {canUpdate ? <Button type="button" variant="secondary" size="sm" className="text-[11px]"
                         onClick={() => toggleProductStatus.mutate({ id: product.id, isActive: !product.isActive })}
                       >
                         {product.isActive ? 'Desactivar' : 'Activar'}
-                      </Button>
-                      <button type="button" className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                      </Button> : null}
+                      {canDelete ? <button type="button" className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                         onClick={() => setConfirmDelete({ id: product.id, name: product.name })}
                         disabled={deleteProduct.isPending} aria-label={`Eliminar ${product.name}`}>
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                      </button> : null}
                     </div>
                   </div>
                 </div>
@@ -451,7 +465,7 @@ export default function ProductsPage() {
           </QueryState>
         </Card>
 
-        <Card>
+        {canManage ? <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-brand-50 p-3 text-brand-700">
               <Package2 className="h-5 w-5" />
@@ -587,7 +601,7 @@ export default function ProductsPage() {
               <Button type="submit" className="flex-1" disabled={saveProduct.isPending || categories.isLoading || categories.isError || units.isLoading || units.isError || (submitAttempted && Object.keys(formErrors).length > 0)}>
                 {saveProduct.isPending ? 'Guardando...' : selectedProduct ? 'Guardar cambios' : 'Crear producto'}
               </Button>
-              {selectedProduct ? (
+              {selectedProduct && canDelete ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -612,9 +626,9 @@ export default function ProductsPage() {
               ) : null}
             </div>
           </form>
-        </Card>
+        </Card> : <Card><QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar la carta y sus precios, pero no crear ni modificar productos." /></Card>}
       </div>
-      {confirmDelete ? (
+      {confirmDelete && canDelete ? (
         <ConfirmDialog
           open
           title="Eliminar producto"

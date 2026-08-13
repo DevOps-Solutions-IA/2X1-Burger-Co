@@ -166,7 +166,43 @@ async function createInventoryContext(browser: Browser): Promise<BrowserContext>
   return context;
 }
 
+async function installReadOnlyProfile(page: Page) {
+  await page.route('**/api/auth/me', async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json() as { permissions?: string[] };
+    await route.fulfill({
+      response,
+      json: {
+        ...profile,
+        permissions: (profile.permissions ?? []).filter((permission) => permission.endsWith('.read')),
+      },
+    });
+  });
+}
+
 test.describe('Phase 8 authenticated route accessibility matrix', () => {
+  test('active navigation and read-only capabilities remain explicit', async ({ page }) => {
+    const mutations = observeOperationalMutations(page);
+    await installReadOnlyProfile(page);
+
+    await page.goto('/categories', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('nav-categories')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('heading', { name: 'Modo consulta' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Nueva categoría' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Eliminar' })).toHaveCount(0);
+
+    await page.goto('/deliveries', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('deliveries-read-only')).toBeVisible();
+    const firstDelivery = page.getByTestId(/deliveries-(?:sofia-)?queue-item/).first();
+    if (await firstDelivery.count()) await firstDelivery.click();
+    for (const testId of ['deliveries-assign-button', 'deliveries-delivered-button', 'deliveries-incident-button']) {
+      const control = page.getByTestId(testId);
+      if (await control.count()) await expect(control).toBeDisabled();
+    }
+
+    expect(mutations).toEqual([]);
+  });
+
   for (const viewport of VIEWPORTS) {
     test(`admin routes are responsive and accessible at ${viewport.name} width`, async ({ page }) => {
       test.setTimeout(8 * 60_000);

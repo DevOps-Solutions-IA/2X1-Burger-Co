@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Bell,
@@ -30,16 +30,25 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { apiFetchSchema } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { hasPermission } from '@/features/auth/access-control';
+import {
+  canAccessRoute,
+  canPerformAction,
+  canReadSofiaAlerts,
+  canReadSofiaGovernance,
+} from '@/features/auth/access-control';
 import { useAuth } from '@/features/auth/auth-provider';
-import { sofiaAlertAckResponseSchema, sofiaGovernancePauseResponseSchema } from '@/features/sofia/contracts';
+import {
+  sofiaAlertAckResponseSchema,
+  sofiaAlertsSchema,
+  sofiaGovernanceEventsSchema,
+  sofiaGovernancePauseResponseSchema,
+  sofiaReadinessSchema,
+} from '@/features/sofia/contracts';
 import {
   sofiaQueryKeys,
-  useSofiaAlerts,
   useSofiaDashboardSummary,
-  useSofiaGovernanceEvents,
-  useSofiaReadiness,
 } from '@/features/sofia/queries';
+import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 
 function readable(value: string) {
   return value.replaceAll('_', ' ').toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -53,14 +62,29 @@ export default function SofiaMainDashboardPage() {
   const [showFullChecklist, setShowFullChecklist] = useState(false);
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const canReadGovernance = canReadSofiaGovernance(user?.permissions);
+  const canReadAlerts = canReadSofiaAlerts(user?.permissions, user?.roles);
+  const canOpenActivationControl = canAccessRoute('/activation-control', user?.permissions, user?.roles);
   const summary = useSofiaDashboardSummary();
-  const readiness = useSofiaReadiness();
-  const events = useSofiaGovernanceEvents();
-  const alerts = useSofiaAlerts();
-  const canGovern = Boolean(
-    user?.roles.some((role) => role === 'admin' || role === 'supervisor')
-    && hasPermission(user?.permissions, 'settings.update'),
-  );
+  const readiness = useQuery({
+    queryKey: sofiaQueryKeys.readiness,
+    queryFn: () => apiFetchSchema('/admin/sofia/readiness', sofiaReadinessSchema),
+    enabled: canReadGovernance,
+    refetchInterval: canReadGovernance ? visiblePolling(POLLING_INTERVAL.operational) : false,
+  });
+  const events = useQuery({
+    queryKey: sofiaQueryKeys.governanceEvents,
+    queryFn: () => apiFetchSchema('/admin/sofia/governance/events', sofiaGovernanceEventsSchema),
+    enabled: canReadGovernance,
+    refetchInterval: canReadGovernance ? visiblePolling(POLLING_INTERVAL.operational) : false,
+  });
+  const alerts = useQuery({
+    queryKey: sofiaQueryKeys.alerts,
+    queryFn: () => apiFetchSchema('/admin/sofia/alerts', sofiaAlertsSchema),
+    enabled: canReadAlerts,
+    refetchInterval: canReadAlerts ? visiblePolling(POLLING_INTERVAL.operational) : false,
+  });
+  const canGovern = canPerformAction(user?.permissions, 'settings.update', user?.roles, ['admin', 'supervisor']);
 
   const invalidateOperationalQueries = async () => {
     await Promise.all([
@@ -70,11 +94,13 @@ export default function SofiaMainDashboardPage() {
   };
 
   const pauseSofia = useMutation({
-    mutationFn: () =>
-      apiFetchSchema('/admin/sofia/governance/pause', sofiaGovernancePauseResponseSchema, {
+    mutationFn: () => {
+      if (!canGovern) throw new Error('No tienes permiso para pausar Sofia.');
+      return apiFetchSchema('/admin/sofia/governance/pause', sofiaGovernancePauseResponseSchema, {
         method: 'POST',
         body: JSON.stringify({ reason: 'Pausa manual desde Centro de Gobierno Sofia' }),
-      }),
+      });
+    },
     scope: { id: 'sofia-governance-write' },
     onSuccess: async (result) => {
       toast.success(result.message);
@@ -84,8 +110,10 @@ export default function SofiaMainDashboardPage() {
   });
 
   const resumeSofia = useMutation({
-    mutationFn: () =>
-      apiFetchSchema('/admin/sofia/governance/resume', sofiaGovernancePauseResponseSchema, { method: 'POST' }),
+    mutationFn: () => {
+      if (!canGovern) throw new Error('No tienes permiso para reanudar Sofia.');
+      return apiFetchSchema('/admin/sofia/governance/resume', sofiaGovernancePauseResponseSchema, { method: 'POST' });
+    },
     scope: { id: 'sofia-governance-write' },
     onSuccess: async (result) => {
       toast.success(result.message);
@@ -95,8 +123,10 @@ export default function SofiaMainDashboardPage() {
   });
 
   const ackAlert = useMutation({
-    mutationFn: (id: string) =>
-      apiFetchSchema(`/admin/sofia/alerts/${id}/ack`, sofiaAlertAckResponseSchema, { method: 'POST' }),
+    mutationFn: (id: string) => {
+      if (!canGovern) throw new Error('No tienes permiso para reconocer alertas de Sofia.');
+      return apiFetchSchema(`/admin/sofia/alerts/${id}/ack`, sofiaAlertAckResponseSchema, { method: 'POST' });
+    },
     scope: { id: 'sofia-governance-write' },
     onSuccess: async () => {
       toast.success('Alerta reconocida');
@@ -139,9 +169,9 @@ export default function SofiaMainDashboardPage() {
               <Button asChild variant="secondary">
                 <Link href="/conversations"><MessagesSquare className="h-4 w-4" aria-hidden="true" /> Conversaciones</Link>
               </Button>
-              <Button asChild variant="secondary">
+              {canOpenActivationControl ? <Button asChild variant="secondary">
                 <Link href="/activation-control"><Radio className="h-4 w-4" aria-hidden="true" /> Control de activacion</Link>
-              </Button>
+              </Button> : null}
             </>
           }
         />
@@ -154,7 +184,7 @@ export default function SofiaMainDashboardPage() {
           { id: 'conversations', label: 'Conversaciones', href: '/conversations', icon: <MessagesSquare className="h-4 w-4" /> },
           { id: 'customers', label: 'Clientes', href: '/customers' },
           { id: 'activation', label: 'Activacion', href: '/activation-control', icon: <ShieldCheck className="h-4 w-4" /> },
-        ]}
+        ].filter((item) => canAccessRoute(item.href, user?.permissions, user?.roles))}
       />
 
       <QueryState
@@ -179,7 +209,7 @@ export default function SofiaMainDashboardPage() {
                   <div>
                     <h2 id="sofia-control-title" className="font-heading text-lg font-semibold text-ink">Control operacional</h2>
                     <p className="mt-1 text-sm leading-6 text-muted">
-                      Kill switch {data.general.killSwitchActive ? 'activo' : 'inactivo'} · envio real bloqueado · auto reply bloqueado.
+                      Kill switch {data.general.killSwitchActive ? 'activo' : 'inactivo'} · envio real {data.general.realSendingEnabled ? 'habilitado' : 'bloqueado'} · auto reply {data.general.autoReplyEnabled ? 'habilitado' : 'bloqueado'}.
                     </p>
                     <p className="mt-1 text-xs tabular-nums text-muted">Ultima lectura: {formatDate(data.generatedAt)}</p>
                   </div>
@@ -217,7 +247,7 @@ export default function SofiaMainDashboardPage() {
               <MetricSurface
                 label="WhatsApp inbound"
                 value={data.whatsappQr.inboundToday.toLocaleString('es-CO')}
-                context={`${data.whatsappQr.connected ? 'Conectado' : readable(data.whatsappQr.status)} · receive-only`}
+                context={`${data.whatsappQr.connected ? 'Conectado' : readable(data.whatsappQr.status)} · ${data.general.receiveOnly ? 'solo recepcion' : readable(data.whatsappQr.mode)}`}
                 icon={<Radio className="h-5 w-5" />}
                 status={<StatusBadge status={data.whatsappQr.connected ? 'ACTIVE' : data.whatsappQr.status} />}
               />
@@ -235,15 +265,15 @@ export default function SofiaMainDashboardPage() {
               />
               <MetricSurface
                 label="Automatizacion"
-                value="Bloqueada"
-                context="Sin envio real, auto reply ni pagos desde Sofia"
+                value={data.general.automationBlocked ? 'Bloqueada' : 'Requiere revision'}
+                context={`Envio real ${data.general.realSendingEnabled ? 'habilitado' : 'bloqueado'} · auto reply ${data.general.autoReplyEnabled ? 'habilitado' : 'bloqueado'} · Auto Safe ${data.general.autoSafeEnabled ? 'habilitado' : 'bloqueado'}`}
                 icon={<CirclePause className="h-5 w-5" />}
-                status={<StatusBadge status="BLOCKED" label="Fail-closed" tone="danger" />}
+                status={<StatusBadge status={data.general.automationBlocked ? 'BLOCKED' : 'WARNING'} label={data.general.automationBlocked ? 'Fail-closed' : 'Revisar'} tone={data.general.automationBlocked ? 'danger' : 'warning'} />}
               />
             </section>
 
-            <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]" data-testid="sofia-main-alerts">
-              <Card className="min-w-0">
+            {canReadAlerts || canReadGovernance ? <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]" data-testid="sofia-main-alerts">
+              {canReadAlerts ? <Card className="min-w-0">
                 <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
                   <div>
                     <h2 className="font-heading text-lg font-semibold text-ink">Alertas operativas</h2>
@@ -287,9 +317,9 @@ export default function SofiaMainDashboardPage() {
                     </div>
                   </QueryState>
                 </div>
-              </Card>
+              </Card> : null}
 
-              <Card>
+              {canReadGovernance ? <Card>
                 <h2 className="font-heading text-lg font-semibold text-ink">Readiness supervisado</h2>
                 <p className="mt-1 text-sm leading-6 text-muted">La activacion de canal sigue separada de este workspace.</p>
                 <div className="mt-4">
@@ -336,11 +366,18 @@ export default function SofiaMainDashboardPage() {
                     ) : null}
                   </div>
                 ) : null}
-              </Card>
-            </section>
+              </Card> : null}
+            </section> : (
+              <QueryState
+                status="permission_denied"
+                title="Gobierno de Sofia restringido"
+                description="La lectura operacional permanece disponible. Readiness, alertas y eventos requieren settings.read."
+                data-testid="sofia-governance-restricted"
+              />
+            )}
 
             <section className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]" data-testid="sofia-main-activity-timeline">
-              <Card>
+              {canReadGovernance ? <Card>
                 <div className="border-b border-line pb-4">
                   <h2 className="font-heading text-lg font-semibold text-ink">Actividad de gobierno</h2>
                   <p className="mt-1 text-sm text-muted">Eventos sanitizados; no contiene razonamiento oculto ni payloads de proveedor.</p>
@@ -355,7 +392,7 @@ export default function SofiaMainDashboardPage() {
                     <Timeline items={timelineItems} label="Actividad reciente de Sofia" density="compact" />
                   </QueryState>
                 </div>
-              </Card>
+              </Card> : null}
 
               <Card data-testid="sofia-main-action-blocked">
                 <div className="flex items-center gap-2">
@@ -367,9 +404,9 @@ export default function SofiaMainDashboardPage() {
                     <li key={item} className="flex gap-2"><span aria-hidden="true">•</span><span>{item}</span></li>
                   ))}
                 </ul>
-                <Button asChild className="mt-5 w-full" variant="secondary">
+                {canOpenActivationControl ? <Button asChild className="mt-5 w-full" variant="secondary">
                   <Link href="/activation-control">Ver controles de activacion</Link>
-                </Button>
+                </Button> : null}
               </Card>
             </section>
 

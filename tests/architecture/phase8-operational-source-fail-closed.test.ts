@@ -25,11 +25,11 @@ test('purchase and expense writes reject unavailable dependencies even with cach
 
   assert.match(purchases, /const purchaseSourcesReady =[\s\S]*?suppliers\.isSuccess[\s\S]*?ingredients\.isSuccess[\s\S]*?products\.isSuccess[\s\S]*?paymentMethods\.isSuccess/);
   assert.match(purchases, /mutationFn: \(\) => \{[\s\S]*?if \(!purchaseSourcesReady\)[\s\S]*?Promise\.reject/);
-  assert.match(purchases, /data-testid="purchase-submit"[\s\S]*?disabled=\{createPurchase\.isPending \|\| !purchaseSourcesReady\}/);
+  assert.match(purchases, /data-testid="purchase-submit"[\s\S]*?disabled=\{!canCreate \|\| createPurchase\.isPending \|\| !purchaseSourcesReady\}/);
 
   assert.match(expenses, /const expenseSourcesReady = dailySummary\.isSuccess && paymentMethods\.isSuccess/);
   assert.match(expenses, /mutationFn: \(\) => \{[\s\S]*?if \(!expenseSourcesReady\)[\s\S]*?Promise\.reject/);
-  assert.match(expenses, /data-testid="expense-submit"[\s\S]*?disabled=\{createExpense\.isPending \|\| !expenseSourcesReady\}/);
+  assert.match(expenses, /data-testid="expense-submit"[\s\S]*?disabled=\{!canCreate \|\| createExpense\.isPending \|\| !expenseSourcesReady\}/);
 });
 
 test('operational headers never present cached or failed sources as connected', () => {

@@ -15,6 +15,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatDate, matchesSearch } from '@/lib/format';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type PurchaseItemState = {
   targetType: 'ingredient' | 'product';
@@ -77,6 +79,7 @@ function getPurchaseLineError(item: PurchaseItemState) {
 }
 
 export default function PurchasesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
@@ -89,6 +92,7 @@ export default function PurchasesPage() {
   const [items, setItems] = useState<PurchaseItemState[]>([createEmptyLine()]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [focusedNumFields, setFocusedNumFields] = useState<Set<string>>(new Set());
+  const canCreate = canPerformAction(user?.permissions, 'purchases.create', user?.roles, ['admin', 'inventory']);
 
   const purchases = useQuery({
     queryKey: ['purchases'],
@@ -166,6 +170,7 @@ export default function PurchasesPage() {
 
   const createPurchase = useMutation({
     mutationFn: () => {
+      if (!canCreate) return Promise.reject(new Error('No tienes permiso para registrar compras.'));
       if (!purchaseSourcesReady) {
         return Promise.reject(new Error('No se puede registrar la compra sin verificar los catálogos requeridos.'));
       }
@@ -243,6 +248,8 @@ export default function PurchasesPage() {
           : <StatusBadge status="UNKNOWN" label="Historial sin verificar" />}
       />
 
+      {!canCreate ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar compras y su evidencia, pero no registrar nuevas entradas de inventario." /> : null}
+
       <div className="grid gap-3 md:grid-cols-3">
         <MetricSurface density="compact" label="Registradas" value={purchases.data ? String(purchases.data.length) : undefined} context="Historial disponible" icon={<Truck className="h-5 w-5" />} unavailable={!purchases.data} />
         <MetricSurface density="compact" label="Líneas en edición" value={String(items.length)} context="Borrador local actual" icon={<Boxes className="h-5 w-5" />} />
@@ -266,7 +273,7 @@ export default function PurchasesPage() {
                 <h2 className="text-[15px] font-extrabold text-ink">Nueva compra</h2>
                 <p className="mt-0.5 text-[12px] text-stone-600">Cada linea genera un movimiento de inventario al confirmar.</p>
               </div>
-              <Button type="button" variant="secondary" size="sm" data-testid="purchase-add-row" onClick={() => setItems((current) => [...current, createEmptyLine()])}>
+              <Button type="button" variant="secondary" size="sm" data-testid="purchase-add-row" onClick={() => setItems((current) => [...current, createEmptyLine()])} disabled={!canCreate}>
                 <Plus className="mr-1.5 h-4 w-4" />
                 Agregar linea
               </Button>
@@ -396,7 +403,7 @@ export default function PurchasesPage() {
                     <p className="mt-1 text-[1.5rem] font-black leading-none text-ink tabular-nums">{formatCurrency(computedTotal)}</p>
                     <p className="mt-1 text-[12px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
                   </div>
-                  <Button data-testid="purchase-submit" type="submit" disabled={createPurchase.isPending || !purchaseSourcesReady} className="shrink-0">
+                  <Button data-testid="purchase-submit" type="submit" disabled={!canCreate || createPurchase.isPending || !purchaseSourcesReady} className="shrink-0">
                     {createPurchase.isPending ? 'Registrando...' : 'Guardar compra'}
                   </Button>
                 </div>

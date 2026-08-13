@@ -20,6 +20,8 @@ import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { getOperationalOrderDisplayCode } from '@/lib/order-display';
 import { visiblePolling } from '@/lib/query-policy';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type TableStatus = 'FREE' | 'OCCUPIED' | 'RESERVED' | 'PAYMENT_PENDING' | 'OUT_OF_SERVICE';
 
@@ -131,6 +133,7 @@ const defaultGroupEditForm = {
 };
 
 export default function TablesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [form, setForm] = useState<TableForm>(defaultForm);
@@ -138,6 +141,11 @@ export default function TablesPage() {
   const [groupEditForm, setGroupEditForm] = useState(defaultGroupEditForm);
   const [groupEditTableIds, setGroupEditTableIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const canCreate = canPerformAction(user?.permissions, 'tables.create', user?.roles, ['admin', 'supervisor']);
+  const canUpdate = canPerformAction(user?.permissions, 'tables.update', user?.roles, ['admin', 'supervisor']);
+  const canDelete = canPerformAction(user?.permissions, 'tables.update', user?.roles, ['admin', 'supervisor']);
+  const canManage = canCreate || canUpdate;
+  const canCreateOrder = canPerformAction(user?.permissions, 'orders.create', user?.roles, ['admin', 'cashier', 'supervisor']);
 
   const tables = useQuery({
     queryKey: ['tables'],
@@ -167,6 +175,7 @@ export default function TablesPage() {
       unavailable: data.filter((table) => !table.isActive || table.status === 'OUT_OF_SERVICE').length,
     };
   }, [tables.data]);
+  const metricsAvailable = tables.isSuccess && Boolean(tables.data);
 
   const selectedTable = useMemo(
     () => (tables.data ?? []).find((table) => table.id === selectedTableId) ?? null,
@@ -179,8 +188,9 @@ export default function TablesPage() {
   }, [tables.data]);
 
   const upsertTable = useMutation({
-    mutationFn: () =>
-      apiFetch(selectedTable ? `/tables/${selectedTable.id}` : '/tables', {
+    mutationFn: () => {
+      if (selectedTable ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar mesas.');
+      return apiFetch(selectedTable ? `/tables/${selectedTable.id}` : '/tables', {
         method: selectedTable ? 'PATCH' : 'POST',
         body: JSON.stringify({
           label: form.label,
@@ -191,7 +201,8 @@ export default function TablesPage() {
           notes: form.notes,
           isActive: true,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success(selectedTable ? 'Mesa actualizada correctamente' : 'Mesa creada correctamente');
       setSelectedTableId(null);
@@ -281,6 +292,7 @@ export default function TablesPage() {
 
   const deleteSelectedTable = useMutation({
     mutationFn: async () => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar mesas.');
       if (!selectedTable) {
         throw new Error('Selecciona una mesa para eliminar.');
       }
@@ -308,6 +320,7 @@ export default function TablesPage() {
 
   const deleteSelectedGroup = useMutation({
     mutationFn: async () => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar grupos.');
       if (!selectedGroup) {
         throw new Error('Selecciona un grupo para eliminar.');
       }
@@ -335,15 +348,17 @@ export default function TablesPage() {
   });
 
   const createGroup = useMutation({
-    mutationFn: () =>
-      apiFetch<TableGroup>('/table-groups', {
+    mutationFn: () => {
+      if (!canCreate) throw new Error('No tienes permiso para crear grupos de mesas.');
+      return apiFetch<TableGroup>('/table-groups', {
         method: 'POST',
         body: JSON.stringify({
           name: groupForm.name,
           area: groupForm.area || undefined,
           description: groupForm.description || undefined,
         }),
-      }),
+      });
+    },
     onSuccess: async (group) => {
       toast.success('Grupo de mesas creado correctamente');
       setGroupForm((current) => ({ ...current, name: '', area: '', description: '' }));
@@ -355,15 +370,17 @@ export default function TablesPage() {
   });
 
   const assignWaiterToGroup = useMutation({
-    mutationFn: () =>
-      apiFetch('/waiter-assignments', {
+    mutationFn: () => {
+      if (!canUpdate) throw new Error('No tienes permiso para asignar responsables.');
+      return apiFetch('/waiter-assignments', {
         method: 'POST',
         body: JSON.stringify({
           waiterId: groupForm.waiterId,
           scope: 'GROUP',
           tableGroupId: selectedGroup?.id,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Mesero asignado al grupo');
       setGroupForm((current) => ({ ...current, waiterId: '' }));
@@ -375,6 +392,7 @@ export default function TablesPage() {
 
   const updateSelectedGroup = useMutation({
     mutationFn: async () => {
+      if (!canUpdate) throw new Error('No tienes permiso para modificar grupos.');
       if (!selectedGroup) {
         throw new Error('Selecciona un grupo para editar.');
       }
@@ -445,15 +463,17 @@ export default function TablesPage() {
   });
 
   const assignTableDirectly = useMutation({
-    mutationFn: ({ tableId, waiterId }: { tableId: string; waiterId: string }) =>
-      apiFetch('/waiter-assignments', {
+    mutationFn: ({ tableId, waiterId }: { tableId: string; waiterId: string }) => {
+      if (!canUpdate) throw new Error('No tienes permiso para asignar mesas.');
+      return apiFetch('/waiter-assignments', {
         method: 'POST',
         body: JSON.stringify({
           waiterId,
           scope: 'TABLE',
           tableId,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Asignación directa actualizada');
       await invalidateTableAssignmentData();
@@ -471,13 +491,15 @@ export default function TablesPage() {
         status={tables.data && !tables.isError
           ? <Badge tone="info">{metrics.occupied} con servicio</Badge>
           : <Badge tone="warning">{tables.data ? 'Salón desactualizado' : 'Salón sin verificar'}</Badge>}
-        actions={
+        actions={canCreate ? (
           <Button type="button" variant="secondary" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Nueva mesa
           </Button>
-        }
+        ) : undefined}
       />
+
+      {!canManage ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar el salón, pero no crear mesas, editar grupos ni cambiar responsables." /> : null}
 
       {tables.isSuccess && !metrics.total ? (
         <StatusBanner
@@ -505,10 +527,10 @@ export default function TablesPage() {
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricSurface density="compact" label="Total" value={formatNumber(metrics.total)} unavailable={tables.isError} icon={<Armchair className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Disponibles" value={formatNumber(metrics.free)} unavailable={tables.isError} icon={<CheckCircle2 className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Ocupadas" value={formatNumber(metrics.occupied)} unavailable={tables.isError} icon={<CircleDashed className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Fuera de servicio" value={formatNumber(metrics.unavailable)} unavailable={tables.isError} icon={<ShieldAlert className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Total" value={metricsAvailable ? formatNumber(metrics.total) : undefined} unavailable={!metricsAvailable} icon={<Armchair className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Disponibles" value={metricsAvailable ? formatNumber(metrics.free) : undefined} unavailable={!metricsAvailable} icon={<CheckCircle2 className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Ocupadas" value={metricsAvailable ? formatNumber(metrics.occupied) : undefined} unavailable={!metricsAvailable} icon={<CircleDashed className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Fuera de servicio" value={metricsAvailable ? formatNumber(metrics.unavailable) : undefined} unavailable={!metricsAvailable} icon={<ShieldAlert className="h-5 w-5" />} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
@@ -634,10 +656,10 @@ export default function TablesPage() {
                     )}
 
                     <div className="mt-3 grid grid-cols-2 gap-2.5">
-                      <Button type="button" variant="secondary" onClick={() => startEdit(table)} className="w-full">
+                      <Button type="button" variant="secondary" onClick={() => startEdit(table)} className="w-full" disabled={!canUpdate}>
                         Editar
                       </Button>
-                      {table.isActive && table.status !== 'OUT_OF_SERVICE' ? (
+                      {canCreateOrder && table.isActive && table.status !== 'OUT_OF_SERVICE' ? (
                         <Button asChild type="button" className="w-full">
                           <Link href={`/pos?tableId=${table.id}`}>
                             {activeOrder ? 'Retomar comanda' : 'Abrir comanda'}
@@ -712,7 +734,7 @@ export default function TablesPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={tables.isError || !form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
+              disabled={(selectedTable ? !canUpdate : !canCreate) || tables.isError || !form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
             >
               {upsertTable.isPending ? 'Guardando mesa...' : selectedTable ? 'Guardar cambios de la mesa' : 'Crear mesa'}
             </Button>
@@ -721,7 +743,7 @@ export default function TablesPage() {
                 type="button"
                 variant="secondary"
                 className="w-full border-red-200 text-red-700 hover:bg-red-50"
-                disabled={deleteSelectedTable.isPending}
+                disabled={!canDelete || deleteSelectedTable.isPending}
                 onClick={() => deleteSelectedTable.mutate()}
                 data-testid="table-delete-button"
               >
@@ -839,7 +861,7 @@ export default function TablesPage() {
                   className="min-h-20"
                 />
               </Field>
-              <Button type="submit" className="w-full" disabled={!groupForm.name.trim() || createGroup.isPending}>
+              <Button type="submit" className="w-full" disabled={!canCreate || !groupForm.name.trim() || createGroup.isPending}>
                 {createGroup.isPending ? 'Creando grupo...' : 'Crear grupo de mesas'}
               </Button>
             </form>
@@ -871,7 +893,7 @@ export default function TablesPage() {
                 type="button"
                 variant="secondary"
                 className="w-full"
-                disabled={!selectedGroup || !groupForm.waiterId || assignWaiterToGroup.isPending}
+                disabled={!canUpdate || !selectedGroup || !groupForm.waiterId || assignWaiterToGroup.isPending}
                 onClick={() => assignWaiterToGroup.mutate()}
               >
                 {assignWaiterToGroup.isPending ? 'Asignando...' : 'Asignar mesero'}
@@ -992,7 +1014,7 @@ export default function TablesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={!groupEditForm.name.trim() || updateSelectedGroup.isPending}
+                  disabled={!canUpdate || !groupEditForm.name.trim() || updateSelectedGroup.isPending}
                 >
                   {updateSelectedGroup.isPending ? 'Guardando cambios...' : 'Guardar cambios del grupo'}
                 </Button>
@@ -1000,7 +1022,7 @@ export default function TablesPage() {
                   type="button"
                   variant="secondary"
                   className="w-full border-red-200 text-red-700 hover:bg-red-50"
-                  disabled={deleteSelectedGroup.isPending}
+                  disabled={!canDelete || deleteSelectedGroup.isPending}
                   onClick={() => deleteSelectedGroup.mutate()}
                   data-testid="table-group-delete-button"
                 >

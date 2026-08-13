@@ -17,6 +17,8 @@ import { apiFetch } from '@/lib/api';
 import { matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { focusFirstInvalidField } from '@/lib/form-accessibility';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type Category = {
   id: string;
@@ -40,12 +42,17 @@ const catalogTabs = [
 ] as const;
 
 export default function CategoriesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState(initialForm);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const canCreate = canPerformAction(user?.permissions, 'categories.create', user?.roles, ['admin', 'inventory']);
+  const canUpdate = canPerformAction(user?.permissions, 'categories.update', user?.roles, ['admin', 'inventory']);
+  const canDelete = canPerformAction(user?.permissions, 'categories.update', user?.roles, ['admin']);
+  const canManage = canCreate || canUpdate;
 
   const formErrors = useMemo(() => {
     const errors: { name?: string; description?: string } = {};
@@ -70,6 +77,7 @@ export default function CategoriesPage() {
 
   const saveCategory = useMutation({
     mutationFn: async () => {
+      if (selectedCategory ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar categorías.');
       if (Object.keys(formErrors).length > 0) throw new Error('Corrige los campos marcados antes de guardar.');
       if (selectedCategory) {
         return apiFetch(`/categories/${selectedCategory.id}`, {
@@ -96,10 +104,12 @@ export default function CategoriesPage() {
   });
 
   const deleteCategory = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/categories/${id}`, {
+    mutationFn: (id: string) => {
+      if (!canDelete) throw new Error('No tienes permiso para desactivar categorías.');
+      return apiFetch(`/categories/${id}`, {
         method: 'DELETE',
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Categoría desactivada');
       setSelectedCategory(null);
@@ -119,7 +129,7 @@ export default function CategoriesPage() {
         status={categories.data && !categories.isError
           ? <StatusBadge status="ACTIVE" label={`${categories.data.length} categorías`} />
           : <StatusBadge status="UNKNOWN" label="Categorías sin verificar" tone="neutral" />}
-        actions={
+        actions={canCreate ? (
           <Button
             type="button"
             variant="secondary"
@@ -131,7 +141,7 @@ export default function CategoriesPage() {
           >
             Nueva categoría
           </Button>
-        }
+        ) : undefined}
       />
 
       <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
@@ -170,6 +180,7 @@ export default function CategoriesPage() {
                   type="button"
                   className="text-left"
                   onClick={() => {
+                    if (!canUpdate) return;
                     setSelectedCategory(category);
                     setForm({
                       name: category.name,
@@ -177,6 +188,7 @@ export default function CategoriesPage() {
                       isActive: category.isActive,
                     });
                   }}
+                  disabled={!canUpdate}
                 >
                   <div>
                     <div className="flex items-center gap-2.5">
@@ -191,7 +203,7 @@ export default function CategoriesPage() {
                     <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-stone-600">Slug</p>
                     <p className="mt-1 text-[12px] font-medium text-stone-700">{category.slug}</p>
                   </div>
-                  <Button
+                  {canDelete ? <Button
                     type="button"
                     variant="secondary"
                     size="sm"
@@ -200,7 +212,7 @@ export default function CategoriesPage() {
                   >
                     <Trash2 className="mr-1.5 h-4 w-4" />
                     Eliminar
-                  </Button>
+                  </Button> : null}
                 </div>
               </div>
             ))}
@@ -208,7 +220,7 @@ export default function CategoriesPage() {
           </QueryState>
         </Card>
 
-        <Card>
+        {canManage ? <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-brand-50 p-3 text-brand-900">
               <Tags className="h-5 w-5" />
@@ -238,6 +250,7 @@ export default function CategoriesPage() {
           >
             <Field label="Nombre" error={submitAttempted ? formErrors.name : null} required>
               <Input
+                disabled={selectedCategory ? !canUpdate : !canCreate}
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                 placeholder="Ej. Hamburguesas premium"
@@ -245,6 +258,7 @@ export default function CategoriesPage() {
             </Field>
             <Field label="Descripción" error={submitAttempted ? formErrors.description : null}>
               <Input
+                disabled={selectedCategory ? !canUpdate : !canCreate}
                 value={form.description}
                 onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                 placeholder="Uso comercial y operativo"
@@ -260,13 +274,14 @@ export default function CategoriesPage() {
                 checked={form.isActive}
                 onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
                 className="h-5 w-5 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+                disabled={selectedCategory ? !canUpdate : !canCreate}
               />
             </label>
             <div className="flex gap-3">
               <Button type="submit" className="flex-1" disabled={saveCategory.isPending || (submitAttempted && Object.keys(formErrors).length > 0)}>
                 {saveCategory.isPending ? 'Guardando categoría...' : selectedCategory ? 'Guardar cambios de la categoría' : 'Crear categoría'}
               </Button>
-              {selectedCategory ? (
+              {selectedCategory && canDelete ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -291,9 +306,9 @@ export default function CategoriesPage() {
               ) : null}
             </div>
           </form>
-        </Card>
+        </Card> : <Card><QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar las categorías, pero no crear ni modificar el catálogo." /></Card>}
       </div>
-      {confirmDelete ? (
+      {confirmDelete && canDelete ? (
         <ConfirmDialog
           open
           title="Desactivar categoria"

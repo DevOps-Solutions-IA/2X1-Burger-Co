@@ -27,6 +27,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetch, apiFetchBlob } from '@/lib/api';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format';
 import { formatReceiptNumber } from '@/lib/receipt-number';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 const denominations = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
 const manualMovementOptions = [
@@ -222,6 +224,7 @@ type CloseCashResponse = {
 };
 
 export default function CashPage() {
+  const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [openingAmount, setOpeningAmount] = useState('50000');
@@ -241,6 +244,11 @@ export default function CashPage() {
   const [convertOrderType, setConvertOrderType] = useState<'COUNTER' | 'DINE_IN' | 'DELIVERY'>('DINE_IN');
   const [convertTableId, setConvertTableId] = useState('');
   const [convertReason, setConvertReason] = useState('');
+  const canOpenCash = canPerformAction(user?.permissions, 'cash.open', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canCloseCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canReopenCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'supervisor']);
+  const canRecordManualCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canRecoverSale = canPerformAction(user?.permissions, 'sales.create', user?.roles, ['admin', 'cashier', 'supervisor']);
 
   const currentCash = useQuery({
     queryKey: ['cash-current'],
@@ -334,15 +342,17 @@ export default function CashPage() {
   const operationalLogError = operationalLog.error;
 
   const openCash = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/open', {
+    mutationFn: () => {
+      if (!canOpenCash) throw new Error('No tienes permiso para abrir caja.');
+      return apiFetch('/cash-register/open', {
         method: 'POST',
         body: JSON.stringify({
           openingAmount: Number(openingAmount),
           notes: openingNotes || undefined,
           openingBreakdown: serializeBreakdown(openingBreakdown),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Caja abierta y lista para operar');
       setOpeningNotes('');
@@ -353,15 +363,17 @@ export default function CashPage() {
   });
 
   const closeCash = useMutation({
-    mutationFn: () =>
-      apiFetch<CloseCashResponse>('/cash-register/close', {
+    mutationFn: () => {
+      if (!canCloseCash) throw new Error('No tienes permiso para cerrar caja.');
+      return apiFetch<CloseCashResponse>('/cash-register/close', {
         method: 'POST',
         body: JSON.stringify({
           actualAmount: closingAmount,
           notes: closingNotes || undefined,
           closingBreakdown: serializeBreakdown(closingBreakdown),
         }),
-      }),
+      });
+    },
     onSuccess: async (response) => {
       const whatsappNotification = response?.notifications?.whatsapp;
       if (whatsappNotification?.success) {
@@ -388,14 +400,16 @@ export default function CashPage() {
   });
 
   const reopenCash = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/reopen', {
+    mutationFn: () => {
+      if (!canReopenCash) throw new Error('No tienes permiso para reabrir caja.');
+      return apiFetch('/cash-register/reopen', {
         method: 'POST',
         body: JSON.stringify({
           sessionId: latestClosedSession?.id,
           reason: reopenReason,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Caja reabierta de forma controlada');
       setReopenReason('');
@@ -405,8 +419,9 @@ export default function CashPage() {
   });
 
   const createManualMovement = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/movements/manual', {
+    mutationFn: () => {
+      if (!canRecordManualCash) throw new Error('No tienes permiso para registrar movimientos manuales.');
+      return apiFetch('/cash-register/movements/manual', {
         method: 'POST',
         body: JSON.stringify({
           type: manualType,
@@ -414,7 +429,8 @@ export default function CashPage() {
           classification: manualClassification,
           description: manualDescription || undefined,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Movimiento manual registrado');
       setManualAmount('');
@@ -426,6 +442,7 @@ export default function CashPage() {
 
   const convertSaleToOrder = useMutation({
     mutationFn: () => {
+      if (!canRecoverSale) throw new Error('No tienes permiso para recuperar ventas.');
       if (!selectedSale) {
         throw new Error('Selecciona primero una venta.');
       }
@@ -466,6 +483,7 @@ export default function CashPage() {
 
   const reopenConvertedOrder = useMutation({
     mutationFn: () => {
+      if (!canRecoverSale) throw new Error('No tienes permiso para reabrir comandas convertidas.');
       if (!selectedSale?.conversion) {
         throw new Error('Esta venta no tiene una comanda vinculada.');
       }
@@ -513,7 +531,7 @@ export default function CashPage() {
   };
 
   const openingAmountNum = Number(openingAmount);
-  const canOpen = openingAmountNum > 0 && !openCash.isPending;
+  const canOpen = canOpenCash && openingAmountNum > 0 && !openCash.isPending;
   const canClose =
     closingAmount >= 0 &&
     confirmedClosingAmount === closingAmount &&
@@ -521,21 +539,21 @@ export default function CashPage() {
     closingConfirmationText.trim().toUpperCase() === 'CERRAR' &&
     closeChecklist.data?.canClose === true &&
     !closeChecklist.isLoading &&
-    !closeCash.isPending;
-  const canReopen = Boolean(reopenReason.trim()) && !reopenCash.isPending;
-  const canManualMove = Number(manualAmount) > 0 && !createManualMovement.isPending;
+    !closeCash.isPending && canCloseCash;
+  const canReopen = canReopenCash && Boolean(reopenReason.trim()) && !reopenCash.isPending;
+  const canManualMove = canRecordManualCash && Number(manualAmount) > 0 && !createManualMovement.isPending;
   const canConvertSelectedSale =
     Boolean(selectedSale) &&
     selectedSale?.status !== 'CANCELLED' &&
     !selectedSale?.conversion &&
     convertReason.trim().length >= 8 &&
     (convertOrderType !== 'DINE_IN' || Boolean(convertTableId)) &&
-    !convertSaleToOrder.isPending;
+    !convertSaleToOrder.isPending && canRecoverSale;
   const canReopenSelectedOrder =
     Boolean(selectedSale?.conversion) &&
     selectedSale?.conversion?.orderTicket.status === 'PAID' &&
     convertReason.trim().length >= 8 &&
-    !reopenConvertedOrder.isPending;
+    !reopenConvertedOrder.isPending && canRecoverSale;
 
   useEffect(() => {
     setConfirmedClosingAmount(null);
@@ -560,6 +578,10 @@ export default function CashPage() {
           ) : undefined
         }
       />
+
+      {!canOpenCash && !canCloseCash && !canRecordManualCash && !canRecoverSale ? (
+        <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar caja y ventas, pero no abrir, cerrar, registrar movimientos ni recuperar comandas." />
+      ) : null}
 
       {activeOrdersCount > 0 ? (
         <StatusBanner
