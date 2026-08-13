@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowUpRight,
   ChevronLeft,
@@ -46,10 +47,16 @@ const categoryLabels: Readonly<Record<ServiceCaseCategory, string>> = {
 };
 
 export function CustomerServiceScreen() {
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<ServiceCaseStatus | ''>('');
   const [category, setCategory] = useState<ServiceCaseCategory | ''>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const caseId = searchParams?.get('case')?.trim();
+    if (caseId) setSelectedId(caseId);
+  }, [searchParams]);
   const cases = useServiceCases(page, status, category);
   const selectedCase = useServiceCase(selectedId);
   const pages = cases.data ? Math.ceil(cases.data.total / cases.data.limit) : 0;

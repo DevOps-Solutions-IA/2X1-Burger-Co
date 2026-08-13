@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowUpRight,
   ChevronLeft,
@@ -52,10 +53,18 @@ const viewOptions: Array<{ id: PaymentView; label: string; icon: ReactNode }> = 
 ];
 
 export function PaymentsScreen() {
+  const searchParams = useSearchParams();
   const [view, setView] = useState<PaymentView>('intents');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
   const [selectedIntentId, setSelectedIntentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const intentId = searchParams?.get('intent')?.trim();
+    if (!intentId) return;
+    setView('intents');
+    setSelectedIntentId(intentId);
+  }, [searchParams]);
 
   const intents = usePaymentIntents(page, status as PaymentIntentStatus | '', view === 'intents');
   const links = usePaymentLinks(page, status, view === 'links');
