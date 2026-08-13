@@ -194,7 +194,7 @@ export default function ExpensesPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Registrar gasto</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Cada egreso afecta el cierre diario.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Cada egreso afecta el cierre diario.</p>
             </div>
             <Button type="button" variant="secondary" size="sm" onClick={resetForm}>Nuevo registro</Button>
           </div>
@@ -247,7 +247,7 @@ export default function ExpensesPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-[15px] font-extrabold text-ink">Historial de gastos</h2>
-                <p className="mt-0.5 text-[12px] text-stone-500">Referencia operativa de egresos recientes.</p>
+                <p className="mt-0.5 text-[12px] text-stone-600">Referencia operativa de egresos recientes.</p>
               </div>
               <Badge tone="neutral">{filteredExpenses.length} registros</Badge>
             </div>
@@ -275,13 +275,13 @@ export default function ExpensesPage() {
               >
                 <div>
                   <p className="text-[12px] font-bold text-ink">{formatDate(expense.spentAt)}</p>
-                  <p className="text-[11px] text-stone-500">{expense.paymentMethod?.name || '—'}</p>
+                  <p className="text-[12px] text-stone-600">{expense.paymentMethod?.name || '—'}</p>
                 </div>
                 <div>
                   <p className="text-[12px] font-bold text-ink">{expense.concept}</p>
-                  <p className="text-[11px] text-stone-500 truncate">{expense.classification || '—'}</p>
+                  <p className="text-[12px] text-stone-600 truncate">{expense.classification || '—'}</p>
                 </div>
-                <p className="text-[11px] text-stone-500">{expense.createdBy?.fullName || 'Sistema'}</p>
+                <p className="text-[12px] text-stone-600">{expense.createdBy?.fullName || 'Sistema'}</p>
                 <p className="text-[13px] font-extrabold text-ink tabular-nums text-right">{formatCurrency(expense.amount)}</p>
               </button>
             ))}
@@ -301,30 +301,30 @@ export default function ExpensesPage() {
         {selectedExpense ? (
             <div className="space-y-3" data-testid="expense-detail-modal">
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Concepto</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Concepto</p>
                 <p className="mt-0.5 text-[13px] font-bold text-ink">{selectedExpense.concept}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Clasificación</p>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Clasificación</p>
                   <p className="mt-0.5 text-[12px] font-bold text-ink">{selectedExpense.classification || '—'}</p>
                 </div>
                 <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Método</p>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Método</p>
                   <p className="mt-0.5 text-[12px] font-bold text-ink">{selectedExpense.paymentMethod?.name || '—'}</p>
                 </div>
               </div>
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Monto</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Monto</p>
                 <p className="mt-0.5 text-[1.4rem] font-black text-ink tabular-nums">{formatCurrency(selectedExpense.amount)}</p>
               </div>
               {selectedExpense.description ? (
                 <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Descripción</p>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Descripción</p>
                   <p className="mt-1 text-[12px] text-stone-700 leading-5">{selectedExpense.description}</p>
                 </div>
               ) : null}
-              <p className="text-[10px] text-stone-400 text-center">{selectedExpense.createdBy?.fullName ? `Registrado por ${selectedExpense.createdBy.fullName}` : 'Sistema'}</p>
+              <p className="text-center text-[12px] text-stone-600">{selectedExpense.createdBy?.fullName ? `Registrado por ${selectedExpense.createdBy.fullName}` : 'Sistema'}</p>
             </div>
         ) : null}
       </DetailDialog>

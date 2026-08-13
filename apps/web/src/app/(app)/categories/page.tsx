@@ -138,10 +138,10 @@ export default function CategoriesPage() {
           <div className="space-y-4 border-b border-line px-4 py-4 sm:px-5">
             <div>
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">Categorías registradas</h2>
-              <p className="mt-1 text-[13px] leading-5 text-stone-500">Activa o depura la estructura del catálogo sin perder historial.</p>
+              <p className="mt-1 text-[13px] leading-5 text-stone-600">Activa o depura la estructura del catálogo sin perder historial.</p>
             </div>
             <FilterBar density="compact" activeCount={Number(Boolean(search.trim()))} search={<div className="relative w-full">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-600" />
               <Input
                 aria-label="Buscar categorías"
                 value={search}
@@ -180,12 +180,12 @@ export default function CategoriesPage() {
                       <p className="text-[15px] font-semibold text-ink">{category.name}</p>
                       <StatusBadge status={category.isActive ? 'ACTIVE' : 'INACTIVE'} label={category.isActive ? 'Activa' : 'Inactiva'} tone={category.isActive ? 'success' : 'neutral'} />
                     </div>
-                    <p className="mt-1.5 text-[12px] leading-5 text-stone-500">{category.description || 'Sin descripción operativa.'}</p>
+                    <p className="mt-1.5 text-[12px] leading-5 text-stone-600">{category.description || 'Sin descripción operativa.'}</p>
                   </div>
                 </button>
                 <div className="flex items-start justify-between gap-4 md:justify-end">
                   <div className="md:text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">Slug</p>
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-stone-600">Slug</p>
                     <p className="mt-1 text-[12px] font-medium text-stone-700">{category.slug}</p>
                   </div>
                   <Button
@@ -207,14 +207,14 @@ export default function CategoriesPage() {
 
         <Card>
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-brand-50 p-3 text-brand-700">
+            <div className="rounded-2xl bg-brand-50 p-3 text-brand-900">
               <Tags className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">
                 {selectedCategory ? 'Editar categoría' : 'Nueva categoría'}
               </h2>
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-stone-600">
                 Define nombre visible, descripción y estado de uso en el sistema.
               </p>
             </div>
@@ -247,7 +247,7 @@ export default function CategoriesPage() {
             <label className="flex items-center justify-between rounded-[1.5rem] border border-stone-200 bg-stone-50 px-3.5 py-3.5">
               <div>
                 <p className="text-[15px] font-medium text-ink">Categoría activa</p>
-                <p className="text-[13px] leading-6 text-stone-500">Las categorías inactivas se conservan pero se despriorizan en operación.</p>
+                <p className="text-[13px] leading-6 text-stone-600">Las categorías inactivas se conservan pero se despriorizan en operación.</p>
               </div>
               <input
                 type="checkbox"

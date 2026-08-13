@@ -62,3 +62,23 @@ test('announces only concise delivery status changes', () => {
   assert.doesNotMatch(delivery, /data-testid="deliveries-detail"[^>]*aria-live/);
   assert.match(delivery, /className="sr-only" role="status" aria-live="polite" aria-atomic="true"/);
 });
+
+test('keeps authenticated desktop operations at the WCAG contrast floor', () => {
+  const operationRoutes = [
+    'app/(app)/categories/page.tsx',
+    'app/(app)/expenses/page.tsx',
+    'app/(app)/purchases/page.tsx',
+    'app/(app)/recipes/page.tsx',
+    'app/(app)/reports/page.tsx',
+    'app/(app)/suppliers/page.tsx',
+    'app/(app)/tables/page.tsx',
+  ];
+
+  for (const path of operationRoutes) {
+    const route = source(path);
+
+    assert.doesNotMatch(route, /text-\[(?:9|10|11)px\]/, `${path} uses operational text below 12px`);
+    assert.doesNotMatch(route, /text-stone-(?:300|400|500)/, `${path} uses low-contrast stone text`);
+    assert.doesNotMatch(route, /text-brand-700/, `${path} uses low-contrast brand text`);
+  }
+});

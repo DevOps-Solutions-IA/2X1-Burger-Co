@@ -147,7 +147,7 @@ export default function SuppliersPage() {
           <div className="space-y-3 border-b border-stone-100 px-5 py-4">
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Base de proveedores</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Contacto, canal y estado comercial.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Contacto, canal y estado comercial.</p>
             </div>
             <FilterBar
               density="compact"
@@ -175,7 +175,7 @@ export default function SuppliersPage() {
                     <p className="text-[14px] font-extrabold text-ink truncate">{supplier.name}</p>
                     <span data-testid="supplier-status-badge"><StatusBadge status={supplier.isActive ? 'ACTIVE' : 'INACTIVE'} label={supplier.isActive ? 'Activo' : 'Inactivo'} tone={supplier.isActive ? 'success' : 'neutral'} /></span>
                   </div>
-                  <p className="mt-0.5 text-[12px] text-stone-500 truncate">
+                  <p className="mt-0.5 truncate text-[12px] text-stone-600">
                     {supplier.contactName || 'Sin contacto'} &middot; {supplier.phone || 'Sin teléfono'}
                   </p>
                 </button>
@@ -196,7 +196,7 @@ export default function SuppliersPage() {
             <div className="rounded-xl bg-stone-100 p-2.5 text-stone-600"><Truck className="h-5 w-5" /></div>
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">{selectedSupplier ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Informacion comercial y canal de contacto.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Informacion comercial y canal de contacto.</p>
             </div>
           </div>
 
@@ -209,7 +209,7 @@ export default function SuppliersPage() {
             <label className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
               <div>
                 <p className="text-[13px] font-bold text-ink">Proveedor activo</p>
-                <p className="text-[11px] text-stone-500">Visible en compras nuevas.</p>
+                <p className="text-[12px] text-stone-600">Visible en compras nuevas.</p>
               </div>
               <input type="checkbox" checked={form.isActive} onChange={(e) => setForm((c) => ({ ...c, isActive: e.target.checked }))} className="h-4 w-4 rounded border-stone-300 text-stone-900" data-testid="supplier-active-toggle" />
             </label>
@@ -238,19 +238,19 @@ export default function SuppliersPage() {
           <>
             <div className="space-y-2" data-testid="supplier-detail-modal">
               <StatusBadge status={detailSupplier.isActive ? 'ACTIVE' : 'INACTIVE'} label={detailSupplier.isActive ? 'Activo' : 'Inactivo'} tone={detailSupplier.isActive ? 'success' : 'neutral'} />
-              {detailSupplier.taxId ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">NIT</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.taxId}</p></div> : null}
-              {detailSupplier.contactName ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Contacto</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.contactName}</p></div> : null}
-              {detailSupplier.phone ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Telefono</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.phone}</p></div> : null}
-              {detailSupplier.email ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Correo</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.email}</p></div> : null}
-              {detailSupplier.address ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Direccion</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.address}</p></div> : null}
-              {detailSupplier.notes ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Notas</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.notes}</p></div> : null}
+              {detailSupplier.taxId ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">NIT</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.taxId}</p></div> : null}
+              {detailSupplier.contactName ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Contacto</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.contactName}</p></div> : null}
+              {detailSupplier.phone ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Telefono</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.phone}</p></div> : null}
+              {detailSupplier.email ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Correo</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.email}</p></div> : null}
+              {detailSupplier.address ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Direccion</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.address}</p></div> : null}
+              {detailSupplier.notes ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Notas</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.notes}</p></div> : null}
             </div>
             <div className="mt-5 flex gap-2">
               <Button size="sm" className="flex-1" onClick={() => { setSelectedSupplier(detailSupplier); setForm({ name: detailSupplier.name, taxId: detailSupplier.taxId ?? '', contactName: detailSupplier.contactName ?? '', phone: detailSupplier.phone ?? '', email: detailSupplier.email ?? '', address: detailSupplier.address ?? '', notes: detailSupplier.notes ?? '', isActive: detailSupplier.isActive }); setDetailSupplier(null); }}>Editar</Button>
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'toggle' }); setDetailSupplier(null); }}>
                 {detailSupplier.isActive ? 'Desactivar' : 'Activar'}
               </Button>
-              <Button size="sm" variant="secondary" className="flex-1 text-red-600" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'delete' }); setDetailSupplier(null); }} data-testid="supplier-delete-button">Eliminar</Button>
+              <Button size="sm" variant="secondary" className="flex-1 text-red-700" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'delete' }); setDetailSupplier(null); }} data-testid="supplier-delete-button">Eliminar</Button>
             </div>
           </>
         ) : null}

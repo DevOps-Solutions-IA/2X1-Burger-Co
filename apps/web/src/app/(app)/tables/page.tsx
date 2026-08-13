@@ -544,34 +544,34 @@ export default function TablesPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-[1rem] font-semibold leading-tight text-ink">{table.label}</p>
-                          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-600">
+                          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-stone-600">
                             <MapPinned className="h-3.5 w-3.5" />
                             <span className="truncate">{table.group?.name ?? table.area ?? 'Sin zona'}</span>
                           </span>
                         </div>
                         {compactNote ? (
-                          <p className="mt-1 line-clamp-1 text-[11px] leading-4 text-stone-500">{compactNote}</p>
+                          <p className="mt-1 line-clamp-1 text-[12px] leading-4 text-stone-600">{compactNote}</p>
                         ) : null}
                       </div>
-                      <Badge tone={visual.tone} className="mt-0.5 shrink-0 self-start px-2.5 py-1 text-[10px]">
+                      <Badge tone={visual.tone} className="mt-0.5 shrink-0 self-start px-2.5 py-1 text-[12px]">
                         {visual.label}
                       </Badge>
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-2.5">
                       <div className="rounded-[1.05rem] border border-stone-200 bg-stone-50 px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 text-stone-500">
+                        <div className="flex items-center gap-1.5 text-stone-600">
                           <Users className="h-4 w-4" />
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">Capacidad</span>
+                          <span className="text-[12px] font-semibold uppercase tracking-[0.12em]">Capacidad</span>
                         </div>
                         <p className="mt-1 text-[12px] font-semibold leading-4.5 text-ink">
                           {formatNumber(table.capacity)} personas
                         </p>
                       </div>
                       <div className="rounded-[1.05rem] border border-stone-200 bg-stone-50 px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 text-stone-500">
+                        <div className="flex items-center gap-1.5 text-stone-600">
                           <ReceiptText className="h-4 w-4" />
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">Comanda</span>
+                          <span className="text-[12px] font-semibold uppercase tracking-[0.12em]">Comanda</span>
                         </div>
                         <p className="mt-1 truncate text-[12px] font-semibold leading-4.5 text-ink">
                           {activeOrder ? getOperationalOrderDisplayCode(activeOrder.type) : 'Sin abrir'}
@@ -591,10 +591,10 @@ export default function TablesPage() {
                                 {getOrderTypeLabel(activeOrder.type)}
                               </span>
                             </div>
-                            <p className="mt-0.5 line-clamp-1 text-[11px] leading-4 text-stone-500">
+                            <p className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-stone-600">
                               {activeOrder.customerName ?? 'Cliente sin nombre'} · {translateOrderStatus(activeOrder.status)}
                             </p>
-                            <p className="mt-0.5 line-clamp-1 text-[11px] leading-4 text-stone-500">
+                            <p className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-stone-600">
                               Mesero: {waiterName ?? 'Sin asignar'}
                             </p>
                           </div>
@@ -602,13 +602,13 @@ export default function TablesPage() {
                         </div>
                         <div className="mt-2 flex-1 space-y-1.5">
                           {previewItems.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/80 bg-white px-2.5 py-1.5 text-[11px]">
+                            <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/80 bg-white px-2.5 py-1.5 text-[12px]">
                               <span className="truncate text-stone-700">{item.product.name}</span>
                               <span className="shrink-0 font-semibold text-ink">x{formatNumber(item.quantity)}</span>
                             </div>
                           ))}
                           {remainingItems ? (
-                            <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-stone-400">
+                            <p className="text-[12px] font-medium uppercase tracking-[0.12em] text-stone-600">
                               + {remainingItems} ítems más en la comanda
                             </p>
                           ) : null}
@@ -616,14 +616,14 @@ export default function TablesPage() {
                         <p className="numeric-tabular mt-2 whitespace-nowrap text-right text-[12px] font-semibold text-ink">{formatCurrency(activeOrder.subtotal)}</p>
                       </div>
                     ) : (
-                      <div className="mt-3 rounded-[1.1rem] border border-dashed border-stone-200 bg-stone-50/60 p-3 text-sm text-stone-500">
+                      <div className="mt-3 rounded-[1.1rem] border border-dashed border-stone-200 bg-stone-50/60 p-3 text-sm text-stone-600">
                         <div className="flex items-center gap-2.5 text-left">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-stone-400 shadow-sm">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-stone-600 shadow-sm">
                             <UtensilsCrossed className="h-4.5 w-4.5" />
                           </div>
                           <div>
                             <p className="text-[12px] font-semibold text-stone-700">Sin comanda activa</p>
-                            <p className="mt-0.5 text-[11px] leading-4 text-stone-500">Lista para abrir servicio.</p>
+                            <p className="mt-0.5 text-[12px] leading-4 text-stone-600">Lista para abrir servicio.</p>
                           </div>
                         </div>
                       </div>
@@ -774,7 +774,7 @@ export default function TablesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-[15px] font-bold text-ink">{group.name}</p>
-                        <p className="mt-1 truncate text-[12px] text-stone-500">{group.area ?? 'Sin área'}</p>
+                        <p className="mt-1 truncate text-[12px] text-stone-600">{group.area ?? 'Sin área'}</p>
                       </div>
                       <Badge tone={assignedWaiter ? 'success' : 'warning'}>
                         {assignedWaiter ? 'Asignado' : 'Sin asignar'}
@@ -782,15 +782,15 @@ export default function TablesPage() {
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                       <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">Mesas</p>
+                        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Mesas</p>
                         <p className="mt-0.5 font-semibold text-ink">{group.tables.length}</p>
                       </div>
                       <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">Responsable</p>
+                        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Responsable</p>
                         <p className="mt-0.5 truncate font-semibold text-ink">{assignedWaiter?.fullName ?? 'Sin asignar'}</p>
                       </div>
                     </div>
-                    <p className="mt-3 line-clamp-2 text-[12px] leading-5 text-stone-500">
+                    <p className="mt-3 line-clamp-2 text-[12px] leading-5 text-stone-600">
                       {group.tables.map((table) => table.label).join(', ') || 'Aún no tiene mesas.'}
                     </p>
                   </button>
@@ -961,7 +961,7 @@ export default function TablesPage() {
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block font-semibold text-ink">{table.label}</span>
-                            <span className="block text-[12px] text-stone-500">
+                            <span className="block text-[12px] text-stone-600">
                               {table.area ?? 'Sin área'}
                               {directAssignment ? ` · Asignación directa: ${directAssignment.waiter.fullName}` : ''}
                             </span>
@@ -1022,7 +1022,7 @@ export default function TablesPage() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-ink">{table.label}</p>
-                            <p className="mt-0.5 truncate text-[12px] text-stone-500">
+                            <p className="mt-0.5 truncate text-[12px] text-stone-600">
                               {directAssignment ? `Directa: ${directAssignment.waiter.fullName}` : 'Sigue responsable del grupo'}
                             </p>
                           </div>
@@ -1074,14 +1074,14 @@ function getOrderTypeLabel(type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'COUNTER'
 function getOrderTypeVisual(type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'COUNTER') {
   switch (type) {
     case 'DINE_IN':
-      return 'inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-sky-700';
+      return 'inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-sky-800';
     case 'DELIVERY':
-      return 'inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700';
+      return 'inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-violet-800';
     case 'TAKEAWAY':
-      return 'inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-700';
+      return 'inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-emerald-800';
     case 'COUNTER':
     default:
-      return 'inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800';
+      return 'inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-800';
   }
 }
 

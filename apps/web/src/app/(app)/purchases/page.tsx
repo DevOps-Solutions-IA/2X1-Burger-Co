@@ -252,7 +252,7 @@ export default function PurchasesPage() {
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h2 className="text-[15px] font-extrabold text-ink">Nueva compra</h2>
-                <p className="mt-0.5 text-[12px] text-stone-500">Cada linea genera un movimiento de inventario al confirmar.</p>
+                <p className="mt-0.5 text-[12px] text-stone-600">Cada linea genera un movimiento de inventario al confirmar.</p>
               </div>
               <Button type="button" variant="secondary" size="sm" data-testid="purchase-add-row" onClick={() => setItems((current) => [...current, createEmptyLine()])}>
                 <Plus className="mr-1.5 h-4 w-4" />
@@ -263,7 +263,7 @@ export default function PurchasesPage() {
             <form className="mt-5 space-y-5" onSubmit={(event) => { event.preventDefault(); submitPurchase(); }}>
               {/* Section A: Datos de compra */}
               <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400 mb-3">Datos de compra</p>
+                <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Datos de compra</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field label="Proveedor" error={formErrors.supplierId} required>
                     {!useTempProvider ? (
@@ -272,7 +272,7 @@ export default function PurchasesPage() {
                           <option value="">Selecciona proveedor guardado</option>
                           {activeSuppliers.map((supplier) => (<option key={supplier.id} value={supplier.id}>{supplier.name}</option>))}
                         </Select>
-                        <button type="button" className="text-[11px] font-semibold text-stone-500 hover:text-ink underline underline-offset-2" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
+                        <button type="button" className="text-[12px] font-semibold text-stone-600 underline underline-offset-2 hover:text-ink" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
                           Usar proveedor no registrado
                         </button>
                       </div>
@@ -280,10 +280,10 @@ export default function PurchasesPage() {
                       <div className="space-y-2">
                         <Input value={tempProviderName} onChange={(event) => setTempProviderName(event.target.value)} placeholder="Ej. Don Carlos - Carnes del Valle" data-testid="purchase-temp-provider-name" />
                         <div className="flex items-center gap-2">
-                          <button type="button" className="text-[11px] font-semibold text-stone-500 hover:text-ink underline underline-offset-2" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }}>
+                          <button type="button" className="text-[12px] font-semibold text-stone-600 underline underline-offset-2 hover:text-ink" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }}>
                             Usar proveedor guardado
                           </button>
-                          <span className="text-[10px] text-stone-400">Solo para esta compra</span>
+                          <span className="text-[12px] text-stone-600">Solo para esta compra</span>
                         </div>
                       </div>
                     )}
@@ -306,7 +306,7 @@ export default function PurchasesPage() {
 
               {/* Section B: Lineas */}
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400 mb-2">{items.length} linea{items.length !== 1 ? 's' : ''}</p>
+                <p className="mb-2 text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">{items.length} linea{items.length !== 1 ? 's' : ''}</p>
                 <div className="space-y-2">
                   {items.map((item, index) => {
                     const lineSubtotal = Number(item.quantity || 0) * Number(item.unitCost || 0);
@@ -315,13 +315,13 @@ export default function PurchasesPage() {
                       {/* Header bar */}
                       <div className={`flex items-center justify-between gap-3 px-3.5 py-2 ${lineErrors[index] ? 'border-b border-red-200' : 'border-b border-stone-100'}`}>
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-extrabold text-stone-500 uppercase tracking-[0.08em]">Linea {index + 1}</span>
-                          <span className="text-[10px] font-semibold text-stone-400">{item.targetType === 'ingredient' ? 'Insumo' : 'Producto'}</span>
+                          <span className="text-[12px] font-extrabold uppercase tracking-[0.08em] text-stone-600">Linea {index + 1}</span>
+                          <span className="text-[12px] font-semibold text-stone-600">{item.targetType === 'ingredient' ? 'Insumo' : 'Producto'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {lineErrors[index] ? <span className="text-[10px] font-bold text-red-600">Incompleta</span> : null}
+                          {lineErrors[index] ? <span className="text-[12px] font-bold text-red-700">Incompleta</span> : null}
                           {items.length > 1 ? (
-                            <button type="button" aria-label={`Eliminar línea ${index + 1}`} className="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => setItems((c) => c.filter((_, i) => i !== index))}>
+                            <button type="button" aria-label={`Eliminar línea ${index + 1}`} className="flex h-11 w-11 items-center justify-center rounded-xl text-stone-600 transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => setItems((c) => c.filter((_, i) => i !== index))}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           ) : null}
@@ -355,10 +355,10 @@ export default function PurchasesPage() {
                       {/* Summary bar */}
                       <div className={`flex items-center justify-between gap-3 rounded-b-xl px-3.5 py-2 ${lineErrors[index] ? 'bg-red-100/40' : 'bg-stone-100/60'}`}>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Subtotal</span>
+                          <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-stone-600">Subtotal</span>
                           <span className="text-[13px] font-extrabold text-ink tabular-nums">{formatCurrency(lineSubtotal)}</span>
                         </div>
-                        <span className="text-[10px] font-semibold text-stone-500">{item.targetType === 'ingredient' ? 'Aumenta insumo' : 'Aumenta producto'}</span>
+                        <span className="text-[12px] font-semibold text-stone-600">{item.targetType === 'ingredient' ? 'Aumenta insumo' : 'Aumenta producto'}</span>
                       </div>
                     </div>
                     );
@@ -378,9 +378,9 @@ export default function PurchasesPage() {
               <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                 <div className="flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">Total proyectado</p>
+                    <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Total proyectado</p>
                     <p className="mt-1 text-[1.5rem] font-black leading-none text-ink tabular-nums">{formatCurrency(computedTotal)}</p>
-                    <p className="mt-1 text-[11px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
+                    <p className="mt-1 text-[12px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
                   </div>
                   <Button data-testid="purchase-submit" type="submit" disabled={createPurchase.isPending} className="shrink-0">
                     {createPurchase.isPending ? 'Registrando...' : 'Guardar compra'}
@@ -394,7 +394,7 @@ export default function PurchasesPage() {
             <div className="space-y-3 border-b border-line px-5 py-4">
               <div>
                 <h2 className="text-[15px] font-extrabold text-ink">Historial</h2>
-                <p className="mt-0.5 text-[12px] text-stone-500">Selecciona una compra para ver su detalle.</p>
+                <p className="mt-0.5 text-[12px] text-stone-600">Selecciona una compra para ver su detalle.</p>
               </div>
               <FilterBar
                 density="compact"
@@ -419,11 +419,11 @@ export default function PurchasesPage() {
                   >
                     <div>
                       <p className="text-[13px] font-semibold text-ink">{formatDate(purchase.purchasedAt)}</p>
-                      <p className="text-[12px] text-stone-500">{purchase.number}</p>
+                      <p className="text-[12px] text-stone-600">{purchase.number}</p>
                     </div>
                     <div>
                       <p className="text-[13px] font-semibold text-ink">{purchase.supplier.name}</p>
-                      <p className="text-[12px] text-stone-500">
+                      <p className="text-[12px] text-stone-600">
                         {purchase.invoiceNumber || 'Sin factura'} · {purchase.paymentMethod?.name ?? 'Sin método'}
                       </p>
                     </div>
@@ -440,7 +440,7 @@ export default function PurchasesPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Detalle de compra</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Vista rapida del historial.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Vista rapida del historial.</p>
             </div>
             {purchaseDetail.data ? <Badge tone="success">{purchaseDetail.data.items.length} lineas</Badge> : null}
           </div>
@@ -456,7 +456,7 @@ export default function PurchasesPage() {
             <div className="mt-4 space-y-3">
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3.5">
                 <p className="text-[13px] font-extrabold text-ink">{purchaseDetail.data.supplier.name}</p>
-                <p className="mt-0.5 text-[11px] text-stone-500">{purchaseDetail.data.number} &middot; {formatDate(purchaseDetail.data.purchasedAt)} &middot; {purchaseDetail.data.paymentMethod?.name ?? 'Sin método'}</p>
+                <p className="mt-0.5 text-[12px] text-stone-600">{purchaseDetail.data.number} &middot; {formatDate(purchaseDetail.data.purchasedAt)} &middot; {purchaseDetail.data.paymentMethod?.name ?? 'Sin método'}</p>
                 <p className="mt-2 text-[12px] text-stone-600">
                   {purchaseDetail.data.notes || 'Sin notas registradas.'}
                 </p>
@@ -466,13 +466,13 @@ export default function PurchasesPage() {
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <p className="font-medium text-ink">{item.ingredient?.name ?? item.product?.name}</p>
-                      <p className="text-[12px] text-stone-500">
+                      <p className="text-[12px] text-stone-600">
                         {item.ingredient ? 'Insumo' : 'Producto'} · {item.lotNumber || 'Sin lote'}
                       </p>
                     </div>
                     <div className="numeric-tabular text-right text-[12px]">
                       <p className="whitespace-nowrap font-semibold text-ink">{formatCurrency(item.totalCost)}</p>
-                      <p className="text-stone-500">
+                      <p className="text-stone-600">
                         {item.quantity} x {formatCurrency(item.unitCost)}
                       </p>
                     </div>
@@ -480,7 +480,7 @@ export default function PurchasesPage() {
                 </div>
               ))}
               <div className="rounded-[1.55rem] border border-brand-200 bg-brand-50 p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Total de la compra</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-brand-900">Total de la compra</p>
                 <p className="numeric-tabular mt-2 whitespace-nowrap text-[1.58rem] font-bold leading-none text-ink">{formatCurrency(purchaseDetail.data.total)}</p>
               </div>
             </div>

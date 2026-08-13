@@ -339,7 +339,7 @@ export default function ReportsPage() {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-[15px] font-extrabold text-ink">Filtros</h2>
-          <span className="text-[11px] font-medium text-stone-500" data-testid="reports-range-label">
+          <span className="text-[12px] font-medium text-stone-600" data-testid="reports-range-label">
             {isCurrentSession ? 'Jornada actual' : `${from} → ${to}`}
           </span>
         </div>
@@ -361,7 +361,7 @@ export default function ReportsPage() {
             Rango personalizado
           </button>
         </div>
-        <p className="mt-3 text-[12px] leading-5 text-stone-500" data-testid="reports-mode-description">
+        <p className="mt-3 text-[12px] leading-5 text-stone-600" data-testid="reports-mode-description">
           {modeDescription}
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
@@ -395,7 +395,7 @@ export default function ReportsPage() {
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Resumen del cierre actual</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Caja, metodos, canales y costos.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Caja, metodos, canales y costos.</p>
             </div>
           </div>
 
@@ -403,28 +403,28 @@ export default function ReportsPage() {
           <div className="rounded-[1.45rem] border border-amber-200 bg-amber-50 p-5 mb-4">
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">Caja fisica esperada</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.18em] text-amber-800">Caja fisica esperada</p>
                 <p className="mt-2 text-[2rem] font-black leading-none tracking-tight text-ink tabular-nums">
                   {formatCurrency(summary.data?.cash?.expectedAmount)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Real</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-amber-800">Real</p>
                 <p className="mt-1 text-[1.2rem] font-extrabold text-ink tabular-nums">{formatCurrency(summary.data?.cash?.actualAmount)}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3 pt-3 border-t border-amber-200/60">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Diferencia</p>
-                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.cash?.difference ?? 0) === 0 ? 'text-emerald-600' : Number(summary.data?.cash?.difference ?? 0) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(summary.data?.cash?.difference)}</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-amber-800">Diferencia</p>
+                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.cash?.difference ?? 0) === 0 ? 'text-emerald-700' : Number(summary.data?.cash?.difference ?? 0) > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{formatCurrency(summary.data?.cash?.difference)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Costo ventas</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-amber-800">Costo ventas</p>
                 <p className="mt-1 text-[1.1rem] font-extrabold text-ink tabular-nums">{formatCurrency(summary.data?.metrics?.costOfSales)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">Margen bruto</p>
-                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.metrics?.grossProfit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(summary.data?.metrics?.grossProfit)}</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-amber-800">Margen bruto</p>
+                <p className={`mt-1 text-[1.1rem] font-extrabold tabular-nums ${Number(summary.data?.metrics?.grossProfit ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{formatCurrency(summary.data?.metrics?.grossProfit)}</p>
               </div>
             </div>
           </div>
@@ -432,7 +432,7 @@ export default function ReportsPage() {
           {/* Ventas por metodo + Canal — MIRROR CASH STYLE */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Metodo de pago</p>
+              <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-stone-600">Metodo de pago</p>
               <div className="space-y-1.5">
               {(summary.data?.sales?.byPaymentMethod ?? []).map((item) => {
                 const isCash = /efectivo|cash/i.test(item.paymentMethod);
@@ -449,13 +449,13 @@ export default function ReportsPage() {
               </div>
             </div>
             <div className="rounded-[1.25rem] border border-stone-200 bg-white p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-stone-400 mb-3">Canal</p>
+              <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.14em] text-stone-600">Canal</p>
               <div className="space-y-1.5">
               {(summary.data?.sales?.byChannel ?? []).map((item) => (
                 <div key={item.label} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2">
                   <div>
                     <span className="text-[12px] font-bold text-stone-700">{item.label}</span>
-                    <span className="ml-2 text-[10px] text-stone-400">{item.count} pedidos</span>
+                    <span className="ml-2 text-[12px] text-stone-600">{item.count} pedidos</span>
                   </div>
                   <span className="text-[14px] font-extrabold text-ink tabular-nums">{formatCurrency(item.total)}</span>
                 </div>
@@ -472,7 +472,7 @@ export default function ReportsPage() {
             </div>
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Abastecimiento recomendado</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Insumos con proveedor y contacto rapido.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Insumos con proveedor y contacto rapido.</p>
             </div>
           </div>
           <div className="mt-4 space-y-2">
@@ -484,7 +484,7 @@ export default function ReportsPage() {
                     <div key={item.ingredientId} className="flex items-center justify-between">
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-extrabold text-ink truncate">{item.ingredientName}</p>
-                        <p className="text-[10px] text-stone-400 truncate">{group.supplierName} {group.supplierPhone ? `· ${group.supplierPhone}` : '· sin telefono'}</p>
+                        <p className="truncate text-[12px] text-stone-600">{group.supplierName} {group.supplierPhone ? `· ${group.supplierPhone}` : '· sin telefono'}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[12px] font-bold text-ink tabular-nums">{item.suggestedReorderLabel}</span>
@@ -517,7 +517,7 @@ export default function ReportsPage() {
               <div key={item.hour} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div>
                   <p className="font-medium text-ink">{item.label}</p>
-                  <p className="text-[12px] text-stone-500">{item.count} ventas</p>
+                  <p className="text-[12px] text-stone-600">{item.count} ventas</p>
                 </div>
                 <p className="font-semibold text-ink">{formatCurrency(item.total)}</p>
               </div>
@@ -534,7 +534,7 @@ export default function ReportsPage() {
                   <p className="font-medium text-ink">{item.name}</p>
                   <p className="font-semibold text-ink">{formatCurrency(item.margin)}</p>
                 </div>
-                <p className="mt-0.5 text-[11px] text-stone-500">
+                <p className="mt-0.5 text-[12px] text-stone-600">
                   Ingreso {formatCurrency(item.revenue)} · costo {formatCurrency(item.cost)} · {item.quantity} uds
                 </p>
               </div>
@@ -551,7 +551,7 @@ export default function ReportsPage() {
                   <p className="font-medium text-ink">{item.name}</p>
                   <p className="font-semibold text-ink">{item.outbound.toFixed(2)} {item.unit}</p>
                 </div>
-                <p className="mt-0.5 text-[11px] text-stone-500">
+                <p className="mt-0.5 text-[12px] text-stone-600">
                   Cobertura no disponible · stock {item.currentStock}
                 </p>
               </div>
@@ -577,7 +577,7 @@ export default function ReportsPage() {
             </div>
             <div>
               <h2 className="text-[15px] font-extrabold text-ink">Histórico de cierres</h2>
-              <p className="mt-0.5 text-[12px] text-stone-500">Consulta y reimprime cierres guardados.</p>
+              <p className="mt-0.5 text-[12px] text-stone-600">Consulta y reimprime cierres guardados.</p>
             </div>
           </div>
           <div className="hide-scrollbar list-scroll-5-cards mt-5 space-y-3 pr-1">
@@ -587,7 +587,7 @@ export default function ReportsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-ink">{closure.periodLabel}</p>
-                    <p className="mt-0.5 text-[11px] text-stone-500">{formatDateTime(closure.createdAt)} · {closure.responsibleUser}</p>
+                    <p className="mt-0.5 text-[12px] text-stone-600">{formatDateTime(closure.createdAt)} · {closure.responsibleUser}</p>
                   </div>
                   <Button variant="secondary" onClick={() => openPdf(closure.pdfPath)}>
                     Reimprimir
@@ -606,7 +606,7 @@ export default function ReportsPage() {
             {supplierNotifications.data.map((notification) => (
               <div key={notification.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
                 <p className="font-medium text-ink">{notification.supplier?.name ?? 'Proveedor'}</p>
-                <p className="mt-0.5 text-[11px] text-stone-500">{notification.status} · {formatDateTime(notification.createdAt)}</p>
+                <p className="mt-0.5 text-[12px] text-stone-600">{notification.status} · {formatDateTime(notification.createdAt)}</p>
               </div>
             ))}
           </div>
@@ -632,20 +632,20 @@ function ComparisonCard({ title, data, loading }: { title: string; data: Compari
       <p className="font-semibold text-ink">{title}</p>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div className="rounded-2xl bg-white px-3 py-3">
-          <p className="text-[12px] text-stone-500">{data.currentLabel}</p>
+          <p className="text-[12px] text-stone-600">{data.currentLabel}</p>
           <p className="mt-1 font-semibold text-ink">{formatCurrency(data.current.salesTotal)}</p>
-          <p className="text-[12px] text-stone-500">{data.current.salesCount} ventas</p>
+          <p className="text-[12px] text-stone-600">{data.current.salesCount} ventas</p>
         </div>
         <div className="rounded-2xl bg-white px-3 py-3">
-          <p className="text-[12px] text-stone-500">{data.previousLabel}</p>
+          <p className="text-[12px] text-stone-600">{data.previousLabel}</p>
           <p className="mt-1 font-semibold text-ink">{formatCurrency(data.previous.salesTotal)}</p>
-          <p className="text-[12px] text-stone-500">{data.previous.salesCount} ventas</p>
+          <p className="text-[12px] text-stone-600">{data.previous.salesCount} ventas</p>
         </div>
       </div>
       <p className="mt-3 flex items-center gap-3 text-[12px]">
-        <span className={Number(data.deltas.salesTotal) >= 0 ? 'text-emerald-600' : 'text-red-600'}>Ventas: {Number(data.deltas.salesTotal) >= 0 ? '+' : ''}{formatCurrency(data.deltas.salesTotal)}</span>
-        <span className="text-stone-300">·</span>
-        <span className={Number(data.deltas.expensesTotal) <= 0 ? 'text-emerald-600' : 'text-red-600'}>Gastos: {Number(data.deltas.expensesTotal) > 0 ? '+' : ''}{formatCurrency(data.deltas.expensesTotal)}</span>
+        <span className={Number(data.deltas.salesTotal) >= 0 ? 'text-emerald-700' : 'text-red-700'}>Ventas: {Number(data.deltas.salesTotal) >= 0 ? '+' : ''}{formatCurrency(data.deltas.salesTotal)}</span>
+        <span className="text-stone-600">·</span>
+        <span className={Number(data.deltas.expensesTotal) <= 0 ? 'text-emerald-700' : 'text-red-700'}>Gastos: {Number(data.deltas.expensesTotal) > 0 ? '+' : ''}{formatCurrency(data.deltas.expensesTotal)}</span>
       </p>
     </div>
   );

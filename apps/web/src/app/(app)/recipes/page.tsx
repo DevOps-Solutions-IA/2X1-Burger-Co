@@ -148,7 +148,7 @@ export default function RecipesPage() {
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <Card>
           <div className="rounded-[1.5rem] border border-brand-100 bg-brand-50/45 px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-700">Producto base</p>
+            <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-brand-900">Producto base</p>
             <p className="mt-2 text-[13px] leading-6 text-stone-600">Selecciona un producto preparado y define exactamente qué insumos consume por venta.</p>
           </div>
 
@@ -247,7 +247,7 @@ export default function RecipesPage() {
 
         <Card>
           <h2 className="text-lg font-semibold lg:text-[1.12rem]">Resumen actual</h2>
-          <p className="mt-1 text-sm text-stone-500">Lectura clara de la receta activa del producto seleccionado.</p>
+          <p className="mt-1 text-sm text-stone-600">Lectura clara de la receta activa del producto seleccionado.</p>
 
           <div className="mt-6 space-y-3">
             <QueryState
@@ -261,7 +261,7 @@ export default function RecipesPage() {
                 <div key={item.id} className="flex items-center justify-between rounded-2xl bg-stone-50 px-4 py-3">
                   <div>
                     <p className="font-semibold">{item.ingredient.name}</p>
-                    <p className="text-[13px] text-stone-500">{item.ingredient.unit.name}</p>
+                    <p className="text-[13px] text-stone-600">{item.ingredient.unit.name}</p>
                   </div>
                   <p className="text-[13px] font-medium">{Number(item.quantity).toLocaleString('es-CO')}</p>
                 </div>
