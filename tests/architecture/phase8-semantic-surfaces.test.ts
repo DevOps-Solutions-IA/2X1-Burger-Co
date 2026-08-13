@@ -120,6 +120,13 @@ test('uses high-contrast text inside semantic status badges', () => {
   assert.match(badge, /<span className="text-ink">/);
 });
 
+test('requires explicit RBAC capabilities for customer evidence links', () => {
+  const model = source('features/customer-operations/model.ts');
+
+  assert.match(model, /access: CustomerOperationalRelationAccess,/);
+  assert.doesNotMatch(model, /access: CustomerOperationalRelationAccess\s*=/);
+});
+
 test('uses canonical detail links for customer-service conversations', () => {
   const support = source('features/support-operations/customer-service-screen.tsx');
 

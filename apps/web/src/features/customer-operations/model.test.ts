@@ -58,7 +58,7 @@ test('maps canonical customer events without converting uncertain payment into s
       occurredAt: '2026-08-13T00:01:00.000Z',
       facts: { status: 'ACTIVE', handoffState: 'HUMAN_TAKEN' },
     },
-  ]);
+  ], { payments: true, serviceCases: true });
 
   assert.equal(relations[0]?.financialSuccess, false);
   assert.equal(relations[0]?.href, '/payments?intent=payment-1');

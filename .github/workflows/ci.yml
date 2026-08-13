@@ -197,6 +197,7 @@ jobs:
           pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
             ../../apps/web/src/features/auth/access-control.test.ts \
             ../../apps/web/src/features/crm/labels.test.ts \
+            ../../apps/web/src/features/customer-operations/model.test.ts \
             ../../apps/web/src/features/pos/pos-contrast.test.ts \
             ../../apps/web/src/features/waiter/catalog-window.test.ts \
             ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \

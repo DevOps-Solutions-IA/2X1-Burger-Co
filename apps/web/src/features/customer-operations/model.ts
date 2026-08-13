@@ -60,7 +60,7 @@ function factString(facts: Record<string, unknown>, key: string) {
 
 export function customerOperationalRelations(
   events: readonly CrmTimelineEvent[],
-  access: CustomerOperationalRelationAccess = { payments: true, serviceCases: true },
+  access: CustomerOperationalRelationAccess,
 ): CustomerOperationalRelation[] {
   return events.flatMap((event) => {
     if (!operationalRelationTypes.has(event.type as CustomerOperationalRelationType)) return [];
