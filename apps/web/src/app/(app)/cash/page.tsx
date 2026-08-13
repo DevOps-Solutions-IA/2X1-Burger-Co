@@ -11,17 +11,15 @@ import {
   ScrollText,
   ShieldAlert,
   Wallet,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DetailDialog, MetricSurface, PageHeader, QueryState } from '@/components/product';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
@@ -290,6 +288,10 @@ export default function CashPage() {
     enabled: Boolean(currentCash.data),
   });
   const difference = closingAmount - expectedAmount;
+  const financialMetricsUnavailable =
+    dailySummary.isError ||
+    dailySummary.isLoading ||
+    (Boolean(currentCash.data) && (cashDailySummary.isError || cashDailySummary.isLoading));
   const latestClosedSession = history.data?.find((session) => session.status === 'CLOSED') ?? null;
   const enterpriseMethodLabels = cashDailySummary.data?.methodLabels ?? {};
   const salesByMethod = cashDailySummary.data?.salesByMethod ?? {};
@@ -541,15 +543,17 @@ export default function CashPage() {
   }, [currentCash.data?.id]);
 
   return (
-    <div data-testid="cash-page" className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Caja"
-        title="Caja — Jornada en vivo"
-        description="Apertura, arqueo, cierre y cada movimiento de dinero del día."
+    <div data-testid="cash-page" className="space-y-6">
+      <PageHeader
+        eyebrow="Control financiero operativo"
+        title="Caja en vivo"
+        description="Apertura, arqueo, cierre y trazabilidad del dinero de la jornada."
         status={
-          <Badge tone={currentCash.data ? 'success' : 'warning'}>
-            {currentCash.data ? 'Caja abierta' : 'Caja cerrada'}
-          </Badge>
+          currentCash.data || currentCash.isSuccess ? (
+            <Badge tone={currentCash.data ? 'success' : 'warning'}>
+              {currentCash.data ? 'Caja abierta' : 'Caja cerrada'}
+            </Badge>
+          ) : undefined
         }
       />
 
@@ -562,20 +566,23 @@ export default function CashPage() {
       ) : null}
 
       {pageError ? (
-        <div data-testid="cash-global-error">
+        <div data-testid="cash-global-error" className="space-y-3" role="alert">
           <StatusBanner
             tone="danger"
             title="No pudimos cargar toda la operación de caja"
             description={pageError instanceof Error ? pageError.message : 'Recarga la página e intenta de nuevo.'}
           />
+          <Button type="button" variant="secondary" onClick={() => void currentCash.refetch()}>
+            Reintentar estado de caja
+          </Button>
         </div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="Total recaudado" value={formatCurrency(totalRevenue)} hint="Efectivo + recaudo digital" icon={<CircleDollarSign className="h-5 w-5" />} />
-        <MetricCard compact label="Caja física esperada" value={formatCurrency(expectedAmount)} hint="Solo efectivo del cajón" icon={<Wallet className="h-5 w-5" />} accent="success" />
-        <MetricCard compact label="Efectivo contado" value={formatCurrency(closingAmount)} hint="Conteo físico por denominación" icon={<ShieldAlert className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Diferencia efectivo" value={formatCurrency(difference)} hint="Contado vs caja física esperada" icon={<ShieldAlert className="h-5 w-5" />} accent={difference === 0 ? 'success' : 'danger'} />
+        <MetricSurface density="compact" label="Total recaudado" value={formatCurrency(totalRevenue)} context="Efectivo + recaudo digital" unavailable={financialMetricsUnavailable} icon={<CircleDollarSign className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Caja física esperada" value={formatCurrency(expectedAmount)} context="Solo efectivo del cajón" unavailable={financialMetricsUnavailable} icon={<Wallet className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Efectivo contado" value={formatCurrency(closingAmount)} context="Conteo físico por denominación" icon={<ShieldAlert className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Diferencia efectivo" value={formatCurrency(difference)} context="Contado vs caja física esperada" unavailable={financialMetricsUnavailable} icon={<ShieldAlert className="h-5 w-5" />} />
       </div>
 
       <div className="grid items-start gap-6 md:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
@@ -590,6 +597,15 @@ export default function CashPage() {
                 <Skeleton className="h-11 w-32 rounded-2xl" />
               </div>
             </Card>
+          ) : currentCash.isError ? (
+            <div data-testid="cash-current-status">
+              <QueryState
+                status="error"
+                title="No es seguro operar la caja"
+                description="No pudimos verificar si existe una sesión abierta. Reintenta antes de abrir, cerrar o registrar movimientos."
+                onRetry={() => void currentCash.refetch()}
+              />
+            </div>
           ) : !currentCash.data ? (
             <Card data-testid="cash-current-status" className="h-full overflow-hidden">
               <div className="space-y-5">
@@ -639,7 +655,7 @@ export default function CashPage() {
           ) : (
             <>
               <Card data-testid="cash-current-status" className="min-h-[220px] overflow-hidden">
-                <div className="rounded-[1.55rem] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-brand-50/60 p-4">
+                <div className="rounded-[1.55rem] border border-emerald-100 bg-emerald-50/60 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold lg:text-[1.12rem]">Caja operativa</h2>
@@ -1191,34 +1207,26 @@ export default function CashPage() {
       </div>
 
       {selectedSale ? (
-        <div className="fixed inset-0 z-50 bg-stone-950/38 backdrop-blur-[1px]" onClick={() => setSelectedSale(null)}>
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-            <div
-              className="hide-scrollbar flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto rounded-t-[1.65rem] border border-stone-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:rounded-[1.7rem]"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="sticky top-0 z-10 border-b border-stone-100 bg-white/96 px-4 py-3.5 backdrop-blur sm:px-5">
-                <div className="mb-2 flex justify-center sm:hidden">
-                  <span className="h-1.5 w-14 rounded-full bg-stone-200" />
-                </div>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Venta cerrada</p>
-                    <h2 className="mt-1 text-[1rem] font-semibold text-ink">{formatReceiptNumber(selectedSale.number)}</h2>
-                    <p className="mt-1 text-[12px] text-stone-500">{formatDateTime(selectedSale.soldAt)}</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Cerrar detalle de venta"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-ink"
-                    onClick={() => setSelectedSale(null)}
-                  >
-                    <X className="h-4.5 w-4.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4 p-4 sm:p-5">
+        <DetailDialog
+          open
+          onClose={() => setSelectedSale(null)}
+          title={formatReceiptNumber(selectedSale.number)}
+          description={`Venta cerrada · ${formatDateTime(selectedSale.soldAt)}`}
+          mode="dialog"
+          closeLabel="Cerrar detalle de venta"
+          footer={(
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Button type="button" variant="secondary" onClick={() => openReceiptPdf(selectedSale.id)}>
+                <FileDown className="h-4 w-4" aria-hidden="true" />
+                Abrir comprobante
+              </Button>
+              <Button type="button" variant="secondary" className="w-full" onClick={() => setSelectedSale(null)}>
+                Cerrar
+              </Button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
                 <Card className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1366,22 +1374,8 @@ export default function CashPage() {
                     El transporte legado fue retirado. El comprobante permanece disponible para consulta e impresión.
                   </p>
                 </div>
-              </div>
-
-              <div className="sticky bottom-0 z-10 border-t border-stone-200 bg-white/97 px-4 py-3.5 backdrop-blur sm:px-5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Button type="button" variant="secondary" className="h-11 rounded-2xl" onClick={() => openReceiptPdf(selectedSale.id)}>
-                    <FileDown className="mr-1.5 h-4 w-4" />
-                    Abrir comprobante
-                  </Button>
-                  <Button type="button" variant="secondary" className="h-11 w-full rounded-2xl" onClick={() => setSelectedSale(null)}>
-                    Cerrar
-                  </Button>
-                </div>
-              </div>
-            </div>
           </div>
-        </div>
+        </DetailDialog>
       ) : null}
     </div>
   );
@@ -1397,7 +1391,7 @@ function DenominationGrid({
   title: string;
 }) {
   return (
-    <div className="rounded-[1.5rem] border border-stone-200 bg-gradient-to-br from-stone-50 via-white to-brand-50/30 p-4">
+    <div className="rounded-[1.5rem] border border-line bg-canvas p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-bold text-stone-700">{title}</p>
         <p className="numeric-tabular text-base font-black text-ink">{formatCurrency(sumBreakdown(breakdown))}</p>

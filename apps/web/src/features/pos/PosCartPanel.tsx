@@ -52,7 +52,7 @@ export function PosCartPanel({
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded-xl p-1.5 text-stone-300 transition hover:bg-red-50 hover:text-red-500"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
                 onClick={() => onUpdateQuantity(item.productId, 0)}
                 aria-label={`Quitar ${item.name}`}
               >
@@ -60,14 +60,14 @@ export function PosCartPanel({
               </button>
             </div>
             <div className="mt-2.5 flex items-end justify-between gap-3">
-              <div className="inline-flex h-9 items-center rounded-xl border border-stone-200 bg-stone-50 p-0.5">
-                <button type="button" className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink" onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}>
+              <div className="inline-flex min-h-11 items-center rounded-xl border border-stone-200 bg-stone-50 p-0.5">
+                <button type="button" aria-label={`Reducir cantidad de ${item.name}`} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}>
                   <Minus className="h-3.5 w-3.5" />
                 </button>
                 <span className="min-w-8 text-center text-[13px] font-bold tabular-nums text-ink" data-testid={`pos-cart-qty-${item.code.toLowerCase()}`}>
                   {item.quantity}
                 </span>
-                <button type="button" className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink" onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}>
+                <button type="button" aria-label={`Aumentar cantidad de ${item.name}`} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}>
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -78,7 +78,7 @@ export function PosCartPanel({
                     type="text"
                     inputMode="numeric"
                     aria-label={`Precio de ${item.name}`}
-                    className="mt-0.5 w-[5.5rem] rounded-lg border border-stone-200 bg-stone-50 px-2 py-1 text-right text-[13px] font-semibold tabular-nums text-ink transition focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100/50"
+                    className="mt-0.5 h-11 w-[6.25rem] rounded-lg border border-stone-200 bg-stone-50 px-2 py-1 text-right text-base font-semibold tabular-nums text-ink transition focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-100"
                     value={item.priceInput}
                     onChange={(event) => onUpdateItemPrice(item.productId, event.target.value)}
                     onBlur={() => onNormalizeItemPriceInput(item.productId)}
@@ -137,7 +137,8 @@ export function PosCartPanel({
             <input
               type="text"
               inputMode="numeric"
-              className="h-9 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[13px] font-semibold tabular-nums text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
+                aria-label="Ajuste manual del total"
+                className="h-11 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-base font-semibold tabular-nums text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
               value={manualSaleTotal}
               onChange={(event) => onManualSaleTotalChange(sanitizeCurrencyInput(event.target.value))}
               placeholder="Ajuste global"
@@ -145,7 +146,7 @@ export function PosCartPanel({
             {manualSaleTotal ? (
               <button
                 type="button"
-                className="shrink-0 text-[12px] font-medium text-stone-400 transition hover:text-ink"
+                className="min-h-11 shrink-0 rounded-xl px-3 text-sm font-medium text-stone-500 transition hover:bg-stone-100 hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
                 onClick={onResetManualSaleTotal}
               >
                 Restablecer

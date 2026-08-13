@@ -1215,13 +1215,24 @@ export default function PosPage() {
         occupiedTablesCount={operational.data?.operations?.occupiedTablesCount ?? 0}
         saleTotal={saleTotal}
         hasActiveOrder={Boolean(activeOrderId)}
+        activeOrdersUnavailable={(activeOrders.isLoading && !activeOrders.data) || activeOrders.isError}
+        occupiedTablesUnavailable={(operational.isLoading && !operational.data) || operational.isError}
+        cashUnavailable={(currentCash.isLoading && !currentCash.data) || currentCash.isError}
       />
 
-      {!currentCash.data ? (
+      {currentCash.isSuccess && !currentCash.data ? (
         <StatusBanner
           tone="warning"
           title="La caja está cerrada — No se puede vender"
           description="Abre caja antes de registrar ventas o comandas."
+        />
+      ) : null}
+
+      {currentCash.isError ? (
+        <StatusBanner
+          tone="danger"
+          title="No pudimos verificar el estado de caja"
+          description="El cobro permanece bloqueado hasta recuperar la sesión real de caja."
         />
       ) : null}
 
@@ -1233,23 +1244,27 @@ export default function PosPage() {
             categories={categories}
             filteredProducts={filteredProducts}
             isLoading={products.isLoading}
+            isError={products.isError}
             onSearchChange={setSearch}
             onCategoryFilterChange={setCategoryFilter}
             onAddToCart={addToCart}
+            onRetry={() => void products.refetch()}
           />
 
           <PosActiveOrdersPanel
             orders={activeOrders.data}
             isLoading={activeOrders.isLoading}
+            isError={activeOrders.isError}
             activeOrderId={activeOrderId}
             onSelectOrder={hydrateWorkspaceFromOrder}
+            onRetry={() => void activeOrders.refetch()}
           />
         </div>
 
-          <Card className="flex min-w-0 flex-col xl:sticky xl:top-24 xl:self-start">
+        <Card className="flex min-w-0 flex-col xl:sticky xl:top-24 xl:self-start">
           <div className="flex items-center justify-between gap-4">
             <div>
-                <h2 className="text-lg font-semibold lg:text-[1.12rem]">
+              <h2 className="font-heading text-lg font-semibold text-ink lg:text-[1.12rem]">
                 {activeOrderId ? 'Editar pedido' : 'Nuevo pedido'}
               </h2>
             </div>

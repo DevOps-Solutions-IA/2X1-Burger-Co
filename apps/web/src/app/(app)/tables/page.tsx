@@ -8,11 +8,10 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { MetricSurface, PageHeader, QueryState } from '@/components/product';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
@@ -462,21 +461,21 @@ export default function TablesPage() {
   });
 
   return (
-    <div className="space-y-6 p-6 lg:p-8" data-testid="tables-page">
-      <SectionTitle
-        eyebrow="Operacion"
-        title="Mesas"
-        description="Gestiona mesas, estado y servicio en tiempo real."
-        status={<Badge tone="info">{metrics.occupied} con servicio</Badge>}
+    <div className="space-y-6" data-testid="tables-page">
+      <PageHeader
+        eyebrow="Operación de salón"
+        title="Mesas y servicio"
+        description="Gestiona disponibilidad, comandas y responsables sin perder el estado real del salón."
+        status={tables.data ? <Badge tone="info">{metrics.occupied} con servicio</Badge> : undefined}
         actions={
-          <Button type="button" variant="secondary" size="sm" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }}>
+          <Button type="button" variant="secondary" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Nueva mesa
           </Button>
         }
       />
 
-      {!tables.isLoading && !metrics.total ? (
+      {tables.isSuccess && !metrics.total ? (
         <StatusBanner
           tone="info"
           title="Todavía no hay mesas configuradas"
@@ -484,36 +483,46 @@ export default function TablesPage() {
         />
       ) : null}
 
+      {tableGroups.isError || users.isError || waiterAssignments.isError ? (
+        <div className="space-y-3" role="alert">
+          <StatusBanner
+            tone="warning"
+            title="Parte de la configuración del salón no está disponible"
+            description="Las mesas siguen visibles, pero grupos o responsables podrían estar incompletos. No asumimos valores vacíos como datos reales."
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void Promise.all([tableGroups.refetch(), users.refetch(), waiterAssignments.refetch()])}
+          >
+            Reintentar configuración
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="Total" value={formatNumber(metrics.total)} icon={<Armchair className="h-5 w-5" />} />
-        <MetricCard compact label="Disponibles" value={formatNumber(metrics.free)} accent="success" icon={<CheckCircle2 className="h-5 w-5" />} />
-        <MetricCard compact label="Ocupadas" value={formatNumber(metrics.occupied)} accent="brand" icon={<CircleDashed className="h-5 w-5" />} />
-        <MetricCard compact label="Fuera de servicio" value={formatNumber(metrics.unavailable)} accent="danger" icon={<ShieldAlert className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Total" value={formatNumber(metrics.total)} unavailable={tables.isError} icon={<Armchair className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Disponibles" value={formatNumber(metrics.free)} unavailable={tables.isError} icon={<CheckCircle2 className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Ocupadas" value={formatNumber(metrics.occupied)} unavailable={tables.isError} icon={<CircleDashed className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Fuera de servicio" value={formatNumber(metrics.unavailable)} unavailable={tables.isError} icon={<ShieldAlert className="h-5 w-5" />} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <Card className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-4 px-5 pt-5">
             <h2 className="text-[15px] font-extrabold text-ink">Mesas</h2>
-            <Badge tone="neutral">{metrics.total} configuradas</Badge>
+            {tables.data ? <Badge tone="neutral">{metrics.total} configuradas</Badge> : null}
           </div>
 
+          <QueryState
+            status={tables.isError ? 'error' : tables.isLoading ? 'loading' : orderedTables.length ? 'ready' : 'empty'}
+            title={tables.isError ? 'No pudimos cargar el salón' : 'No hay mesas todavía'}
+            description={tables.isError ? 'Reintenta antes de operar: no mostramos un salón vacío como reemplazo.' : 'Cuando configures mesas, aparecerán aquí listas para operar.'}
+            onRetry={tables.isError ? () => void tables.refetch() : undefined}
+            className="m-4"
+            skeletonRows={4}
+          >
           <div className="mt-3 grid gap-3 px-4 pb-4 md:grid-cols-2">
-            {tables.isLoading
-              ? Array.from({ length: 4 }).map((_, index) => (
-                  <Skeleton key={index} className="h-52 rounded-[1.5rem]" />
-                ))
-              : null}
-
-            {!tables.isLoading && !tables.data?.length ? (
-              <div className="md:col-span-2">
-                <EmptyState
-                  title="No hay mesas todavía"
-                  description="Cuando tengas mesas configuradas, las vas a ver acá listas para operar."
-                />
-              </div>
-            ) : null}
-
             {orderedTables.map((table) => {
               const activeOrder = table.orderTickets[0] ?? null;
               const visual = getTableVisual(table.status, table.isActive);
@@ -621,17 +630,17 @@ export default function TablesPage() {
                     )}
 
                     <div className="mt-3 grid grid-cols-2 gap-2.5">
-                      <Button type="button" variant="secondary" size="sm" onClick={() => startEdit(table)} className="w-full">
+                      <Button type="button" variant="secondary" onClick={() => startEdit(table)} className="w-full">
                         Editar
                       </Button>
                       {table.isActive && table.status !== 'OUT_OF_SERVICE' ? (
-                        <Button asChild type="button" size="sm" className="w-full">
+                        <Button asChild type="button" className="w-full">
                           <Link href={`/pos?tableId=${table.id}`}>
                             {activeOrder ? 'Retomar comanda' : 'Abrir comanda'}
                           </Link>
                         </Button>
                       ) : (
-                        <Button type="button" size="sm" className="w-full" disabled>
+                        <Button type="button" className="w-full" disabled>
                           {activeOrder ? 'Retomar comanda' : 'Abrir comanda'}
                         </Button>
                       )}
@@ -641,6 +650,7 @@ export default function TablesPage() {
               );
             })}
           </div>
+          </QueryState>
         </Card>
 
         <Card className="xl:sticky xl:top-24">
@@ -698,7 +708,7 @@ export default function TablesPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={!form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
+              disabled={tables.isError || !form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
             >
               {upsertTable.isPending ? 'Guardando mesa...' : selectedTable ? 'Guardar cambios de la mesa' : 'Crear mesa'}
             </Button>

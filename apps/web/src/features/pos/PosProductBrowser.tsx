@@ -1,6 +1,7 @@
 'use client';
 
 import { Search } from 'lucide-react';
+import { QueryState } from '@/components/product';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -18,9 +19,11 @@ type PosProductBrowserProps = {
   categories: ProductCategoryOption[];
   filteredProducts: Product[];
   isLoading: boolean;
+  isError: boolean;
   onSearchChange: (value: string) => void;
   onCategoryFilterChange: (value: string) => void;
   onAddToCart: (product: Product) => void;
+  onRetry: () => void;
 };
 
 export function PosProductBrowser({
@@ -29,9 +32,11 @@ export function PosProductBrowser({
   categories,
   filteredProducts,
   isLoading,
+  isError,
   onSearchChange,
   onCategoryFilterChange,
   onAddToCart,
+  onRetry,
 }: PosProductBrowserProps) {
   return (
     <Card className="overflow-hidden p-0">
@@ -43,9 +48,11 @@ export function PosProductBrowser({
               Busca por nombre o código, filtra por categoría y arma la venta o la comanda sin cortar el ritmo de atención.
             </p>
           </div>
-          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-[11px] font-bold text-brand-900">
-            {filteredProducts.length} listos
-          </div>
+          {!isLoading && !isError ? (
+            <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-[11px] font-bold text-brand-900">
+              {filteredProducts.length} listos
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-3 md:grid-cols-[1fr_220px]">
@@ -74,11 +81,19 @@ export function PosProductBrowser({
         </div>
       </div>
 
-      <PosProductGrid
-        products={filteredProducts}
-        isLoading={isLoading}
-        onAddToCart={onAddToCart}
-      />
+      <QueryState
+        status={isError ? 'error' : isLoading ? 'loading' : filteredProducts.length ? 'ready' : 'empty'}
+        title={isError ? 'No pudimos cargar el catálogo' : 'No hay productos para este filtro'}
+        description={isError ? 'No se pueden agregar productos hasta recuperar el catálogo real.' : 'Cambia la búsqueda o la categoría para continuar.'}
+        onRetry={isError ? onRetry : undefined}
+        className="m-5"
+      >
+        <PosProductGrid
+          products={filteredProducts}
+          isLoading={false}
+          onAddToCart={onAddToCart}
+        />
+      </QueryState>
     </Card>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { ReceiptText, ShoppingCart, Store, WalletCards } from 'lucide-react';
-import { MetricCard } from '@/components/ui/metric-card';
+import { MetricSurface } from '@/components/product';
 import { formatCurrency, formatNumber } from '@/lib/format';
 
 type PosOperationalMetricsProps = {
@@ -10,6 +10,9 @@ type PosOperationalMetricsProps = {
   occupiedTablesCount: number;
   saleTotal: number;
   hasActiveOrder: boolean;
+  activeOrdersUnavailable?: boolean;
+  occupiedTablesUnavailable?: boolean;
+  cashUnavailable?: boolean;
 };
 
 export function PosOperationalMetrics({
@@ -18,40 +21,42 @@ export function PosOperationalMetrics({
   occupiedTablesCount,
   saleTotal,
   hasActiveOrder,
+  activeOrdersUnavailable = false,
+  occupiedTablesUnavailable = false,
+  cashUnavailable = false,
 }: PosOperationalMetricsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <MetricCard
-        compact
+      <MetricSurface
+        density="compact"
         label="Caja"
         value={isCashOpen ? 'Abierta' : 'Cerrada'}
-        hint={isCashOpen ? 'Lista para operar' : 'Abre caja antes de vender'}
+        context={isCashOpen ? 'Lista para operar' : 'Abre caja antes de vender'}
         icon={<WalletCards className="h-5 w-5" />}
-        accent={isCashOpen ? 'success' : 'danger'}
+        unavailable={cashUnavailable}
       />
-      <MetricCard
-        compact
+      <MetricSurface
+        density="compact"
         label="Comandas"
         value={`${formatNumber(activeOrdersCount)} abiertas`}
-        hint="Pedidos en curso"
+        context="Pedidos en curso"
         icon={<ReceiptText className="h-5 w-5" />}
-        accent="brand"
+        unavailable={activeOrdersUnavailable}
       />
-      <MetricCard
-        compact
+      <MetricSurface
+        density="compact"
         label="Mesas ocupadas"
         value={formatNumber(occupiedTablesCount)}
-        hint="Mesas con consumo en sala"
+        context="Mesas con consumo en sala"
         icon={<Store className="h-5 w-5" />}
-        accent="ink"
+        unavailable={occupiedTablesUnavailable}
       />
-      <MetricCard
-        compact
+      <MetricSurface
+        density="compact"
         label="Total actual"
         value={formatCurrency(saleTotal)}
-        hint={hasActiveOrder ? 'Subtotal de la comanda activa' : 'Total del borrador actual'}
+        context={hasActiveOrder ? 'Subtotal de la comanda activa' : 'Total del borrador actual'}
         icon={<ShoppingCart className="h-5 w-5" />}
-        accent="success"
       />
     </div>
   );
