@@ -91,7 +91,7 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     WHATSAPP_PROVIDER: 'qr_gateway',
     WHATSAPP_QR_SESSION_NAME: 'sofia-main',
     WHATSAPP_EXPECTED_ACCOUNT_ID: '573001234567',
-    WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '573001234567',
+    WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '123456789012345@lid',
     WHATSAPP_EXPECTED_SESSION_OWNER: 'sofia-main',
   };
 
@@ -118,6 +118,43 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     return { instance, processInboundWebhook, auditLog };
   }
 
+  function authorizeLease(instance: SofiaWhatsappQrGatewayService, fencingToken = 1) {
+    const internal = instance as unknown as {
+      ownership: { ownerHash: string };
+      activeLease: {
+        sessionName: string;
+        ownerHash: string;
+        fencingToken: number;
+        leaseExpiresAt: string;
+      } | null;
+    };
+    internal.activeLease = {
+      sessionName: 'sofia-main',
+      ownerHash: internal.ownership.ownerHash,
+      fencingToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  }
+
+  function authorizeBinding(instance: SofiaWhatsappQrGatewayService) {
+    const internal = instance as unknown as {
+      real: {
+        phoneNumber: string | null;
+        verifiedBinding: {
+          providerAccountId: string;
+          businessIdentity: string;
+          sessionOwner: string;
+        } | null;
+      };
+    };
+    internal.real.phoneNumber = '573001234567';
+    internal.real.verifiedBinding = {
+      providerAccountId: '573001234567',
+      businessIdentity: '123456789012345@lid',
+      sessionOwner: 'sofia-main',
+    };
+  }
+
   it('normalizes the Baileys device suffix before exact binding', () => {
     const { instance } = subject();
     const internal = instance as unknown as {
@@ -131,11 +168,13 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     ).toBe('573001234567');
   });
 
-  it('reports CONNECTED only after the exact configured account is proven', async () => {
+  it('reports CONNECTED only after account, business identity, and owner are independently proven', async () => {
     const { instance } = subject();
+    authorizeLease(instance);
     const socket = {
       user: {
-        id: '573001234567:42@s.whatsapp.net',
+        id: '123456789012345:42@lid',
+        lid: '123456789012345:42@lid',
         phoneNumber: '573001234567@s.whatsapp.net',
       },
     };
@@ -150,13 +189,80 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     expect(internal.real).toMatchObject({
       connectionStatus: 'CONNECTED',
       phoneNumber: '573001234567',
+      verifiedBinding: {
+        providerAccountId: '573001234567',
+        businessIdentity: '123456789012345@lid',
+        sessionOwner: 'sofia-main',
+      },
     });
+  });
+
+  it('fails closed when Baileys does not expose a distinct business identity', async () => {
+    const { instance } = subject();
+    authorizeLease(instance);
+    const socket = {
+      user: { id: '573001234567:42@s.whatsapp.net' },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; lastErrorCode: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'FAILED',
+      lastErrorCode: 'WHATSAPP_BUSINESS_IDENTITY_EVIDENCE_MISSING',
+    });
+    expect(socket.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the fenced session-owner evidence is missing', async () => {
+    const { instance } = subject();
+    const socket = {
+      user: {
+        id: '123456789012345@lid',
+        phoneNumber: '573001234567@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; lastErrorCode: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'FAILED',
+      lastErrorCode: 'WHATSAPP_SESSION_OWNER_EVIDENCE_MISSING',
+    });
+    expect(socket.logout).toHaveBeenCalledTimes(1);
   });
 
   it('rejects and cleans a socket whose connected account does not match', async () => {
     const { instance, auditLog } = subject();
+    authorizeLease(instance);
     const socket = {
-      user: { id: '573009999999:7@s.whatsapp.net' },
+      user: {
+        id: '123456789012345@lid',
+        phoneNumber: '573009999999:7@s.whatsapp.net',
+      },
       logout: jest.fn().mockResolvedValue(undefined),
     };
     const internal = instance as unknown as {
@@ -186,10 +292,17 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
   it('uses a PN remoteJidAlt for an inbound LID without exposing the LID as a phone', async () => {
     const { instance, processInboundWebhook } = subject();
     const internal = instance as unknown as {
-      real: { phoneNumber: string | null };
+      real: {
+        phoneNumber: string | null;
+        verifiedBinding: {
+          providerAccountId: string;
+          businessIdentity: string;
+          sessionOwner: string;
+        } | null;
+      };
       onRealMessagesUpsert(payload: unknown, socket: unknown, fencingToken: number): Promise<void>;
     };
-    internal.real.phoneNumber = '573001234567';
+    authorizeBinding(instance);
     jest
       .spyOn(instance as never, 'runFencedOwnerEffect' as never)
       .mockImplementation((async (_socket: unknown, _token: number, operation: () => unknown) =>
@@ -216,7 +329,13 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
 
     expect(processInboundWebhook).toHaveBeenCalledWith(
       'qr_gateway',
-      expect.objectContaining({ phone: '573109876543', text: 'Hola' }),
+      expect.objectContaining({
+        providerAccountId: '573001234567',
+        businessIdentity: '123456789012345@lid',
+        sessionOwner: 'sofia-main',
+        phone: '573109876543',
+        text: 'Hola',
+      }),
       expect.any(Object),
       { trustedBaileysTransport: true },
     );
@@ -224,6 +343,7 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
 
   it('rejects LID inbound without a PN alternative and never invokes processing', async () => {
     const { instance, processInboundWebhook } = subject();
+    authorizeBinding(instance);
     const internal = instance as unknown as {
       onRealMessagesUpsert(payload: unknown, socket: unknown, fencingToken: number): Promise<void>;
     };
@@ -250,6 +370,7 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
 
   it('does not treat a PN alternate on a group or unknown JID as a direct customer', async () => {
     const { instance, processInboundWebhook } = subject();
+    authorizeBinding(instance);
     const internal = instance as unknown as {
       onRealMessagesUpsert(payload: unknown, socket: unknown, fencingToken: number): Promise<void>;
     };

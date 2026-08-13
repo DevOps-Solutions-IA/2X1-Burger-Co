@@ -61,6 +61,11 @@ export class SofiaGovernanceService {
         this.configService.get<boolean>('DEEPSEEK_ENABLED') === true,
     );
     const qrGatewayReady = qrStatus.adapterReal && (qrStatus.connected || qrStatus.qrAvailable);
+    const qrReceiveOnlyAuthorized =
+      governanceSettings.qrRealAllowed.allowed === true &&
+      this.qrReceiveOnlyConfigurationIsSafe() &&
+      !globalPaused &&
+      !runtimeSafety.killSwitchActive;
     const realSendingEnabled = false;
 
     const [
@@ -127,7 +132,8 @@ export class SofiaGovernanceService {
       productionReadiness,
       security: {
         secretRotationStatus,
-        canActivateQrReal: false,
+        // This capability is strictly receive-only; outbound activation remains impossible here.
+        canActivateQrReal: qrReceiveOnlyAuthorized,
         canActivateDeepSeekReal: false,
         canActivateAutoSafeProduction: false,
         blockers: this.unique(securityBlockers),
@@ -456,11 +462,18 @@ export class SofiaGovernanceService {
   }
 
   private qrReceiveOnlyConfigurationIsSafe(): boolean {
-    const requiredBindings = [
-      'WHATSAPP_EXPECTED_ACCOUNT_ID',
-      'WHATSAPP_EXPECTED_BUSINESS_IDENTITY',
-      'WHATSAPP_EXPECTED_SESSION_OWNER',
-    ].every((key) => Boolean(this.configService.get<string>(key)?.trim()));
+    const expectedAccount = this.configService.get<string>('WHATSAPP_EXPECTED_ACCOUNT_ID')?.trim() ?? '';
+    const expectedBusiness =
+      this.configService.get<string>('WHATSAPP_EXPECTED_BUSINESS_IDENTITY')?.trim() ?? '';
+    const expectedSessionOwner =
+      this.configService.get<string>('WHATSAPP_EXPECTED_SESSION_OWNER')?.trim() ?? '';
+    const sessionName = this.configService.get<string>('WHATSAPP_QR_SESSION_NAME')?.trim() || 'sofia-main';
+    const accountIsPn =
+      /^\+?\d{6,20}$/.test(expectedAccount) ||
+      /^\d{6,20}(?::\d+)?@s\.whatsapp\.net$/i.test(expectedAccount);
+    const businessIsObservedLid = /^\d{6,20}@lid$/i.test(expectedBusiness);
+    const requiredBindings =
+      accountIsPn && businessIsObservedLid && expectedSessionOwner === sessionName;
 
     return (
       requiredBindings &&
