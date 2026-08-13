@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -63,6 +64,12 @@ const ACTIVE_ORDER_STATUSES: OrderTicketStatus[] = [
   OrderTicketStatus.SERVED,
   OrderTicketStatus.PAYMENT_PENDING,
 ];
+
+const KITCHEN_MANAGED_STATUSES = new Set<OrderTicketStatus>([
+  OrderTicketStatus.OPEN,
+  OrderTicketStatus.IN_PREPARATION,
+  OrderTicketStatus.SERVED,
+]);
 
 const orderInclude = {
   table: true,
@@ -808,6 +815,10 @@ export class OrdersService {
   }
 
   async transitionKitchen(id: string, dto: KitchenTransitionDto, actor: AuthUser) {
+    if (!this.isPrivilegedOrderOperator(actor)) {
+      throw new ForbiddenException({ code: 'KITCHEN_TRANSITION_FORBIDDEN' });
+    }
+
     const order = await this.prisma.orderTicket.findUnique({
       where: { id },
       select: { id: true, status: true, revision: true },
@@ -825,7 +836,85 @@ export class OrdersService {
     if (order.status !== expectedStatus) {
       throw new ConflictException({ code: 'KITCHEN_TRANSITION_BLOCKED' });
     }
-    return this.update(id, { status: nextStatus, expectedRevision: dto.expectedRevision }, actor);
+    this.assertKitchenTransitionPolicy(order.status, nextStatus);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.orderTicket.updateMany({
+        where: {
+          id,
+          revision: dto.expectedRevision,
+          status: expectedStatus,
+        },
+        data: {
+          status: nextStatus,
+          servedAt: nextStatus === OrderTicketStatus.SERVED ? new Date() : undefined,
+          revision: { increment: 1 },
+        },
+      });
+
+      if (!result.count) {
+        throw new ConflictException({ code: 'STALE_ORDER_REVISION' });
+      }
+
+      return tx.orderTicket.findUniqueOrThrow({
+        where: { id },
+        include: orderInclude,
+      });
+    });
+
+    await this.auditService.log({
+      userId: actor.sub,
+      action: 'KITCHEN_TRANSITION',
+      module: 'orders',
+      entity: 'order_ticket',
+      entityId: id,
+      oldValues: { status: order.status, revision: order.revision },
+      newValues: { status: updated.status, revision: updated.revision, action: dto.action },
+    });
+
+    this.realtimeService.publishOrderUpdated({
+      entityId: updated.id,
+      orderType: updated.type,
+      status: updated.status,
+      actorId: actor.sub,
+    });
+    this.realtimeService.publishOperationalRefresh('orders');
+    return updated;
+  }
+
+  private assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+    currentStatus: OrderTicketStatus,
+    requestedStatus: OrderTicketStatus | undefined,
+  ) {
+    if (
+      requestedStatus === undefined ||
+      requestedStatus === currentStatus ||
+      !KITCHEN_MANAGED_STATUSES.has(requestedStatus)
+    ) {
+      return;
+    }
+
+    throw new ConflictException({
+      code: 'KITCHEN_TRANSITION_REQUIRES_GOVERNED_ENDPOINT',
+    });
+  }
+
+  private assertKitchenTransitionPolicy(
+    currentStatus: OrderTicketStatus,
+    requestedStatus: OrderTicketStatus,
+  ) {
+    if (currentStatus === requestedStatus) {
+      return;
+    }
+
+    const allowed =
+      (currentStatus === OrderTicketStatus.OPEN &&
+        requestedStatus === OrderTicketStatus.IN_PREPARATION) ||
+      (currentStatus === OrderTicketStatus.IN_PREPARATION &&
+        requestedStatus === OrderTicketStatus.SERVED);
+    if (!allowed) {
+      throw new ConflictException({ code: 'KITCHEN_TRANSITION_BLOCKED' });
+    }
   }
 
   private operationalOrderWhere(query: ListOperationalOrdersDto): Prisma.OrderTicketWhereInput {
@@ -1729,6 +1818,11 @@ export class OrdersService {
       throw new BadRequestException('Las comandas cerradas no se pueden modificar.');
     }
 
+    this.assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+      current.status,
+      dto.status as OrderTicketStatus | undefined,
+    );
+
     const access = this.assertWaiterOrderWriteAccess(current, actor);
     const requestedType = dto.type as OrderTicketType | undefined;
     if (
@@ -2280,13 +2374,16 @@ export class OrdersService {
           ) {
             throw new BadRequestException('Las comandas cerradas no se pueden modificar.');
           }
-
           const access = this.assertWaiterOrderWriteAccess(current, actor, {
             allowClaim: dto.takeOwnership === true,
           });
           const table = await this.resolveTableForOrder(tx, dto.tableId, OrderTicketType.DINE_IN, current.id);
           await this.tablesService.assertWaiterCanOperateTable(actor, table?.id, tx);
           const nextStatus = (dto.status as OrderTicketStatus | undefined) ?? current.status;
+          this.assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+            current.status,
+            dto.status as OrderTicketStatus | undefined,
+          );
 
           const result = await tx.orderTicket.updateMany({
             where: {
@@ -2352,6 +2449,14 @@ export class OrdersService {
 
         const table = await this.resolveTableForOrder(tx, dto.tableId, OrderTicketType.DINE_IN);
         await this.tablesService.assertWaiterCanOperateTable(actor, table?.id, tx);
+        if (
+          dto.status === OrderTicketStatus.IN_PREPARATION ||
+          dto.status === OrderTicketStatus.SERVED
+        ) {
+          throw new ConflictException({
+            code: 'KITCHEN_TRANSITION_REQUIRES_GOVERNED_ENDPOINT',
+          });
+        }
         const order = await tx.orderTicket.create({
           data: {
             number: await this.generateOrderNumber(tx, OrderTicketType.DINE_IN),
