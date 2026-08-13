@@ -72,7 +72,7 @@ export function AnalyticsScreen() {
     : null;
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Analítica operacional"
         title="Decisiones con evidencia del día"
@@ -203,7 +203,7 @@ export function AnalyticsScreen() {
           </dl>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

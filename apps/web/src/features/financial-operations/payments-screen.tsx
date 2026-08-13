@@ -83,7 +83,7 @@ export function PaymentsScreen() {
   };
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Control financiero"
         title="Pagos y evidencia"
@@ -92,13 +92,12 @@ export function PaymentsScreen() {
       />
 
       <nav aria-label="Vistas de pagos" className="overflow-x-auto border-b border-line">
-        <div className="flex min-w-max gap-1" role="tablist">
+        <div className="flex min-w-max gap-1" role="group" aria-label="Seleccionar evidencia financiera">
           {viewOptions.map((option) => (
             <button
               key={option.id}
               type="button"
-              role="tab"
-              aria-selected={view === option.id}
+              aria-pressed={view === option.id}
               onClick={() => changeView(option.id)}
               className={`flex min-h-11 items-center gap-2 rounded-t-xl px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${view === option.id ? 'bg-panel text-ink shadow-[inset_0_-2px_0_0_var(--color-brand-600)]' : 'text-muted hover:bg-panel hover:text-ink'}`}
             >
@@ -136,7 +135,7 @@ export function PaymentsScreen() {
       >
         <PaymentIntentDetail query={selectedIntent} />
       </DetailDialog>
-    </main>
+    </div>
   );
 }
 

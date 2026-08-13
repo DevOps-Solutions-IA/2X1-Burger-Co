@@ -219,7 +219,7 @@ export function TeamWorkspace() {
           : 'ready';
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Administración"
         title="Equipo y acceso"
@@ -357,7 +357,7 @@ export function TeamWorkspace() {
         onCancel={() => setConfirmDelete(null)}
         onConfirm={() => { if (confirmDelete) removeUser.mutate(confirmDelete); }}
       />
-    </main>
+    </div>
   );
 }
 

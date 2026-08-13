@@ -42,9 +42,9 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
 
   if (!order) {
     return (
-      <main className="p-4 sm:p-6 lg:p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <QueryState status={state} title={state === 'empty' ? 'Pedido no encontrado' : undefined} onRetry={() => void result.refetch()} />
-      </main>
+      </div>
     );
   }
 
@@ -88,7 +88,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
   ];
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="order-detail-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="order-detail-page">
       <PageHeader
         eyebrow="Detalle operativo"
         title={`Pedido #${order.number}`}
@@ -160,6 +160,6 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
           </section>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }

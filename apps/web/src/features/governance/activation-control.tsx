@@ -104,7 +104,7 @@ export function ActivationControl() {
   const qrStatus = qr.data;
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Gobernanza operacional"
         title="Control de activación"
@@ -204,7 +204,7 @@ export function ActivationControl() {
       >
         {pendingAction && actionCopy[pendingAction].needsReason ? <Field label="Motivo operacional" required hint="Se registrará sanitizado en auditoría."><Textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={180} /></Field> : <p className="rounded-2xl bg-canvas p-4 text-sm leading-6 text-muted">El servidor volverá a evaluar todos los gates. Esta acción no habilita envío, pagos ni producción.</p>}
       </DetailDialog>
-    </main>
+    </div>
   );
 }
 

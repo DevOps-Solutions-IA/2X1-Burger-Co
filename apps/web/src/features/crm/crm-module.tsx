@@ -21,7 +21,7 @@ export function CrmModule({ children }: { children: React.ReactNode }) {
   const activeId = currentPath === '/crm' ? 'overview' : currentPath.split('/')[2] ?? 'overview';
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+    <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
       <PageHeader
         eyebrow="Relaciones comerciales"
         title="CRM"
@@ -33,6 +33,6 @@ export function CrmModule({ children }: { children: React.ReactNode }) {
         density="compact"
       />
       {children}
-    </main>
+    </div>
   );
 }

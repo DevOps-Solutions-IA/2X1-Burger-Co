@@ -109,7 +109,7 @@ export function OrdersScreen() {
   };
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="orders-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="orders-page">
       <PageHeader
         eyebrow="Operación comercial"
         title="Pedidos"
@@ -193,6 +193,6 @@ export function OrdersScreen() {
           </Button>
         </nav>
       ) : null}
-    </main>
+    </div>
   );
 }

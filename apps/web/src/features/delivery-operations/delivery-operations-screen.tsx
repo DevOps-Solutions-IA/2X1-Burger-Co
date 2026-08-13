@@ -356,7 +356,7 @@ export function DeliveryOperationsScreen() {
   const pendingLocations = locationInbox.data ?? [];
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="deliveries-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="deliveries-page">
       <PageHeader
         eyebrow="Control logístico"
         title="Domicilios"
@@ -458,7 +458,7 @@ export function DeliveryOperationsScreen() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-2xl border border-line bg-panel shadow-sm" data-testid="deliveries-detail" aria-live="polite">
+        <section className="min-w-0 rounded-2xl border border-line bg-panel shadow-sm" data-testid="deliveries-detail">
           {!selectedOrder ? (
             <QueryState status="empty" className="m-4 min-h-72" title="Selecciona un domicilio" description="Elige un pedido de la cola para revisar su evidencia y operar el flujo autorizado." />
           ) : (
@@ -484,7 +484,10 @@ export function DeliveryOperationsScreen() {
           )}
         </section>
       </div>
-    </main>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {selectedOrder ? `Domicilio ${selectedOrder.number}: ${workflowLabels[effectiveWorkflow(selectedOrder)]}.` : 'Ningún domicilio seleccionado.'}
+      </p>
+    </div>
   );
 }
 

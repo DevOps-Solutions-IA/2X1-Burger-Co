@@ -1,4 +1,4 @@
-import type { Key, ReactNode } from 'react';
+import type { CSSProperties, Key, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 export interface DataTableColumn<Row> {
@@ -10,6 +10,15 @@ export interface DataTableColumn<Row> {
   numeric?: boolean;
 }
 
+export function boundRowsForRendering<Row>(rows: readonly Row[], renderLimit = 100) {
+  const boundedLimit = Number.isFinite(renderLimit) ? Math.max(1, Math.floor(renderLimit)) : 100;
+  const visibleRows = rows.slice(0, boundedLimit);
+  return {
+    visibleRows,
+    hiddenRowCount: rows.length - visibleRows.length,
+  };
+}
+
 export function DataTableShell<Row>({
   rows,
   columns,
@@ -18,6 +27,7 @@ export function DataTableShell<Row>({
   rowActions,
   className,
   density = 'comfortable',
+  renderLimit = 100,
 }: {
   rows: readonly Row[];
   columns: readonly DataTableColumn<Row>[];
@@ -26,57 +36,72 @@ export function DataTableShell<Row>({
   rowActions?: (row: Row) => ReactNode;
   className?: string;
   density?: 'comfortable' | 'compact';
+  renderLimit?: number;
 }) {
+  const { visibleRows, hiddenRowCount } = boundRowsForRendering(rows, renderLimit);
+  const gridTemplateColumns = [
+    ...columns.map((column) => column.numeric ? 'minmax(8rem, 0.75fr)' : 'minmax(10rem, 1fr)'),
+    ...(rowActions ? ['minmax(5.5rem, 0.45fr)'] : []),
+  ].join(' ');
+  const gridStyle = { '--data-table-columns': gridTemplateColumns } as CSSProperties;
+
   return (
     <div className={cn('overflow-hidden rounded-2xl border border-line bg-panel shadow-sm', className)}>
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full border-collapse text-left text-sm">
-          <caption className="sr-only">{caption}</caption>
-          <thead className="border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted">
-            <tr>
-              {columns.map((column) => (
-                <th key={column.id} scope="col" className={cn('font-semibold', density === 'compact' ? 'px-3 py-2' : 'px-4 py-3', column.className)}>
-                  {column.header}
-                </th>
-              ))}
-              {rowActions ? <th scope="col" className={cn('w-14', density === 'compact' ? 'px-3 py-2' : 'px-4 py-3')}><span className="sr-only">Acciones</span></th> : null}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {rows.map((row) => (
-              <tr key={rowKey(row)} className="transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55">
-                {columns.map((column) => (
-                  <td
-                    key={column.id}
-                    className={cn('align-middle text-ink', density === 'compact' ? 'px-3 py-2.5' : 'px-4 py-3.5', column.numeric && 'tabular-nums', column.className)}
-                  >
-                    {column.cell(row)}
-                  </td>
-                ))}
-                {rowActions ? <td className={cn('text-right', density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2')}>{rowActions(row)}</td> : null}
-              </tr>
+      <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} className="overflow-x-auto text-sm">
+        <div role="rowgroup" className="hidden min-w-max border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted md:block">
+          <div role="row" style={gridStyle} className="grid grid-cols-[var(--data-table-columns)]">
+            {columns.map((column) => (
+              <div key={column.id} role="columnheader" className={cn('font-semibold', density === 'compact' ? 'px-3 py-2' : 'px-4 py-3', column.className)}>
+                {column.header}
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+            {rowActions ? <div role="columnheader" className={cn(density === 'compact' ? 'px-3 py-2' : 'px-4 py-3')}><span className="sr-only">Acciones</span></div> : null}
+          </div>
+        </div>
 
-      <ul className="divide-y divide-line md:hidden" aria-label={caption}>
-        {rows.map((row) => (
-          <li key={rowKey(row)} className={cn(density === 'compact' ? 'p-3' : 'p-4')}>
-            <dl className="grid gap-3">
+        <div role="rowgroup" className="divide-y divide-line">
+          {visibleRows.map((row, rowIndex) => (
+            <div
+              key={rowKey(row)}
+              role="row"
+              aria-rowindex={rowIndex + 2}
+              style={gridStyle}
+              className={cn(
+                'grid min-w-0 gap-3 transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55 md:min-w-max md:grid-cols-[var(--data-table-columns)] md:gap-0',
+                density === 'compact' ? 'p-3 md:p-0' : 'p-4 md:p-0',
+              )}
+            >
               {columns.map((column) => (
-                <div key={column.id} className="grid grid-cols-[minmax(6.5rem,0.8fr)_minmax(0,1.2fr)] gap-3">
-                  <dt className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
+                <div
+                  key={column.id}
+                  role="cell"
+                  className={cn(
+                    'grid min-w-0 grid-cols-[minmax(6.5rem,0.8fr)_minmax(0,1.2fr)] gap-3 text-ink md:block md:align-middle',
+                    density === 'compact' ? 'md:px-3 md:py-2.5' : 'md:px-4 md:py-3.5',
+                    column.numeric && 'tabular-nums',
+                    column.className,
+                  )}
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted md:hidden">
                     {column.mobileLabel ?? column.header}
-                  </dt>
-                  <dd className={cn('min-w-0 text-sm text-ink', column.numeric && 'tabular-nums')}>{column.cell(row)}</dd>
+                  </span>
+                  <span className="min-w-0">{column.cell(row)}</span>
                 </div>
               ))}
-            </dl>
-            {rowActions ? <div className="mt-4 flex min-h-11 justify-end border-t border-line pt-3">{rowActions(row)}</div> : null}
-          </li>
-        ))}
-      </ul>
+              {rowActions ? (
+                <div role="cell" className={cn('flex min-h-11 justify-end border-t border-line pt-3 md:block md:border-0 md:text-right', density === 'compact' ? 'md:px-3 md:py-1.5' : 'md:px-4 md:py-2')}>
+                  <span className="sr-only">Acciones: </span>{rowActions(row)}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+      {hiddenRowCount > 0 ? (
+        <p role="status" className="border-t border-line bg-canvas px-4 py-3 text-sm text-muted">
+          Se muestran {visibleRows.length} de {rows.length} filas. Ajusta los filtros o la paginación para consultar el resto.
+        </p>
+      ) : null}
     </div>
   );
 }

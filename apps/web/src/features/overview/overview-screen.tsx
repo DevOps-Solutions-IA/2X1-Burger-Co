@@ -98,7 +98,7 @@ export function OverviewScreen() {
   const greetingName = user?.fullName?.split(' ')[0];
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8" data-testid="dashboard-page">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8" data-testid="dashboard-page">
       <PageHeader
         eyebrow="Operación en vivo"
         title="Tu jornada en vivo"
@@ -288,7 +288,7 @@ export function OverviewScreen() {
           />
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

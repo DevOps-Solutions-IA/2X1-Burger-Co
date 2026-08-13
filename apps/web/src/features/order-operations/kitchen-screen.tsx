@@ -88,7 +88,7 @@ export function KitchenScreen() {
   const clearFilters = () => { setQuery(''); setStatus(''); setType(''); };
 
   return (
-    <main className="space-y-5 p-3 sm:p-5 lg:p-6" data-testid="kitchen-page">
+    <div className="space-y-5 p-3 sm:p-5 lg:p-6" data-testid="kitchen-page">
       <PageHeader
         density="compact"
         eyebrow="Producción"
@@ -110,6 +110,6 @@ export function KitchenScreen() {
         </section>
       </QueryState>
       {result.data && result.data.total > PAGE_SIZE ? <p className="rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-3 text-sm text-ink">La cola contiene más de {PAGE_SIZE} pedidos. Refina los filtros para operar el resto sin cargar una lista sin límites.</p> : null}
-    </main>
+    </div>
   );
 }

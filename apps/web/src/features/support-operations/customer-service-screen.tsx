@@ -62,7 +62,7 @@ export function CustomerServiceScreen() {
   const pages = cases.data ? Math.ceil(cases.data.total / cases.data.limit) : 0;
 
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Recuperación gobernada"
         title="Servicio al cliente"
@@ -101,7 +101,7 @@ export function CustomerServiceScreen() {
       >
         <CaseDetail query={selectedCase} />
       </DetailDialog>
-    </main>
+    </div>
   );
 }
 
