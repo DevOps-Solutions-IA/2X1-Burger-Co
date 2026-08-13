@@ -13,4 +13,13 @@ Resolved during implementation:
 - inaccessible drawers/dialogs and unlabeled financial controls;
 - frontend CRM actions shown to read-only roles.
 
-Final independent review and exact-SHA remote CI remain required. Real Bold, outbound WhatsApp and auto reply remain off.
+Final local review also verified:
+
+- checkout financial-review state overrides isolated payment-intent success in every Phase 8 read surface;
+- every Sofia controller action declares its own capability and does not inherit an unrelated broad permission;
+- customer phone redaction covers Colombian formatted variants before audit or UI exposure;
+- CRM note/task replay is source-scoped, actor-bound and cannot mutate a later version;
+- authenticated route accessibility covers phone, tablet and desktop with no document-level overflow;
+- the release artifact includes deterministic Next manifests rather than excluding changing runtime files.
+
+Exact-SHA remote CI and pull-request review remain required. Real Bold, outbound WhatsApp and auto reply remain off.
