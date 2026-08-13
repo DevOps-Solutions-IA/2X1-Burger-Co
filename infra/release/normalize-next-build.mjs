@@ -12,6 +12,7 @@ for (const relative of [
   'app-build-manifest.json',
   'app-path-routes-manifest.json',
   'server/app-paths-manifest.json',
+  'server/pages-manifest.json',
 ]) {
   const file = path.join(root, relative);
   writeFileSync(file, JSON.stringify(stable(parse(file), false)));
