@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRightLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTableShell, FilterBar, type DataTableColumn, QueryState, StatusBadge } from '@/components/product';
@@ -12,6 +12,8 @@ import { ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { CrmLead, CrmLeadStatus } from './contracts';
 import { customerName, isPermissionDeniedError, leadStatusLabels } from './labels';
+import { CrmPagination } from './pagination';
+import { clampCrmPage } from './pagination-model';
 import { useCrmLeads, useCrmPipelines, useTransitionCrmLead } from './queries';
 
 const statuses: CrmLeadStatus[] = ['NEW', 'QUALIFIED', 'ACTIVE', 'WON', 'LOST', 'ARCHIVED'];
@@ -26,17 +28,23 @@ export function LeadsView() {
   const { user } = useAuth();
   const [status, setStatus] = useState<CrmLeadStatus | ''>('');
   const [pipelineId, setPipelineId] = useState('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<CrmLead | null>(null);
   const [targetStageId, setTargetStageId] = useState('');
   const [targetStatus, setTargetStatus] = useState<CrmLeadStatus>('ACTIVE');
   const [mutationPermissionDenied, setMutationPermissionDenied] = useState(false);
-  const leads = useCrmLeads({ status: status || undefined, pipelineId: pipelineId || undefined });
+  const leads = useCrmLeads({ page, status: status || undefined, pipelineId: pipelineId || undefined });
   const pipelines = useCrmPipelines('ACTIVE');
   const transition = useTransitionCrmLead();
   const canManageLeads = canMutateCrm(user?.roles) && !mutationPermissionDenied;
   const canTransition = canManageLeads && selected && !['WON', 'LOST', 'ARCHIVED'].includes(selected.status);
   const selectedPipeline = pipelines.data?.data.find((pipeline) => pipeline.id === selected?.pipelineId);
   const targetStage = selectedPipeline?.stages.find((stage) => stage.id === targetStageId);
+
+  useEffect(() => {
+    if (!leads.data) return;
+    setPage((current) => clampCrmPage(current, leads.data.pagination.pages));
+  }, [leads.data]);
 
   function openTransition(lead: CrmLead) {
     if (!canManageLeads) return;
@@ -87,8 +95,8 @@ export function LeadsView() {
     <div className="space-y-4">
       <FilterBar
         activeCount={Number(Boolean(status)) + Number(Boolean(pipelineId))}
-        filters={<><label className="min-w-44"><span className="sr-only">Estado del lead</span><Select value={status} onChange={(event) => setStatus(event.target.value as CrmLeadStatus | '')}><option value="">Todos los estados</option>{statuses.map((item) => <option key={item} value={item}>{leadStatusLabels[item]}</option>)}</Select></label><label className="min-w-48"><span className="sr-only">Pipeline</span><Select value={pipelineId} onChange={(event) => setPipelineId(event.target.value)}><option value="">Todos los pipelines</option>{pipelines.data?.data.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>)}</Select></label></>}
-        actions={<Button type="button" variant="ghost" onClick={() => { setStatus(''); setPipelineId(''); }}>Limpiar filtros</Button>}
+        filters={<><label className="min-w-44"><span className="sr-only">Estado del lead</span><Select value={status} onChange={(event) => { setStatus(event.target.value as CrmLeadStatus | ''); setPage(1); }}><option value="">Todos los estados</option>{statuses.map((item) => <option key={item} value={item}>{leadStatusLabels[item]}</option>)}</Select></label><label className="min-w-48"><span className="sr-only">Pipeline</span><Select value={pipelineId} onChange={(event) => { setPipelineId(event.target.value); setPage(1); }}><option value="">Todos los pipelines</option>{pipelines.data?.data.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>)}</Select></label></>}
+        actions={<Button type="button" variant="ghost" onClick={() => { setStatus(''); setPipelineId(''); setPage(1); }}>Limpiar filtros</Button>}
         density="compact"
       />
 
@@ -100,7 +108,7 @@ export function LeadsView() {
         />
       ) : null}
 
-      {leads.isPending ? <QueryState status="loading" title="Consultando leads" /> : leads.error ? isPermissionDeniedError(leads.error) ? <QueryState status="permission_denied" title="No puedes consultar leads" description="El servidor rechazó el acceso a esta información." /> : <QueryState status="error" onRetry={() => void leads.refetch()} /> : leads.data?.data.length === 0 ? <QueryState status="empty" title="No hay leads con estos filtros" description="Ajusta los filtros o crea el lead desde un flujo autorizado." /> : <DataTableShell rows={leads.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption="Leads CRM" density="compact" rowActions={canManageLeads ? (row) => <Button type="button" variant="secondary" size="sm" onClick={() => openTransition(row)} disabled={['WON', 'LOST', 'ARCHIVED'].includes(row.status)}><ArrowRightLeft className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Mover</span></Button> : undefined} />}
+      {leads.isPending ? <QueryState status="loading" title="Consultando leads" /> : leads.error ? isPermissionDeniedError(leads.error) ? <QueryState status="permission_denied" title="No puedes consultar leads" description="El servidor rechazó el acceso a esta información." /> : <QueryState status="error" onRetry={() => void leads.refetch()} /> : leads.data?.data.length === 0 ? <QueryState status="empty" title="No hay leads con estos filtros" description="Ajusta los filtros o crea el lead desde un flujo autorizado." /> : <div className="space-y-4"><DataTableShell rows={leads.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption="Leads CRM" density="compact" rowActions={canManageLeads ? (row) => <Button type="button" variant="secondary" size="sm" onClick={() => openTransition(row)} disabled={['WON', 'LOST', 'ARCHIVED'].includes(row.status)}><ArrowRightLeft className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Mover</span></Button> : undefined} /><CrmPagination page={leads.data.pagination.page} pages={leads.data.pagination.pages} total={leads.data.pagination.total} noun="leads" disabled={leads.isFetching} onChange={setPage} /></div>}
 
       {selected ? (
         <section className="rounded-2xl border border-brand-200 bg-panel p-4 shadow-sm" aria-labelledby="lead-transition-title">

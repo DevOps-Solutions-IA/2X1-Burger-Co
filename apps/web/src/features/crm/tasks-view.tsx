@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Play, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTableShell, FilterBar, type DataTableColumn, QueryState, StatusBadge } from '@/components/product';
@@ -12,6 +12,8 @@ import { ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { CrmTask, CrmTaskStatus, CrmTaskType } from './contracts';
 import { customerName, isPermissionDeniedError, taskStatusLabels } from './labels';
+import { CrmPagination } from './pagination';
+import { clampCrmPage } from './pagination-model';
 import { useCrmTasks, useUpdateCrmTask } from './queries';
 
 const statuses: CrmTaskStatus[] = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
@@ -19,11 +21,17 @@ const statuses: CrmTaskStatus[] = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLE
 export function TasksView({ type }: { type: CrmTaskType }) {
   const { user } = useAuth();
   const [status, setStatus] = useState<CrmTaskStatus | ''>('');
+  const [page, setPage] = useState(1);
   const [mutationPermissionDenied, setMutationPermissionDenied] = useState(false);
-  const query = useCrmTasks({ type, status: status || undefined });
+  const query = useCrmTasks({ page, type, status: status || undefined });
   const update = useUpdateCrmTask();
   const title = type === 'FOLLOW_UP' ? 'seguimientos' : 'tareas';
   const canManageTasks = canMutateCrm(user?.roles) && !mutationPermissionDenied;
+
+  useEffect(() => {
+    if (!query.data) return;
+    setPage((current) => clampCrmPage(current, query.data.pagination.pages));
+  }, [query.data]);
 
   async function updateStatus(task: CrmTask, nextStatus: CrmTaskStatus) {
     if (!canManageTasks) return;
@@ -53,9 +61,9 @@ export function TasksView({ type }: { type: CrmTaskType }) {
 
   return (
     <div className="space-y-4">
-      <FilterBar filters={<label className="min-w-48"><span className="sr-only">Estado</span><Select value={status} onChange={(event) => setStatus(event.target.value as CrmTaskStatus | '')}><option value="">Todos los estados</option>{statuses.map((item) => <option key={item} value={item}>{taskStatusLabels[item]}</option>)}</Select></label>} activeCount={status ? 1 : 0} actions={<Button type="button" variant="ghost" onClick={() => setStatus('')}>Limpiar filtro</Button>} density="compact" />
+      <FilterBar filters={<label className="min-w-48"><span className="sr-only">Estado</span><Select value={status} onChange={(event) => { setStatus(event.target.value as CrmTaskStatus | ''); setPage(1); }}><option value="">Todos los estados</option>{statuses.map((item) => <option key={item} value={item}>{taskStatusLabels[item]}</option>)}</Select></label>} activeCount={status ? 1 : 0} actions={<Button type="button" variant="ghost" onClick={() => { setStatus(''); setPage(1); }}>Limpiar filtro</Button>} density="compact" />
       {!canManageTasks ? <QueryState status="permission_denied" title="CRM en modo consulta" description={`Puedes revisar ${title}, pero solo administración y supervisión pueden cambiar su estado.`} /> : null}
-      {query.isPending ? <QueryState status="loading" title={`Consultando ${title}`} /> : query.error ? isPermissionDeniedError(query.error) ? <QueryState status="permission_denied" title={`No puedes consultar ${title}`} description="El servidor rechazó el acceso a esta información." /> : <QueryState status="error" onRetry={() => void query.refetch()} /> : query.data?.data.length === 0 ? <QueryState status="empty" title={`No hay ${title}`} description={`No existen ${title} reales con los filtros seleccionados.`} /> : <DataTableShell rows={query.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption={`${type === 'FOLLOW_UP' ? 'Seguimientos' : 'Tareas'} CRM`} density="compact" rowActions={canManageTasks ? (row) => row.status === 'OPEN' ? <Button type="button" size="sm" variant="secondary" onClick={() => void updateStatus(row, 'IN_PROGRESS')} disabled={update.isPending}><Play className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Iniciar</span></Button> : row.status === 'IN_PROGRESS' ? <div className="flex gap-1"><Button type="button" size="sm" onClick={() => void updateStatus(row, 'COMPLETED')} disabled={update.isPending}><Check className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Completar</span></Button><Button type="button" size="sm" variant="ghost" onClick={() => void updateStatus(row, 'CANCELLED')} disabled={update.isPending} aria-label="Cancelar"><X className="h-4 w-4" /></Button></div> : null : undefined} />}
+      {query.isPending ? <QueryState status="loading" title={`Consultando ${title}`} /> : query.error ? isPermissionDeniedError(query.error) ? <QueryState status="permission_denied" title={`No puedes consultar ${title}`} description="El servidor rechazó el acceso a esta información." /> : <QueryState status="error" onRetry={() => void query.refetch()} /> : query.data?.data.length === 0 ? <QueryState status="empty" title={`No hay ${title}`} description={`No existen ${title} reales con los filtros seleccionados.`} /> : <div className="space-y-4"><DataTableShell rows={query.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption={`${type === 'FOLLOW_UP' ? 'Seguimientos' : 'Tareas'} CRM`} density="compact" rowActions={canManageTasks ? (row) => row.status === 'OPEN' ? <Button type="button" size="sm" variant="secondary" onClick={() => void updateStatus(row, 'IN_PROGRESS')} disabled={update.isPending}><Play className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Iniciar</span></Button> : row.status === 'IN_PROGRESS' ? <div className="flex gap-1"><Button type="button" size="sm" onClick={() => void updateStatus(row, 'COMPLETED')} disabled={update.isPending}><Check className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Completar</span></Button><Button type="button" size="sm" variant="ghost" onClick={() => void updateStatus(row, 'CANCELLED')} disabled={update.isPending} aria-label="Cancelar"><X className="h-4 w-4" /></Button></div> : null : undefined} /><CrmPagination page={query.data.pagination.page} pages={query.data.pagination.pages} total={query.data.pagination.total} noun={title} disabled={query.isFetching} onChange={setPage} /></div>}
       {update.error ? <p className="text-sm font-semibold text-signal-danger" role="alert">{update.error.message}</p> : null}
     </div>
   );

@@ -1,12 +1,14 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Activity, AlertTriangle, CreditCard, MessageSquareText, NotebookPen, PackageCheck, Truck, UserRoundSearch } from 'lucide-react';
 import { QueryState, Timeline, type TimelineItem } from '@/components/product';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import type { CrmTimelineEvent } from './contracts';
+import { CrmPagination } from './pagination';
+import { clampCrmPage } from './pagination-model';
 import { useCrmUnifiedTimeline } from './queries';
 
 const eventLabels: Record<CrmTimelineEvent['type'], string> = {
@@ -43,10 +45,17 @@ function safeDescription(event: CrmTimelineEvent) {
 export function ActivityView() {
   const [input, setInput] = useState('');
   const [customerId, setCustomerId] = useState('');
-  const timeline = useCrmUnifiedTimeline(customerId);
+  const [page, setPage] = useState(1);
+  const timeline = useCrmUnifiedTimeline(customerId, page);
+
+  useEffect(() => {
+    if (!timeline.data) return;
+    setPage((current) => clampCrmPage(current, timeline.data.pagination.pages));
+  }, [timeline.data]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setPage(1);
     setCustomerId(input.trim());
   }
 
@@ -73,6 +82,7 @@ export function ActivityView() {
         <section className="rounded-2xl border border-line bg-panel p-4 shadow-sm sm:p-5">
           {timeline.data?.readModel.potentiallyTruncated ? <p className="mb-4 flex items-center gap-2 rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-3 text-sm text-signal-warning" role="status"><AlertTriangle className="h-4 w-4" />La vista alcanzó su límite seguro por fuente. Refina la consulta desde Customer 360.</p> : null}
           <Timeline items={items} label="Actividad unificada del cliente" density="compact" />
+          {timeline.data ? <div className="mt-4"><CrmPagination page={timeline.data.pagination.page} pages={timeline.data.pagination.pages} total={timeline.data.pagination.total} noun="eventos" disabled={timeline.isFetching} onChange={setPage} /></div> : null}
         </section>
       )}
     </div>

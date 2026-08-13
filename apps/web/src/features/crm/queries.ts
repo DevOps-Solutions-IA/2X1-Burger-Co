@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetchSchema } from '@/lib/api';
 import {
   crmLeadTransitionResponseSchema,
@@ -29,19 +29,21 @@ function queryString(input: Record<string, string | number | undefined>) {
 
 export const crmKeys = {
   root: ['crm'] as const,
-  pipelines: (status?: string) => ['crm', 'pipelines', status ?? 'ALL'] as const,
+  pipelines: (status: string | undefined, page: number) => ['crm', 'pipelines', status ?? 'ALL', page] as const,
   leads: (filters: Record<string, unknown>) => ['crm', 'leads', filters] as const,
   tasks: (filters: Record<string, unknown>) => ['crm', 'tasks', filters] as const,
   notes: (filters: Record<string, unknown>) => ['crm', 'notes', filters] as const,
-  segments: ['crm', 'segments'] as const,
-  tags: ['crm', 'tags'] as const,
+  segments: (page: number) => ['crm', 'segments', page] as const,
+  tags: (page: number) => ['crm', 'tags', page] as const,
   timeline: (customerId: string, page: number) => ['crm', 'timeline', customerId, page] as const,
 };
 
-export function useCrmPipelines(status?: 'ACTIVE' | 'ARCHIVED') {
+export function useCrmPipelines(status?: 'ACTIVE' | 'ARCHIVED', page = 1) {
+  const normalized = { page, limit: 50, status };
   return useQuery({
-    queryKey: crmKeys.pipelines(status),
-    queryFn: () => apiFetchSchema(`${ROOT}/pipelines?${queryString({ page: 1, limit: 100, status })}`, crmPipelinesResponseSchema),
+    queryKey: crmKeys.pipelines(status, page),
+    queryFn: () => apiFetchSchema(`${ROOT}/pipelines?${queryString(normalized)}`, crmPipelinesResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }
@@ -51,6 +53,7 @@ export function useCrmLeads(filters: { page?: number; status?: CrmLeadStatus; pi
   return useQuery({
     queryKey: crmKeys.leads(normalized),
     queryFn: () => apiFetchSchema(`${ROOT}/leads?${queryString(normalized)}`, crmLeadsResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
   });
 }
@@ -60,6 +63,7 @@ export function useCrmTasks(filters: { page?: number; type?: CrmTaskType; status
   return useQuery({
     queryKey: crmKeys.tasks(normalized),
     queryFn: () => apiFetchSchema(`${ROOT}/tasks?${queryString(normalized)}`, crmTasksResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
   });
 }
@@ -69,22 +73,27 @@ export function useCrmNotes(page = 1) {
   return useQuery({
     queryKey: crmKeys.notes(filters),
     queryFn: () => apiFetchSchema(`${ROOT}/notes?${queryString(filters)}`, crmNotesResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 20_000,
   });
 }
 
-export function useCrmSegments() {
+export function useCrmSegments(page = 1) {
+  const filters = { page, limit: 50 };
   return useQuery({
-    queryKey: crmKeys.segments,
-    queryFn: () => apiFetchSchema(`${ROOT}/segments?page=1&limit=100`, crmSegmentsResponseSchema),
+    queryKey: crmKeys.segments(page),
+    queryFn: () => apiFetchSchema(`${ROOT}/segments?${queryString(filters)}`, crmSegmentsResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }
 
-export function useCrmTags() {
+export function useCrmTags(page = 1) {
+  const filters = { page, limit: 50 };
   return useQuery({
-    queryKey: crmKeys.tags,
-    queryFn: () => apiFetchSchema(`${ROOT}/tags?page=1&limit=100`, crmTagsResponseSchema),
+    queryKey: crmKeys.tags(page),
+    queryFn: () => apiFetchSchema(`${ROOT}/tags?${queryString(filters)}`, crmTagsResponseSchema),
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }
@@ -94,6 +103,7 @@ export function useCrmUnifiedTimeline(customerId: string, page = 1) {
     queryKey: crmKeys.timeline(customerId, page),
     queryFn: () => apiFetchSchema(`${ROOT}/customers/${encodeURIComponent(customerId)}/unified-timeline?page=${page}&limit=50`, crmTimelineResponseSchema),
     enabled: customerId.length >= 8,
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
   });
 }
