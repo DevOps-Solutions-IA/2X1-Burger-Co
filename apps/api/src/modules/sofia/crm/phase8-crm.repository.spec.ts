@@ -81,7 +81,7 @@ describe('Phase8CrmRepository', () => {
     }));
     expect(historyCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        leadId: 'lead-1', version: 3, idempotencyKey: 'lead-transition-001',
+        leadId: 'lead-1', version: 3, idempotencyKey: expect.stringMatching(/^[a-f0-9]{64}$/),
         fromStageId: 'stage-current', toStageId: 'stage-target',
       }),
     });
@@ -135,6 +135,8 @@ describe('Phase8CrmRepository', () => {
     expect(persisted.body).toContain('***@example.com');
     expect(persisted.body).not.toContain('3237963047');
     expect(persisted.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(persisted.sourceReference).toMatch(/^[a-f0-9]{64}$/);
+    expect(persisted.sourceReference).not.toContain('note-event-1');
   });
 
   it('rejects a replay whose source identity points to different task facts', async () => {

@@ -21,7 +21,7 @@ import {
   TransitionCrmLeadDto,
   UpdateCrmTaskDto,
 } from './dto/crm.dto';
-import { sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
+import { opaqueCrmReference, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
 
 export type CrmWriteState = 'CREATED' | 'UPDATED' | 'DETERMINISTIC_REPLAY';
 
@@ -122,7 +122,17 @@ export class Phase8CrmRepository {
       return { state: 'CREATED' as const, pipeline };
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      throw new CrmPersistenceError('CRM_CONFLICT');
+      const raced = await this.prisma.crmPipeline.findUnique({
+        where: { nameNormalized },
+        include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
+      });
+      if (!raced) throw error;
+      const same = raced.description === description
+        && raced.stages.length === stages.length
+        && raced.stages.every((stage, index) => stage.nameNormalized === stages[index]?.nameNormalized
+          && stage.position === stages[index]?.position && stage.outcome === stages[index]?.outcome);
+      if (!same) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+      return { state: 'DETERMINISTIC_REPLAY' as const, pipeline: raced };
     }
   }
 
@@ -168,7 +178,7 @@ export class Phase8CrmRepository {
 
   async createLead(input: CreateCrmLeadDto, actorId: string) {
     const title = sanitizeTimelineText(input.title.trim()).slice(0, 160);
-    const sourceReference = input.sourceReference.trim();
+    const sourceReference = opaqueCrmReference(`lead:${input.source}`, input.sourceReference);
     const existing = await this.prisma.crmLead.findUnique({
       where: { source_sourceReference: { source: input.source, sourceReference } },
     });
@@ -201,7 +211,7 @@ export class Phase8CrmRepository {
           data: {
             leadId: lead.id,
             version: 0,
-            idempotencyKey: `CREATE:${input.source}:${sourceReference}`.slice(0, 300),
+            idempotencyKey: opaqueCrmReference('lead:create', `${input.source}:${sourceReference}`),
             fromStageId: null,
             toStageId: input.currentStageId,
             fromStatus: null,
@@ -225,10 +235,11 @@ export class Phase8CrmRepository {
 
   async transitionLead(leadId: string, input: TransitionCrmLeadDto, actorId: string) {
     const metadata = sanitizeTimelineMetadata(input.metadata) as Prisma.InputJsonValue | undefined;
+    const idempotencyKey = opaqueCrmReference(`lead-transition:${leadId}`, input.idempotencyKey);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const replay = await tx.crmLeadStageHistory.findUnique({
-          where: { leadId_idempotencyKey: { leadId, idempotencyKey: input.idempotencyKey } },
+          where: { leadId_idempotencyKey: { leadId, idempotencyKey } },
         });
         if (replay) return this.leadTransitionReplay(tx, replay, input, actorId, metadata);
 
@@ -257,7 +268,7 @@ export class Phase8CrmRepository {
           data: {
             leadId,
             version: input.expectedVersion + 1,
-            idempotencyKey: input.idempotencyKey,
+            idempotencyKey,
             fromStageId: current.currentStageId,
             toStageId: input.toStageId,
             fromStatus: current.status,
@@ -275,7 +286,7 @@ export class Phase8CrmRepository {
         throw error;
       }
       const replay = await this.prisma.crmLeadStageHistory.findUnique({
-        where: { leadId_idempotencyKey: { leadId, idempotencyKey: input.idempotencyKey } },
+        where: { leadId_idempotencyKey: { leadId, idempotencyKey } },
       });
       if (!replay) throw error;
       return this.leadTransitionReplay(this.prisma, replay, input, actorId, metadata);
@@ -308,8 +319,8 @@ export class Phase8CrmRepository {
   }
 
   async createTask(input: CreateCrmTaskDto) {
-    const source = input.source.trim();
-    const sourceReference = input.sourceReference.trim();
+    const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
+    const sourceReference = opaqueCrmReference(`task:${source}`, input.sourceReference);
     const normalized = {
       title: sanitizeTimelineText(input.title.trim()).slice(0, 160),
       description: input.description ? sanitizeTimelineText(input.description.trim()).slice(0, 1_000) : null,
@@ -352,10 +363,6 @@ export class Phase8CrmRepository {
   async updateTask(taskId: string, input: UpdateCrmTaskDto) {
     const current = await this.prisma.crmTask.findUnique({ where: { id: taskId } });
     if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
-    if (current.version === input.expectedVersion + 1 && current.status === input.status
-      && current.assignedToId === (input.assignedToId ?? current.assignedToId)) {
-      return { state: 'DETERMINISTIC_REPLAY' as const, task: current };
-    }
     if (current.version !== input.expectedVersion) throw new CrmPersistenceError('STALE_CRM_VERSION');
     if (current.status === CrmTaskStatus.COMPLETED || current.status === CrmTaskStatus.CANCELLED) {
       throw new CrmPersistenceError('CRM_CONFLICT');
@@ -393,8 +400,8 @@ export class Phase8CrmRepository {
   async createNote(input: CreateCrmNoteDto, actorId: string) {
     const body = sanitizeTimelineText(input.body.trim()).slice(0, 2_000);
     const contentHash = createHash('sha256').update(body, 'utf8').digest('hex');
-    const source = input.source.trim();
-    const sourceReference = input.sourceReference.trim();
+    const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
+    const sourceReference = opaqueCrmReference(`note:${source}`, input.sourceReference);
     const existing = await this.prisma.crmNote.findUnique({
       where: { source_sourceReference: { source, sourceReference } },
     });
@@ -424,7 +431,15 @@ export class Phase8CrmRepository {
       return { state: 'CREATED' as const, note };
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      throw new CrmPersistenceError('CRM_CONFLICT');
+      const raced = await this.prisma.crmNote.findUnique({
+        where: { source_sourceReference: { source, sourceReference } },
+      });
+      if (!raced) throw error;
+      if (raced.customerId !== input.customerId || raced.leadId !== (input.leadId ?? null)
+        || raced.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || raced.contentHash !== contentHash) {
+        throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+      }
+      return { state: 'DETERMINISTIC_REPLAY' as const, note: raced };
     }
   }
 
@@ -581,7 +596,8 @@ export class Phase8CrmRepository {
     title: string; ownerId: string | null;
   }, input: CreateCrmLeadDto, title: string) {
     if (row.customerId !== input.customerId || row.pipelineId !== input.pipelineId
-      || row.currentStageId !== input.currentStageId || row.sourceReference !== input.sourceReference.trim()
+      || row.currentStageId !== input.currentStageId
+      || row.sourceReference !== opaqueCrmReference(`lead:${input.source}`, input.sourceReference)
       || row.title !== title || row.ownerId !== (input.ownerId ?? null)) {
       throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
     }

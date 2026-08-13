@@ -110,6 +110,7 @@ CREATE INDEX "crm_pipelines_created_by_id_created_at_idx" ON "crm_pipelines"("cr
 CREATE INDEX "crm_pipeline_stages_pipeline_id_outcome_position_idx" ON "crm_pipeline_stages"("pipeline_id", "outcome", "position");
 CREATE UNIQUE INDEX "crm_pipeline_stages_pipeline_id_position_key" ON "crm_pipeline_stages"("pipeline_id", "position");
 CREATE UNIQUE INDEX "crm_pipeline_stages_pipeline_id_name_normalized_key" ON "crm_pipeline_stages"("pipeline_id", "name_normalized");
+CREATE UNIQUE INDEX "crm_pipeline_stages_id_pipeline_id_key" ON "crm_pipeline_stages"("id", "pipeline_id");
 CREATE INDEX "crm_leads_pipeline_id_current_stage_id_status_idx" ON "crm_leads"("pipeline_id", "current_stage_id", "status");
 CREATE INDEX "crm_leads_customer_id_updated_at_idx" ON "crm_leads"("customer_id", "updated_at");
 CREATE INDEX "crm_leads_owner_id_status_updated_at_idx" ON "crm_leads"("owner_id", "status", "updated_at");
@@ -134,7 +135,7 @@ ALTER TABLE "crm_pipelines" ADD CONSTRAINT "crm_pipelines_created_by_id_fkey" FO
 ALTER TABLE "crm_pipeline_stages" ADD CONSTRAINT "crm_pipeline_stages_pipeline_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "crm_customers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_pipeline_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
-ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_current_stage_id_fkey" FOREIGN KEY ("current_stage_id") REFERENCES "crm_pipeline_stages"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
+ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_current_stage_id_pipeline_id_fkey" FOREIGN KEY ("current_stage_id", "pipeline_id") REFERENCES "crm_pipeline_stages"("id", "pipeline_id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_leads" ADD CONSTRAINT "crm_leads_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
 ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "crm_leads"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 ALTER TABLE "crm_lead_stage_history" ADD CONSTRAINT "crm_lead_stage_history_from_stage_id_fkey" FOREIGN KEY ("from_stage_id") REFERENCES "crm_pipeline_stages"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;

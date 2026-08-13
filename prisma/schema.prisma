@@ -1715,6 +1715,7 @@ model CrmPipelineStage {
 
   @@unique([pipelineId, position])
   @@unique([pipelineId, nameNormalized])
+  @@unique([id, pipelineId])
   @@index([pipelineId, outcome, position])
   @@map("crm_pipeline_stages")
 }
@@ -1738,7 +1739,7 @@ model CrmLead {
   updatedAt       DateTime              @updatedAt @map("updated_at")
   customer        Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   pipeline        CrmPipeline           @relation(fields: [pipelineId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  currentStage    CrmPipelineStage      @relation("CrmLeadCurrentStage", fields: [currentStageId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  currentStage    CrmPipelineStage      @relation("CrmLeadCurrentStage", fields: [currentStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
   owner           User?                 @relation("CrmLeadOwner", fields: [ownerId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   stageHistory    CrmLeadStageHistory[]
   tasks           CrmTask[]

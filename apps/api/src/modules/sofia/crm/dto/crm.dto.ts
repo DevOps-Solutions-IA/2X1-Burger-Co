@@ -313,6 +313,7 @@ export class CreateCrmTaskDto {
   @IsString()
   @MinLength(2)
   @MaxLength(64)
+  @Matches(/^[A-Z][A-Z0-9_]+$/)
   source!: string;
 
   @IsString()
@@ -406,6 +407,7 @@ export class CreateCrmNoteDto {
   @IsString()
   @MinLength(2)
   @MaxLength(64)
+  @Matches(/^[A-Z][A-Z0-9_]+$/)
   source!: string;
 
   @IsString()
