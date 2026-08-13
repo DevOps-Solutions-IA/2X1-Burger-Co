@@ -1,37 +1,44 @@
+import type { AuthUser } from '../../common/types/auth-user.type';
 import { CustomerServiceController } from './customer-service.controller';
+import type { CustomerServiceCaseReadService } from './customer-service-case-read.service';
+import type { CustomerServiceCaseService } from './customer-service-case.service';
 
-describe('CustomerServiceController', () => {
-  it('binds a versioned transition to canonical current state and authenticated actor', async () => {
-    const reads = {
-      current: jest.fn().mockResolvedValue({ id: 'case-1', status: 'HUMAN_REQUIRED', version: 3 }),
+describe('CustomerServiceController transition replay boundary', () => {
+  const actor: AuthUser = {
+    sub: 'supervisor-1',
+    email: 'supervisor@example.test',
+    fullName: 'Supervisor',
+    sessionVersion: 1,
+    roles: ['supervisor'],
+    permissions: [],
+  };
+
+  it('forwards the caller-bound source state without a race-prone status reread', async () => {
+    const transition = jest.fn().mockResolvedValue({ state: 'DETERMINISTIC_REPLAY' });
+    const reads = { current: jest.fn() } as unknown as CustomerServiceCaseReadService;
+    const controller = new CustomerServiceController(
+      { transition } as unknown as CustomerServiceCaseService,
+      reads,
+    );
+    const dto = {
+      expectedVersion: 0,
+      fromStatus: 'OPEN' as const,
+      toStatus: 'HUMAN_REQUIRED' as const,
+      idempotencyKey: 'phase8-ui:case-1:0:OPEN:HUMAN_REQUIRED:REVIEW',
+      reasonCode: 'REVIEW',
     };
-    const cases = { transition: jest.fn().mockResolvedValue({ state: 'UPDATED' }) };
-    const controller = new CustomerServiceController(cases as never, reads as never);
 
-    await controller.transition('case-1', {
-      expectedVersion: 3,
-      toStatus: 'HUMAN_TAKEN',
-      idempotencyKey: 'case:take:1',
-      reasonCode: 'OPERATOR_ACCEPTED_CASE',
-    }, {
-      sub: 'operator-1',
-      email: 'operator@example.test',
-      fullName: 'Operador',
-      sessionVersion: 1,
-      roles: ['supervisor'],
-      permissions: [],
+    await expect(controller.transition('case-1', dto, actor)).resolves.toEqual({
+      state: 'DETERMINISTIC_REPLAY',
     });
-
-    expect(cases.transition).toHaveBeenCalledWith({
+    expect(reads.current).not.toHaveBeenCalled();
+    expect(transition).toHaveBeenCalledWith(expect.objectContaining({
       caseId: 'case-1',
-      expectedVersion: 3,
-      idempotencyKey: 'case:take:1',
-      fromStatus: 'HUMAN_REQUIRED',
-      toStatus: 'HUMAN_TAKEN',
-      reasonCode: 'OPERATOR_ACCEPTED_CASE',
-      actorId: 'operator-1',
-      resolutionCode: undefined,
-      metadata: undefined,
-    });
+      expectedVersion: 0,
+      fromStatus: 'OPEN',
+      toStatus: 'HUMAN_REQUIRED',
+      actorId: 'supervisor-1',
+      idempotencyKey: dto.idempotencyKey,
+    }));
   });
 });

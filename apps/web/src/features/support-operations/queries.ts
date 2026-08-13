@@ -47,12 +47,14 @@ export function useServiceCaseTransition() {
     mutationFn: ({
       id,
       expectedVersion,
+      fromStatus,
       toStatus,
       reasonCode,
       resolutionCode,
     }: {
       id: string;
       expectedVersion: number;
+      fromStatus: ServiceCaseStatus;
       toStatus: ServiceCaseStatus;
       reasonCode: string;
       resolutionCode?: string;
@@ -64,8 +66,9 @@ export function useServiceCaseTransition() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           expectedVersion,
+          fromStatus,
           toStatus,
-          idempotencyKey: `phase8-ui-${crypto.randomUUID()}`,
+          idempotencyKey: `phase8-ui:${id}:${expectedVersion}:${fromStatus}:${toStatus}:${reasonCode}`.slice(0, 200),
           reasonCode,
           ...(resolutionCode ? { resolutionCode } : {}),
         }),

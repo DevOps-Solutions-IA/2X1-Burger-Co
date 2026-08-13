@@ -29,17 +29,16 @@ export class CustomerServiceController {
   }
 
   @Post(':id/transitions')
-  async transition(
+  transition(
     @Param('id') id: string,
     @Body() dto: TransitionCustomerServiceCaseDto,
     @CurrentUser() actor: AuthUser,
   ) {
-    const current = await this.reads.current(id);
     return this.cases.transition({
       caseId: id,
       expectedVersion: dto.expectedVersion,
       idempotencyKey: dto.idempotencyKey,
-      fromStatus: current.status,
+      fromStatus: dto.fromStatus,
       toStatus: dto.toStatus,
       reasonCode: dto.reasonCode,
       actorId: actor.sub,

@@ -9,6 +9,9 @@ export class TransitionCustomerServiceCaseDto {
   expectedVersion!: number;
 
   @IsEnum(CustomerServiceCaseStatus)
+  fromStatus!: CustomerServiceCaseStatus;
+
+  @IsEnum(CustomerServiceCaseStatus)
   toStatus!: CustomerServiceCaseStatus;
 
   @IsString()

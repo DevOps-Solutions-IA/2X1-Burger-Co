@@ -175,7 +175,7 @@ function CaseDetail({ query }: { query: ReturnType<typeof useServiceCase> }) {
   );
 }
 
-function TransitionForm({ serviceCase, nextStatus, pending, onSubmit }: { serviceCase: ServiceCase; nextStatus: ServiceCaseStatus; pending: boolean; onSubmit: (payload: { id: string; expectedVersion: number; toStatus: ServiceCaseStatus; reasonCode: string; resolutionCode?: string }) => void }) {
+function TransitionForm({ serviceCase, nextStatus, pending, onSubmit }: { serviceCase: ServiceCase; nextStatus: ServiceCaseStatus; pending: boolean; onSubmit: (payload: { id: string; expectedVersion: number; fromStatus: ServiceCaseStatus; toStatus: ServiceCaseStatus; reasonCode: string; resolutionCode?: string }) => void }) {
   const [reason, setReason] = useState('');
   const [resolution, setResolution] = useState('');
   const submit = (event: FormEvent) => {
@@ -183,7 +183,7 @@ function TransitionForm({ serviceCase, nextStatus, pending, onSubmit }: { servic
     const reasonCode = normalizedCode(reason);
     const resolutionCode = normalizedCode(resolution);
     if (!reasonCode || (nextStatus === 'RESOLVED' && !resolutionCode)) return;
-    onSubmit({ id: serviceCase.id, expectedVersion: serviceCase.version, toStatus: nextStatus, reasonCode, ...(resolutionCode ? { resolutionCode } : {}) });
+    onSubmit({ id: serviceCase.id, expectedVersion: serviceCase.version, fromStatus: serviceCase.status, toStatus: nextStatus, reasonCode, ...(resolutionCode ? { resolutionCode } : {}) });
   };
   return (
     <form onSubmit={submit} className="space-y-4 rounded-xl border border-line bg-panel p-4" aria-label="Actualizar estado del caso">
