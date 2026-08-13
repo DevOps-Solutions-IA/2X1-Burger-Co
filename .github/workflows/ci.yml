@@ -187,7 +187,11 @@ jobs:
             src/modules/orders/orders.phase8-operations.spec.ts \
             src/modules/orders/orders.phase8-kitchen-authority.integration.spec.ts \
             src/modules/search/global-search.service.spec.ts \
+            src/modules/settings/settings.service.spec.ts \
+            src/modules/sofia/crm/crm-advisory-lock.spec.ts \
+            src/modules/sofia/crm/crm-hash-secrets.spec.ts \
             src/modules/sofia/crm/crm-privacy.spec.ts \
+            src/modules/sofia/crm/phase8-crm.architecture.spec.ts \
             src/modules/sofia/crm/phase8-crm.repository.spec.ts \
             src/modules/sofia/crm/phase8-crm.timeline-security.spec.ts \
             src/modules/sofia/crm/sofia-crm.service.spec.ts \
@@ -204,7 +208,10 @@ jobs:
             ../../apps/web/src/features/crm/pagination.test.ts \
             ../../apps/web/src/features/customer-operations/model.test.ts \
             ../../apps/web/src/features/financial-operations/contracts.test.ts \
+            ../../apps/web/src/features/order-operations/contracts.test.ts \
+            ../../apps/web/src/features/order-operations/kitchen-screen.test.ts \
             ../../apps/web/src/features/order-operations/order-detail-screen.test.ts \
+            ../../apps/web/src/features/overview/contracts.test.ts \
             ../../apps/web/src/features/support-operations/contracts.test.ts \
             ../../apps/web/src/features/support-operations/customer-service-screen.test.ts \
             ../../apps/web/src/features/pos/pos-contrast.test.ts \
@@ -390,7 +397,7 @@ jobs:
           trap cleanup EXIT
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 8a9335c40bddb0318d84c3c7d74d3af9ab505b71)"
+          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh dc748b03b52c83f34882edc64de859cc9ab50645)"
           BASELINE_RECORD="${BASELINE_OUTPUT##*$'\n'}"
           test -f "$BASELINE_RECORD"
           CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"

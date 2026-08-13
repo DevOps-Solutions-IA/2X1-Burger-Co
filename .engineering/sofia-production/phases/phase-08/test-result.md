@@ -1,7 +1,5 @@
 # Phase 8 test result
 
-Exact local source: `d99e2499025fcdd8894e649bde955f895757a53d`.
-
 Verified gates:
 
 - frozen install, production dependency audit and secret scan: PASS;
@@ -15,6 +13,8 @@ Verified gates:
 - exact-artifact core E2E: PASS, including 49/49 Playwright scenarios, 12
   contracts, 70 role checks and operational cash/POS/delivery/inventory flows;
 - responsive authenticated route matrix: PASS at phone, tablet and desktop;
+- malformed or missing kitchen modifier evidence: rejected fail-closed, with
+  retained queue transitions blocked until authoritative data is valid;
 - recovery drill: PASS with RPO 0 seconds and RTO 12.544 seconds;
 - E2E and recovery cleanup: PASS with zero containers, volumes and networks.
 

@@ -20,6 +20,8 @@ Final local review also verified:
 - customer phone redaction covers Colombian formatted variants before audit or UI exposure;
 - CRM note/task replay is source-scoped, actor-bound and cannot mutate a later version;
 - authenticated route accessibility covers phone, tablet and desktop with no document-level overflow;
+- malformed kitchen modifier evidence is never converted to an empty modifier
+  list and cannot leave stale transition targets operable;
 - the release artifact includes deterministic Next manifests rather than excluding changing runtime files.
 
 Exact-SHA remote CI and pull-request review remain required. Real Bold, outbound WhatsApp and auto reply remain off.

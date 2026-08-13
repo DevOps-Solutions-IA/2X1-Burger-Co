@@ -2,7 +2,7 @@
   "phase": 8,
   "status": "IMPLEMENTED_PENDING_PR_CI_AND_CONTROLLED_RELEASE",
   "baseSha": "8baf7fd5bcc4a1ac8f7086cf1c022e5f8e3709e3",
-  "validatedExecutableSha": "d99e2499025fcdd8894e649bde955f895757a53d",
+  "pullRequest": 23,
   "authenticatedRouteAudit": "PASS",
   "migration": {
     "created": 1,

@@ -16,7 +16,7 @@ Implemented product capabilities:
 - responsive waiter and rider workflows using the same tokens without becoming
   parallel order or delivery authorities;
 - intersection-based RBAC, governed kitchen/customer-service transitions,
-  sanitized search and fail-closed financial evidence;
+  sanitized search and fail-closed financial and kitchen modifier evidence;
 - bounded polling, visibility-aware refresh, bounded table rendering and
   keyboard-accessible dialogs, drawers, forms and operational tables.
 
@@ -25,5 +25,5 @@ The single additive Phase 8 migration is
 37 to 38. Production remains unchanged at 37 until a separately controlled
 backend/schema release. Real Bold, outbound WhatsApp and auto reply remain off.
 
-Local implementation head: `d99e2499025fcdd8894e649bde955f895757a53d`.
-Remote CI and PR integration are intentionally reported separately after push.
+The reviewed Phase 8 branch is tracked by PR #23. Exact-head remote CI and merge
+evidence are recorded only after GitHub validates the final pushed source.
