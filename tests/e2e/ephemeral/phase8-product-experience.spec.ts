@@ -164,14 +164,13 @@ test.describe('Phase 8 enterprise product experience', () => {
     await expect(taskRow.getByText('En curso', { exact: true })).toBeVisible();
   });
 
-  test('UNKNOWN_RESULT never renders as verified payment success', async ({ page }) => {
+  test('financial review overrides intent status and never renders as verified payment success', async ({ page }) => {
     await page.goto('/payments');
     await expect(page.getByRole('heading', { name: 'Pagos y evidencia' })).toBeVisible();
-    await page.getByLabel('Estado').selectOption('UNKNOWN_RESULT');
-    await expect(page.getByLabel('Estado')).toHaveValue('UNKNOWN_RESULT');
+    await page.getByLabel('Estado').selectOption('FINANCIAL_REVIEW_REQUIRED');
+    await expect(page.getByLabel('Estado')).toHaveValue('FINANCIAL_REVIEW_REQUIRED');
     await expect(page.getByText('Pago verificado', { exact: true })).toHaveCount(0);
-
-    await expect(page.getByText('Resultado desconocido', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Revisión financiera', { exact: true }).first()).toBeVisible();
   });
 
   test('activation control keeps Bold, outbound and auto reply disabled', async ({ page }) => {

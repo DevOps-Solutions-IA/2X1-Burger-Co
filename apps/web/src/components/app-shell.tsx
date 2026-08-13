@@ -225,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canReadOperationalReport = canAccessRoute('/reports', user?.permissions, user?.roles);
 
   return (
-    <div className="min-h-screen bg-surface text-ink">
+    <div className="min-h-screen max-w-full overflow-x-clip bg-surface text-ink">
       <a
         href="#main-content"
         className="fixed left-4 top-3 z-[80] -translate-y-24 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink shadow-xl transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand-500"

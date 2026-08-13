@@ -277,29 +277,31 @@ export default function PurchasesPage() {
               <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
                 <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Datos de compra</p>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Field label="Proveedor" error={formErrors.supplierId} required>
-                    {!useTempProvider ? (
-                      <div className="space-y-2">
+                  {!useTempProvider ? (
+                    <div className="space-y-2">
+                      <Field label="Proveedor" error={formErrors.supplierId} required>
                         <Select value={supplierId} onChange={(event) => setSupplierId(event.target.value)} data-testid="purchase-supplier">
                           <option value="">Selecciona proveedor guardado</option>
                           {activeSuppliers.map((supplier) => (<option key={supplier.id} value={supplier.id}>{supplier.name}</option>))}
                         </Select>
-                        <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
-                          Usar proveedor no registrado
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
+                      </Field>
+                      <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
+                        Usar proveedor no registrado
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Field label="Proveedor" error={formErrors.supplierId} required>
                         <Input value={tempProviderName} onChange={(event) => setTempProviderName(event.target.value)} placeholder="Ej. Don Carlos - Carnes del Valle" data-testid="purchase-temp-provider-name" />
-                        <div className="flex items-center gap-2">
-                          <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }} data-testid="purchase-saved-provider-toggle">
-                            Usar proveedor guardado
-                          </button>
-                          <span className="text-[12px] text-stone-600">Solo para esta compra</span>
-                        </div>
+                      </Field>
+                      <div className="flex items-center gap-2">
+                        <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }} data-testid="purchase-saved-provider-toggle">
+                          Usar proveedor guardado
+                        </button>
+                        <span className="text-[12px] text-stone-600">Solo para esta compra</span>
                       </div>
-                    )}
-                  </Field>
+                    </div>
+                  )}
                   <Field label="Factura / referencia" hint="Opcional">
                     <Input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="Ej. FAC-2026-031" data-testid="purchase-invoice" />
                   </Field>
