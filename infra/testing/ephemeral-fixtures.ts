@@ -423,6 +423,7 @@ async function main() {
     create: {
       id: 'e2e-crm-lead-history-v0',
       leadId: lead.id,
+      pipelineId: pipeline.id,
       version: 0,
       idempotencyKey: 'e2e-crm-lead-history-v0',
       toStageId: firstStage.id,
