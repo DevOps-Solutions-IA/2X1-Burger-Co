@@ -43,4 +43,33 @@ describe('Phase 8 API role and permission intersection', () => {
       expect(response.status).toBe(403);
     }
   });
+
+  it('rejects role-only CRM, governance, QR and order mutations', async () => {
+    await resetDatabase(prisma);
+    await seedTestData(prisma);
+    await prisma.rolePermission.deleteMany({
+      where: {
+        role: { name: 'admin' },
+        permission: { code: { in: ['orders.create', 'orders.update', 'settings.update'] } },
+      },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-Forwarded-For', '10.88.0.2')
+      .send({ email: 'admin@2x1burgerco.local', password: 'Admin12345*' });
+    expect(login.status).toBe(201);
+    const authorization = `Bearer ${login.body.accessToken as string}`;
+
+    const attempts = [
+      () => request(app.getHttpServer()).post('/admin/sofia/crm/segments').send({ name: 'Segmento', customerIds: [] }),
+      () => request(app.getHttpServer()).post('/admin/sofia/control/pause-global').send({ reason: 'Prueba de revocación' }),
+      () => request(app.getHttpServer()).post('/admin/sofia/whatsapp/qr/connect').send({}),
+      () => request(app.getHttpServer()).post('/orders/customers/find-or-create').send({ fullName: 'Cliente' }),
+    ];
+    for (const attempt of attempts) {
+      const response = await attempt().set('Authorization', authorization);
+      expect(response.status).toBe(403);
+    }
+  });
 });

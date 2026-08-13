@@ -36,7 +36,7 @@ export function LeadsView() {
   const leads = useCrmLeads({ page, status: status || undefined, pipelineId: pipelineId || undefined });
   const pipelines = useCrmPipelines('ACTIVE');
   const transition = useTransitionCrmLead();
-  const canManageLeads = canMutateCrm(user?.roles) && !mutationPermissionDenied;
+  const canManageLeads = canMutateCrm(user?.roles, user?.permissions) && !mutationPermissionDenied;
   const canTransition = canManageLeads && selected && !['WON', 'LOST', 'ARCHIVED'].includes(selected.status);
   const selectedPipeline = pipelines.data?.data.find((pipeline) => pipeline.id === selected?.pipelineId);
   const targetStage = selectedPipeline?.stages.find((stage) => stage.id === targetStageId);

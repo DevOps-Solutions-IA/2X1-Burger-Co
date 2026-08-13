@@ -24,8 +24,10 @@ export class GlobalSearchService {
 
   async search(dto: GlobalSearchDto, actor: AuthUser) {
     const query = dto.q.trim();
-    const canReadOperationalDomains = actor.roles.some((role) => OPERATIONAL_SEARCH_ROLES.has(role));
-    const canReadRestrictedDomains = actor.roles.some((role) => RESTRICTED_SEARCH_ROLES.has(role));
+    const canReadOperationalDomains = actor.permissions.includes('orders.read')
+      && actor.roles.some((role) => OPERATIONAL_SEARCH_ROLES.has(role));
+    const canReadRestrictedDomains = actor.permissions.includes('reports.read')
+      && actor.roles.some((role) => RESTRICTED_SEARCH_ROLES.has(role));
     const tasks: Array<Promise<SearchResult[]>> = [];
 
     if (canReadOperationalDomains) {

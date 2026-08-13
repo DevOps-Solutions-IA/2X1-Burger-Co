@@ -62,7 +62,7 @@ describe('GlobalSearchService', () => {
       },
     ]);
 
-    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor([], ['cashier']));
+    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor(['orders.read'], ['cashier']));
 
     expect(result.items).toContainEqual({
       kind: 'CUSTOMER',
@@ -91,7 +91,7 @@ describe('GlobalSearchService', () => {
       },
     ]);
 
-    const result = await service.search({ q: 'payment', limit: 5 }, actor([], [role]));
+    const result = await service.search({ q: 'payment', limit: 5 }, actor(['orders.read', 'reports.read'], [role]));
 
     expect(result.items).toEqual([
       expect.objectContaining({
@@ -106,7 +106,7 @@ describe('GlobalSearchService', () => {
   });
 
   it.each(['admin', 'supervisor'])('allows %s to search every canonical domain', async (role) => {
-    await service.search({ q: 'abc', limit: 3 }, actor([], [role]));
+    await service.search({ q: 'abc', limit: 3 }, actor(['orders.read', 'reports.read'], [role]));
 
     expect(customerFindMany).toHaveBeenCalledTimes(1);
     expect(orderFindMany).toHaveBeenCalledTimes(1);
@@ -144,9 +144,10 @@ describe('GlobalSearchService', () => {
     expect(result.items).toEqual([]);
     expect(paymentFindMany).not.toHaveBeenCalled();
     expect(caseFindMany).not.toHaveBeenCalled();
-    expect(customerFindMany).toHaveBeenCalledTimes(1);
-    expect(orderFindMany).toHaveBeenCalledTimes(1);
-    expect(conversationFindMany).toHaveBeenCalledTimes(1);
+    const hasOperationalRead = permissions.includes('orders.read');
+    expect(customerFindMany).toHaveBeenCalledTimes(hasOperationalRead ? 1 : 0);
+    expect(orderFindMany).toHaveBeenCalledTimes(hasOperationalRead ? 1 : 0);
+    expect(conversationFindMany).toHaveBeenCalledTimes(hasOperationalRead ? 1 : 0);
     expect(JSON.stringify(result)).not.toContain('payment-secret');
     expect(JSON.stringify(result)).not.toContain('case-secret');
     expect(JSON.stringify(result)).not.toContain('Resumen restringido');
@@ -179,7 +180,7 @@ describe('GlobalSearchService', () => {
       },
     ]);
 
-    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor([], ['cashier']));
+    const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor(['orders.read'], ['cashier']));
 
     expect(result.items.map((item) => item.kind)).toEqual(['CUSTOMER', 'ORDER', 'CONVERSATION']);
     expect(result.items.find((item) => item.kind === 'CONVERSATION')?.href).toBe('/conversations/conversation-1');
@@ -188,12 +189,22 @@ describe('GlobalSearchService', () => {
   });
 
   it('keeps restricted access when an elevated actor also has a lower-privilege role', async () => {
-    await service.search({ q: 'abc', limit: 3 }, actor([], ['cashier', 'supervisor']));
+    await service.search({ q: 'abc', limit: 3 }, actor(['orders.read', 'reports.read'], ['cashier', 'supervisor']));
 
     expect(customerFindMany).toHaveBeenCalledTimes(1);
     expect(orderFindMany).toHaveBeenCalledTimes(1);
     expect(conversationFindMany).toHaveBeenCalledTimes(1);
     expect(paymentFindMany).toHaveBeenCalledTimes(1);
     expect(caseFindMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors capability revocation for elevated roles', async () => {
+    await service.search({ q: 'abc', limit: 3 }, actor(['orders.read'], ['supervisor']));
+
+    expect(customerFindMany).toHaveBeenCalledTimes(1);
+    expect(orderFindMany).toHaveBeenCalledTimes(1);
+    expect(conversationFindMany).toHaveBeenCalledTimes(1);
+    expect(paymentFindMany).not.toHaveBeenCalled();
+    expect(caseFindMany).not.toHaveBeenCalled();
   });
 });

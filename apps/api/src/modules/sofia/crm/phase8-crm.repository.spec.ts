@@ -212,8 +212,13 @@ describe('Phase8CrmRepository', () => {
           }
         : null,
     ));
+    const taskUpdate = jest.fn(({ data }) => Promise.resolve({
+      id: 'task-before-rotation', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
+      type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
+      sanitizedDescription: null, assignedToId: null, dueAt: null, ...data,
+    }));
     const rotatingRepository = new Phase8CrmRepository({
-      crmTask: { findUnique: taskFindUnique },
+      crmTask: { findUnique: taskFindUnique, update: taskUpdate },
     } as unknown as PrismaService, {
       get: jest.fn((key: string) => ({
         CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
@@ -226,6 +231,14 @@ describe('Phase8CrmRepository', () => {
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
     }, 'actor-1')).resolves.toMatchObject({ state: 'DETERMINISTIC_REPLAY' });
     expect(taskFindUnique).toHaveBeenCalledTimes(2);
+    expect(taskUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-before-rotation' },
+      data: { sourceReference: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    }));
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'CRM_REFERENCE_HASH_ROTATED',
+      entity: 'CrmTask',
+    }), expect.anything());
   });
 
   it('recovers a lost task-update response only from the exact next semantic state', async () => {

@@ -14,6 +14,7 @@ import type { Phase8CrmRepository } from './phase8-crm.repository';
 describe('SofiaCrmService', () => {
   const customerFindUnique = jest.fn();
   const identityFindUnique = jest.fn();
+  const identityUpdateMany = jest.fn();
   const consentFindFirst = jest.fn();
   const consentCreate = jest.fn();
   const campaignFindUnique = jest.fn();
@@ -23,7 +24,7 @@ describe('SofiaCrmService', () => {
   const auditLog = jest.fn();
   const prisma = {
     customer: { findUnique: customerFindUnique },
-    customerIdentity: { findUnique: identityFindUnique },
+    customerIdentity: { findUnique: identityFindUnique, updateMany: identityUpdateMany },
     customerConsent: { findFirst: consentFindFirst, create: consentCreate },
     customerCampaign: { findUnique: campaignFindUnique, update: campaignUpdate },
     customerCampaignDelivery: { createMany: deliveryCreateMany, updateMany: deliveryUpdateMany },
@@ -53,6 +54,7 @@ describe('SofiaCrmService', () => {
     campaignUpdate.mockResolvedValue({ id: 'campaign-1' });
     deliveryCreateMany.mockResolvedValue({ count: 1 });
     deliveryUpdateMany.mockResolvedValue({ count: 1 });
+    identityUpdateMany.mockResolvedValue({ count: 1 });
   });
 
   it('never serializes the normalized phone from an internal identity', async () => {
@@ -104,7 +106,7 @@ describe('SofiaCrmService', () => {
     }
   });
 
-  it('resolves an existing phone identity with the previous rotation key without rewriting it', async () => {
+  it('promotes an existing phone identity from the previous rotation key', async () => {
     const previousSecret = 'test-previous-crm-identity-secret-000001';
     const rotatingService = new SofiaCrmService(prisma, audit, {
       get: jest.fn((key: string) => ({
@@ -115,6 +117,7 @@ describe('SofiaCrmService', () => {
     identityFindUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
+        id: 'identity-1',
         customerId: 'customer-1',
         customer: {
           id: 'customer-1', displayName: 'Cliente', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date(),
@@ -130,6 +133,11 @@ describe('SofiaCrmService', () => {
     expect(identityFindUnique).toHaveBeenCalledTimes(2);
     expect(identityFindUnique.mock.calls[0][0].where.type_valueHash.valueHash)
       .not.toBe(identityFindUnique.mock.calls[1][0].where.type_valueHash.valueHash);
+    expect(identityUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'identity-1' }),
+      data: { valueHash: identityFindUnique.mock.calls[0][0].where.type_valueHash.valueHash },
+    }));
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'CRM_IDENTITY_HASH_ROTATED' }));
   });
 
   it('projects restricted unified-timeline facts from the authenticated role', async () => {
@@ -147,7 +155,16 @@ describe('SofiaCrmService', () => {
 
     await service.listUnifiedTimeline('customer-1', query, {
       sub: 'supervisor-1', email: 'supervisor@example.test', fullName: 'Supervisor', sessionVersion: 1,
-      roles: ['supervisor'], permissions: [],
+      roles: ['supervisor'], permissions: ['orders.read'],
+    });
+    expect(unifiedTimeline).toHaveBeenLastCalledWith('customer-1', query, {
+      paymentFacts: false,
+      serviceCaseFacts: false,
+    });
+
+    await service.listUnifiedTimeline('customer-1', query, {
+      sub: 'supervisor-1', email: 'supervisor@example.test', fullName: 'Supervisor', sessionVersion: 1,
+      roles: ['supervisor'], permissions: ['orders.read', 'reports.read'],
     });
     expect(unifiedTimeline).toHaveBeenLastCalledWith('customer-1', query, {
       paymentFacts: true,

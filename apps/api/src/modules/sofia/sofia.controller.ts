@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards, U
 import { ConfigService } from '@nestjs/config';
 import { WhatsappDeliveryOrderStatus } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -550,12 +551,14 @@ export class SofiaController {
 
   @Post('control/pause-global')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   async pauseGlobal(@Body('reason') reason: string, @CurrentUser() actor: AuthUser) {
     return this.governanceService.pauseGlobal(actor.sub, reason);
   }
 
   @Post('control/resume-global')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   async resumeGlobal(@CurrentUser() actor: AuthUser) {
     return this.governanceService.resumeGlobal(actor.sub);
   }
@@ -587,12 +590,14 @@ export class SofiaController {
 
   @Post('control/kill-switch/activate')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   activateKillSwitch(@Body('reason') reason: string, @CurrentUser() actor: AuthUser) {
     return this.governanceService.activateKillSwitch(actor.sub, reason);
   }
 
   @Post('control/kill-switch/deactivate')
   @Roles('admin')
+  @Permissions('settings.update')
   deactivateKillSwitch(@CurrentUser() actor: AuthUser) {
     return this.governanceService.deactivateKillSwitch(actor.sub);
   }

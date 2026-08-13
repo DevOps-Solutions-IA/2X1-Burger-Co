@@ -64,6 +64,7 @@ export class OrdersController {
 
   @Patch('operational-alerts/:id')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('orders.update')
   updateOperationalAlert(
     @Param('id') id: string,
     @Body() dto: UpdateOperationalAlertDto,
@@ -278,6 +279,7 @@ export class OrdersController {
 
   @Post('customers/find-or-create')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('orders.create')
   findOrCreateCustomer(
     @Body() dto: { fullName?: string; phone?: string; defaultAddress?: string },
   ) {
@@ -286,6 +288,7 @@ export class OrdersController {
 
   @Post('delivery-customers')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('delivery.update')
   upsertDeliveryCustomer(
     @Body() dto: { phone: string; fullName?: string; address?: string },
   ) {

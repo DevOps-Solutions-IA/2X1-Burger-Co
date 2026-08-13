@@ -65,15 +65,54 @@ export class SofiaCrmService {
     const valueHashes = this.identityHashes(phone);
     const valueHash = valueHashes[0];
     let existing = null;
+    let matchedHash = valueHash;
     for (const candidateHash of valueHashes) {
       existing = await this.prisma.customerIdentity.findUnique({
         where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash: candidateHash } },
         include: { customer: { include: customerSummaryInclude } },
       });
-      if (existing) break;
+      if (existing) {
+        matchedHash = candidateHash;
+        break;
+      }
     }
 
     if (existing) {
+      if (matchedHash !== valueHash) {
+        try {
+          const promoted = await this.prisma.customerIdentity.updateMany({
+            where: { id: existing.id, valueHash: matchedHash },
+            data: { valueHash },
+          });
+          if (promoted.count === 1) {
+            await this.auditService.log({
+              actorId,
+              action: 'CRM_IDENTITY_HASH_ROTATED',
+              module: 'sofia.crm',
+              entity: 'CustomerIdentity',
+              entityId: existing.id,
+              after: { hashVersion: 'CURRENT' },
+            });
+          } else {
+            const winner = await this.prisma.customerIdentity.findUnique({
+              where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
+              select: { customerId: true },
+            });
+            if (winner?.customerId !== existing.customerId) {
+              throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+          const winner = await this.prisma.customerIdentity.findUnique({
+            where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
+            select: { customerId: true },
+          });
+          if (winner?.customerId !== existing.customerId) {
+            throw new ConflictException('CRM_IDENTITY_ROTATION_CONFLICT');
+          }
+        }
+      }
       const displayName = dto.displayName?.trim();
       const shouldUpdateName = Boolean(displayName && displayName !== existing.customer.displayName);
       const customer = shouldUpdateName
@@ -550,10 +589,10 @@ export class SofiaCrmService {
 
   async listUnifiedTimeline(customerId: string, dto: ListTimelineDto, actor: AuthUser) {
     try {
-      const canReadRestrictedFacts = actor.roles.some((role) => role === 'admin' || role === 'supervisor');
+      const hasRestrictedRole = actor.roles.some((role) => role === 'admin' || role === 'supervisor');
       return await this.phase8Repository.unifiedTimeline(customerId, dto, {
-        paymentFacts: canReadRestrictedFacts,
-        serviceCaseFacts: canReadRestrictedFacts,
+        paymentFacts: hasRestrictedRole && actor.permissions.includes('reports.read'),
+        serviceCaseFacts: hasRestrictedRole && actor.permissions.includes('reports.read'),
       });
     } catch (error) {
       return this.mapPersistenceError(error);

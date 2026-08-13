@@ -1,5 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -10,6 +11,7 @@ import { GlobalSearchService } from './global-search.service';
 @Controller('admin/search')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'supervisor', 'cashier')
+@Permissions('orders.read')
 export class GlobalSearchController {
   constructor(private readonly searchService: GlobalSearchService) {}
 

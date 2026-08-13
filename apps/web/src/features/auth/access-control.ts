@@ -66,8 +66,8 @@ const DEFAULT_ROUTE_BY_ROLE = [
   { role: 'inventory', path: '/inventory' },
 ] as const;
 
-export function canMutateCrm(roles: string[] | undefined) {
-  return hasAllowedRole(roles, CRM_MUTATION_ROLES);
+export function canMutateCrm(roles: string[] | undefined, permissions: string[] | undefined) {
+  return hasAllowedRole(roles, CRM_MUTATION_ROLES) && hasPermission(permissions, 'orders.update');
 }
 
 export function canAccessRoute(

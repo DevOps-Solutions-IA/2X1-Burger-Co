@@ -2,7 +2,10 @@ import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { CustomerServiceController } from '../../modules/customer-service/customer-service.controller';
 import { AdminPaymentReadController } from '../../modules/order-checkout/admin-payment-read.controller';
 import { OrdersController } from '../../modules/orders/orders.controller';
+import { GlobalSearchController } from '../../modules/search/global-search.controller';
 import { SofiaCrmController } from '../../modules/sofia/crm/sofia-crm.controller';
+import { SofiaController } from '../../modules/sofia/sofia.controller';
+import { SofiaWhatsappQrGatewayController } from '../../modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.controller';
 
 function permissions(target: object): string[] {
   return Reflect.getMetadata(PERMISSIONS_KEY, target) ?? [];
@@ -20,6 +23,8 @@ describe('Phase 8 role and permission intersection', () => {
     expect(permissions(CustomerServiceController)).toEqual(['orders.read']);
     expect(permissions(SofiaCrmController)).toEqual(['orders.read']);
     expect(permissions(OrdersController)).toEqual(['orders.read']);
+    expect(permissions(GlobalSearchController)).toEqual(['orders.read']);
+    expect(permissions(SofiaWhatsappQrGatewayController)).toEqual(['settings.read']);
   });
 
   it('requires mutation capabilities for high-risk operational transitions', () => {
@@ -28,5 +33,14 @@ describe('Phase 8 role and permission intersection', () => {
     expect(permissions(method(OrdersController.prototype, 'checkout'))).toEqual(['orders.checkout']);
     expect(permissions(method(OrdersController.prototype, 'assignRider'))).toEqual(['delivery.assign']);
     expect(permissions(method(OrdersController.prototype, 'updateDeliveryWorkflow'))).toEqual(['delivery.update']);
+    expect(permissions(method(OrdersController.prototype, 'updateOperationalAlert'))).toEqual(['orders.update']);
+    expect(permissions(method(OrdersController.prototype, 'findOrCreateCustomer'))).toEqual(['orders.create']);
+    expect(permissions(method(SofiaCrmController.prototype, 'grantOptIn'))).toEqual(['orders.update']);
+    expect(permissions(method(SofiaCrmController.prototype, 'createLead'))).toEqual(['orders.update']);
+    expect(permissions(method(SofiaCrmController.prototype, 'updateTask'))).toEqual(['orders.update']);
+    expect(permissions(method(SofiaController.prototype, 'pauseGlobal'))).toEqual(['settings.update']);
+    expect(permissions(method(SofiaController.prototype, 'activateKillSwitch'))).toEqual(['settings.update']);
+    expect(permissions(method(SofiaWhatsappQrGatewayController.prototype, 'connect'))).toEqual(['settings.update']);
+    expect(permissions(method(SofiaWhatsappQrGatewayController.prototype, 'logout'))).toEqual(['settings.update']);
   });
 });

@@ -48,6 +48,7 @@ export class SofiaCrmController {
 
   @Post('customers/resolve')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   resolveCustomer(@Body() dto: ResolveCustomerByPhoneDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.resolveOrCreateByPhone(dto, actorId);
   }
@@ -60,6 +61,7 @@ export class SofiaCrmController {
 
   @Post('customers/:customerId/consents/opt-in')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   grantOptIn(
     @Param('customerId') customerId: string,
     @Body() dto: CustomerConsentDto,
@@ -70,6 +72,7 @@ export class SofiaCrmController {
 
   @Post('customers/:customerId/consents/revoke')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   revokeOptIn(
     @Param('customerId') customerId: string,
     @Body() dto: CustomerConsentDto,
@@ -96,6 +99,7 @@ export class SofiaCrmController {
 
   @Post('customers/:customerId/timeline')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   recordInteraction(
     @Param('customerId') customerId: string,
     @Body() dto: CreateCustomerInteractionDto,
@@ -106,6 +110,7 @@ export class SofiaCrmController {
 
   @Post('segments')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createSegment(@Body() dto: CreateCustomerSegmentDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createSegment(dto, actorId);
   }
@@ -124,12 +129,14 @@ export class SofiaCrmController {
 
   @Post('tags')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createTag(@Body() dto: CreateCustomerTagDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createTag(dto, actorId);
   }
 
   @Post('customers/:customerId/tags')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   assignTag(
     @Param('customerId') customerId: string,
     @Body() dto: AssignCustomerTagDto,
@@ -146,6 +153,7 @@ export class SofiaCrmController {
 
   @Post('pipelines')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createPipeline(@Body() dto: CreateCrmPipelineDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createPipeline(dto, actorId);
   }
@@ -158,6 +166,7 @@ export class SofiaCrmController {
 
   @Post('leads')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createLead(@Body() dto: CreateCrmLeadDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createLead(dto, actorId);
   }
@@ -170,6 +179,7 @@ export class SofiaCrmController {
 
   @Post('leads/:leadId/transitions')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   transitionLead(
     @Param('leadId') leadId: string,
     @Body() dto: TransitionCrmLeadDto,
@@ -186,12 +196,14 @@ export class SofiaCrmController {
 
   @Post('tasks')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createTask(@Body() dto: CreateCrmTaskDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createTask(dto, actorId);
   }
 
   @Patch('tasks/:taskId')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   updateTask(
     @Param('taskId') taskId: string,
     @Body() dto: UpdateCrmTaskDto,
@@ -208,18 +220,21 @@ export class SofiaCrmController {
 
   @Post('notes')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createNote(@Body() dto: CreateCrmNoteDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createNote(dto, actorId);
   }
 
   @Post('campaigns')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createCampaign(@Body() dto: CreateCustomerCampaignDto, @CurrentUser('sub') actorId: string) {
     return this.crmService.createDraftCampaign(dto, actorId);
   }
 
   @Post('campaigns/:campaignId/send')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   attemptCampaignSend(@Param('campaignId') campaignId: string, @CurrentUser('sub') actorId: string) {
     return this.crmService.attemptCampaignSend(campaignId, actorId);
   }

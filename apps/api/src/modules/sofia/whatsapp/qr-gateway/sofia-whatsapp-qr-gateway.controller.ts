@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../../common/decorators/current-user.decorator';
+import { Permissions } from '../../../../common/decorators/permissions.decorator';
 import { Roles } from '../../../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../../common/guards/roles.guard';
@@ -11,6 +12,7 @@ import { SofiaTestOnlyGuard } from '../../runtime-safety/sofia-test-only.guard';
 @Controller('admin/sofia/whatsapp/qr')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'supervisor')
+@Permissions('settings.read')
 export class SofiaWhatsappQrGatewayController {
   constructor(private readonly qrGatewayService: SofiaWhatsappQrGatewayService) {}
 
@@ -20,6 +22,7 @@ export class SofiaWhatsappQrGatewayController {
   }
 
   @Post('connect')
+  @Permissions('settings.update')
   connect(@CurrentUser() actor: AuthUser) {
     return this.qrGatewayService.connect(actor.sub);
   }
@@ -30,16 +33,19 @@ export class SofiaWhatsappQrGatewayController {
   }
 
   @Post('disconnect')
+  @Permissions('settings.update')
   disconnect(@CurrentUser() actor: AuthUser) {
     return this.qrGatewayService.disconnect(actor.sub);
   }
 
   @Post('logout')
+  @Permissions('settings.update')
   logout(@CurrentUser() actor: AuthUser) {
     return this.qrGatewayService.logout(actor.sub);
   }
 
   @Post('test-inbound')
+  @Permissions('settings.update')
   @UseGuards(SofiaTestOnlyGuard)
   testInbound(@Body() dto: SofiaWhatsappQrTestInboundDto) {
     return this.qrGatewayService.testInbound(dto);
@@ -51,6 +57,7 @@ export class SofiaWhatsappQrGatewayController {
   }
 
   @Post('test-send')
+  @Permissions('settings.update')
   @UseGuards(SofiaTestOnlyGuard)
   testSend(@Body() dto: SofiaWhatsappQrTestSendDto) {
     return this.qrGatewayService.testSend(dto);

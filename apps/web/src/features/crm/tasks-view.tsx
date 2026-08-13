@@ -26,7 +26,7 @@ export function TasksView({ type }: { type: CrmTaskType }) {
   const query = useCrmTasks({ page, type, status: status || undefined });
   const update = useUpdateCrmTask();
   const title = type === 'FOLLOW_UP' ? 'seguimientos' : 'tareas';
-  const canManageTasks = canMutateCrm(user?.roles) && !mutationPermissionDenied;
+  const canManageTasks = canMutateCrm(user?.roles, user?.permissions) && !mutationPermissionDenied;
 
   useEffect(() => {
     if (!query.data) return;

@@ -17,11 +17,12 @@ test('operational overview is internal and unknown routes fail closed', () => {
 
 test('CRM is readable by cashiers but mutations require an authorized operator role', () => {
   assert.equal(canAccessRoute('/crm/leads', ['orders.read'], ['cashier']), true);
-  assert.equal(canMutateCrm(['cashier']), false);
-  assert.equal(canMutateCrm(['waiter']), false);
-  assert.equal(canMutateCrm(undefined), false);
-  assert.equal(canMutateCrm(['supervisor']), true);
-  assert.equal(canMutateCrm(['admin']), true);
+  assert.equal(canMutateCrm(['cashier'], ['orders.update']), false);
+  assert.equal(canMutateCrm(['waiter'], ['orders.update']), false);
+  assert.equal(canMutateCrm(undefined, ['orders.update']), false);
+  assert.equal(canMutateCrm(['supervisor'], []), false);
+  assert.equal(canMutateCrm(['supervisor'], ['orders.update']), true);
+  assert.equal(canMutateCrm(['admin'], ['orders.update']), true);
 });
 
 test('generic permissions never expose operational modules to inventory', () => {

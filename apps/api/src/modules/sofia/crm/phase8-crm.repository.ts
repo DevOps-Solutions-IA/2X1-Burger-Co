@@ -89,12 +89,85 @@ export class Phase8CrmRepository {
   private async findReferenceReplay<T>(
     references: readonly string[],
     lookup: (reference: string) => Promise<T | null>,
+    promote?: (row: T, currentReference: string) => Promise<T>,
   ): Promise<T | null> {
-    for (const reference of references) {
+    for (const [index, reference] of references.entries()) {
       const row = await lookup(reference);
-      if (row) return row;
+      if (row) return index > 0 && promote ? promote(row, references[0]!) : row;
     }
     return null;
+  }
+
+  private async promoteLeadReference(
+    client: PrismaService | Prisma.TransactionClient,
+    row: { id: string },
+    sourceReference: string,
+    actorId: string,
+  ) {
+    const promoted = await client.crmLead.update({ where: { id: row.id }, data: { sourceReference } });
+    await this.auditService.log({
+      actorId,
+      action: 'CRM_REFERENCE_HASH_ROTATED',
+      module: 'sofia.crm',
+      entity: 'CrmLead',
+      entityId: row.id,
+      after: { hashVersion: 'CURRENT' },
+    }, client);
+    return promoted;
+  }
+
+  private async promoteTaskReference(
+    client: PrismaService | Prisma.TransactionClient,
+    row: { id: string },
+    sourceReference: string,
+    actorId: string,
+  ) {
+    const promoted = await client.crmTask.update({ where: { id: row.id }, data: { sourceReference } });
+    await this.auditService.log({
+      actorId,
+      action: 'CRM_REFERENCE_HASH_ROTATED',
+      module: 'sofia.crm',
+      entity: 'CrmTask',
+      entityId: row.id,
+      after: { hashVersion: 'CURRENT' },
+    }, client);
+    return promoted;
+  }
+
+  private async promoteNoteReference(
+    client: PrismaService | Prisma.TransactionClient,
+    row: { id: string },
+    sourceReference: string,
+    actorId: string,
+  ) {
+    const promoted = await client.crmNote.update({ where: { id: row.id }, data: { sourceReference } });
+    await this.auditService.log({
+      actorId,
+      action: 'CRM_REFERENCE_HASH_ROTATED',
+      module: 'sofia.crm',
+      entity: 'CrmNote',
+      entityId: row.id,
+      after: { hashVersion: 'CURRENT' },
+    }, client);
+    return promoted;
+  }
+
+  private async promoteLeadTransitionReference(
+    client: PrismaService | Prisma.TransactionClient,
+    row: { id: string },
+    idempotencyKey: string,
+    actorId: string,
+  ) {
+    const promoted = await client.crmLeadStageHistory.update({ where: { id: row.id }, data: { idempotencyKey } });
+    await this.auditService.log({
+      actorId,
+      action: 'CRM_REFERENCE_HASH_ROTATED',
+      module: 'sofia.crm',
+      entity: 'CrmLeadStageHistory',
+      entityId: row.id,
+      after: { hashVersion: 'CURRENT' },
+    }, client);
+    return promoted;
   }
 
   async listPipelines(input: ListCrmPipelinesDto) {
@@ -217,7 +290,7 @@ export class Phase8CrmRepository {
       this.prisma.crmLead.findUnique({
         where: { source_sourceReference: { source: input.source, sourceReference: reference } },
       })
-    ));
+    ), (row, currentReference) => this.promoteLeadReference(this.prisma, row, currentReference, actorId));
     if (existing) return this.leadCreateReplay(existing, input, title, sourceReferences);
 
     try {
@@ -273,7 +346,7 @@ export class Phase8CrmRepository {
         this.prisma.crmLead.findUnique({
           where: { source_sourceReference: { source: input.source, sourceReference: reference } },
         })
-      ));
+      ), (row, currentReference) => this.promoteLeadReference(this.prisma, row, currentReference, actorId));
       if (!raced) throw error;
       return this.leadCreateReplay(raced, input, title, sourceReferences);
     }
@@ -289,7 +362,7 @@ export class Phase8CrmRepository {
           tx.crmLeadStageHistory.findUnique({
             where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
           })
-        ));
+        ), (row, currentReference) => this.promoteLeadTransitionReference(tx, row, currentReference, actorId));
         if (replay) return this.leadTransitionReplay(tx, replay, input, actorId, metadata);
 
         const current = await tx.crmLead.findUnique({ where: { id: leadId } });
@@ -347,7 +420,7 @@ export class Phase8CrmRepository {
         this.prisma.crmLeadStageHistory.findUnique({
           where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
         })
-      ));
+      ), (row, currentReference) => this.promoteLeadTransitionReference(this.prisma, row, currentReference, actorId));
       if (!replay) throw error;
       return this.leadTransitionReplay(this.prisma, replay, input, actorId, metadata);
     }
@@ -391,7 +464,7 @@ export class Phase8CrmRepository {
       this.prisma.crmTask.findUnique({
         where: { source_sourceReference: { source, sourceReference: reference } },
       })
-    ));
+    ), (row, currentReference) => this.promoteTaskReference(this.prisma, row, currentReference, actorId));
     if (existing) return this.taskCreateReplay(existing, input, normalized);
     try {
       const task = await this.prisma.$transaction(async (tx) => {
@@ -428,7 +501,7 @@ export class Phase8CrmRepository {
         this.prisma.crmTask.findUnique({
           where: { source_sourceReference: { source, sourceReference: reference } },
         })
-      ));
+      ), (row, currentReference) => this.promoteTaskReference(this.prisma, row, currentReference, actorId));
       if (!raced) throw error;
       return this.taskCreateReplay(raced, input, normalized);
     }
@@ -501,7 +574,7 @@ export class Phase8CrmRepository {
       this.prisma.crmNote.findUnique({
         where: { source_sourceReference: { source, sourceReference: reference } },
       })
-    ));
+    ), (row, currentReference) => this.promoteNoteReference(this.prisma, row, currentReference, actorId));
     if (existing) {
       if (existing.customerId !== input.customerId || existing.leadId !== (input.leadId ?? null)
         || existing.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || existing.contentHash !== contentHash) {
@@ -541,7 +614,7 @@ export class Phase8CrmRepository {
         this.prisma.crmNote.findUnique({
           where: { source_sourceReference: { source, sourceReference: reference } },
         })
-      ));
+      ), (row, currentReference) => this.promoteNoteReference(this.prisma, row, currentReference, actorId));
       if (!raced) throw error;
       if (raced.customerId !== input.customerId || raced.leadId !== (input.leadId ?? null)
         || raced.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || raced.contentHash !== contentHash) {
