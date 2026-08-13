@@ -286,6 +286,7 @@ export default function ReportsPage() {
     : `Reporte del ${from} al ${to}. Puede no coincidir con la jornada actual.`;
   const secondaryFailure = [closures, supplyAlerts, salesByHour, productMargins, ingredientRotation, comparisons]
     .some((query) => query.isError);
+  const summaryAvailable = Boolean(summary.data) && !summary.isError;
 
   return (
     <div className="space-y-6">
@@ -315,10 +316,10 @@ export default function ReportsPage() {
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricSurface density="compact" label="Ventas" value={formatCurrency(summary.data?.sales?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.sales.count} ventas` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Compras" value={formatCurrency(summary.data?.purchases?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.purchases.count} compras` : 'Fuente no disponible'} icon={<CalendarDays className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Gastos" value={formatCurrency(summary.data?.expenses?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.expenses.count} gastos` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
-        <MetricSurface density="compact" label="Utilidad neta" value={formatCurrency(summary.data?.metrics?.netProfit)} unavailable={!summary.data} context={summary.data ? 'Resultado del periodo' : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Ventas" value={formatCurrency(summary.data?.sales?.total)} unavailable={!summaryAvailable} context={summaryAvailable ? `${summary.data!.sales.count} ventas` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Compras" value={formatCurrency(summary.data?.purchases?.total)} unavailable={!summaryAvailable} context={summaryAvailable ? `${summary.data!.purchases.count} compras` : 'Fuente no disponible'} icon={<CalendarDays className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Gastos" value={formatCurrency(summary.data?.expenses?.total)} unavailable={!summaryAvailable} context={summaryAvailable ? `${summary.data!.expenses.count} gastos` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Utilidad neta" value={formatCurrency(summary.data?.metrics?.netProfit)} unavailable={!summaryAvailable} context={summaryAvailable ? 'Resultado del periodo' : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
       </div>
 
       {summary.isError ? (
@@ -399,6 +400,8 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          {summaryAvailable ? (
+            <div data-testid="reports-financial-detail">
           {/* Caja fisica — MIRROR CASH STYLE */}
           <div className="rounded-[1.45rem] border border-amber-200 bg-amber-50 p-5 mb-4">
             <div className="flex items-start justify-between gap-4 mb-4">
@@ -463,6 +466,17 @@ export default function ReportsPage() {
               </div>
             </div>
           </div>
+            </div>
+          ) : (
+            <div data-testid="reports-financial-detail-unavailable">
+              <QueryState
+                status={summary.isError ? 'error' : 'loading'}
+                title={summary.isError ? 'Detalle financiero no disponible' : 'Verificando detalle financiero'}
+                description="No mostramos importes ni distribuciones hasta validar la fuente del reporte."
+                onRetry={summary.isError ? () => void summary.refetch() : undefined}
+              />
+            </div>
+          )}
         </Card>
 
         <Card>
@@ -513,7 +527,16 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Ventas por franja horaria</h2>
           <div className="mt-4 space-y-2.5">
-            {hourlyTop.length ? hourlyTop.map((item) => (
+            {salesByHour.isError ? (
+              <QueryState
+                status="error"
+                title="Ventas por hora no disponibles"
+                description="La fuente no respondió; no interpretamos el resultado como una jornada sin ventas."
+                onRetry={() => void salesByHour.refetch()}
+              />
+            ) : salesByHour.isLoading ? (
+              <Skeleton className="h-28 rounded-[1.5rem]" />
+            ) : hourlyTop.length ? hourlyTop.map((item) => (
               <div key={item.hour} className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div>
                   <p className="font-medium text-ink">{item.label}</p>
@@ -528,7 +551,16 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Margen por producto</h2>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1" role="region" aria-label="Margen por producto" tabIndex={0}>
-            {(productMargins.data ?? []).map((item) => (
+            {productMargins.isError ? (
+              <QueryState
+                status="error"
+                title="Márgenes no disponibles"
+                description="No mostramos una lista vacía cuando falla la fuente financiera."
+                onRetry={() => void productMargins.refetch()}
+              />
+            ) : productMargins.isLoading ? (
+              <Skeleton className="h-28 rounded-[1.5rem]" />
+            ) : productMargins.data?.length ? productMargins.data.map((item) => (
               <div key={item.productId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-ink">{item.name}</p>
@@ -538,14 +570,23 @@ export default function ReportsPage() {
                   Ingreso {formatCurrency(item.revenue)} · costo {formatCurrency(item.cost)} · {item.quantity} uds
                 </p>
               </div>
-            ))}
+            )) : <EmptyState title="Sin márgenes en el rango" description="No hay ventas con costos calculables en este periodo." />}
           </div>
         </Card>
 
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Rotación de insumos</h2>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1" role="region" aria-label="Rotación de insumos" tabIndex={0}>
-            {(ingredientRotation.data ?? []).map((item) => (
+            {ingredientRotation.isError ? (
+              <QueryState
+                status="error"
+                title="Rotación no disponible"
+                description="La fuente de inventario no respondió."
+                onRetry={() => void ingredientRotation.refetch()}
+              />
+            ) : ingredientRotation.isLoading ? (
+              <Skeleton className="h-28 rounded-[1.5rem]" />
+            ) : ingredientRotation.data?.length ? ingredientRotation.data.map((item) => (
               <div key={item.ingredientId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-ink">{item.name}</p>
@@ -555,7 +596,7 @@ export default function ReportsPage() {
                   Cobertura no disponible · stock {item.currentStock}
                 </p>
               </div>
-            ))}
+            )) : <EmptyState title="Sin rotación en el rango" description="No hay movimientos de insumos para este periodo." />}
           </div>
         </Card>
       </div>
@@ -564,9 +605,20 @@ export default function ReportsPage() {
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Comparativo diario / semanal / mensual</h2>
           <div className="mt-4 grid gap-3">
-            <ComparisonCard title="Diario" data={comparisons.data?.day} loading={comparisons.isLoading} />
-            <ComparisonCard title="Semanal" data={comparisons.data?.week} loading={comparisons.isLoading} />
-            <ComparisonCard title="Mensual" data={comparisons.data?.month} loading={comparisons.isLoading} />
+            {comparisons.isError ? (
+              <QueryState
+                status="error"
+                title="Comparativos no disponibles"
+                description="No calculamos variaciones con una fuente incompleta."
+                onRetry={() => void comparisons.refetch()}
+              />
+            ) : (
+              <>
+                <ComparisonCard title="Diario" data={comparisons.data?.day} loading={comparisons.isLoading} />
+                <ComparisonCard title="Semanal" data={comparisons.data?.week} loading={comparisons.isLoading} />
+                <ComparisonCard title="Mensual" data={comparisons.data?.month} loading={comparisons.isLoading} />
+              </>
+            )}
           </div>
         </Card>
 
