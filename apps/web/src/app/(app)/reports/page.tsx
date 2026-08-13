@@ -4,17 +4,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, FileDown, History, MessageCircle, PackageSearch, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch, getStoredAccessToken, resolveApiUrl } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { useAuth } from '@/features/auth/auth-provider';
 
 type ReportMode = 'CURRENT_SESSION' | 'CUSTOM_RANGE';
@@ -168,8 +167,8 @@ export default function ReportsPage() {
     queryFn: async () => z.array(dailyClosureSchema).parse(
       await apiFetch<unknown>(`/reports/daily-closures?from=${from}&to=${to}`),
     ),
-    refetchInterval: 3000,
-    refetchIntervalInBackground: true,
+    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
   const supplyAlerts = useQuery({
@@ -285,19 +284,25 @@ export default function ReportsPage() {
       ? `Desde apertura de caja: ${formatDateTime(summary.data.journey.openedAt)} hasta ahora.`
       : 'Desde apertura de caja hasta ahora.'
     : `Reporte del ${from} al ${to}. Puede no coincidir con la jornada actual.`;
+  const secondaryFailure = [closures, supplyAlerts, salesByHour, productMargins, ingredientRotation, comparisons]
+    .some((query) => query.isError);
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow={isCurrentSession ? 'Desde apertura de caja hasta ahora' : from === to ? `Reporte del ${from}` : `Reporte del ${from} al ${to}`}
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Inteligencia operacional"
         title="Reportes"
         description={modeDescription}
         status={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={isCurrentSession ? 'success' : 'info'} data-testid="reports-mode-badge">
-              {modeLabel}
-            </Badge>
-            <Badge tone={summary.data?.journey?.status === 'CERRADA' ? 'success' : 'info'}>{translateJourneyStatus(summary.data?.journey?.status)}</Badge>
+            <span data-testid="reports-mode-badge">
+              <StatusBadge status={isCurrentSession ? 'ACTIVE' : 'CUSTOM_RANGE'} label={modeLabel} tone={isCurrentSession ? 'success' : 'info'} />
+            </span>
+            <StatusBadge
+              status={summary.data?.journey?.status ?? 'UNKNOWN'}
+              label={translateJourneyStatus(summary.data?.journey?.status)}
+              tone={summary.data?.journey?.status === 'CERRADA' ? 'success' : 'info'}
+            />
           </div>
         }
         actions={
@@ -310,11 +315,26 @@ export default function ReportsPage() {
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="Ventas" value={formatCurrency(summary.data?.sales?.total)} hint={`${summary.data?.sales?.count ?? 0} ventas`} icon={<TrendingUp className="h-5 w-5" />} accent="brand" />
-        <MetricCard compact label="Compras" value={formatCurrency(summary.data?.purchases?.total)} hint={`${summary.data?.purchases?.count ?? 0} compras`} icon={<CalendarDays className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Gastos" value={formatCurrency(summary.data?.expenses?.total)} hint={`${summary.data?.expenses?.count ?? 0} gastos`} icon={<TrendingUp className="h-5 w-5" />} accent="danger" />
-        <MetricCard compact label="Utilidad neta" value={formatCurrency(summary.data?.metrics?.netProfit)} hint="Resultado del periodo" icon={<TrendingUp className="h-5 w-5" />} accent="success" />
+        <MetricSurface density="compact" label="Ventas" value={formatCurrency(summary.data?.sales?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.sales.count} ventas` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Compras" value={formatCurrency(summary.data?.purchases?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.purchases.count} compras` : 'Fuente no disponible'} icon={<CalendarDays className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Gastos" value={formatCurrency(summary.data?.expenses?.total)} unavailable={!summary.data} context={summary.data ? `${summary.data.expenses.count} gastos` : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Utilidad neta" value={formatCurrency(summary.data?.metrics?.netProfit)} unavailable={!summary.data} context={summary.data ? 'Resultado del periodo' : 'Fuente no disponible'} icon={<TrendingUp className="h-5 w-5" />} />
       </div>
+
+      {summary.isError ? (
+        <QueryState
+          status="error"
+          title="El resumen financiero no esta disponible"
+          description="No reemplazamos datos financieros con ceros. Reintenta antes de tomar decisiones operativas."
+          onRetry={() => void summary.refetch()}
+        />
+      ) : null}
+
+      {secondaryFailure ? (
+        <div className="rounded-2xl border border-signal-warning/30 bg-signal-warning/10 px-4 py-3 text-sm text-ink" role="status">
+          Una o mas fuentes complementarias no respondieron. Cada bloque afectado permanece sin datos estimados y puede reintentarse al recargar.
+        </div>
+      ) : null}
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -323,11 +343,11 @@ export default function ReportsPage() {
             {isCurrentSession ? 'Jornada actual' : `${from} → ${to}`}
           </span>
         </div>
-        <div className="mt-3 flex rounded-lg bg-stone-100 p-1 w-fit" data-testid="reports-mode-controls">
+        <div className="mt-3 flex w-fit rounded-xl border border-line bg-canvas p-1" data-testid="reports-mode-controls">
           <button
             type="button"
             onClick={() => setReportMode('CURRENT_SESSION')}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-bold transition ${isCurrentSession ? 'bg-white text-ink shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${isCurrentSession ? 'bg-panel text-ink shadow-sm' : 'text-muted hover:text-ink'}`}
             data-testid="reports-mode-current"
           >
             Jornada actual
@@ -335,7 +355,7 @@ export default function ReportsPage() {
           <button
             type="button"
             onClick={() => setReportMode('CUSTOM_RANGE')}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-bold transition ${!isCurrentSession ? 'bg-white text-ink shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+            className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${!isCurrentSession ? 'bg-panel text-ink shadow-sm' : 'text-muted hover:text-ink'}`}
             data-testid="reports-mode-range"
           >
             Rango personalizado
@@ -469,7 +489,13 @@ export default function ReportsPage() {
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[12px] font-bold text-ink tabular-nums">{item.suggestedReorderLabel}</span>
                         {canManageSupply && group.supplierId ? (
-                          <button type="button" className="text-stone-400 hover:text-emerald-600 transition" onClick={() => group.supplierId && generateSupplierMessage.mutate(group.supplierId)}>
+                          <button
+                            type="button"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-canvas hover:text-signal-success focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                            onClick={() => group.supplierId && generateSupplierMessage.mutate(group.supplierId)}
+                            aria-label={`Preparar mensaje para ${group.supplierName}`}
+                            disabled={generateSupplierMessage.isPending}
+                          >
                             <MessageCircle className="h-3.5 w-3.5" />
                           </button>
                         ) : null}
