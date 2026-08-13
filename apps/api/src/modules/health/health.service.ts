@@ -79,8 +79,7 @@ export class HealthService {
     const migrationCompatible =
       migrationIdentity.compatible &&
       migrationIdentity.appliedCount > 0 &&
-      (!releaseRequiresExpectation || (expected !== null && expectedInventory.length > 0)) &&
-      (expected === null || migrationIdentity.appliedCount === expected);
+      (!releaseRequiresExpectation || (expected !== null && expectedInventory.length > 0));
     if (!migrationCompatible) {
       this.failReadiness(migrationIdentity.status, { api: 'ALIVE', database: 'READY', release: 'NOT_READY' });
     }
@@ -122,6 +121,8 @@ export class HealthService {
         migrationIdentityStatus: migrationIdentity.status,
         migrationAttestationCount: migrationIdentity.attestedMigrationCount,
         migrationAttestationEvidence: migrationIdentity.forensicEvidenceCommits,
+        forwardCompatibleMigrationCount: migrationIdentity.forwardCompatibleMigrationCount,
+        forwardCompatibilityEvidence: migrationIdentity.forwardCompatibilityEvidence,
         safetyCompatible,
       },
     };

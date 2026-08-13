@@ -1,4 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ObservabilityService } from './observability.service';
 import type { ReleaseMetadataService } from '../../release/release-metadata.service';
@@ -160,6 +163,35 @@ describe('HealthService', () => {
     });
   });
 
+  it('keeps a release ready only for the exact owner-attested forward migration', async () => {
+    const frontier37 = repositoryInventory();
+    const rows = appliedRows(frontier37);
+    rows.push({
+      migrationName: '20260812130000_sofia_crm_product_core',
+      checksum: '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd',
+      finished: true,
+      rolledBack: false,
+    });
+    const release = {
+      getEnvironment: jest.fn().mockReturnValue('production'),
+      getSchemaMigrationCount: jest.fn().mockReturnValue(37),
+      getMigrationInventory: jest.fn().mockReturnValue(frontier37),
+      getMigrationAttestations: jest.fn().mockReturnValue([]),
+      getRequiredSafetyFlags: jest.fn().mockReturnValue(safetyFlags),
+    } as unknown as ReleaseMetadataService;
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue(rows) } as unknown as PrismaService;
+
+    await expect(new HealthService(prisma, observability, release, config).readiness()).resolves.toMatchObject({
+      status: 'READY',
+      checks: {
+        appliedMigrations: 38,
+        expectedMigrations: 37,
+        migrationIdentityStatus: 'MIGRATION_FORWARD_COMPATIBLE_ATTESTED',
+        forwardCompatibleMigrationCount: 1,
+      },
+    });
+  });
+
   it('fails readiness when a critical runtime flag is enabled', async () => {
     const release = {
       getEnvironment: jest.fn().mockReturnValue('staging'),
@@ -229,4 +261,18 @@ function appliedRows(inventory: Array<{ name: string; checksum: string }>) {
     finished: true,
     rolledBack: false,
   }));
+}
+
+function repositoryInventory() {
+  const root = path.resolve(process.cwd(), '../../prisma/migrations');
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .map((name) => ({
+      name,
+      // Test inventory is constrained to the repository migration directory above.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      checksum: createHash('sha256').update(readFileSync(path.join(root, name, 'migration.sql'))).digest('hex'),
+    }));
 }
