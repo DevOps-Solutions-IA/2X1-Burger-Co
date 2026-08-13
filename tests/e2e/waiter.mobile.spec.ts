@@ -1,6 +1,7 @@
 import { DiningTableStatus, OrderTicketStatus, PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { test, expect } from './fixtures/worker-auth';
+import { expectAccessiblePage } from './ephemeral/accessibility';
 
 const prisma = new PrismaClient();
 const waiterName = 'Mesero Principal';
@@ -170,6 +171,14 @@ async function ensureCashOpen(accessToken: string, request: import('@playwright/
     data: { openingAmount: 80000 },
   });
   expect([200, 201, 409]).toContain(opened.status());
+}
+
+async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
 test.describe.serial('Waiter table-only flows', () => {
@@ -362,5 +371,29 @@ test.describe.serial('Waiter table-only flows', () => {
       const registration = await navigator.serviceWorker.getRegistration('/sw.js');
       return Boolean(registration);
     });
+  });
+
+  test('waiter standalone workflow is keyboard accessible at phone and tablet widths', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAsWaiter(page);
+
+    const table = page.getByRole('button', { name: new RegExp(waiterTableLabel) });
+    await expect(table).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessiblePage(page);
+
+    await table.focus();
+    await table.press('Enter');
+    const back = page.getByRole('button', { name: 'Cerrar comanda y volver a las mesas' });
+    await expect(back).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await back.focus();
+    await back.press('Enter');
+    await expect(table).toBeVisible();
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await expect(table).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessiblePage(page);
   });
 });
