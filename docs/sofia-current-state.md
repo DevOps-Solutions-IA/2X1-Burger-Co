@@ -1,28 +1,28 @@
 # Sofia - Estado actual
 
-Ultima actualizacion: 2026-08-09.
+Ultima actualizacion: 2026-08-12.
 
 Este archivo es la fuente de verdad vigente para agentes. Los reportes historicos solo son evidencia de capacidad anterior y no certifican el runtime actual.
 
 ## Decision vigente
 
-**Phases 3, 4, 5, 6 y 7 fusionadas. El backend esta listo para una activacion controlada futura. Produccion permanece cerrada.**
+**El core backend de Phases 3 a 7 esta desplegado en produccion. Las capacidades operativas Sofia, Bold real y WhatsApp automatico permanecen desactivadas y requieren activacion controlada separada.**
 
-Phase 7 fue fusionada mediante `60ccd47a9338fdb3ab3d980d7c41ec5f95637ef4`. El PR final de cierre #13 fue fusionado como `d9f73c01b4f3619091a77ad77dc04f48c626734b`, actual `main`, y el CI remoto final `31321031798` paso completo sobre ese SHA exacto. El repositorio contiene 37 migraciones. El runtime artifact local validado de Phase 7 proviene de `60af56e0eb9635152c99437e301a38a76b4f1007`; el HEAD final del PR #12 fue `b16a08aefd447ce680fdbdacd5614ea06763163d`. Phase 6 implementa operaciones en vivo, notificaciones y recovery bajo gates. Phase 7 endurece seguridad, resiliencia, observabilidad y release, pero no esta desplegada. Real Bold, envio real WhatsApp, auto reply y produccion permanecen bloqueados. El estado exacto del runtime productivo no debe inferirse del repositorio.
+El release candidate `291d541f408d14b3c9b66942583dc6a8c7522bcb` paso CI completa en el run `31643203916` y se publico, firmo, atesto y escaneo en GHCR mediante el run `31645550036`. Produccion ejecuta exactamente los digests API `sha256:e32088d15bc8ed385fb4942315e60dff94aa1dd0c5a07ca195a33dccf0a0e62d` y Web `sha256:59445f98eec492c99e5ecdf3065a3c901fef0d736e8b85e6844e4ba3a7b841ac`. La base productiva fue migrada secuencialmente de 33 a 37 y quedo saludable en 37/37. Real Bold, creacion de pedidos/pagos/cocina, envio WhatsApp, inbound QR y auto reply permanecen desactivados.
 
-## Controles previstos del candidato
+## Controles verificados del runtime
 
-Estos controles describen el source candidato. El runtime productivo no fue
-consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
+Estos controles fueron verificados despues del despliegue por identidad de
+imagen, health/readiness, smoke no financiero y reconciliacion de filas.
 
 | Control | Estado | Fuente |
 | --- | --- | --- |
 | Modo Sofia | Supervisado | Runtime safety backend |
-| WhatsApp | Receive-only; bootstrap QR gobernado | QR gateway + governance settings |
+| WhatsApp | QR e inbound desactivados hasta binding controlado | Runtime config fail-closed |
 | Envio real | Bloqueado | Runtime safety y adaptadores |
 | Auto reply | OFF | Runtime safety |
 | Auto Safe productivo | OFF | Runtime safety |
-| Produccion | Bloqueada | Runtime safety |
+| Core productivo | Desplegado | Digests GHCR + readiness 37/37 |
 | PAID desde WhatsApp | Imposible | SafetyGuard/payment webhook |
 | Pagos publicos | Seleccion bloqueada | `PRODUCTIVE_ACTION` gate |
 | DeepSeek | Dry-run de texto | Provider backend |
@@ -31,11 +31,9 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Catalogo | Producto persistido y precio positivo | Catalog service |
 | Sandbox | Separado y oculto por defecto | Source/scope backend |
 | Phase 3 outbound | Implementado pero deshabilitado | Secure command + runtime gate |
-| Migracion Phase 3 | 34/34 solo en PostgreSQL efimero | No aplicada a produccion |
-| Migracion Phase 4 | 35/35 solo en PostgreSQL efimero | No aplicada a produccion |
-| Migracion Phase 5 | 36/36 validada antes del merge | No aplicada por este programa |
-| Migracion Phase 6 | 37/37 validada y fusionada | No aplicada por este programa |
-| Phase 7 | PR #12 fusionado en `60ccd47a`; cierre #13 en `d9f73c01`; CI final `31321031798` PASS | Sin migration 38 |
+| Migraciones | 37/37 productivo | 33->34->35->36->37 secuencial PASS |
+| Artefactos | API/Web por digest | GHCR firmado, SBOM/SLSA y 0 HIGH/CRITICAL |
+| Phase 7 | Runtime `291d541`; CI `31643203916` PASS | Sin migration 38 |
 
 ## Capacidades implementadas
 
@@ -60,17 +58,19 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 | Capa | Resultado | Limite |
 | --- | --- | --- |
 | Prisma validate | PASS | Schema candidato local |
-| API/Web typecheck, build y lint | PASS | Runtime source `60af56e` |
+| API/Web typecheck, build y lint | PASS | Runtime source `291d541` |
 | Phase 6 CI | PASS y fusionada | PR #11 |
 | Phase 6 focalizada | 219/219 PASS | PostgreSQL aislado |
 | Phase 7 focalizada | 253/253 PASS dos veces; CI remoto PASS | PR #12, run `31316328069` |
-| Cierre final de `main` | PASS | PR #13, run `31321031798`, SHA `d9f73c01` |
+| Release candidate final | PASS | CI `31643203916`, SHA `291d541` |
 | Concurrency/fault/load | 41/41 PASS | PostgreSQL aislado |
 | Checkout/payment Phase 5 | 15/15 PASS | PostgreSQL aislado |
 | Suite critica/RBAC | 92/92 PASS | PostgreSQL aislado |
-| Migraciones | Fresh 37/37; legacy 36->37 PASS | Produccion no migrada por este programa |
-| Seguridad | Audit y secret scan PASS; critical/high abiertos 0 | Sin credenciales reales |
-| Runtime productivo | NO CERTIFICA el candidato | No desplegado por alcance |
+| Migraciones | Fresh, restore 33->37 y produccion 37/37 PASS | Sin migration incompleta o rollback |
+| Seguridad | Audit y secret scan PASS; critical/high abiertos 0 | Secretos fuera del repositorio |
+| Runtime productivo | API/Web healthy; readiness 37/37 | SHA `291d541`, digests GHCR exactos |
+| Reconciliacion | PASS | Ventas, pagos, caja, stock, tickets y webhooks preservados |
+| Efectos inesperados | 0 | Sin checkout, intent, link ni transition creados |
 
 ## Datos reales, sandbox e historico
 
@@ -85,26 +85,21 @@ consultado ni modificado y se reporta como `RUNTIME_NOT_VERIFIED`.
 - La UI CRM es de consulta; no crea campañas, mensajes, pagos, pedidos ni efectos operativos.
 - La identidad principal nueva se deriva con HMAC y se muestra enmascarada.
 - `CRM_IDENTITY_HASH_SECRET` debe existir en un secret store aprobado antes de staging remoto.
-- El almacenamiento legado de memoria/telefonos y su politica de retencion requieren migracion y aprobacion legal/security antes de produccion.
+- El almacenamiento legado de memoria/telefonos y su politica de retencion requieren aprobacion legal/security antes de activar Sofia con clientes.
 - Consentimiento comercial explicito y canal outbound aprobado son requisitos previos a cualquier campaña.
 
-## Bloqueadores de produccion
+## Gates de activacion pendientes
 
 1. Aprobar retencion, consentimiento y tratamiento de PII con owner legal/security.
-2. Configurar secret store, rotacion y alert routing del entorno objetivo.
-3. Autorizar separadamente backup, restore, migraciones productivas y deployment del SHA exacto.
-4. Validar cuenta/sesion, QR e inbound fisico sobre el artifact autorizado.
-5. Ejecutar canary receive-only, rollback y observacion antes de activar cualquier envio.
-6. Autorizar separadamente Bold real, un destinatario de prueba y auto messaging; permanecen deshabilitados.
+2. Completar secret store, rotacion y alert routing operativo.
+3. Validar binding exacto de cuenta/sesion y ejecutar canary fisico receive-only.
+4. Aprobar allowlist comercial y activacion gradual de inbound Sofia.
+5. Autorizar separadamente Bold real, un destinatario de prueba, outbound WhatsApp y auto messaging.
 
 ## Owner gates
 
 - Security/privacy owner, base juridica CRM y retencion de PII.
 - Secret rotation/acceptance, secret store y alert routing productivo.
-- Backup cifrado fresco, validacion de restore aislado y autoridad de rollback.
-- Promocion del artifact inmutable al registry y aprobacion de sus digests.
-- Migracion productiva, deployment y smoke/readiness autorizados por separado.
-- Staging, canary receive-only, ventana de observacion y ownership de incidentes.
 - QR fisico, cuenta/sesion real y allowlist comercial final.
 - Credenciales/activacion Bold real y automatic customer messaging autorizados por separado.
 
