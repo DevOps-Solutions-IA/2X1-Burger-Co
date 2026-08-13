@@ -17,7 +17,7 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuDialogRef = useRef<HTMLDivElement>(null);
   const safePathname = pathname ?? '/delivery';
-  const canAccess = canAccessRoute(safePathname, user?.permissions);
+  const canAccess = canAccessRoute(safePathname, user?.permissions, user?.roles);
   const shiftStartedLabel = user?.lastLoginAt
     ? new Date(user.lastLoginAt).toLocaleTimeString('es-CO', {
         hour: 'numeric',

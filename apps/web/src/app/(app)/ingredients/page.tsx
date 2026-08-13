@@ -259,7 +259,7 @@ export default function IngredientsPage() {
                 <Input className="pl-9" aria-label="Buscar insumos" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar insumo..." />
               </div>
             } filters={
-              <Select value={stockFilter} onChange={(event) => setStockFilter(event.target.value as typeof stockFilter)}>
+              <Select aria-label="Filtrar ingredientes por estado de stock" value={stockFilter} onChange={(event) => setStockFilter(event.target.value as typeof stockFilter)}>
                 <option value="ALL">Todo el stock</option>
                 <option value="LOW">Solo alertas</option>
                 <option value="NORMAL">Solo normales</option>

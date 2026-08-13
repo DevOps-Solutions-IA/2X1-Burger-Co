@@ -1,14 +1,20 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle,
+  ArrowUpRight,
   Bot,
   ChevronLeft,
   ChevronRight,
   CircleSlash2,
+  CreditCard,
+  Headphones,
   LockKeyhole,
   MessageCircle,
+  PackageCheck,
   PauseCircle,
   PlayCircle,
+  Truck,
   UserRoundCheck,
   XCircle,
 } from 'lucide-react';
@@ -19,11 +25,13 @@ import type {
   SofiaCrmCustomerSummary,
   SofiaInboxConversation,
 } from '@/features/sofia/contracts';
-import { formatDateTime } from '@/lib/format';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   actorLabel,
   availableConversationActions,
   canCancelOutbound,
+  type CustomerOperationalRelation,
+  type CustomerOperationalRelationType,
   humanizeCode,
   messageActor,
   scopeLabel,
@@ -113,6 +121,144 @@ export function PrivacyNotice({ children }: { children: ReactNode }) {
       <p>{children}</p>
     </div>
   );
+}
+
+const operationalRelationMeta: Readonly<Record<CustomerOperationalRelationType, {
+  title: string;
+  empty: string;
+  icon: typeof PackageCheck;
+}>> = {
+  CONVERSATION: {
+    title: 'Conversaciones',
+    empty: 'No hay conversaciones vinculadas a esta identidad.',
+    icon: MessageCircle,
+  },
+  ORDER_CHECKOUT: {
+    title: 'Órdenes y checkout',
+    empty: 'No hay checkout comercial vinculado a esta identidad.',
+    icon: PackageCheck,
+  },
+  PAYMENT_INTENT: {
+    title: 'Pagos',
+    empty: 'No hay intenciones de pago vinculadas a esta identidad.',
+    icon: CreditCard,
+  },
+  DELIVERY_EVENT: {
+    title: 'Entrega',
+    empty: 'No hay evidencia logística vinculada a esta identidad.',
+    icon: Truck,
+  },
+  SERVICE_CASE: {
+    title: 'Casos de servicio',
+    empty: 'No hay casos de recuperación vinculados a esta identidad.',
+    icon: Headphones,
+  },
+};
+
+const operationalRelationOrder: CustomerOperationalRelationType[] = [
+  'ORDER_CHECKOUT',
+  'PAYMENT_INTENT',
+  'DELIVERY_EVENT',
+  'SERVICE_CASE',
+  'CONVERSATION',
+];
+
+export function CustomerOperationalRelations({
+  relations,
+  potentiallyTruncated,
+}: {
+  relations: readonly CustomerOperationalRelation[];
+  potentiallyTruncated: boolean;
+}) {
+  return (
+    <div className="space-y-4">
+      {potentiallyTruncated ? (
+        <div className="flex items-start gap-2 rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-3 text-sm leading-6 text-ink" role="status">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-signal-warning" aria-hidden="true" />
+          <p>La lectura alcanzó su límite seguro por fuente. Los registros visibles son reales, pero pueden existir relaciones históricas adicionales.</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {operationalRelationOrder.map((type) => {
+          const meta = operationalRelationMeta[type];
+          const Icon = meta.icon;
+          const items = relations.filter((relation) => relation.type === type);
+          return (
+            <section key={type} className="rounded-xl border border-line bg-canvas p-4" aria-labelledby={`customer-relation-${type}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-brand-800" aria-hidden="true" />
+                  <h3 id={`customer-relation-${type}`} className="text-sm font-semibold text-ink">{meta.title}</h3>
+                </div>
+                <span className="text-xs font-semibold tabular-nums text-muted">{items.length} visibles</span>
+              </div>
+
+              {items.length ? (
+                <ul className="mt-3 space-y-2">
+                  {items.slice(0, 3).map((relation) => (
+                    <li key={`${relation.type}:${relation.id}`} className="rounded-lg border border-line bg-panel p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs text-muted">{relation.id.slice(0, 12)}</p>
+                          <p className="mt-1 text-xs tabular-nums text-muted">{formatDateTime(relation.occurredAt)}</p>
+                        </div>
+                        {relation.status ? (
+                          <StatusBadge
+                            status={relation.status}
+                            label={humanizeCode(relation.status)}
+                            tone={relationTone(relation)}
+                          />
+                        ) : null}
+                      </div>
+
+                      {relation.amount ? (
+                        <p className="mt-2 text-sm font-semibold tabular-nums text-ink">
+                          {formatCurrency(relation.amount)}
+                        </p>
+                      ) : null}
+                      {relation.summary ? <p className="mt-2 line-clamp-2 text-sm leading-5 text-muted">{relation.summary}</p> : null}
+                      {relation.secondaryStatus ? <p className="mt-2 text-xs text-muted">{humanizeCode(relation.secondaryStatus)}</p> : null}
+                      {relation.type === 'PAYMENT_INTENT' && !relation.financialSuccess ? (
+                        <p className="mt-2 flex items-start gap-2 text-xs font-semibold leading-5 text-signal-warning">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          {relation.status === 'UNKNOWN_RESULT'
+                            ? 'Resultado desconocido: no equivale a pago confirmado.'
+                            : 'Esta intención no acredita un pago exitoso.'}
+                        </p>
+                      ) : null}
+                      <div className="mt-2 flex justify-end">
+                        {relation.href ? (
+                          <Link href={relation.href} className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-brand-800 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                            Abrir evidencia <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted">Hecho canónico sin vista de detalle propia</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="mt-3 text-sm leading-6 text-muted">{meta.empty}</p>}
+
+              {items.length > 3 ? <p className="mt-3 text-xs text-muted">Se muestran los 3 eventos más recientes de {items.length} visibles.</p> : null}
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function relationTone(relation: CustomerOperationalRelation) {
+  if (relation.type === 'PAYMENT_INTENT') {
+    if (relation.status === 'SUCCEEDED') return 'success' as const;
+    if (relation.status === 'FAILED' || relation.status === 'CANCELLED' || relation.status === 'EXPIRED') return 'danger' as const;
+    if (relation.status === 'UNKNOWN_RESULT' || relation.status === 'FINANCIAL_REVIEW_REQUIRED') return 'warning' as const;
+  }
+  if (relation.status === 'DELIVERED' || relation.status === 'CLOSED' || relation.status === 'RESOLVED') return 'success' as const;
+  if (relation.status === 'ISSUE' || relation.status === 'HUMAN_REQUIRED' || relation.status === 'HUMAN_TAKEN') return 'warning' as const;
+  return 'neutral' as const;
 }
 
 export function Pagination({

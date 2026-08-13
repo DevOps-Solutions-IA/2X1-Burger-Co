@@ -65,6 +65,12 @@ test.describe('Phase 8 enterprise product experience', () => {
     await expect(page).toHaveURL(/\/customers\/e2e-crm-customer$/);
     await expect(page.getByTestId('customer-360-page')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Timeline verificable' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Relaciones operativas' })).toBeVisible();
+    for (const relation of ['Órdenes y checkout', 'Pagos', 'Entrega', 'Casos de servicio', 'Conversaciones']) {
+      await expect(page.getByRole('heading', { name: relation })).toBeVisible();
+    }
+    await expect(page.getByText('Resultado desconocido: no equivale a pago confirmado.')).toBeVisible();
+    await expect(page.getByText('Resultado de pago incierto; requiere revisión humana.')).toBeVisible();
     await expect(page.getByText('E2E Customer 360', { exact: true }).first()).toBeVisible();
   });
 
@@ -100,7 +106,7 @@ test.describe('Phase 8 enterprise product experience', () => {
     await expect(page.getByRole('heading', { name: 'Historial versionado' })).toBeVisible();
     await page.getByPlaceholder('Ej. revisión solicitada').fill('revision_e2e');
     await page.getByRole('button', { name: 'Solicitar atención humana' }).click();
-    await expect(page.getByText('Requiere humano', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Abierto → Requiere humano' })).toBeVisible();
   });
 
   test('CRM routes expose real records and governed lead/task mutations', async ({ page }) => {
@@ -128,7 +134,7 @@ test.describe('Phase 8 enterprise product experience', () => {
     const leadRow = page.getByRole('row').filter({ hasText: 'E2E Governed Lead' });
     await leadRow.getByRole('button', { name: 'Mover' }).click();
     await page.getByRole('button', { name: 'Confirmar transición' }).click();
-    await expect(page.getByText('Calificado', { exact: true }).first()).toBeVisible();
+    await expect(leadRow.locator('[data-status="QUALIFIED"]')).toBeVisible();
 
     await page.goto('/crm/tasks');
     const taskRow = page.getByRole('row').filter({ hasText: 'E2E Call Customer' });
@@ -164,11 +170,12 @@ test.describe('Phase 8 enterprise product experience', () => {
         requiredEnv('EPHEMERAL_CASHIER_EMAIL'),
         requiredEnv('EPHEMERAL_CASHIER_PASSWORD'),
       );
+      await expect(page.getByTestId('dashboard-page')).toBeVisible();
       await page.goto('/payments');
-      await expect(page).toHaveURL(/\/dashboard\/?$/, { timeout: 20_000 });
+      await expect(page.getByRole('heading', { name: 'No tienes permisos para este módulo' })).toBeVisible();
       await expect(page.getByTestId('nav-payments')).toHaveCount(0);
     } finally {
-      await context.close();
+      await context.close().catch(() => undefined);
     }
   });
 

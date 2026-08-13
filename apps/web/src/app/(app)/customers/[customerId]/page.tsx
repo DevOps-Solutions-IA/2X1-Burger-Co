@@ -24,12 +24,13 @@ import { hasPermission } from '@/features/auth/access-control';
 import {
   ActorBadge,
   ConsentList,
+  CustomerOperationalRelations,
   IdentityList,
   Pagination,
   PrivacyNotice,
-  UnavailableDomain,
 } from '@/features/customer-operations/components';
 import {
+  customerOperationalRelations,
   customerDisplayName,
   humanizeCode,
   interactionActor,
@@ -39,6 +40,7 @@ import {
   useCustomerProfile,
   useCustomerTimeline,
 } from '@/features/customer-operations/queries';
+import { useCrmUnifiedTimeline } from '@/features/crm/queries';
 import { formatDateTime } from '@/lib/format';
 
 const TIMELINE_PAGE_SIZE = 25;
@@ -52,7 +54,9 @@ export default function CustomerDetailPage() {
   const [timelinePage, setTimelinePage] = useState(1);
   const customer = useCustomerProfile(customerId, canRead);
   const timeline = useCustomerTimeline(customerId, { page: timelinePage, limit: TIMELINE_PAGE_SIZE }, canRead);
+  const operationalTimeline = useCrmUnifiedTimeline(canRead ? customerId : '');
   const profile = customer.data;
+  const operationalRelations = customerOperationalRelations(operationalTimeline.data?.data ?? []);
 
   const profileStatus = !canRead
     ? 'permission_denied'
@@ -156,12 +160,19 @@ export default function CustomerDetailPage() {
 
                 <section className="rounded-2xl border border-line bg-panel p-4 shadow-sm sm:p-5" aria-labelledby="related-domains-heading">
                   <h2 id="related-domains-heading" className="font-heading text-lg font-semibold text-ink">Relaciones operativas</h2>
-                  <p className="mt-1 text-sm leading-6 text-muted">Solo se habilitan relaciones cuando el backend entrega un vínculo canónico verificable.</p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <UnavailableDomain title="Órdenes" description="El contrato Customer 360 actual no expone órdenes vinculadas." />
-                    <UnavailableDomain title="Pagos" description="El contrato actual no expone intenciones ni transiciones de pago del cliente." />
-                    <UnavailableDomain title="Entrega" description="El contrato actual no incluye eventos logísticos vinculados." />
-                    <UnavailableDomain title="Casos de servicio" description="El contrato actual no incluye casos de recuperación vinculados." />
+                  <p className="mt-1 text-sm leading-6 text-muted">Read model sanitizado sobre autoridades canónicas. Cada enlace abre el módulo dueño del dato.</p>
+                  <div className="mt-4">
+                    <QueryState
+                      status={operationalTimeline.isPending ? 'loading' : operationalTimeline.isError ? 'error' : 'ready'}
+                      title={operationalTimeline.isError ? 'Relaciones operativas no disponibles' : undefined}
+                      description={operationalTimeline.isError ? 'No se pudo consultar el read model unificado. No se completan relaciones con datos estimados.' : undefined}
+                      onRetry={operationalTimeline.isError ? () => void operationalTimeline.refetch() : undefined}
+                    >
+                      <CustomerOperationalRelations
+                        relations={operationalRelations}
+                        potentiallyTruncated={operationalTimeline.data?.readModel.potentiallyTruncated ?? false}
+                      />
+                    </QueryState>
                   </div>
                 </section>
               </div>

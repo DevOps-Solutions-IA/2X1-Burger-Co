@@ -146,7 +146,7 @@ function CaseDetail({ query }: { query: ReturnType<typeof useServiceCase> }) {
             <h3 className="font-heading text-base font-semibold text-ink">Relaciones operativas</h3>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <Relation label="Cliente" available={Boolean(serviceCase.customerId)} href={serviceCase.customerId ? `/customers/${serviceCase.customerId}` : undefined} />
-              <Relation label="Conversación" available={Boolean(serviceCase.conversationId)} href={serviceCase.conversationId ? `/conversations?conversation=${encodeURIComponent(serviceCase.conversationId)}` : undefined} />
+              <Relation label="Conversación" available={Boolean(serviceCase.conversationId)} href={serviceCase.conversationId ? `/conversations/${encodeURIComponent(serviceCase.conversationId)}` : undefined} />
               <Relation label="Pedido" available={Boolean(serviceCase.orderTicketId)} href={serviceCase.orderTicketId ? `/orders/${serviceCase.orderTicketId}` : undefined} />
               <Relation label="Pago" available={Boolean(serviceCase.paymentIntentId)} href={serviceCase.paymentIntentId ? `/payments?intent=${encodeURIComponent(serviceCase.paymentIntentId)}` : undefined} />
               <Relation label="Incidencia de entrega" available={Boolean(serviceCase.deliveryIssueId)} />

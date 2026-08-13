@@ -46,8 +46,8 @@ export function DataTableShell<Row>({
   const gridStyle = { '--data-table-columns': gridTemplateColumns } as CSSProperties;
 
   return (
-    <div className={cn('overflow-hidden rounded-2xl border border-line bg-panel shadow-sm', className)}>
-      <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} className="overflow-x-auto text-sm">
+    <div className={cn('min-w-0 max-w-full overflow-hidden rounded-2xl border border-line bg-panel shadow-sm', className)}>
+      <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} tabIndex={0} className="w-full max-w-full overflow-x-auto text-sm">
         <div role="rowgroup" className="hidden min-w-max border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted md:block">
           <div role="row" style={gridStyle} className="grid grid-cols-[var(--data-table-columns)]">
             {columns.map((column) => (

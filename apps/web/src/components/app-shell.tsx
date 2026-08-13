@@ -52,7 +52,7 @@ const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavIt
   {
     title: 'Control',
     items: [
-      { href: '/overview', label: 'Overview', icon: Gauge },
+      { href: '/overview', label: 'Overview', icon: Gauge, roles: ['admin', 'supervisor', 'cashier'] },
       { href: '/sofia', label: 'Sofia', icon: Bot, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
     ],
   },
@@ -286,6 +286,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       const Icon = item.icon;
                       const active =
                         pathname === item.href ||
+                        (item.href === '/overview' && pathname === '/dashboard') ||
                         (item.href !== '/sofia' && pathname?.startsWith(`${item.href}/`) === true);
                       return (
                         <Link

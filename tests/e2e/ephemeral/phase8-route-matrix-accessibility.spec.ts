@@ -162,6 +162,7 @@ test.describe('Phase 8 authenticated route accessibility matrix', () => {
           });
         }
         await expect(page.getByRole('button', { name: 'Buscar en toda la operación' })).toHaveCount(0);
+        await expect(page.getByTestId('nav-overview')).toHaveCount(0);
         expect(mutations).toEqual([]);
       } finally {
         await context.close();

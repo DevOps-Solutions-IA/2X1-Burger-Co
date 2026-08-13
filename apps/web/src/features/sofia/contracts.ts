@@ -526,7 +526,7 @@ const sofiaCrmSafeTimelineTextSchema = z
   .refine((value) => !sofiaCrmUnmaskedPhonePattern.test(value), 'El timeline CRM contiene una identidad sin enmascarar.');
 const sofiaCrmMaskedIdentitySchema = z
   .string()
-  .regex(/^\*{3}(?: \*{3} \d{4})?$/, 'La identidad CRM no esta enmascarada.');
+  .regex(/^(?:\+\d{1,3} )?\*{3}(?: \*{3} \d{4})?$/, 'La identidad CRM no esta enmascarada.');
 
 export const sofiaCrmCustomerIdentitySchema = z.object({
   id: z.string(),

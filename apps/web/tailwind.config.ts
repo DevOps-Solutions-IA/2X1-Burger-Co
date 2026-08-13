@@ -27,7 +27,7 @@ const config: Config = {
         danger: '#b42318',
         signal: {
           success: '#247247',
-          warning: '#A45B08',
+          warning: '#854405',
           danger: '#B42318',
           info: '#23638A',
           neutral: '#68655D',

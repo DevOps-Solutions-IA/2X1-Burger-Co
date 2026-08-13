@@ -4,6 +4,7 @@ import type {
   SofiaInboxScope,
   SofiaConversationsInbox,
 } from '@/features/sofia/contracts';
+import type { CrmTimelineEvent } from '@/features/crm/contracts';
 
 export type TimelineActor = 'CUSTOMER' | 'SOFIA' | 'HUMAN_AGENT' | 'SYSTEM_EVENT';
 
@@ -18,6 +19,87 @@ export type ConversationFilter =
   | 'historical';
 
 export type ConversationAction = 'pause' | 'resume' | 'take-over' | 'release';
+
+export type CustomerOperationalRelationType =
+  | 'CONVERSATION'
+  | 'ORDER_CHECKOUT'
+  | 'PAYMENT_INTENT'
+  | 'DELIVERY_EVENT'
+  | 'SERVICE_CASE';
+
+export type CustomerOperationalRelation = {
+  id: string;
+  type: CustomerOperationalRelationType;
+  occurredAt: string;
+  status: string | null;
+  secondaryStatus: string | null;
+  summary: string | null;
+  amount: string | null;
+  currency: string | null;
+  href: string | null;
+  financialSuccess: boolean | null;
+};
+
+const operationalRelationTypes = new Set<CustomerOperationalRelationType>([
+  'CONVERSATION',
+  'ORDER_CHECKOUT',
+  'PAYMENT_INTENT',
+  'DELIVERY_EVENT',
+  'SERVICE_CASE',
+]);
+
+function factString(facts: Record<string, unknown>, key: string) {
+  const value = facts[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+export function customerOperationalRelations(
+  events: readonly CrmTimelineEvent[],
+): CustomerOperationalRelation[] {
+  return events.flatMap((event) => {
+    if (!operationalRelationTypes.has(event.type as CustomerOperationalRelationType)) return [];
+
+    const type = event.type as CustomerOperationalRelationType;
+    const status = type === 'DELIVERY_EVENT'
+      ? factString(event.facts, 'toStatus')
+      : factString(event.facts, 'status');
+    const orderTicketId = factString(event.facts, 'orderTicketId');
+    const href = type === 'CONVERSATION'
+      ? `/conversations/${encodeURIComponent(event.id)}`
+      : type === 'PAYMENT_INTENT'
+        ? `/payments?intent=${encodeURIComponent(event.id)}`
+        : type === 'DELIVERY_EVENT'
+          ? orderTicketId ? `/orders/${encodeURIComponent(orderTicketId)}` : null
+          : type === 'SERVICE_CASE'
+            ? `/customer-service?case=${encodeURIComponent(event.id)}`
+            : null;
+
+    return [{
+      id: event.id,
+      type,
+      occurredAt: event.occurredAt,
+      status,
+      secondaryStatus: type === 'CONVERSATION'
+        ? factString(event.facts, 'handoffState')
+        : type === 'ORDER_CHECKOUT'
+          ? factString(event.facts, 'fulfillment')
+          : type === 'DELIVERY_EVENT'
+            ? factString(event.facts, 'fromStatus')
+            : type === 'SERVICE_CASE'
+              ? factString(event.facts, 'category')
+              : factString(event.facts, 'provider'),
+      summary: factString(event.facts, 'summary'),
+      amount: type === 'PAYMENT_INTENT'
+        ? factString(event.facts, 'amount')
+        : type === 'ORDER_CHECKOUT'
+          ? factString(event.facts, 'total')
+          : null,
+      currency: factString(event.facts, 'currency'),
+      href,
+      financialSuccess: type === 'PAYMENT_INTENT' ? status === 'SUCCEEDED' : null,
+    }];
+  });
+}
 
 export const conversationFilters: ReadonlyArray<{ id: ConversationFilter; label: string }> = [
   { id: 'operational', label: 'Operación' },

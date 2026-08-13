@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,28 @@ const repositoryRoot = resolve(fileURLToPath(new URL('../../', import.meta.url))
 function source(relativePath: string) {
   return readFileSync(resolve(repositoryRoot, 'apps/web/src', relativePath), 'utf8');
 }
+
+function operationalRoutes() {
+  const appRoot = resolve(repositoryRoot, 'apps/web/src/app');
+  return readdirSync(appRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && (entry.name === 'page.tsx' || entry.name === 'route.ts'))
+    .map((entry) => {
+      const segments = resolve(entry.parentPath, entry.name)
+        .slice(appRoot.length + 1)
+        .split('/')
+        .filter((segment) => !segment.startsWith('(') && segment !== 'page.tsx' && segment !== 'route.ts');
+      return `/${segments.join('/')}`.replace(/\/$/, '') || '/';
+    })
+    .sort();
+}
+
+test('classifies every frontend route explicitly in the Phase 8 audit', () => {
+  const audit = readFileSync(resolve(repositoryRoot, '.engineering/sofia-production/phases/phase-08/route-audit.md'), 'utf8');
+
+  for (const route of operationalRoutes()) {
+    assert.ok(audit.includes('| `' + route + '` |'), route);
+  }
+});
 
 test('bounds shared table rendering without duplicating row identity', () => {
   const rows = Array.from({ length: 125 }, (_, index) => ({ id: index + 1 }));
@@ -47,6 +69,26 @@ test('keeps one main landmark authority in the application shell', () => {
   for (const path of featureRoots) {
     assert.doesNotMatch(source(path), /<\/?main\b/, path);
   }
+});
+
+test('keeps field shells scrollable with valid shell-owned skip targets', () => {
+  const rootLayout = source('app/layout.tsx');
+  const globalCss = source('app/globals.css');
+  const deliveryLayout = source('app/(delivery)/delivery-layout.client.tsx');
+  const waiterLayout = source('app/(waiter)/waiter-layout.client.tsx');
+
+  assert.doesNotMatch(rootLayout, /href="#main-content"/);
+  assert.doesNotMatch(globalCss, /body\s*\{\s*overflow:\s*hidden/);
+  assert.match(deliveryLayout, /href="#delivery-main"/);
+  assert.match(waiterLayout, /href="#waiter-main"/);
+  assert.match(deliveryLayout, /canAccessRoute\(safePathname, user\?\.permissions, user\?\.roles\)/);
+});
+
+test('uses canonical detail links for customer-service conversations', () => {
+  const support = source('features/support-operations/customer-service-screen.tsx');
+
+  assert.match(support, /`\/conversations\/\$\{encodeURIComponent\(serviceCase\.conversationId\)\}`/);
+  assert.doesNotMatch(support, /\/conversations\?conversation=/);
 });
 
 test('uses bounded selection semantics for payment views', () => {
