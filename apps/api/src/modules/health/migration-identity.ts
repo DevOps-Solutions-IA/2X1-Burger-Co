@@ -42,7 +42,7 @@ const AUTHORIZED_ATTESTATION = {
 // database state. Name and Prisma checksum must both match exactly.
 const AUTHORIZED_FORWARD_MIGRATIONS = [{
   migrationName: '20260812130000_sofia_crm_product_core',
-  checksum: '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd',
+  checksum: 'bca23bb076e0613a9b6baa6fd3d4475a31491d18167053278fa42d8eb8a821a9',
   baseMigrationCount: 37,
   baseLatestMigration: '20260809030000_sofia_live_operations_recovery_core',
   baseInventoryFingerprint: '130bc2f2b8338c4340f316bfb740b4933db7a5c93b8d0ddb9b1eb8a59f18d1e8',

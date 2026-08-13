@@ -168,7 +168,7 @@ describe('HealthService', () => {
     const rows = appliedRows(frontier37);
     rows.push({
       migrationName: '20260812130000_sofia_crm_product_core',
-      checksum: '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd',
+      checksum: 'bca23bb076e0613a9b6baa6fd3d4475a31491d18167053278fa42d8eb8a821a9',
       finished: true,
       rolledBack: false,
     });
