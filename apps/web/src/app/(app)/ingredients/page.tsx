@@ -231,7 +231,11 @@ export default function IngredientsPage() {
         eyebrow="Catálogo operativo"
         title="Insumos"
         description="Controla materia prima, costos y umbrales de stock con señales operativas verificables."
-        status={<StatusBadge status={metrics.low ? 'PENDING' : 'ACTIVE'} label={`${metrics.low} en alerta`} />}
+        status={ingredients.isError
+          ? <StatusBadge status="UNKNOWN" label={ingredients.data ? 'Insumos desactualizados' : 'Insumos sin verificar'} />
+          : ingredients.isSuccess
+            ? <StatusBadge status={metrics.low ? 'PENDING' : 'ACTIVE'} label={`${metrics.low} en alerta`} />
+            : <StatusBadge status="PENDING" label="Verificando insumos" />}
         actions={
           <Button type="button" variant="secondary" onClick={() => { setSelectedIngredient(null); setForm(initialForm); setSubmitAttempted(false); }}>
             Nuevo insumo

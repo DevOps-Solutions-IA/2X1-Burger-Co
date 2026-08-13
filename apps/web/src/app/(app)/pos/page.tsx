@@ -605,7 +605,23 @@ export default function PosPage() {
       });
   }, [tables.data, selectedTableId, activeOrderId, activeOrders.data]);
 
+  const operationalSourcesReady =
+    currentCash.isSuccess &&
+    products.isSuccess &&
+    paymentMethods.isSuccess &&
+    (orderType !== 'DINE_IN' || tables.isSuccess);
+  const operationalSourcesUnavailable =
+    currentCash.isError ||
+    products.isError ||
+    paymentMethods.isError ||
+    (orderType === 'DINE_IN' && tables.isError);
+
   const orderIssues = [
+    !operationalSourcesReady
+      ? operationalSourcesUnavailable
+        ? 'No se puede guardar ni cobrar mientras una fuente operativa requerida esté sin verificar.'
+        : 'Espera a que caja, catálogo, pagos y mesas requeridas terminen de cargar.'
+      : null,
     !currentCash.data ? 'Abre una sesión de caja antes de trabajar con comandas.' : null,
     !cart.length ? 'Agrega al menos un producto a la comanda.' : null,
     orderType === 'DINE_IN' && !selectedTableId ? 'Selecciona una mesa para la comanda.' : null,
@@ -1082,6 +1098,10 @@ export default function PosPage() {
 
   const saveOrder = useMutation({
     mutationFn: async () => {
+      if (!operationalSourcesReady) {
+        throw new Error('No se puede guardar la comanda sin verificar las fuentes operativas requeridas.');
+      }
+
       if (orderType === 'DELIVERY' && !deliveryCanCheckout) {
         throw new Error('Calcula un domicilio válido antes de guardar.');
       }
@@ -1419,7 +1439,13 @@ export default function PosPage() {
             onResetWorkspace={() => resetWorkspace()}
             onSaveOrder={() => saveOrder.mutate()}
             onCancelOrder={() => cancelOrder.mutate()}
-            onCheckoutOrder={() => checkoutOrder.mutate()}
+            onCheckoutOrder={() => {
+              if (!operationalSourcesReady) {
+                toast.error('No se puede cobrar sin verificar las fuentes operativas requeridas.');
+                return;
+              }
+              checkoutOrder.mutate();
+            }}
           />
         </Card>
       </div>

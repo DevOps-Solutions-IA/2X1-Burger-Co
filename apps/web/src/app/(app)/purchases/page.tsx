@@ -119,6 +119,9 @@ export default function PurchasesPage() {
     queryKey: ['payment-methods'],
     queryFn: () => apiFetch<PaymentMethod[]>('/payment-methods'),
   });
+  const purchaseSourcesReady =
+    suppliers.isSuccess && ingredients.isSuccess && products.isSuccess && paymentMethods.isSuccess;
+  const dependencyError = suppliers.error ?? ingredients.error ?? products.error ?? paymentMethods.error;
 
   useEffect(() => {
     const firstPurchase = purchases.data?.[0];
@@ -162,8 +165,12 @@ export default function PurchasesPage() {
   };
 
   const createPurchase = useMutation({
-    mutationFn: () =>
-      apiFetch<Purchase>('/purchases', {
+    mutationFn: () => {
+      if (!purchaseSourcesReady) {
+        return Promise.reject(new Error('No se puede registrar la compra sin verificar los catálogos requeridos.'));
+      }
+
+      return apiFetch<Purchase>('/purchases', {
         method: 'POST',
         body: JSON.stringify({
           supplierId: useTempProvider ? undefined : supplierId,
@@ -179,7 +186,8 @@ export default function PurchasesPage() {
               : { productId: item.targetId }),
           })),
         }),
-      }),
+      });
+    },
     onSuccess: async (purchase) => {
       toast.success('Compra registrada y stock actualizado');
       setSupplierId('');
@@ -211,6 +219,11 @@ export default function PurchasesPage() {
     setSubmitAttempted(true);
     const hasLineErrors = items.some((item) => Boolean(getPurchaseLineError(item)));
 
+    if (!purchaseSourcesReady) {
+      toast.error('Reintenta los catálogos requeridos antes de registrar la compra.');
+      return;
+    }
+
     if (providerMissing || hasLineErrors) {
       toast.error('Completa proveedor, cantidades, costos y líneas antes de confirmar.');
       return;
@@ -218,7 +231,6 @@ export default function PurchasesPage() {
 
     createPurchase.mutate();
   };
-  const dependencyError = suppliers.error ?? ingredients.error ?? products.error ?? paymentMethods.error;
 
   return (
     <div className="space-y-6">
@@ -272,7 +284,7 @@ export default function PurchasesPage() {
                           <option value="">Selecciona proveedor guardado</option>
                           {activeSuppliers.map((supplier) => (<option key={supplier.id} value={supplier.id}>{supplier.name}</option>))}
                         </Select>
-                        <button type="button" className="text-[12px] font-semibold text-stone-600 underline underline-offset-2 hover:text-ink" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
+                        <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(true); setSupplierId(''); }} data-testid="purchase-temp-provider-toggle">
                           Usar proveedor no registrado
                         </button>
                       </div>
@@ -280,7 +292,7 @@ export default function PurchasesPage() {
                       <div className="space-y-2">
                         <Input value={tempProviderName} onChange={(event) => setTempProviderName(event.target.value)} placeholder="Ej. Don Carlos - Carnes del Valle" data-testid="purchase-temp-provider-name" />
                         <div className="flex items-center gap-2">
-                          <button type="button" className="text-[12px] font-semibold text-stone-600 underline underline-offset-2 hover:text-ink" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }}>
+                          <button type="button" className="inline-flex min-h-11 min-w-11 items-center rounded-lg px-2 text-[12px] font-semibold text-stone-600 underline underline-offset-2 transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => { setUseTempProvider(false); setTempProviderName(''); }} data-testid="purchase-saved-provider-toggle">
                             Usar proveedor guardado
                           </button>
                           <span className="text-[12px] text-stone-600">Solo para esta compra</span>
@@ -382,7 +394,7 @@ export default function PurchasesPage() {
                     <p className="mt-1 text-[1.5rem] font-black leading-none text-ink tabular-nums">{formatCurrency(computedTotal)}</p>
                     <p className="mt-1 text-[12px] font-semibold text-stone-600">{items.length} lineas &middot; {supplierId ? activeSuppliers.find((supplier) => supplier.id === supplierId)?.name ?? 'Proveedor' : useTempProvider && tempProviderName.trim() ? tempProviderName.trim() : 'Proveedor pendiente'}</p>
                   </div>
-                  <Button data-testid="purchase-submit" type="submit" disabled={createPurchase.isPending} className="shrink-0">
+                  <Button data-testid="purchase-submit" type="submit" disabled={createPurchase.isPending || !purchaseSourcesReady} className="shrink-0">
                     {createPurchase.isPending ? 'Registrando...' : 'Guardar compra'}
                   </Button>
                 </div>

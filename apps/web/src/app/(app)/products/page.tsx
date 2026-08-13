@@ -303,7 +303,11 @@ export default function ProductsPage() {
         eyebrow="Catálogo operativo"
         title="Productos — Carta y stock"
         description="Gobierna precios, costos, disponibilidad y trazabilidad sin separar la carta de la operación."
-        status={<StatusBadge status="ACTIVE" label={`${metrics.active} activos`} />}
+        status={products.isError
+          ? <StatusBadge status="UNKNOWN" label={products.data ? 'Catálogo desactualizado' : 'Catálogo sin verificar'} />
+          : products.isSuccess
+            ? <StatusBadge status="ACTIVE" label={`${metrics.active} activos`} />
+            : <StatusBadge status="PENDING" label="Verificando catálogo" />}
         actions={
           <Button type="button" variant="secondary" onClick={() => { setSelectedProduct(null); setForm(initialForm); setSubmitAttempted(false); }}>
             Nuevo producto

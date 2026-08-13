@@ -86,6 +86,13 @@ export function KitchenScreen() {
     );
   };
   const clearFilters = () => { setQuery(''); setStatus(''); setType(''); };
+  const sourceStatus = result.isError
+    ? <StatusBadge status="UNKNOWN" label={result.data ? 'Cola desactualizada' : 'Cola sin verificar'} />
+    : result.isFetching
+      ? <StatusBadge status="PENDING" label="Sincronizando" />
+      : result.isSuccess
+        ? <StatusBadge status="ACTIVE" label="Cola conectada" />
+        : <StatusBadge status="UNKNOWN" label="Cola sin verificar" />;
 
   return (
     <div className="space-y-5 p-3 sm:p-5 lg:p-6" data-testid="kitchen-page">
@@ -94,7 +101,7 @@ export function KitchenScreen() {
         eyebrow="Producción"
         title="Cocina"
         description="Cola operativa en tiempo real. El tiempo mostrado es transcurrido, no una promesa de entrega."
-        status={<StatusBadge status={result.isFetching ? 'PENDING' : 'ACTIVE'} label={result.isFetching ? 'Sincronizando' : 'Cola conectada'} />}
+        status={sourceStatus}
         actions={<Button type="button" variant="secondary" onClick={() => void result.refetch()} disabled={result.isFetching}><RefreshCw className={cn('h-4 w-4', result.isFetching && 'animate-spin')} />Actualizar</Button>}
       />
       <FilterBar

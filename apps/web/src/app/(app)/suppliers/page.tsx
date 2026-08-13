@@ -131,9 +131,9 @@ export default function SuppliersPage() {
         eyebrow="Red de abastecimiento"
         title="Proveedores"
         description="Directorio comercial, disponibilidad y datos de contacto para compras autorizadas."
-        status={suppliers.data
+        status={suppliers.data && !suppliers.isError
           ? <StatusBadge status="ACTIVE" label={`${suppliers.data.length} proveedores`} tone="info" />
-          : <StatusBadge status="UNKNOWN" label="Directorio sin verificar" />}
+          : <StatusBadge status="UNKNOWN" label={suppliers.data ? 'Directorio desactualizado' : 'Directorio sin verificar'} />}
         actions={
           <Button type="button" variant="secondary" onClick={() => { setSelectedSupplier(null); setForm(initialForm); setSubmitAttempted(false); }} data-testid="supplier-form">
             Nuevo proveedor

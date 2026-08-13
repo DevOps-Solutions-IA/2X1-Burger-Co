@@ -107,6 +107,13 @@ export function OrdersScreen() {
     setActiveOnly(false);
     resetPage();
   };
+  const sourceStatus = result.isError
+    ? <StatusBadge status="UNKNOWN" label={result.data ? 'Datos desactualizados' : 'Datos sin verificar'} />
+    : result.isFetching
+      ? <StatusBadge status="PENDING" label="Actualizando" />
+      : result.isSuccess
+        ? <StatusBadge status="ACTIVE" label="Datos operativos" />
+        : <StatusBadge status="UNKNOWN" label="Datos sin verificar" />;
 
   return (
     <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="orders-page">
@@ -114,7 +121,7 @@ export function OrdersScreen() {
         eyebrow="Operación comercial"
         title="Pedidos"
         description="Consulta el estado comercial, financiero y de entrega sin sustituir la autoridad del backend."
-        status={<StatusBadge status={result.isFetching ? 'PENDING' : 'ACTIVE'} label={result.isFetching ? 'Actualizando' : 'Datos operativos'} />}
+        status={sourceStatus}
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

@@ -101,6 +101,7 @@ export default function ExpensesPage() {
     queryKey: ['daily-summary'],
     queryFn: () => apiFetch<DailySummary>('/reports/daily'),
   });
+  const expenseSourcesReady = dailySummary.isSuccess && paymentMethods.isSuccess;
 
   const filteredExpenses = useMemo(
     () =>
@@ -122,14 +123,19 @@ export default function ExpensesPage() {
   };
 
   const createExpense = useMutation({
-    mutationFn: () =>
-      apiFetch('/expenses', {
+    mutationFn: () => {
+      if (!expenseSourcesReady) {
+        return Promise.reject(new Error('No se puede registrar el gasto sin verificar las fuentes financieras requeridas.'));
+      }
+
+      return apiFetch('/expenses', {
         method: 'POST',
         body: JSON.stringify({
           ...form,
           amount: Number(form.amount),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Gasto registrado y aplicado al cierre del día');
       setForm(blankExpenseForm);
@@ -148,6 +154,11 @@ export default function ExpensesPage() {
 
   const submitExpense = () => {
     setSubmitAttempted(true);
+
+    if (!expenseSourcesReady) {
+      toast.error('Reintenta las fuentes financieras antes de registrar el gasto.');
+      return;
+    }
 
     if (rawErrors.concept || rawErrors.classification || rawErrors.amount || rawErrors.paymentMethodId) {
       toast.error('Completa concepto, clasificación, monto y método de pago antes de guardar.');
@@ -169,9 +180,9 @@ export default function ExpensesPage() {
         eyebrow="Control financiero"
         title="Gastos"
         description="Registra egresos autorizados y conserva una lectura verificable del impacto diario."
-        status={dailySummary.data
+        status={dailySummary.data && !dailySummary.isError
           ? <StatusBadge status="OPEN" label={`${dailySummary.data.expenses?.count ?? 0} hoy`} tone="warning" />
-          : <StatusBadge status="UNKNOWN" label="Resumen sin verificar" />}
+          : <StatusBadge status="UNKNOWN" label={dailySummary.data ? 'Resumen desactualizado' : 'Resumen sin verificar'} />}
       />
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -236,7 +247,7 @@ export default function ExpensesPage() {
             <Field label="Descripción" hint="Contexto operativo del egreso.">
               <Textarea value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} className="min-h-[5rem]" placeholder="Ej. Compra urgente de servilletas turno noche" />
             </Field>
-            <Button data-testid="expense-submit" type="submit" className="w-full" disabled={createExpense.isPending}>
+            <Button data-testid="expense-submit" type="submit" className="w-full" disabled={createExpense.isPending || !expenseSourcesReady}>
               {createExpense.isPending ? 'Registrando...' : 'Guardar gasto'}
             </Button>
           </form>

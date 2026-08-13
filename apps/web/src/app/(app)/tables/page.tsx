@@ -468,7 +468,9 @@ export default function TablesPage() {
         eyebrow="Operación de salón"
         title="Mesas y servicio"
         description="Gestiona disponibilidad, comandas y responsables sin perder el estado real del salón."
-        status={tables.data ? <Badge tone="info">{metrics.occupied} con servicio</Badge> : undefined}
+        status={tables.data && !tables.isError
+          ? <Badge tone="info">{metrics.occupied} con servicio</Badge>
+          : <Badge tone="warning">{tables.data ? 'Salón desactualizado' : 'Salón sin verificar'}</Badge>}
         actions={
           <Button type="button" variant="secondary" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
