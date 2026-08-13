@@ -398,28 +398,28 @@ export default function ProductsPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[14px] font-extrabold text-ink truncate">{product.name}</p>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[10px] font-semibold text-stone-400">{getProductBrandLabel(productBrand)}</span>
-                        <span className={`text-[10px] font-bold uppercase tracking-[0.05em] ${product.kind === 'DIRECT_STOCK' ? 'text-sky-600' : 'text-stone-500'}`}>
+                        <span className="text-xs font-semibold text-stone-600">{getProductBrandLabel(productBrand)}</span>
+                        <span className={`text-xs font-bold uppercase tracking-[0.05em] ${product.kind === 'DIRECT_STOCK' ? 'text-sky-700' : 'text-stone-600'}`}>
                           {product.kind === 'DIRECT_STOCK' ? 'Directo' : 'Preparado'}
                         </span>
-                        <span className={`text-[10px] font-bold ${product.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>
+                        <span className={`text-xs font-bold ${product.isActive ? 'text-emerald-700' : 'text-stone-600'}`}>
                           {product.isActive ? 'Activo' : 'Inactivo'}
                         </span>
-                        {lowStock ? <span className="text-[10px] font-bold text-red-600">Stock bajo</span> : null}
+                        {lowStock ? <span className="text-xs font-bold text-red-700">Stock bajo</span> : null}
                       </div>
                     </div>
                     <p className="mt-0.5 text-[11px] text-stone-500">{product.code} &middot; {product.category.name}</p>
                     <div className="mt-2 grid grid-cols-3 gap-1.5">
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Venta</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Venta</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatCurrency(product.salePrice)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Costo</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Costo</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatCurrency(product.costPrice)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Stock</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Stock</p>
                         <p className={`mt-0.5 text-[12px] font-extrabold tabular-nums ${lowStock ? 'text-red-600' : 'text-ink'}`}>{formatNumber(product.currentStock)}</p>
                       </div>
                     </div>

@@ -293,24 +293,24 @@ export default function IngredientsPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[14px] font-extrabold text-ink truncate">{ingredient.name}</p>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`text-[10px] font-bold ${ingredient.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>
+                        <span className={`text-xs font-bold ${ingredient.isActive ? 'text-emerald-700' : 'text-stone-600'}`}>
                           {ingredient.isActive ? 'Activo' : 'Inactivo'}
                         </span>
-                        {lowStock ? <span className="text-[10px] font-bold text-red-600">Stock bajo</span> : null}
+                        {lowStock ? <span className="text-xs font-bold text-red-700">Stock bajo</span> : null}
                       </div>
                     </div>
                     <p className="mt-0.5 text-[11px] text-stone-500">{ingredient.code} &middot; {ingredient.unit.abbreviation}</p>
                     <div className="mt-2 grid grid-cols-3 gap-1.5">
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Stock</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Stock</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatNumber(ingredient.currentStock)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Minimo</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Minimo</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatNumber(ingredient.stockMin)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Costo</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Costo</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatCurrency(ingredient.costPrice)}</p>
                       </div>
                     </div>

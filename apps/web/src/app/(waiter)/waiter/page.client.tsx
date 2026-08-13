@@ -1678,7 +1678,7 @@ export default function WaiterClientPage() {
                     className="min-h-24 rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 disabled:opacity-40">
                     <p className="line-clamp-2 text-sm font-extrabold leading-tight text-ink">{product.name}</p>
                     <div className="mt-2 flex items-center justify-between">
-                      <p className="text-sm font-black text-brand-700 tabular-nums">{formatCurrency(product.salePrice)}</p>
+                      <p className="text-sm font-black text-brand-900 tabular-nums">{formatCurrency(product.salePrice)}</p>
                       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-ink" aria-hidden="true"><Plus className="h-4 w-4" /></span>
                     </div>
                   </button>
@@ -1730,8 +1730,8 @@ export default function WaiterClientPage() {
             </div>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-stone-300 bg-stone-50/50 p-6 text-center">
-              <p className="text-[13px] font-bold text-stone-400">Carrito vacio</p>
-              <p className="mt-1 text-[11px] text-stone-400">Agrega productos desde el menu</p>
+              <p className="text-[13px] font-bold text-stone-600">Carrito vacio</p>
+              <p className="mt-1 text-xs text-stone-600">Agrega productos desde el menu</p>
             </div>
           )}
 
