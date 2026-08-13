@@ -499,7 +499,7 @@ function FilterButton({ id, label, count, selected, onClick, compact = false }: 
       aria-pressed={selected}
       className={cn(
         'shrink-0 rounded-xl border font-semibold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100',
-        compact ? 'min-h-10 px-3 text-xs' : 'min-h-11 px-3.5 text-sm',
+        compact ? 'min-h-11 px-3 text-xs' : 'min-h-11 px-3.5 text-sm',
         selected ? 'border-ink bg-ink text-white' : 'border-line bg-panel text-muted hover:border-brand-300 hover:text-ink',
       )}
       data-testid={`deliveries-filter-${id.replaceAll('_', '-')}`}

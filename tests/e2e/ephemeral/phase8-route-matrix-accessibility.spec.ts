@@ -5,6 +5,7 @@ import { expect, test } from '../fixtures/worker-auth';
 const VIEWPORTS = [
   { name: 'phone', width: 390, height: 844 },
   { name: 'tablet', width: 768, height: 1024 },
+  { name: 'desktop', width: 1440, height: 900 },
 ] as const;
 
 // Every static authenticated App Router page plus dynamic pages backed by the
@@ -100,6 +101,31 @@ function observeOperationalMutations(page: Page) {
   return mutations;
 }
 
+async function waitForResolvedInterface(page: Page) {
+  const visibleBusyRegions = page.locator('main [aria-busy="true"]:visible');
+  const visibleLoadingPlaceholders = page.locator('main [class*="animate-pulse"]:visible');
+
+  await expect.poll(
+    async () => {
+      if ((await visibleBusyRegions.count()) || (await visibleLoadingPlaceholders.count())) return false;
+      await page.waitForTimeout(250);
+      return (await visibleBusyRegions.count()) === 0 && (await visibleLoadingPlaceholders.count()) === 0;
+    },
+    {
+      message: 'the operational interface must settle before accessibility analysis',
+      timeout: 20_000,
+      intervals: [100, 250, 500],
+    },
+  ).toBe(true);
+
+  await page.evaluate(async () => {
+    await document.fonts?.ready;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
+}
+
 async function expectResponsiveAccessibleRoute(page: Page, route: string) {
   await page.goto(route, { waitUntil: 'domcontentloaded' });
   await expect(page).not.toHaveURL(/\/login(?:\?|$)/, { timeout: 20_000 });
@@ -107,6 +133,7 @@ async function expectResponsiveAccessibleRoute(page: Page, route: string) {
   await expect(page.getByRole('heading', { name: 'No tienes permisos para este módulo' })).toHaveCount(0);
   await expect(page.locator('main:visible')).toHaveCount(1);
   await expect(page.locator('body')).not.toContainText('Application error');
+  await waitForResolvedInterface(page);
 
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
