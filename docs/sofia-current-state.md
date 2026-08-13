@@ -84,7 +84,8 @@ imagen, health/readiness, smoke no financiero y reconciliacion de filas.
 
 - La UI CRM es de consulta; no crea campañas, mensajes, pagos, pedidos ni efectos operativos.
 - La identidad principal nueva se deriva con HMAC y se muestra enmascarada.
-- `CRM_IDENTITY_HASH_SECRET` debe existir en un secret store aprobado antes de staging remoto.
+- `CRM_IDENTITY_HASH_SECRET` debe existir en un secret store aprobado; durante rotacion, una unica
+  `CRM_IDENTITY_HASH_SECRET_PREVIOUS` permite reconocer replays historicos sin reescribir hashes.
 - El almacenamiento legado de memoria/telefonos y su politica de retencion requieren aprobacion legal/security antes de activar Sofia con clientes.
 - Consentimiento comercial explicito y canal outbound aprobado son requisitos previos a cualquier campaña.
 

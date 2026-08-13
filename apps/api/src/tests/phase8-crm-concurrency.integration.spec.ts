@@ -78,6 +78,59 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     expect(await prisma.auditLog.count({ where: { action: 'CRM_NOTE_CREATED' } })).toBe(1);
   });
 
+  it('deduplicates concurrent lead creation with one row, history event and audit record', async () => {
+    const actor = await prisma.user.create({
+      data: { email: 'crm-lead-create-race@example.test', fullName: 'CRM Lead Race', passwordHash: 'not-used' },
+    });
+    const customer = await prisma.customer.create({
+      data: { displayName: 'Cliente Lead Race', displayNameNormalized: 'cliente lead race' },
+    });
+    const pipeline = await repository.createPipeline({
+      name: 'Pipeline Lead Race',
+      stages: [{ name: 'Nuevo', position: 0, outcome: CrmPipelineStageOutcome.OPEN }],
+    }, actor.id);
+    const input = {
+      customerId: customer.id,
+      pipelineId: pipeline.pipeline.id,
+      currentStageId: pipeline.pipeline.stages[0]!.id,
+      source: CrmLeadSource.AUTHORIZED_OPERATOR,
+      sourceReference: 'same-lead-create-event',
+      title: 'Oportunidad concurrente',
+    };
+
+    const results = await Promise.all(Array.from({ length: 8 }, () => repository.createLead(input, actor.id)));
+
+    expect(new Set(results.map(({ lead }) => lead.id)).size).toBe(1);
+    expect(results.filter(({ state }) => state === 'CREATED')).toHaveLength(1);
+    expect(await prisma.crmLead.count({ where: { customerId: customer.id } })).toBe(1);
+    expect(await prisma.crmLeadStageHistory.count()).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_LEAD_CREATED' } })).toBe(1);
+  });
+
+  it('deduplicates concurrent task creation with one row and audit record', async () => {
+    const actor = await prisma.user.create({
+      data: { email: 'crm-task-create-race@example.test', fullName: 'CRM Task Race', passwordHash: 'not-used' },
+    });
+    const customer = await prisma.customer.create({
+      data: { displayName: 'Cliente Task Race', displayNameNormalized: 'cliente task race' },
+    });
+    const input = {
+      customerId: customer.id,
+      source: 'AUTHORIZED_OPERATOR',
+      sourceReference: 'same-task-create-event',
+      type: CrmTaskType.TASK,
+      priority: CrmTaskPriority.HIGH,
+      title: 'Seguimiento concurrente',
+    };
+
+    const results = await Promise.all(Array.from({ length: 8 }, () => repository.createTask(input, actor.id)));
+
+    expect(new Set(results.map(({ task }) => task.id)).size).toBe(1);
+    expect(results.filter(({ state }) => state === 'CREATED')).toHaveLength(1);
+    expect(await prisma.crmTask.count({ where: { customerId: customer.id } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_TASK_CREATED' } })).toBe(1);
+  });
+
   it('allows one lead transition winner and enforces its pipeline-stage binding in SQL', async () => {
     const actor = await prisma.user.create({
       data: { email: 'crm-concurrency-2@example.test', fullName: 'CRM Test', passwordHash: 'not-used' },

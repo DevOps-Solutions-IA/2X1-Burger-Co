@@ -11,6 +11,8 @@ const SECRET_ASSIGNMENT_PATTERN = /\b(?:api[_-]?key|access[_-]?(?:key(?:[_-]?id)
 const KNOWN_ACCESS_KEY_PATTERN = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bAIza[0-9A-Za-z_-]{35}\b|\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{20,255}\b|\bgithub_pat_[A-Za-z0-9_]{20,255}\b/g;
 const PAYMENT_CARD_PATTERN = /\b(?:\d[ -]*?){13,19}\b/g;
 const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+const LONG_NUMERIC_IDENTIFIER_PATTERN = /^\d{12,}$/;
+const UNSAFE_METADATA_KEY = /(?:__proto__|constructor|prototype)/i;
 
 export function maskPhone(value: string): string {
   const digits = value.replace(/\D/g, '');
@@ -56,8 +58,11 @@ export function sanitizeTimelineMetadata(value: unknown, depth = 0): unknown {
   if (depth > 4) return '[REDACTED]';
   if (typeof value === 'string') return sanitizeTimelineText(value).slice(0, 256);
   if (typeof value === 'number') {
-    const digits = String(value);
-    return /^3\d{9}$|^573\d{9}$/.test(digits) ? maskPhone(digits) : value;
+    const digits = String(Math.abs(value));
+    if (/^3\d{9}$|^573\d{9}$/.test(digits)) return maskPhone(digits);
+    return !Number.isSafeInteger(value) || LONG_NUMERIC_IDENTIFIER_PATTERN.test(digits)
+      ? '[NUMERIC_IDENTIFIER_REDACTED]'
+      : value;
   }
   if (typeof value === 'boolean' || value === null) return value;
   if (Array.isArray(value)) {
@@ -68,9 +73,22 @@ export function sanitizeTimelineMetadata(value: unknown, depth = 0): unknown {
   return Object.fromEntries(
     Object.entries(value)
       .slice(0, 30)
-      .map(([key, entry]) => [
-        key,
-        SENSITIVE_KEY.test(key) ? '[REDACTED]' : sanitizeTimelineMetadata(entry, depth + 1),
-      ]),
+      .map(([key, entry], index) => {
+        const normalizedKey = key.normalize('NFKC').trim();
+        const keyContainsSensitiveData = SENSITIVE_KEY.test(normalizedKey)
+          || UNSAFE_METADATA_KEY.test(normalizedKey)
+          || LONG_NUMERIC_IDENTIFIER_PATTERN.test(normalizedKey.replace(/\D/g, ''))
+          || sanitizeTimelineText(normalizedKey).includes('[', 0);
+        const safeKey = keyContainsSensitiveData
+          ? `redacted_field_${index + 1}`
+          : normalizedKey
+              .replace(/[^A-Za-z0-9_.-]/g, '_')
+              .replace(/_+/g, '_')
+              .slice(0, 64) || `field_${index + 1}`;
+        return [
+          safeKey,
+          keyContainsSensitiveData ? '[REDACTED]' : sanitizeTimelineMetadata(entry, depth + 1),
+        ];
+      }),
   );
 }

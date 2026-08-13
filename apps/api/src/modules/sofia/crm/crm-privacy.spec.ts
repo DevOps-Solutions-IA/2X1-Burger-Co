@@ -80,6 +80,34 @@ describe('Sofia CRM privacy', () => {
     );
     expect(
       sanitizeTimelineMetadata({ phone: '3237963047', note: 'Llamar al 323 796 3047' }),
-    ).toEqual({ phone: '[REDACTED]', note: 'Llamar al *** *** 3047' });
+    ).toEqual({ redacted_field_1: '[REDACTED]', note: 'Llamar al *** *** 3047' });
+  });
+
+  it('redacts long numeric identifiers whether supplied as values or object keys', () => {
+    const sanitized = sanitizeTimelineMetadata({
+      externalReference: 411111111111111,
+      '4111111111111111': 'customer supplied key',
+      safe_count: 12,
+    });
+
+    expect(sanitized).toEqual({
+      externalReference: '[NUMERIC_IDENTIFIER_REDACTED]',
+      redacted_field_2: '[REDACTED]',
+      safe_count: 12,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain('411111111111111');
+  });
+
+  it('normalizes unsafe metadata keys without allowing prototype-shaped keys through', () => {
+    const metadata = Object.create(null) as Record<string, unknown>;
+    metadata['customer label'] = 'Preferente';
+    metadata.__proto__ = 'do not persist';
+    metadata['api-token'] = 'do not persist';
+
+    expect(sanitizeTimelineMetadata(metadata)).toEqual({
+      customer_label: 'Preferente',
+      redacted_field_2: '[REDACTED]',
+      redacted_field_3: '[REDACTED]',
+    });
   });
 });

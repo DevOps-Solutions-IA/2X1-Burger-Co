@@ -10,6 +10,7 @@ const requiredEnv = {
 const productionEnv = {
   ...requiredEnv,
   NODE_ENV: 'production',
+  CRM_IDENTITY_HASH_SECRET: 'production-crm-identity-hash-secret-test-value',
   COOKIE_SECURE: 'true',
   APP_URL: 'https://app.2x1burger.example',
   PUBLIC_PAYMENTS_BASE_URL: 'https://pay.2x1burger.example',
@@ -17,6 +18,29 @@ const productionEnv = {
 };
 
 describe('environment boolean parsing', () => {
+  it('accepts one previous CRM hash key only with a distinct current key', () => {
+    const current = 'crm-current-hash-secret-at-least-32-characters';
+    const previous = 'crm-previous-hash-secret-at-least-32-characters';
+
+    expect(validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: previous,
+    })).toMatchObject({
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: previous,
+    });
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: previous,
+    })).toThrow('CRM_IDENTITY_HASH_CURRENT_REQUIRED_FOR_ROTATION');
+    expect(() => validateEnv({
+      ...requiredEnv,
+      CRM_IDENTITY_HASH_SECRET: current,
+      CRM_IDENTITY_HASH_SECRET_PREVIOUS: current,
+    })).toThrow('CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER');
+  });
+
   it('preserves explicit false values for operational safety flags', () => {
     const env = validateEnv({
       ...requiredEnv,
@@ -85,6 +109,11 @@ describe('environment boolean parsing', () => {
 });
 
 describe('production Sofia safety validation', () => {
+  it('fails closed when production CRM hashing is not configured', () => {
+    const { CRM_IDENTITY_HASH_SECRET: _omitted, ...withoutCrmSecret } = productionEnv;
+    expect(() => validateEnv(withoutCrmSecret)).toThrow('CRM_IDENTITY_HASH_SECRET_REQUIRED');
+  });
+
   it('accepts production startup when test-only harness variables are absent', () => {
     const env = validateEnv(productionEnv);
 

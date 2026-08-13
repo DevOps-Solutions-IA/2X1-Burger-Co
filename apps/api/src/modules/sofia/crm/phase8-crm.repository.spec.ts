@@ -8,6 +8,7 @@ import {
 import type { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { AuditService } from '../../audit/audit.service';
+import { opaqueCrmReference } from './crm-privacy';
 import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
 
 describe('Phase8CrmRepository', () => {
@@ -142,7 +143,7 @@ describe('Phase8CrmRepository', () => {
       toStatus: transition.toStatus,
       actorId: 'actor-1',
       reasonCode: transition.reasonCode,
-      sanitizedMetadata: { phone: '[REDACTED]', source: 'operator' },
+      sanitizedMetadata: { redacted_field_1: '[REDACTED]', source: 'operator' },
     });
     leadFindUnique.mockResolvedValue({ id: 'lead-1', version: 3, status: CrmLeadStatus.ACTIVE });
 
@@ -181,7 +182,7 @@ describe('Phase8CrmRepository', () => {
 
   it('rejects a replay whose source identity points to different task facts', async () => {
     const taskFindUnique = jest.fn().mockResolvedValue({
-      customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
+      id: 'task-1', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Original',
       sanitizedDescription: null, assignedToId: null, dueAt: null,
     });
@@ -193,6 +194,38 @@ describe('Phase8CrmRepository', () => {
       customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR', sourceReference: 'task-1',
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Different',
     }, 'actor-1')).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({ code: 'CRM_IDEMPOTENCY_CONFLICT' }));
+  });
+
+  it('recognizes a task replay hashed with the bounded previous CRM secret', async () => {
+    const previousSecret = 'crm-previous-identity-hash-secret-000001';
+    const previousReference = opaqueCrmReference(
+      previousSecret,
+      'task:AUTHORIZED_OPERATOR',
+      'task-before-rotation',
+    );
+    const taskFindUnique = jest.fn(({ where }) => Promise.resolve(
+      where.source_sourceReference.sourceReference === previousReference
+        ? {
+            id: 'task-before-rotation', customerId: 'customer-001', leadId: null, customerServiceCaseId: null,
+            type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
+            sanitizedDescription: null, assignedToId: null, dueAt: null,
+          }
+        : null,
+    ));
+    const rotatingRepository = new Phase8CrmRepository({
+      crmTask: { findUnique: taskFindUnique },
+    } as unknown as PrismaService, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: 'crm-current-identity-hash-secret-0000001',
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS: previousSecret,
+      })[key]),
+    } as unknown as ConfigService, audit);
+
+    await expect(rotatingRepository.createTask({
+      customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR', sourceReference: 'task-before-rotation',
+      type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Follow up',
+    }, 'actor-1')).resolves.toMatchObject({ state: 'DETERMINISTIC_REPLAY' });
+    expect(taskFindUnique).toHaveBeenCalledTimes(2);
   });
 
   it('recovers a lost task-update response only from the exact next semantic state', async () => {

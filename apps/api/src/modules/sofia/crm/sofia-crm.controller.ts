@@ -3,6 +3,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import type { AuthUser } from '../../../common/types/auth-user.type';
 import {
   CreateCustomerCampaignDto,
   CreateCustomerInteractionDto,
@@ -83,8 +84,12 @@ export class SofiaCrmController {
 
   @Get('customers/:customerId/unified-timeline')
   @Roles('admin', 'supervisor', 'cashier')
-  listUnifiedTimeline(@Param('customerId') customerId: string, @Query() dto: ListTimelineDto) {
-    return this.crmService.listUnifiedTimeline(customerId, dto);
+  listUnifiedTimeline(
+    @Param('customerId') customerId: string,
+    @Query() dto: ListTimelineDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.crmService.listUnifiedTimeline(customerId, dto, actor);
   }
 
   @Post('customers/:customerId/timeline')

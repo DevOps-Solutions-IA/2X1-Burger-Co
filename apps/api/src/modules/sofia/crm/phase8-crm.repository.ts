@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CrmLeadStatus,
@@ -24,6 +24,12 @@ import {
   UpdateCrmTaskDto,
 } from './dto/crm.dto';
 import { opaqueCrmReference, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
+import { resolveCrmHashSecrets } from './crm-hash-secrets';
+
+export type UnifiedTimelineAccess = Readonly<{
+  paymentFacts: boolean;
+  serviceCaseFacts: boolean;
+}>;
 
 export type CrmWriteState = 'CREATED' | 'UPDATED' | 'DETERMINISTIC_REPLAY';
 
@@ -71,14 +77,24 @@ export class Phase8CrmRepository {
     private readonly auditService: AuditService,
   ) {}
 
+  private opaqueReferences(namespace: string, value: string): readonly [string, ...string[]] {
+    return resolveCrmHashSecrets(this.configService)
+      .map((secret) => opaqueCrmReference(secret, namespace, value)) as [string, ...string[]];
+  }
+
   private opaqueReference(namespace: string, value: string): string {
-    const configuredSecret = this.configService.get<string>('CRM_IDENTITY_HASH_SECRET')?.trim();
-    const secret = configuredSecret
-      || (process.env.NODE_ENV === 'test' ? 'crm-test-only-identity-hash-secret' : undefined);
-    if (!secret || secret.length < 32) {
-      throw new ServiceUnavailableException('CRM identity hashing is not configured.');
+    return this.opaqueReferences(namespace, value)[0];
+  }
+
+  private async findReferenceReplay<T>(
+    references: readonly string[],
+    lookup: (reference: string) => Promise<T | null>,
+  ): Promise<T | null> {
+    for (const reference of references) {
+      const row = await lookup(reference);
+      if (row) return row;
     }
-    return opaqueCrmReference(secret, namespace, value);
+    return null;
   }
 
   async listPipelines(input: ListCrmPipelinesDto) {
@@ -195,11 +211,14 @@ export class Phase8CrmRepository {
 
   async createLead(input: CreateCrmLeadDto, actorId: string) {
     const title = sanitizeTimelineText(input.title.trim()).slice(0, 160);
-    const sourceReference = this.opaqueReference(`lead:${input.source}`, input.sourceReference);
-    const existing = await this.prisma.crmLead.findUnique({
-      where: { source_sourceReference: { source: input.source, sourceReference } },
-    });
-    if (existing) return this.leadCreateReplay(existing, input, title);
+    const sourceReferences = this.opaqueReferences(`lead:${input.source}`, input.sourceReference);
+    const sourceReference = sourceReferences[0];
+    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
+      this.prisma.crmLead.findUnique({
+        where: { source_sourceReference: { source: input.source, sourceReference: reference } },
+      })
+    ));
+    if (existing) return this.leadCreateReplay(existing, input, title, sourceReferences);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -250,22 +269,27 @@ export class Phase8CrmRepository {
       });
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const raced = await this.prisma.crmLead.findUnique({
-        where: { source_sourceReference: { source: input.source, sourceReference } },
-      });
+      const raced = await this.findReferenceReplay(sourceReferences, (reference) => (
+        this.prisma.crmLead.findUnique({
+          where: { source_sourceReference: { source: input.source, sourceReference: reference } },
+        })
+      ));
       if (!raced) throw error;
-      return this.leadCreateReplay(raced, input, title);
+      return this.leadCreateReplay(raced, input, title, sourceReferences);
     }
   }
 
   async transitionLead(leadId: string, input: TransitionCrmLeadDto, actorId: string) {
     const metadata = sanitizeTimelineMetadata(input.metadata) as Prisma.InputJsonValue | undefined;
-    const idempotencyKey = this.opaqueReference(`lead-transition:${leadId}`, input.idempotencyKey);
+    const idempotencyKeys = this.opaqueReferences(`lead-transition:${leadId}`, input.idempotencyKey);
+    const idempotencyKey = idempotencyKeys[0];
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const replay = await tx.crmLeadStageHistory.findUnique({
-          where: { leadId_idempotencyKey: { leadId, idempotencyKey } },
-        });
+        const replay = await this.findReferenceReplay(idempotencyKeys, (reference) => (
+          tx.crmLeadStageHistory.findUnique({
+            where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
+          })
+        ));
         if (replay) return this.leadTransitionReplay(tx, replay, input, actorId, metadata);
 
         const current = await tx.crmLead.findUnique({ where: { id: leadId } });
@@ -319,9 +343,11 @@ export class Phase8CrmRepository {
       if (!isUniqueConflict(error) && !(error instanceof CrmPersistenceError && error.code === 'STALE_CRM_VERSION')) {
         throw error;
       }
-      const replay = await this.prisma.crmLeadStageHistory.findUnique({
-        where: { leadId_idempotencyKey: { leadId, idempotencyKey } },
-      });
+      const replay = await this.findReferenceReplay(idempotencyKeys, (reference) => (
+        this.prisma.crmLeadStageHistory.findUnique({
+          where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
+        })
+      ));
       if (!replay) throw error;
       return this.leadTransitionReplay(this.prisma, replay, input, actorId, metadata);
     }
@@ -354,15 +380,18 @@ export class Phase8CrmRepository {
 
   async createTask(input: CreateCrmTaskDto, actorId: string) {
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
-    const sourceReference = this.opaqueReference(`task:${source}`, input.sourceReference);
+    const sourceReferences = this.opaqueReferences(`task:${source}`, input.sourceReference);
+    const sourceReference = sourceReferences[0];
     const normalized = {
       title: sanitizeTimelineText(input.title.trim()).slice(0, 160),
       description: input.description ? sanitizeTimelineText(input.description.trim()).slice(0, 1_000) : null,
       dueAt: input.dueAt ? new Date(input.dueAt) : null,
     };
-    const existing = await this.prisma.crmTask.findUnique({
-      where: { source_sourceReference: { source, sourceReference } },
-    });
+    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
+      this.prisma.crmTask.findUnique({
+        where: { source_sourceReference: { source, sourceReference: reference } },
+      })
+    ));
     if (existing) return this.taskCreateReplay(existing, input, normalized);
     try {
       const task = await this.prisma.$transaction(async (tx) => {
@@ -395,9 +424,11 @@ export class Phase8CrmRepository {
       return { state: 'CREATED' as const, task };
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const raced = await this.prisma.crmTask.findUnique({
-        where: { source_sourceReference: { source, sourceReference } },
-      });
+      const raced = await this.findReferenceReplay(sourceReferences, (reference) => (
+        this.prisma.crmTask.findUnique({
+          where: { source_sourceReference: { source, sourceReference: reference } },
+        })
+      ));
       if (!raced) throw error;
       return this.taskCreateReplay(raced, input, normalized);
     }
@@ -464,10 +495,13 @@ export class Phase8CrmRepository {
     const body = sanitizeTimelineText(input.body.trim()).slice(0, 2_000);
     const contentHash = createHash('sha256').update(body, 'utf8').digest('hex');
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
-    const sourceReference = this.opaqueReference(`note:${source}`, input.sourceReference);
-    const existing = await this.prisma.crmNote.findUnique({
-      where: { source_sourceReference: { source, sourceReference } },
-    });
+    const sourceReferences = this.opaqueReferences(`note:${source}`, input.sourceReference);
+    const sourceReference = sourceReferences[0];
+    const existing = await this.findReferenceReplay(sourceReferences, (reference) => (
+      this.prisma.crmNote.findUnique({
+        where: { source_sourceReference: { source, sourceReference: reference } },
+      })
+    ));
     if (existing) {
       if (existing.customerId !== input.customerId || existing.leadId !== (input.leadId ?? null)
         || existing.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || existing.contentHash !== contentHash) {
@@ -503,9 +537,11 @@ export class Phase8CrmRepository {
       return { state: 'CREATED' as const, note };
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
-      const raced = await this.prisma.crmNote.findUnique({
-        where: { source_sourceReference: { source, sourceReference } },
-      });
+      const raced = await this.findReferenceReplay(sourceReferences, (reference) => (
+        this.prisma.crmNote.findUnique({
+          where: { source_sourceReference: { source, sourceReference: reference } },
+        })
+      ));
       if (!raced) throw error;
       if (raced.customerId !== input.customerId || raced.leadId !== (input.leadId ?? null)
         || raced.customerServiceCaseId !== (input.customerServiceCaseId ?? null) || raced.contentHash !== contentHash) {
@@ -602,7 +638,7 @@ export class Phase8CrmRepository {
     ]).then(([rows, total]) => page(rows, total, input));
   }
 
-  async unifiedTimeline(customerId: string, input: ListTimelineDto) {
+  async unifiedTimeline(customerId: string, input: ListTimelineDto, access: UnifiedTimelineAccess) {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
     if (!customer) throw new CrmPersistenceError('CRM_NOT_FOUND');
     const take = Math.min(input.page * input.limit, 500);
@@ -616,17 +652,25 @@ export class Phase8CrmRepository {
       this.prisma.orderCheckout.findMany({
         where: { customerId },
         select: {
-          id: true, status: true, fulfillment: true, paymentPreference: true, total: true, currency: true,
-          orderTicketId: true, createdAt: true, updatedAt: true,
-          paymentIntents: { select: { id: true, status: true, provider: true, amount: true, currency: true, updatedAt: true }, take: 20, orderBy: { updatedAt: 'desc' } },
+          id: true, status: true, fulfillment: true, orderTicketId: true, createdAt: true, updatedAt: true,
+          ...(access.paymentFacts ? {
+            paymentPreference: true, total: true, currency: true,
+            paymentIntents: {
+              select: { id: true, status: true, provider: true, amount: true, currency: true, updatedAt: true },
+              take: 20,
+              orderBy: { updatedAt: 'desc' as const },
+            },
+          } : {}),
         },
         orderBy: { createdAt: 'desc' }, take,
       }),
-      this.prisma.customerServiceCase.findMany({
-        where: { customerId },
-        select: { id: true, category: true, status: true, sanitizedSummary: true, createdAt: true, updatedAt: true },
-        orderBy: { createdAt: 'desc' }, take,
-      }),
+      access.serviceCaseFacts
+        ? this.prisma.customerServiceCase.findMany({
+            where: { customerId },
+            select: { id: true, category: true, status: true, sanitizedSummary: true, createdAt: true, updatedAt: true },
+            orderBy: { createdAt: 'desc' }, take,
+          })
+        : Promise.resolve([]),
       this.prisma.crmLead.findMany({
         where: { customerId },
         select: { id: true, title: true, status: true, currentStage: { select: { name: true } }, createdAt: true, updatedAt: true },
@@ -657,10 +701,14 @@ export class Phase8CrmRepository {
       } })),
       ...checkouts.flatMap((item) => [
         { id: item.id, type: 'ORDER_CHECKOUT', occurredAt: item.createdAt, facts: {
-          status: item.status, fulfillment: item.fulfillment, paymentPreference: item.paymentPreference,
-          total: item.total.toString(), currency: item.currency, orderTicketId: item.orderTicketId,
+          status: item.status, fulfillment: item.fulfillment, orderTicketId: item.orderTicketId,
+          ...('paymentPreference' in item ? {
+            paymentPreference: item.paymentPreference,
+            total: item.total.toString(),
+            currency: item.currency,
+          } : {}),
         } },
-        ...item.paymentIntents.map((payment) => ({ id: payment.id, type: 'PAYMENT_INTENT', occurredAt: payment.updatedAt, facts: {
+        ...('paymentIntents' in item ? item.paymentIntents : []).map((payment) => ({ id: payment.id, type: 'PAYMENT_INTENT', occurredAt: payment.updatedAt, facts: {
           status: payment.status, provider: payment.provider, amount: payment.amount.toString(), currency: payment.currency,
         } })),
       ]),
@@ -690,12 +738,12 @@ export class Phase8CrmRepository {
   }
 
   private leadCreateReplay(row: {
-    customerId: string; pipelineId: string; currentStageId: string; sourceReference: string;
+    id: string; customerId: string; pipelineId: string; currentStageId: string; sourceReference: string;
     title: string; ownerId: string | null;
-  }, input: CreateCrmLeadDto, title: string) {
+  }, input: CreateCrmLeadDto, title: string, sourceReferences: readonly string[]) {
     if (row.customerId !== input.customerId || row.pipelineId !== input.pipelineId
       || row.currentStageId !== input.currentStageId
-      || row.sourceReference !== this.opaqueReference(`lead:${input.source}`, input.sourceReference)
+      || !sourceReferences.includes(row.sourceReference)
       || row.title !== title || row.ownerId !== (input.ownerId ?? null)) {
       throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
     }
@@ -739,7 +787,7 @@ export class Phase8CrmRepository {
   }
 
   private taskCreateReplay(row: {
-    customerId: string; leadId: string | null; customerServiceCaseId: string | null; type: string;
+    id: string; customerId: string; leadId: string | null; customerServiceCaseId: string | null; type: string;
     priority: string; title: string; sanitizedDescription: string | null; assignedToId: string | null; dueAt: Date | null;
   }, input: CreateCrmTaskDto, normalized: { title: string; description: string | null; dueAt: Date | null }) {
     if (row.customerId !== input.customerId || row.leadId !== (input.leadId ?? null)

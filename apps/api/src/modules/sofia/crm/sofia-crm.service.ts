@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CustomerCampaignDeliveryStatus,
@@ -9,6 +9,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { createHash, createHmac } from 'node:crypto';
+import type { AuthUser } from '../../../common/types/auth-user.type';
 import { normalizePhone, normalizeSearchText } from '../../../common/normalization/customer-normalization';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
@@ -34,6 +35,7 @@ import {
 } from './dto/crm.dto';
 import { maskPhone, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
 import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
+import { resolveCrmHashSecrets } from './crm-hash-secrets';
 
 export const CAMPAIGN_SEND_BLOCK_REASON = 'BAILEYS_PROACTIVE_OUTREACH_DISABLED';
 
@@ -60,12 +62,16 @@ export class SofiaCrmService {
   async resolveOrCreateByPhone(dto: ResolveCustomerByPhoneDto, actorId: string) {
     const phone = normalizePhone(dto.phone);
     if (!phone) throw new BadRequestException('El telefono no es valido para Colombia.');
-    const valueHash = this.identityHash(phone);
-
-    const existing = await this.prisma.customerIdentity.findUnique({
-      where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash } },
-      include: { customer: { include: customerSummaryInclude } },
-    });
+    const valueHashes = this.identityHashes(phone);
+    const valueHash = valueHashes[0];
+    let existing = null;
+    for (const candidateHash of valueHashes) {
+      existing = await this.prisma.customerIdentity.findUnique({
+        where: { type_valueHash: { type: CustomerIdentityType.PHONE, valueHash: candidateHash } },
+        include: { customer: { include: customerSummaryInclude } },
+      });
+      if (existing) break;
+    }
 
     if (existing) {
       const displayName = dto.displayName?.trim();
@@ -138,7 +144,7 @@ export class SofiaCrmService {
       throw new BadRequestException('La búsqueda por teléfono requiere el endpoint seguro POST.');
     }
     const phone = options.allowPhoneSearch ? normalizePhone(dto.q) : null;
-    const valueHash = phone ? this.identityHash(phone) : null;
+    const valueHashes = phone ? this.identityHashes(phone) : [];
     const where: Prisma.CustomerWhereInput = query
       ? {
           OR: [
@@ -147,7 +153,7 @@ export class SofiaCrmService {
               ? [
                   {
                     identities: {
-                      some: { type: CustomerIdentityType.PHONE, valueHash: valueHash! },
+                      some: { type: CustomerIdentityType.PHONE, valueHash: { in: [...valueHashes] } },
                     },
                   } satisfies Prisma.CustomerWhereInput,
                 ]
@@ -542,9 +548,13 @@ export class SofiaCrmService {
     return this.phase8Repository.listSegments(dto);
   }
 
-  async listUnifiedTimeline(customerId: string, dto: ListTimelineDto) {
+  async listUnifiedTimeline(customerId: string, dto: ListTimelineDto, actor: AuthUser) {
     try {
-      return await this.phase8Repository.unifiedTimeline(customerId, dto);
+      const canReadRestrictedFacts = actor.roles.some((role) => role === 'admin' || role === 'supervisor');
+      return await this.phase8Repository.unifiedTimeline(customerId, dto, {
+        paymentFacts: canReadRestrictedFacts,
+        serviceCaseFacts: canReadRestrictedFacts,
+      });
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -574,15 +584,9 @@ export class SofiaCrmService {
     return createHash('sha256').update(evidence, 'utf8').digest('hex');
   }
 
-  private identityHash(normalizedPhone: string) {
-    const configuredSecret = this.configService.get<string>('CRM_IDENTITY_HASH_SECRET')?.trim();
-    const secret =
-      configuredSecret ||
-      (process.env.NODE_ENV === 'test' ? 'crm-test-only-identity-hash-secret' : undefined);
-    if (!secret || secret.length < 32) {
-      throw new ServiceUnavailableException('CRM identity hashing is not configured.');
-    }
-    return createHmac('sha256', secret).update(`PHONE:${normalizedPhone}`, 'utf8').digest('hex');
+  private identityHashes(normalizedPhone: string): readonly [string, ...string[]] {
+    return resolveCrmHashSecrets(this.configService)
+      .map((secret) => createHmac('sha256', secret).update(`PHONE:${normalizedPhone}`, 'utf8').digest('hex')) as [string, ...string[]];
   }
 
   private async auditConsent(

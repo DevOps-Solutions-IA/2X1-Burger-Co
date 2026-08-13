@@ -90,7 +90,11 @@ const envSchema = z
     PHASE5_KITCHEN_ENABLED: envBoolean.default(false),
     PHASE5_TEST_OPERATIONAL_ENABLED: envBoolean.default(false),
     CRM_IDENTITY_HASH_SECRET: z.preprocess(
-      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      (value) => (typeof value === 'string' ? value.trim() || undefined : value),
+      z.string().min(32).optional(),
+    ),
+    CRM_IDENTITY_HASH_SECRET_PREVIOUS: z.preprocess(
+      (value) => (typeof value === 'string' ? value.trim() || undefined : value),
       z.string().min(32).optional(),
     ),
     SOFIA_AI_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.82),
@@ -154,6 +158,21 @@ const envSchema = z
         path: ['PAYMENT_WEBHOOK_RECOVERY_WORKER_ENABLED'],
       });
     }
+    if (data.CRM_IDENTITY_HASH_SECRET_PREVIOUS && !data.CRM_IDENTITY_HASH_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'CRM_IDENTITY_HASH_CURRENT_REQUIRED_FOR_ROTATION',
+        path: ['CRM_IDENTITY_HASH_SECRET'],
+      });
+    }
+    if (data.CRM_IDENTITY_HASH_SECRET_PREVIOUS
+      && data.CRM_IDENTITY_HASH_SECRET_PREVIOUS === data.CRM_IDENTITY_HASH_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'CRM_IDENTITY_HASH_ROTATION_KEYS_MUST_DIFFER',
+        path: ['CRM_IDENTITY_HASH_SECRET_PREVIOUS'],
+      });
+    }
     if (data.NODE_ENV === 'production') {
       const reject = (path: keyof typeof data, reasonCode: string) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: reasonCode, path: [path] });
@@ -163,6 +182,9 @@ const envSchema = z
       }
       if (data.JEST_WORKER_ID) {
         reject('JEST_WORKER_ID', 'PROD_JEST_WORKER_ID_FORBIDDEN');
+      }
+      if (!data.CRM_IDENTITY_HASH_SECRET) {
+        reject('CRM_IDENTITY_HASH_SECRET', 'CRM_IDENTITY_HASH_SECRET_REQUIRED');
       }
       if (data.WHATSAPP_PROVIDER === 'mock') {
         reject('WHATSAPP_PROVIDER', 'SOFIA_PROD_MOCK_WHATSAPP_FORBIDDEN');

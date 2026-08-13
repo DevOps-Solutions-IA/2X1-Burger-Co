@@ -30,9 +30,12 @@ describe('SofiaCrmService', () => {
   } as unknown as PrismaService;
   const audit = { log: auditLog } as unknown as AuditService;
   const assignTag = jest.fn();
-  const phase8Repository = { assignTag } as unknown as Phase8CrmRepository;
+  const unifiedTimeline = jest.fn();
+  const phase8Repository = { assignTag, unifiedTimeline } as unknown as Phase8CrmRepository;
   const config = {
-    get: jest.fn().mockReturnValue('test-crm-identity-secret-at-least-32-bytes'),
+    get: jest.fn((key: string) => key === 'CRM_IDENTITY_HASH_SECRET'
+      ? 'test-crm-identity-secret-at-least-32-bytes'
+      : undefined),
   } as unknown as ConfigService;
   const service = new SofiaCrmService(prisma, audit, config, phase8Repository);
   const consentDto = {
@@ -99,6 +102,57 @@ describe('SofiaCrmService', () => {
     } finally {
       process.env.NODE_ENV = previousNodeEnv;
     }
+  });
+
+  it('resolves an existing phone identity with the previous rotation key without rewriting it', async () => {
+    const previousSecret = 'test-previous-crm-identity-secret-000001';
+    const rotatingService = new SofiaCrmService(prisma, audit, {
+      get: jest.fn((key: string) => ({
+        CRM_IDENTITY_HASH_SECRET: 'test-current-crm-identity-secret-0000001',
+        CRM_IDENTITY_HASH_SECRET_PREVIOUS: previousSecret,
+      })[key]),
+    } as unknown as ConfigService, phase8Repository);
+    identityFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        customerId: 'customer-1',
+        customer: {
+          id: 'customer-1', displayName: 'Cliente', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date(),
+          identities: [{
+            id: 'identity-1', type: 'PHONE', valueMasked: '*** *** 3047', isPrimary: true, verifiedAt: null,
+          }],
+          tagAssignments: [],
+        },
+      });
+
+    await expect(rotatingService.resolveOrCreateByPhone({ phone: '3237963047' }, 'admin-1'))
+      .resolves.toMatchObject({ id: 'customer-1' });
+    expect(identityFindUnique).toHaveBeenCalledTimes(2);
+    expect(identityFindUnique.mock.calls[0][0].where.type_valueHash.valueHash)
+      .not.toBe(identityFindUnique.mock.calls[1][0].where.type_valueHash.valueHash);
+  });
+
+  it('projects restricted unified-timeline facts from the authenticated role', async () => {
+    unifiedTimeline.mockResolvedValue({ data: [] });
+    const query = { page: 1, limit: 20 };
+
+    await service.listUnifiedTimeline('customer-1', query, {
+      sub: 'cashier-1', email: 'cashier@example.test', fullName: 'Cashier', sessionVersion: 1,
+      roles: ['cashier'], permissions: [],
+    });
+    expect(unifiedTimeline).toHaveBeenLastCalledWith('customer-1', query, {
+      paymentFacts: false,
+      serviceCaseFacts: false,
+    });
+
+    await service.listUnifiedTimeline('customer-1', query, {
+      sub: 'supervisor-1', email: 'supervisor@example.test', fullName: 'Supervisor', sessionVersion: 1,
+      roles: ['supervisor'], permissions: [],
+    });
+    expect(unifiedTimeline).toHaveBeenLastCalledWith('customer-1', query, {
+      paymentFacts: true,
+      serviceCaseFacts: true,
+    });
   });
 
   it('records a versioned opt-in using only an evidence hash', async () => {
