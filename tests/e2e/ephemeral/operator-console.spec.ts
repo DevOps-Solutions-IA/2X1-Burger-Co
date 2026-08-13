@@ -59,8 +59,8 @@ test('operator console handles authentication, safe navigation and logout', asyn
 
   await page.goto('/sofia');
   await expect(page.getByTestId('sofia-main-real-data-hero')).toBeVisible();
-  await expect(page.locator('body')).toContainText(/Envío real:\s*bloqueado/i);
-  await expect(page.locator('body')).toContainText(/Producción\s*Bloqueada/i);
+  await expect(page.locator('body')).toContainText(/env[ií]o real bloqueado/i);
+  await expect(page.locator('body')).toContainText(/auto reply bloqueado/i);
   await page.goto('/sofia/whatsapp-qr');
   await expect(page).toHaveURL(/\/activation-control\/?$/);
   await expect(page.locator('body')).toContainText(/Deshabilitado|DISABLED/i);

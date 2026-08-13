@@ -124,6 +124,12 @@ test('uses explicit high-contrast status badges on dark surfaces', () => {
   assert.match(crmOverview, /tone="success" onDark/);
 });
 
+test('keeps governed recovery guidance readable on warning surfaces', () => {
+  const recovery = source('features/crm/recovery-view.tsx');
+
+  assert.match(recovery, /mt-1 text-sm leading-6 text-ink/);
+});
+
 test('keeps disabled actions readable and wide tables contained at tablet widths', () => {
   const button = source('components/ui/button.tsx');
   const table = source('components/product/data-table-shell.tsx');
