@@ -12,12 +12,11 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { Textarea } from '@/components/ui/textarea';
+import { FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -286,15 +285,19 @@ export default function InventoryPage() {
   }, [editItemId, editItemType, stock.data?.items]);
 
   return (
-    <div className="space-y-6 p-6 lg:p-8" data-testid="inventory-page">
-      <SectionTitle
-        eyebrow="Inventario"
-        title="Inventario — Lo que entra y sale"
-        description="Controlá stock, movimientos y ajustes sin salir del ritmo."
+    <div className="space-y-6" data-testid="inventory-page">
+      <PageHeader
+        eyebrow="Control operativo"
+        title="Inventario"
+        description="Existencias, movimientos, conteos y reposición con trazabilidad operacional."
         status={
-          <Badge tone={(stock.data?.metrics.criticalStockCount ?? 0) + (stock.data?.metrics.outOfStockCount ?? 0) > 0 ? 'warning' : 'success'}>
-            {(stock.data?.metrics.lowStockCount ?? 0) + (stock.data?.metrics.criticalStockCount ?? 0) + (stock.data?.metrics.outOfStockCount ?? 0)} alertas
-          </Badge>
+          stock.data ? (
+            <StatusBadge
+              status={(stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount) > 0 ? 'ATTENTION' : 'AVAILABLE'}
+              label={`${stock.data.metrics.lowStockCount + stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount} alertas`}
+              tone={(stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount) > 0 ? 'warning' : 'success'}
+            />
+          ) : <StatusBadge status="UNKNOWN" label="Estado sin verificar" />
         }
       />
 
@@ -311,16 +314,17 @@ export default function InventoryPage() {
           tone="danger"
           title="No pudimos cargar toda la operación de inventario"
           description={pageError instanceof Error ? pageError.message : 'Recarga la página e intenta de nuevo.'}
+          action={<Button type="button" variant="secondary" onClick={() => { void Promise.all([stock.refetch(), movements.refetch(), reorderSuggestions.refetch(), stockCountPreview.refetch(), stockCounts.refetch()]); }}>Reintentar consultas</Button>}
         />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <MetricCard compact label="Ítems con stock" value={formatNumber(stock.data?.metrics.totalItems ?? 0)} hint="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} />
-        <MetricCard compact label="Productos" value={formatNumber(stock.data?.metrics.productsCount ?? 0)} hint="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Insumos" value={formatNumber(stock.data?.metrics.ingredientsCount ?? 0)} hint="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} accent="brand" />
-        <MetricCard compact label="Bajo stock" value={formatNumber(stock.data?.metrics.lowStockCount ?? 0)} hint="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} accent="brand" />
-        <MetricCard compact label="Críticos" value={formatNumber(stock.data?.metrics.criticalStockCount ?? 0)} hint="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} accent="danger" />
-        <MetricCard compact label="Ajustes hoy" value={formatNumber(stock.data?.metrics.adjustmentsToday ?? 0)} hint="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} accent="ink" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <MetricSurface density="compact" label="Ítems con stock" value={stock.data ? formatNumber(stock.data.metrics.totalItems) : undefined} context="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Productos" value={stock.data ? formatNumber(stock.data.metrics.productsCount) : undefined} context="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Insumos" value={stock.data ? formatNumber(stock.data.metrics.ingredientsCount) : undefined} context="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Bajo stock" value={stock.data ? formatNumber(stock.data.metrics.lowStockCount) : undefined} context="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Críticos" value={stock.data ? formatNumber(stock.data.metrics.criticalStockCount) : undefined} context="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Ajustes hoy" value={stock.data ? formatNumber(stock.data.metrics.adjustmentsToday) : undefined} context="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} unavailable={!stock.data} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.7fr_0.3fr]">
@@ -424,25 +428,23 @@ export default function InventoryPage() {
       </div>
 
       <Card>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold lg:text-[1.12rem]">Resumen de stock</h2>
-            <p className="mt-1 text-[13px] leading-6 text-stone-500">Click en cualquier ítem para ir directo a ajustarlo.</p>
+            <p className="mt-1 text-[13px] leading-6 text-muted">Filtra existencias por nombre, tipo y condición operacional.</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ítem" />
-            <Select aria-label="Filtrar resumen por tipo de ítem" value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
-              <option value="ALL">Todos</option>
-              <option value="PRODUCT">Productos</option>
-              <option value="INGREDIENT">Insumos</option>
-            </Select>
-            <Select aria-label="Filtrar resumen por estado de stock" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
-              <option value="ALL">Todos los estados</option>
-              <option value="LOW">Bajo</option>
-              <option value="CRITICAL">Crítico</option>
-              <option value="OUT_OF_STOCK">Agotado</option>
-            </Select>
-          </div>
+          <FilterBar
+            activeCount={Number(Boolean(search.trim())) + Number(itemType !== 'ALL') + Number(status !== 'ALL')}
+            search={<Input aria-label="Buscar existencias" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, código o categoría" />}
+            filters={<>
+              <Select aria-label="Filtrar resumen por tipo de ítem" value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
+                <option value="ALL">Todos los tipos</option><option value="PRODUCT">Productos</option><option value="INGREDIENT">Insumos</option>
+              </Select>
+              <Select aria-label="Filtrar resumen por estado de stock" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+                <option value="ALL">Todos los estados</option><option value="LOW">Bajo</option><option value="CRITICAL">Crítico</option><option value="OUT_OF_STOCK">Agotado</option>
+              </Select>
+            </>}
+          />
         </div>
         <div className="mt-5 overflow-hidden rounded-[1.35rem] border border-stone-200">
           <div className="hidden border-b border-stone-200 bg-stone-50 px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.16em] text-stone-500 md:grid md:grid-cols-[1.2fr_0.8fr_0.6fr_0.6fr_0.6fr] md:gap-3">
@@ -458,11 +460,13 @@ export default function InventoryPage() {
             aria-label="Resumen de existencias"
             tabIndex={0}
           >
-            {stock.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="m-3 h-16 rounded-2xl" />) : null}
-            {!stock.isLoading && !filteredItems.length ? (
-              <EmptyState title="Nada con ese filtro" description="Probá con otra búsqueda o ajustá los filtros." />
-            ) : null}
-            {!stock.isLoading && filteredItems.length ? filteredItems.map((item) => (
+            <QueryState
+              status={stock.isLoading ? 'loading' : stock.isError ? 'error' : filteredItems.length ? 'ready' : 'empty'}
+              title={stock.isError ? 'No se pudo consultar el inventario' : 'No hay existencias para estos filtros'}
+              onRetry={stock.isError ? () => void stock.refetch() : undefined}
+              className="m-3"
+            >
+            {filteredItems.map((item) => (
               <div key={item.id} className="border-b border-stone-100 px-4 py-4 text-sm">
                 {/* Mobile: card layout */}
                 <div className="md:hidden space-y-2">
@@ -491,7 +495,8 @@ export default function InventoryPage() {
                   <div className="text-right"><Badge tone={item.status === 'OUT_OF_STOCK' ? 'danger' : item.status === 'CRITICAL' ? 'warning' : 'neutral'}>{translateStockStatus(item.status)}</Badge></div>
                 </div>
               </div>
-            )) : null}
+            ))}
+            </QueryState>
           </div>
         </div>
       </Card>

@@ -4,14 +4,12 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Truck } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Textarea } from '@/components/ui/textarea';
+import { DetailDialog, FilterBar, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { matchesSearch } from '@/lib/format';
 
@@ -56,6 +54,7 @@ export default function SuppliersPage() {
   const [form, setForm] = useState<SupplierForm>(initialForm);
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ supplier: Supplier; action: 'toggle' | 'delete' } | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const suppliers = useQuery({
     queryKey: ['suppliers'],
@@ -93,6 +92,7 @@ export default function SuppliersPage() {
       setForm(initialForm);
       await queryClient.invalidateQueries({ queryKey: ['suppliers'] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo guardar el proveedor.'),
   });
 
   const toggleStatus = useMutation({
@@ -126,14 +126,16 @@ export default function SuppliersPage() {
   });
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Abastecimiento"
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Red de abastecimiento"
         title="Proveedores"
-        description="Base de abastecimiento para compras rápidas y organizadas."
-        status={<Badge tone="info">{suppliers.data?.length ?? 0} proveedores</Badge>}
+        description="Directorio comercial, disponibilidad y datos de contacto para compras autorizadas."
+        status={suppliers.data
+          ? <StatusBadge status="ACTIVE" label={`${suppliers.data.length} proveedores`} tone="info" />
+          : <StatusBadge status="UNKNOWN" label="Directorio sin verificar" />}
         actions={
-          <Button type="button" variant="secondary" size="sm" onClick={() => { setSelectedSupplier(null); setForm(initialForm); }} data-testid="supplier-form">
+          <Button type="button" variant="secondary" onClick={() => { setSelectedSupplier(null); setForm(initialForm); setSubmitAttempted(false); }} data-testid="supplier-form">
             Nuevo proveedor
           </Button>
         }
@@ -147,13 +149,20 @@ export default function SuppliersPage() {
               <h2 className="text-[15px] font-extrabold text-ink">Base de proveedores</h2>
               <p className="mt-0.5 text-[12px] text-stone-500">Contacto, canal y estado comercial.</p>
             </div>
-            <div className="relative" data-testid="suppliers-search">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar proveedor..." className="pl-9" />
-            </div>
+            <FilterBar
+              density="compact"
+              activeCount={Number(Boolean(search.trim()))}
+              search={<div className="relative" data-testid="suppliers-search"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" /><Input aria-label="Buscar proveedores" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nombre, contacto, teléfono o correo" className="pl-9" /></div>}
+            />
           </div>
 
           <div className="hide-scrollbar max-h-[28rem] overflow-y-auto divide-y divide-stone-100">
+            <QueryState
+              status={suppliers.isLoading ? 'loading' : suppliers.isError ? 'error' : filteredSuppliers.length ? 'ready' : 'empty'}
+              title={suppliers.isError ? 'No se pudo cargar el directorio' : 'Sin proveedores para esta búsqueda'}
+              onRetry={suppliers.isError ? () => void suppliers.refetch() : undefined}
+              className="m-4"
+            >
             {filteredSuppliers.map((supplier) => (
               <div key={supplier.id} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-stone-50/50 transition" data-testid="supplier-card">
                 <button
@@ -164,9 +173,7 @@ export default function SuppliersPage() {
                 >
                   <div className="flex items-center gap-2">
                     <p className="text-[14px] font-extrabold text-ink truncate">{supplier.name}</p>
-                    <span className={`text-[10px] font-bold uppercase tracking-[0.06em] ${supplier.isActive ? 'text-emerald-600' : 'text-stone-400'}`} data-testid="supplier-status-badge">
-                      {supplier.isActive ? 'Activo' : 'Inactivo'}
-                    </span>
+                    <span data-testid="supplier-status-badge"><StatusBadge status={supplier.isActive ? 'ACTIVE' : 'INACTIVE'} label={supplier.isActive ? 'Activo' : 'Inactivo'} tone={supplier.isActive ? 'success' : 'neutral'} /></span>
                   </div>
                   <p className="mt-0.5 text-[12px] text-stone-500 truncate">
                     {supplier.contactName || 'Sin contacto'} &middot; {supplier.phone || 'Sin teléfono'}
@@ -179,11 +186,7 @@ export default function SuppliersPage() {
                 </Button>
               </div>
             ))}
-            {!filteredSuppliers.length ? (
-              <div className="p-8">
-                <EmptyState title="Sin proveedores" description="Crea un proveedor o ajusta la búsqueda." />
-              </div>
-            ) : null}
+            </QueryState>
           </div>
         </Card>
 
@@ -197,8 +200,8 @@ export default function SuppliersPage() {
             </div>
           </div>
 
-          <form className="mt-5 grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); saveSupplier.mutate(); }}>
-            <Field label="Nombre" required><Input value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} data-testid="supplier-name-input" /></Field>
+          <form className="mt-5 grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); setSubmitAttempted(true); if (form.name.trim()) saveSupplier.mutate(); }}>
+            <Field label="Nombre" error={submitAttempted && !form.name.trim() ? 'Ingresa el nombre del proveedor.' : null} required><Input value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} data-testid="supplier-name-input" /></Field>
             <Field label="NIT / identificacion"><Input value={form.taxId} onChange={(e) => setForm((c) => ({ ...c, taxId: e.target.value }))} data-testid="supplier-nit-input" /></Field>
             <Field label="Contacto"><Input value={form.contactName} onChange={(e) => setForm((c) => ({ ...c, contactName: e.target.value }))} data-testid="supplier-contact-input" /></Field>
             <Field label="Telefono"><Input value={form.phone} onChange={(e) => setForm((c) => ({ ...c, phone: e.target.value }))} data-testid="supplier-phone-input" /></Field>
@@ -224,19 +227,17 @@ export default function SuppliersPage() {
         </Card>
       </div>
 
-      {/* Detail Modal */}
-      {detailSupplier ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="supplier-detail-modal">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setDetailSupplier(null)} />
-          <div className="relative w-full max-w-md rounded-[1.5rem] border border-stone-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-[15px] font-extrabold text-ink">{detailSupplier.name}</h3>
-                <span className={`text-[10px] font-bold uppercase tracking-[0.06em] ${detailSupplier.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>{detailSupplier.isActive ? 'Activo' : 'Inactivo'}</span>
-              </div>
-              <button type="button" className="text-stone-400 hover:text-ink text-lg" onClick={() => setDetailSupplier(null)}>&times;</button>
-            </div>
-            <div className="space-y-2">
+      <DetailDialog
+        open={Boolean(detailSupplier)}
+        onClose={() => setDetailSupplier(null)}
+        title={detailSupplier?.name ?? 'Detalle de proveedor'}
+        description="Información comercial y canal de contacto."
+        mode="dialog"
+      >
+        {detailSupplier ? (
+          <>
+            <div className="space-y-2" data-testid="supplier-detail-modal">
+              <StatusBadge status={detailSupplier.isActive ? 'ACTIVE' : 'INACTIVE'} label={detailSupplier.isActive ? 'Activo' : 'Inactivo'} tone={detailSupplier.isActive ? 'success' : 'neutral'} />
               {detailSupplier.taxId ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">NIT</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.taxId}</p></div> : null}
               {detailSupplier.contactName ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Contacto</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.contactName}</p></div> : null}
               {detailSupplier.phone ? <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Telefono</p><p className="mt-0.5 text-[12px] font-bold text-ink">{detailSupplier.phone}</p></div> : null}
@@ -251,28 +252,29 @@ export default function SuppliersPage() {
               </Button>
               <Button size="sm" variant="secondary" className="flex-1 text-red-600" onClick={() => { setConfirmAction({ supplier: detailSupplier, action: 'delete' }); setDetailSupplier(null); }} data-testid="supplier-delete-button">Eliminar</Button>
             </div>
-          </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </DetailDialog>
 
-      {/* Confirm Modal */}
-      {confirmAction ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="supplier-delete-confirm-modal">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmAction(null)} />
-          <div className="relative w-full max-w-sm rounded-[1.5rem] border border-stone-200 bg-white p-6 shadow-xl text-center">
-            <p className="text-[15px] font-extrabold text-ink">
-              {confirmAction.action === 'toggle'
-                ? (confirmAction.supplier.isActive ? 'Desactivar proveedor' : 'Activar proveedor')
-                : 'Eliminar proveedor'}
-            </p>
-            <p className="mt-2 text-[12px] text-stone-500 leading-5">
+      <DetailDialog
+        open={Boolean(confirmAction)}
+        onClose={() => setConfirmAction(null)}
+        title={confirmAction?.action === 'toggle'
+          ? (confirmAction.supplier.isActive ? 'Desactivar proveedor' : 'Activar proveedor')
+          : 'Eliminar proveedor'}
+        description="Esta acción quedará reflejada en la operación de abastecimiento."
+        mode="dialog"
+      >
+        {confirmAction ? (
+          <div data-testid="supplier-delete-confirm-modal">
+            <p className="text-sm leading-6 text-muted">
               {confirmAction.action === 'delete'
                 ? 'Si el proveedor tiene historial de compras, se recomienda desactivarlo en lugar de eliminarlo.'
                 : 'El proveedor seguira en el historial pero no aparecera en compras nuevas.'}
             </p>
-            <div className="mt-4 flex gap-2">
-              <Button size="sm" variant="secondary" className="flex-1" onClick={() => setConfirmAction(null)}>Cancelar</Button>
-              <Button size="sm" className={`flex-1 ${confirmAction.action === 'delete' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="secondary" onClick={() => setConfirmAction(null)}>Cancelar</Button>
+              <Button className={confirmAction.action === 'delete' ? 'bg-signal-danger text-white hover:bg-signal-danger/90' : ''}
                 onClick={() => {
                   if (confirmAction.action === 'toggle') {
                     toggleStatus.mutate({ id: confirmAction.supplier.id, isActive: !confirmAction.supplier.isActive });
@@ -287,8 +289,8 @@ export default function SuppliersPage() {
               </Button>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </DetailDialog>
     </div>
   );
 }

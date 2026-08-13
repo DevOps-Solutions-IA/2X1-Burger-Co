@@ -7,14 +7,12 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBanner } from '@/components/ui/status-banner';
 import { Textarea } from '@/components/ui/textarea';
+import { DetailDialog, FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatDate, matchesSearch } from '@/lib/format';
 
@@ -166,19 +164,30 @@ export default function ExpensesPage() {
   };
 
   return (
-    <div className="space-y-5 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Operación diaria"
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Control financiero"
         title="Gastos"
-        description="Registra egresos y mantén el control del día."
-        status={<Badge tone="warning">{dailySummary.data?.expenses?.count ?? 0} hoy</Badge>}
+        description="Registra egresos autorizados y conserva una lectura verificable del impacto diario."
+        status={dailySummary.data
+          ? <StatusBadge status="OPEN" label={`${dailySummary.data.expenses?.count ?? 0} hoy`} tone="warning" />
+          : <StatusBadge status="UNKNOWN" label="Resumen sin verificar" />}
       />
 
       <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard compact label="Gastos del día" value={formatCurrency(dailySummary.data?.expenses?.total)} hint="Impacto directo" icon={<PiggyBank className="h-5 w-5" />} accent="danger" />
-        <MetricCard compact label="Registros" value={String(dailySummary.data?.expenses?.count ?? 0)} hint="Egresos cargados" icon={<PiggyBank className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Caja esperada" value={formatCurrency(dailySummary.data?.cash?.expectedAmount)} hint="Actualizado tras cada gasto" icon={<PiggyBank className="h-5 w-5" />} accent="success" />
+        <MetricSurface density="compact" label="Gastos del día" value={dailySummary.data ? formatCurrency(dailySummary.data.expenses?.total) : undefined} context="Impacto directo" icon={<PiggyBank className="h-5 w-5" />} unavailable={!dailySummary.data} />
+        <MetricSurface density="compact" label="Registros" value={dailySummary.data ? String(dailySummary.data.expenses?.count ?? 0) : undefined} context="Egresos cargados" icon={<PiggyBank className="h-5 w-5" />} unavailable={!dailySummary.data} />
+        <MetricSurface density="compact" label="Caja esperada" value={dailySummary.data ? formatCurrency(dailySummary.data.cash?.expectedAmount) : undefined} context="Actualizada tras cada gasto" icon={<PiggyBank className="h-5 w-5" />} unavailable={!dailySummary.data} />
       </div>
+
+      {dailySummary.isError || paymentMethods.isError ? (
+        <StatusBanner
+          tone="danger"
+          title="Parte de la operación financiera no está disponible"
+          description="No se sustituyeron el resumen diario ni los métodos de pago por valores locales o estimados."
+          action={<Button type="button" variant="secondary" onClick={() => { void Promise.all([dailySummary.refetch(), paymentMethods.refetch()]); }}>Reintentar</Button>}
+        />
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <Card data-testid="expense-form">
@@ -195,7 +204,7 @@ export default function ExpensesPage() {
               <button
                 key={concept}
                 type="button"
-                className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${form.concept === concept ? 'bg-ink text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
+                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${form.concept === concept ? 'bg-ink text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}
                 onClick={() => setForm((c) => ({ ...c, concept, classification: concept }))}
                 data-testid="expense-category-chip"
               >
@@ -234,7 +243,7 @@ export default function ExpensesPage() {
         </Card>
 
         <Card className="overflow-hidden p-0" data-testid="expenses-history">
-          <div className="space-y-3 border-b border-stone-100 px-5 py-4">
+          <div className="space-y-3 border-b border-line px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-[15px] font-extrabold text-ink">Historial de gastos</h2>
@@ -242,17 +251,21 @@ export default function ExpensesPage() {
               </div>
               <Badge tone="neutral">{filteredExpenses.length} registros</Badge>
             </div>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por concepto, clasificación o metodo" className="pl-9" data-testid="expense-history-search" />
-            </div>
+            <FilterBar
+              density="compact"
+              activeCount={Number(Boolean(search.trim()))}
+              search={<div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" /><Input aria-label="Buscar gastos" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Concepto, clasificación o método" className="pl-9" data-testid="expense-history-search" /></div>}
+            />
           </div>
           <div className="hide-scrollbar max-h-[30rem] overflow-y-auto divide-y divide-stone-100">
-            {expenses.isLoading
-              ? Array.from({ length: 5 }).map((_, i) => (<div key={i} className="px-5 py-4"><Skeleton className="h-14 rounded-xl" /></div>))
-              : null}
-
-            {!expenses.isLoading && filteredExpenses.map((expense) => (
+            <QueryState
+              status={expenses.isLoading ? 'loading' : expenses.isError ? 'error' : filteredExpenses.length ? 'ready' : 'empty'}
+              title={expenses.isError ? 'No se pudo cargar el historial' : 'Sin gastos para esta búsqueda'}
+              description={expenses.isError ? 'El historial no está disponible; no se sustituyó por información estimada.' : 'Registra el primer egreso o ajusta el término de búsqueda.'}
+              onRetry={expenses.isError ? () => void expenses.refetch() : undefined}
+              className="m-4"
+            >
+            {filteredExpenses.map((expense) => (
               <button
                 key={expense.id}
                 type="button"
@@ -272,29 +285,21 @@ export default function ExpensesPage() {
                 <p className="text-[13px] font-extrabold text-ink tabular-nums text-right">{formatCurrency(expense.amount)}</p>
               </button>
             ))}
-
-            {!expenses.isLoading && !filteredExpenses.length ? (
-              <div className="p-8">
-                <EmptyState title="Sin gastos registrados" description="Registra el primer egreso para verlo aqui." />
-              </div>
-            ) : null}
+            </QueryState>
           </div>
         </Card>
       </div>
 
-      {/* Detail Modal */}
-      {showModal && selectedExpense ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="expense-detail-modal">
-          <div className="absolute inset-0 bg-black/30" onClick={() => { setShowModal(false); setSelectedExpense(null); }} />
-          <div className="relative w-full max-w-md rounded-[1.5rem] border border-stone-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-[15px] font-extrabold text-ink">Detalle del gasto</h3>
-                <p className="text-[11px] text-stone-500">{formatDate(selectedExpense.spentAt)}</p>
-              </div>
-              <button type="button" className="text-stone-400 hover:text-ink" onClick={() => { setShowModal(false); setSelectedExpense(null); }} data-testid="expense-detail-close">&times;</button>
-            </div>
-            <div className="space-y-3">
+      <DetailDialog
+        open={showModal && Boolean(selectedExpense)}
+        onClose={() => { setShowModal(false); setSelectedExpense(null); }}
+        title="Detalle del gasto"
+        description={selectedExpense ? formatDate(selectedExpense.spentAt) : undefined}
+        mode="dialog"
+        footer={<Button type="button" variant="secondary" className="w-full" onClick={() => { setShowModal(false); setSelectedExpense(null); }} data-testid="expense-detail-close">Cerrar detalle</Button>}
+      >
+        {selectedExpense ? (
+            <div className="space-y-3" data-testid="expense-detail-modal">
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-stone-400">Concepto</p>
                 <p className="mt-0.5 text-[13px] font-bold text-ink">{selectedExpense.concept}</p>
@@ -321,9 +326,8 @@ export default function ExpensesPage() {
               ) : null}
               <p className="text-[10px] text-stone-400 text-center">{selectedExpense.createdBy?.fullName ? `Registrado por ${selectedExpense.createdBy.fullName}` : 'Sistema'}</p>
             </div>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </DetailDialog>
     </div>
   );
 }

@@ -7,14 +7,12 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBanner } from '@/components/ui/status-banner';
 import { Textarea } from '@/components/ui/textarea';
+import { FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatDate, matchesSearch } from '@/lib/format';
 
@@ -220,21 +218,33 @@ export default function PurchasesPage() {
 
     createPurchase.mutate();
   };
+  const dependencyError = suppliers.error ?? ingredients.error ?? products.error ?? paymentMethods.error;
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
+    <div className="space-y-6">
+      <PageHeader
         eyebrow="Abastecimiento"
         title="Compras"
-        description="Registra cada compra y repon stock al instante."
-        status={<Badge tone="info">{purchases.data?.length ?? 0} registradas</Badge>}
+        description="Registra compras verificadas, su impacto en inventario y la evidencia comercial asociada."
+        status={purchases.data
+          ? <StatusBadge status="COMPLETED" label={`${purchases.data.length} registradas`} tone="info" />
+          : <StatusBadge status="UNKNOWN" label="Historial sin verificar" />}
       />
 
       <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard compact label="Registradas" value={String((purchases.data ?? []).length)} hint="Historial" icon={<Truck className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="En edicion" value={String(items.length)} hint="Lineas activas" icon={<Boxes className="h-5 w-5" />} accent="success" />
-        <MetricCard compact label="Total" value={formatCurrency(computedTotal)} hint={supplierId || (useTempProvider && tempProviderName.trim()) ? 'Proveedor listo' : 'Falta proveedor'} icon={<Plus className="h-5 w-5" />} accent={computedTotal > 0 ? 'warning' : 'ink'} />
+        <MetricSurface density="compact" label="Registradas" value={purchases.data ? String(purchases.data.length) : undefined} context="Historial disponible" icon={<Truck className="h-5 w-5" />} unavailable={!purchases.data} />
+        <MetricSurface density="compact" label="Líneas en edición" value={String(items.length)} context="Borrador local actual" icon={<Boxes className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Total proyectado" value={formatCurrency(computedTotal)} context={supplierId || (useTempProvider && tempProviderName.trim()) ? 'Proveedor listo' : 'Proveedor pendiente'} icon={<Plus className="h-5 w-5" />} />
       </div>
+
+      {dependencyError ? (
+        <StatusBanner
+          tone="danger"
+          title="El formulario de compra no tiene todos sus catálogos disponibles"
+          description="Proveedores, productos, insumos o métodos de pago no pudieron verificarse. No se habilitan valores estimados."
+          action={<Button type="button" variant="secondary" onClick={() => { void Promise.all([suppliers.refetch(), ingredients.refetch(), products.refetch(), paymentMethods.refetch()]); }}>Reintentar catálogos</Button>}
+        />
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
         <div className="space-y-5">
@@ -311,7 +321,7 @@ export default function PurchasesPage() {
                         <div className="flex items-center gap-2">
                           {lineErrors[index] ? <span className="text-[10px] font-bold text-red-600">Incompleta</span> : null}
                           {items.length > 1 ? (
-                            <button type="button" className="text-stone-400 hover:text-red-600 transition" onClick={() => setItems((c) => c.filter((_, i) => i !== index))}>
+                            <button type="button" aria-label={`Eliminar línea ${index + 1}`} className="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500" onClick={() => setItems((c) => c.filter((_, i) => i !== index))}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           ) : null}
@@ -381,32 +391,26 @@ export default function PurchasesPage() {
           </Card>
 
           <Card className="overflow-hidden p-0">
-            <div className="space-y-3 border-b border-stone-100 px-5 py-4">
+            <div className="space-y-3 border-b border-line px-5 py-4">
               <div>
                 <h2 className="text-[15px] font-extrabold text-ink">Historial</h2>
                 <p className="mt-0.5 text-[12px] text-stone-500">Selecciona una compra para ver su detalle.</p>
               </div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Busca por número, factura o proveedor"
-                  className="pl-9"
-                />
-              </div>
+              <FilterBar
+                density="compact"
+                activeCount={Number(Boolean(search.trim()))}
+                search={<div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" /><Input aria-label="Buscar compras" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Número, factura o proveedor" className="pl-9" /></div>}
+              />
             </div>
             <div className="hide-scrollbar list-scroll-5-rows divide-y divide-stone-100">
-              {purchases.isLoading
-                ? Array.from({ length: 4 }).map((_, index) => (
-                    <div key={index} className="px-5 py-4">
-                      <Skeleton className="h-20 rounded-2xl" />
-                    </div>
-                  ))
-                : null}
-
-              {!purchases.isLoading &&
-                filteredPurchases.map((purchase) => (
+              <QueryState
+                status={purchases.isLoading ? 'loading' : purchases.isError ? 'error' : filteredPurchases.length ? 'ready' : 'empty'}
+                title={purchases.isError ? 'No se pudo cargar el historial' : 'Sin compras para esta búsqueda'}
+                description={purchases.isError ? 'No se mostraron compras estimadas ni datos locales como reemplazo.' : 'Registra la primera compra o ajusta la búsqueda.'}
+                onRetry={purchases.isError ? () => void purchases.refetch() : undefined}
+                className="m-4"
+              >
+              {filteredPurchases.map((purchase) => (
                   <button
                     key={purchase.id}
                     type="button"
@@ -427,15 +431,7 @@ export default function PurchasesPage() {
                     <div className="numeric-tabular whitespace-nowrap text-right text-[13px] font-semibold text-ink">{formatCurrency(purchase.total)}</div>
                   </button>
                 ))}
-
-              {!purchases.isLoading && !filteredPurchases.length ? (
-                <div className="p-6">
-                  <EmptyState
-                    title="Sin compras visibles"
-                    description="Registra la primera compra para empezar."
-                  />
-                </div>
-              ) : null}
+              </QueryState>
             </div>
           </Card>
         </div>
@@ -449,13 +445,14 @@ export default function PurchasesPage() {
             {purchaseDetail.data ? <Badge tone="success">{purchaseDetail.data.items.length} lineas</Badge> : null}
           </div>
 
-          {purchaseDetail.isLoading ? (
-            <div className="mt-5 space-y-3">
-              <Skeleton className="h-20 rounded-xl" />
-              <Skeleton className="h-16 rounded-xl" />
-              <Skeleton className="h-16 rounded-xl" />
-            </div>
-          ) : purchaseDetail.data ? (
+          <QueryState
+            status={purchaseDetail.isLoading ? 'loading' : purchaseDetail.isError ? 'error' : purchaseDetail.data ? 'ready' : 'empty'}
+            title={purchaseDetail.isError ? 'No se pudo cargar el detalle' : 'Selecciona una compra'}
+            description={purchaseDetail.isError ? 'La compra no está disponible en este momento.' : 'Aquí verás proveedor, ítems y total.'}
+            onRetry={purchaseDetail.isError ? () => void purchaseDetail.refetch() : undefined}
+            className="mt-5"
+          >
+          {purchaseDetail.data ? (
             <div className="mt-4 space-y-3">
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3.5">
                 <p className="text-[13px] font-extrabold text-ink">{purchaseDetail.data.supplier.name}</p>
@@ -487,14 +484,8 @@ export default function PurchasesPage() {
                 <p className="numeric-tabular mt-2 whitespace-nowrap text-[1.58rem] font-bold leading-none text-ink">{formatCurrency(purchaseDetail.data.total)}</p>
               </div>
             </div>
-          ) : (
-            <div className="mt-6">
-              <EmptyState
-                title="Selecciona una compra"
-                description="Aquí verás proveedor, ítems y total."
-              />
-            </div>
-          )}
+          ) : null}
+          </QueryState>
         </Card>
       </div>
     </div>
