@@ -8,6 +8,7 @@ import {
   CrmTaskType,
 } from '@prisma/client';
 import { Phase8CrmRepository } from '../modules/sofia/crm/phase8-crm.repository';
+import { AuditService } from '../modules/audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeTestApp, createTestApp } from './helpers/test-app';
 import { resetDatabase } from './helpers/test-data';
@@ -16,6 +17,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let repository: Phase8CrmRepository;
+  let auditService: AuditService;
 
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -26,12 +28,17 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     app = testApp.app;
     prisma = testApp.prisma;
     repository = app.get(Phase8CrmRepository);
+    auditService = app.get(AuditService);
   });
 
   afterAll(async () => closeTestApp(app));
 
   beforeEach(async () => {
     await resetDatabase(prisma);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('deduplicates pipeline and note creation under concurrent replay', async () => {
@@ -55,6 +62,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     );
     expect(new Set(pipelines.map(({ pipeline }) => pipeline.id)).size).toBe(1);
     expect(await prisma.crmPipeline.count()).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_PIPELINE_CREATED' } })).toBe(1);
 
     const notes = await Promise.all(Array.from({ length: 8 }, () => repository.createNote({
       customerId: customer.id,
@@ -67,6 +75,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     const note = await prisma.crmNote.findFirstOrThrow();
     expect(note.sourceReference).toMatch(/^[a-f0-9]{64}$/);
     expect(note.body).not.toMatch(/secret\.token|hunter2|202/);
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_NOTE_CREATED' } })).toBe(1);
   });
 
   it('allows one lead transition winner and enforces its pipeline-stage binding in SQL', async () => {
@@ -110,6 +119,9 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     )));
     expect(attempts.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
     expect(await prisma.crmLeadStageHistory.count({ where: { leadId: lead.id } })).toBe(2);
+    expect(await prisma.auditLog.count({
+      where: { action: 'CRM_LEAD_TRANSITIONED', entityId: lead.id },
+    })).toBe(1);
 
     await expect(prisma.crmLead.create({
       data: {
@@ -142,7 +154,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
       type: CrmTaskType.TASK,
       priority: CrmTaskPriority.MEDIUM,
       title: 'Seguimiento seguro',
-    });
+    }, actor.id);
     const task = await prisma.crmTask.findFirstOrThrow({ where: { customerId: customer.id } });
     const update = {
       expectedVersion: 0,
@@ -151,8 +163,8 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     };
 
     const concurrent = await Promise.all([
-      repository.updateTask(task.id, update),
-      repository.updateTask(task.id, update),
+      repository.updateTask(task.id, update, actor.id),
+      repository.updateTask(task.id, update, actor.id),
     ]);
     expect(concurrent.map(({ state }) => state).sort()).toEqual(['DETERMINISTIC_REPLAY', 'UPDATED']);
     expect(await prisma.crmTask.findUniqueOrThrow({ where: { id: task.id } })).toMatchObject({
@@ -160,14 +172,52 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
       status: CrmTaskStatus.IN_PROGRESS,
       assignedToId: actor.id,
     });
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_TASK_UPDATED', entityId: task.id } })).toBe(1);
 
-    await expect(repository.updateTask(task.id, update)).resolves.toMatchObject({
+    await expect(repository.updateTask(task.id, update, actor.id)).resolves.toMatchObject({
       state: 'DETERMINISTIC_REPLAY',
       task: { version: 1 },
     });
     await expect(repository.updateTask(task.id, {
       ...update,
       assignedToId: otherActor.id,
-    })).rejects.toMatchObject({ code: 'STALE_CRM_VERSION' });
+    }, actor.id)).rejects.toMatchObject({ code: 'STALE_CRM_VERSION' });
+  });
+
+  it('rolls back the business write when transactional audit persistence fails', async () => {
+    const actor = await prisma.user.create({
+      data: { email: 'crm-audit-failure@example.test', fullName: 'CRM Audit Failure', passwordHash: 'not-used' },
+    });
+    jest.spyOn(auditService, 'log').mockRejectedValueOnce(new Error('AUDIT_WRITE_FAILED'));
+
+    await expect(repository.createPipeline({
+      name: 'Pipeline debe revertirse',
+      stages: [{ name: 'Nuevo', position: 0, outcome: CrmPipelineStageOutcome.OPEN }],
+    }, actor.id)).rejects.toThrow('AUDIT_WRITE_FAILED');
+
+    expect(await prisma.crmPipeline.count()).toBe(0);
+    expect(await prisma.crmPipelineStage.count()).toBe(0);
+    expect(await prisma.auditLog.count({ where: { action: 'CRM_PIPELINE_CREATED' } })).toBe(0);
+  });
+
+  it('deduplicates concurrent tag assignment with one assignment and one audit event', async () => {
+    const actor = await prisma.user.create({
+      data: { email: 'crm-tag-replay@example.test', fullName: 'CRM Tag Replay', passwordHash: 'not-used' },
+    });
+    const customer = await prisma.customer.create({
+      data: { displayName: 'Cliente Tags', displayNameNormalized: 'cliente tags' },
+    });
+    const tagResult = await repository.createTag('Preferente', actor.id);
+
+    const results = await Promise.all(Array.from({ length: 8 }, () => (
+      repository.assignTag(customer.id, tagResult.tag.id, actor.id)
+    )));
+
+    expect(results.filter(({ state }) => state === 'CREATED')).toHaveLength(1);
+    expect(results.filter(({ state }) => state === 'DETERMINISTIC_REPLAY')).toHaveLength(7);
+    expect(await prisma.customerTagAssignment.count({ where: { customerId: customer.id } })).toBe(1);
+    expect(await prisma.auditLog.count({
+      where: { action: 'CRM_TAG_ASSIGNED', entityId: customer.id },
+    })).toBe(1);
   });
 });

@@ -451,18 +451,7 @@ export class SofiaCrmService {
 
   async createPipeline(dto: CreateCrmPipelineDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.createPipeline(dto, actorId);
-      if (result.state === 'CREATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_PIPELINE_CREATED',
-          module: 'sofia.crm',
-          entity: 'CrmPipeline',
-          entityId: result.pipeline.id,
-          after: { status: result.pipeline.status, stageCount: result.pipeline.stages.length },
-        });
-      }
-      return result;
+      return await this.phase8Repository.createPipeline(dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -482,18 +471,7 @@ export class SofiaCrmService {
 
   async createLead(dto: CreateCrmLeadDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.createLead(dto, actorId);
-      if (result.state === 'CREATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_LEAD_CREATED',
-          module: 'sofia.crm',
-          entity: 'CrmLead',
-          entityId: result.lead.id,
-          after: { source: result.lead.source, status: result.lead.status, version: result.lead.version },
-        });
-      }
-      return result;
+      return await this.phase8Repository.createLead(dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -501,19 +479,7 @@ export class SofiaCrmService {
 
   async transitionLead(leadId: string, dto: TransitionCrmLeadDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.transitionLead(leadId, dto, actorId);
-      if (result.state === 'UPDATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_LEAD_TRANSITIONED',
-          module: 'sofia.crm',
-          entity: 'CrmLead',
-          entityId: result.lead.id,
-          idempotencyKey: dto.idempotencyKey,
-          after: { stageId: result.lead.currentStageId, status: result.lead.status, version: result.lead.version },
-        });
-      }
-      return result;
+      return await this.phase8Repository.transitionLead(leadId, dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -525,18 +491,7 @@ export class SofiaCrmService {
 
   async createTask(dto: CreateCrmTaskDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.createTask(dto);
-      if (result.state === 'CREATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_TASK_CREATED',
-          module: 'sofia.crm',
-          entity: 'CrmTask',
-          entityId: result.task.id,
-          after: { type: result.task.type, status: result.task.status, priority: result.task.priority },
-        });
-      }
-      return result;
+      return await this.phase8Repository.createTask(dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -544,18 +499,7 @@ export class SofiaCrmService {
 
   async updateTask(taskId: string, dto: UpdateCrmTaskDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.updateTask(taskId, dto);
-      if (result.state === 'UPDATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_TASK_UPDATED',
-          module: 'sofia.crm',
-          entity: 'CrmTask',
-          entityId: result.task.id,
-          after: { status: result.task.status, version: result.task.version },
-        });
-      }
-      return result;
+      return await this.phase8Repository.updateTask(taskId, dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -567,18 +511,7 @@ export class SofiaCrmService {
 
   async createNote(dto: CreateCrmNoteDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.createNote(dto, actorId);
-      if (result.state === 'CREATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_NOTE_CREATED',
-          module: 'sofia.crm',
-          entity: 'CrmNote',
-          entityId: result.note.id,
-          after: { customerId: result.note.customerId, contentHash: result.note.contentHash },
-        });
-      }
-      return result;
+      return await this.phase8Repository.createNote(dto, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -590,18 +523,7 @@ export class SofiaCrmService {
 
   async createTag(dto: CreateCustomerTagDto, actorId: string) {
     try {
-      const result = await this.phase8Repository.createTag(dto.name);
-      if (result.state === 'CREATED') {
-        await this.auditService.log({
-          actorId,
-          action: 'CRM_TAG_CREATED',
-          module: 'sofia.crm',
-          entity: 'CustomerTag',
-          entityId: result.tag.id,
-          after: { name: result.tag.name },
-        });
-      }
-      return result;
+      return await this.phase8Repository.createTag(dto.name, actorId);
     } catch (error) {
       return this.mapPersistenceError(error);
     }
@@ -609,16 +531,8 @@ export class SofiaCrmService {
 
   async assignTag(customerId: string, tagId: string, actorId: string) {
     try {
-      const customer = await this.phase8Repository.assignTag(customerId, tagId, actorId);
-      await this.auditService.log({
-        actorId,
-        action: 'CRM_TAG_ASSIGNED',
-        module: 'sofia.crm',
-        entity: 'Customer',
-        entityId: customerId,
-        after: { tagId },
-      });
-      return customer;
+      const result = await this.phase8Repository.assignTag(customerId, tagId, actorId);
+      return result.customer;
     } catch (error) {
       return this.mapPersistenceError(error);
     }

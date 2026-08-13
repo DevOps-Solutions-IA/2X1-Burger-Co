@@ -29,7 +29,8 @@ describe('SofiaCrmService', () => {
     customerCampaignDelivery: { createMany: deliveryCreateMany, updateMany: deliveryUpdateMany },
   } as unknown as PrismaService;
   const audit = { log: auditLog } as unknown as AuditService;
-  const phase8Repository = {} as Phase8CrmRepository;
+  const assignTag = jest.fn();
+  const phase8Repository = { assignTag } as unknown as Phase8CrmRepository;
   const config = {
     get: jest.fn().mockReturnValue('test-crm-identity-secret-at-least-32-bytes'),
   } as unknown as ConfigService;
@@ -185,5 +186,12 @@ describe('SofiaCrmService', () => {
         reasonCode: CAMPAIGN_SEND_BLOCK_REASON,
       }),
     );
+  });
+
+  it('preserves the customer-only response contract when assigning a tag', async () => {
+    const customer = { id: 'customer-1', tagAssignments: [{ tag: { id: 'tag-1', name: 'Preferente' } }] };
+    assignTag.mockResolvedValue({ state: 'CREATED', customer });
+
+    await expect(service.assignTag('customer-1', 'tag-1', 'admin-1')).resolves.toEqual(customer);
   });
 });

@@ -9,6 +9,7 @@ import {
 import { createHash } from 'node:crypto';
 import { normalizeSearchText } from '../../../common/normalization/customer-normalization';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
 import {
   CreateCrmLeadDto,
   CreateCrmNoteDto,
@@ -67,6 +68,7 @@ export class Phase8CrmRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly auditService: AuditService,
   ) {}
 
   private opaqueReference(namespace: string, value: string): string {
@@ -109,31 +111,36 @@ export class Phase8CrmRepository {
       throw new CrmPersistenceError('CRM_CONFLICT');
     }
 
-    const existing = await this.prisma.crmPipeline.findUnique({
-      where: { nameNormalized },
-      include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
-    });
-    if (existing) {
-      const same = existing.description === description
-        && existing.stages.length === stages.length
-        && existing.stages.every((stage, index) => stage.nameNormalized === stages[index]?.nameNormalized
-          && stage.position === stages[index]?.position && stage.outcome === stages[index]?.outcome);
-      if (!same) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
-      return { state: 'DETERMINISTIC_REPLAY' as const, pipeline: existing };
-    }
-
     try {
-      const pipeline = await this.prisma.crmPipeline.create({
-        data: {
-          name,
-          nameNormalized,
-          description,
-          createdById: actorId,
-          stages: { create: stages },
-        },
-        include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
+      return await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.crmPipeline.findUnique({
+          where: { nameNormalized },
+          include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
+        });
+        if (existing) {
+          this.assertPipelineReplay(existing, description, stages);
+          return { state: 'DETERMINISTIC_REPLAY' as const, pipeline: existing };
+        }
+        const pipeline = await tx.crmPipeline.create({
+          data: {
+            name,
+            nameNormalized,
+            description,
+            createdById: actorId,
+            stages: { create: stages },
+          },
+          include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
+        });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_PIPELINE_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmPipeline',
+          entityId: pipeline.id,
+          after: { status: pipeline.status, stageCount: pipeline.stages.length },
+        }, tx);
+        return { state: 'CREATED' as const, pipeline };
       });
-      return { state: 'CREATED' as const, pipeline };
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
       const raced = await this.prisma.crmPipeline.findUnique({
@@ -141,11 +148,7 @@ export class Phase8CrmRepository {
         include: { stages: { orderBy: { position: 'asc' } }, _count: { select: { leads: true } } },
       });
       if (!raced) throw error;
-      const same = raced.description === description
-        && raced.stages.length === stages.length
-        && raced.stages.every((stage, index) => stage.nameNormalized === stages[index]?.nameNormalized
-          && stage.position === stages[index]?.position && stage.outcome === stages[index]?.outcome);
-      if (!same) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+      this.assertPipelineReplay(raced, description, stages);
       return { state: 'DETERMINISTIC_REPLAY' as const, pipeline: raced };
     }
   }
@@ -235,6 +238,14 @@ export class Phase8CrmRepository {
             sanitizedMetadata: Prisma.JsonNull,
           },
         });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_LEAD_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmLead',
+          entityId: lead.id,
+          after: { source: lead.source, status: lead.status, version: lead.version },
+        }, tx);
         return { state: 'CREATED' as const, lead };
       });
     } catch (error) {
@@ -293,6 +304,15 @@ export class Phase8CrmRepository {
           },
         });
         const lead = await tx.crmLead.findUniqueOrThrow({ where: { id: leadId } });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_LEAD_TRANSITIONED',
+          module: 'sofia.crm',
+          entity: 'CrmLead',
+          entityId: lead.id,
+          idempotencyKey,
+          after: { stageId: lead.currentStageId, status: lead.status, version: lead.version },
+        }, tx);
         return { state: 'UPDATED' as const, lead };
       });
     } catch (error) {
@@ -332,7 +352,7 @@ export class Phase8CrmRepository {
     return page(rows, total, input);
   }
 
-  async createTask(input: CreateCrmTaskDto) {
+  async createTask(input: CreateCrmTaskDto, actorId: string) {
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
     const sourceReference = this.opaqueReference(`task:${source}`, input.sourceReference);
     const normalized = {
@@ -347,7 +367,7 @@ export class Phase8CrmRepository {
     try {
       const task = await this.prisma.$transaction(async (tx) => {
         await this.assertCustomerBindings(tx, input.customerId, input.leadId, input.customerServiceCaseId);
-        return tx.crmTask.create({
+        const created = await tx.crmTask.create({
           data: {
             customerId: input.customerId,
             leadId: input.leadId ?? null,
@@ -362,6 +382,15 @@ export class Phase8CrmRepository {
             dueAt: normalized.dueAt,
           },
         });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TASK_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmTask',
+          entityId: created.id,
+          after: { type: created.type, status: created.status, priority: created.priority },
+        }, tx);
+        return created;
       });
       return { state: 'CREATED' as const, task };
     } catch (error) {
@@ -374,35 +403,46 @@ export class Phase8CrmRepository {
     }
   }
 
-  async updateTask(taskId: string, input: UpdateCrmTaskDto) {
-    const current = await this.prisma.crmTask.findUnique({ where: { id: taskId } });
-    if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
-    if (this.isTaskUpdateReplay(current, input)) {
-      return { state: 'DETERMINISTIC_REPLAY' as const, task: current };
-    }
-    if (current.version !== input.expectedVersion) throw new CrmPersistenceError('STALE_CRM_VERSION');
-    if (current.status === CrmTaskStatus.COMPLETED || current.status === CrmTaskStatus.CANCELLED) {
-      throw new CrmPersistenceError('CRM_CONFLICT');
-    }
-    const now = new Date();
-    const changed = await this.prisma.crmTask.updateMany({
-      where: { id: taskId, version: input.expectedVersion },
-      data: {
-        status: input.status,
-        assignedToId: input.assignedToId,
-        version: { increment: 1 },
-        completedAt: input.status === CrmTaskStatus.COMPLETED ? now : undefined,
-        cancelledAt: input.status === CrmTaskStatus.CANCELLED ? now : undefined,
-      },
-    });
-    if (changed.count !== 1) {
-      const raced = await this.prisma.crmTask.findUnique({ where: { id: taskId } });
-      if (raced && this.isTaskUpdateReplay(raced, input)) {
-        return { state: 'DETERMINISTIC_REPLAY' as const, task: raced };
+  async updateTask(taskId: string, input: UpdateCrmTaskDto, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.crmTask.findUnique({ where: { id: taskId } });
+      if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
+      if (this.isTaskUpdateReplay(current, input)) {
+        return { state: 'DETERMINISTIC_REPLAY' as const, task: current };
       }
-      throw new CrmPersistenceError('STALE_CRM_VERSION');
-    }
-    return { state: 'UPDATED' as const, task: await this.prisma.crmTask.findUniqueOrThrow({ where: { id: taskId } }) };
+      if (current.version !== input.expectedVersion) throw new CrmPersistenceError('STALE_CRM_VERSION');
+      if (current.status === CrmTaskStatus.COMPLETED || current.status === CrmTaskStatus.CANCELLED) {
+        throw new CrmPersistenceError('CRM_CONFLICT');
+      }
+      const now = new Date();
+      const changed = await tx.crmTask.updateMany({
+        where: { id: taskId, version: input.expectedVersion },
+        data: {
+          status: input.status,
+          assignedToId: input.assignedToId,
+          version: { increment: 1 },
+          completedAt: input.status === CrmTaskStatus.COMPLETED ? now : undefined,
+          cancelledAt: input.status === CrmTaskStatus.CANCELLED ? now : undefined,
+        },
+      });
+      if (changed.count !== 1) {
+        const raced = await tx.crmTask.findUnique({ where: { id: taskId } });
+        if (raced && this.isTaskUpdateReplay(raced, input)) {
+          return { state: 'DETERMINISTIC_REPLAY' as const, task: raced };
+        }
+        throw new CrmPersistenceError('STALE_CRM_VERSION');
+      }
+      const task = await tx.crmTask.findUniqueOrThrow({ where: { id: taskId } });
+      await this.auditService.log({
+        actorId,
+        action: 'CRM_TASK_UPDATED',
+        module: 'sofia.crm',
+        entity: 'CrmTask',
+        entityId: task.id,
+        after: { status: task.status, version: task.version },
+      }, tx);
+      return { state: 'UPDATED' as const, task };
+    });
   }
 
   async listNotes(input: ListCrmNotesDto) {
@@ -438,7 +478,7 @@ export class Phase8CrmRepository {
     try {
       const note = await this.prisma.$transaction(async (tx) => {
         await this.assertCustomerBindings(tx, input.customerId, input.leadId, input.customerServiceCaseId);
-        return tx.crmNote.create({
+        const created = await tx.crmNote.create({
           data: {
             customerId: input.customerId,
             leadId: input.leadId ?? null,
@@ -450,6 +490,15 @@ export class Phase8CrmRepository {
             authorId: actorId,
           },
         });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_NOTE_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmNote',
+          entityId: created.id,
+          after: { customerId: created.customerId, contentHash: created.contentHash },
+        }, tx);
+        return created;
       });
       return { state: 'CREATED' as const, note };
     } catch (error) {
@@ -478,13 +527,24 @@ export class Phase8CrmRepository {
     ]).then(([rows, total]) => page(rows, total, input));
   }
 
-  async createTag(nameInput: string) {
+  async createTag(nameInput: string, actorId: string) {
     const name = sanitizeTimelineText(nameInput.trim()).slice(0, 64);
     const nameNormalized = normalizeSearchText(name);
     const existing = await this.prisma.customerTag.findUnique({ where: { nameNormalized } });
     if (existing) return { state: 'DETERMINISTIC_REPLAY' as const, tag: existing };
     try {
-      return { state: 'CREATED' as const, tag: await this.prisma.customerTag.create({ data: { name, nameNormalized } }) };
+      return await this.prisma.$transaction(async (tx) => {
+        const tag = await tx.customerTag.create({ data: { name, nameNormalized } });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TAG_CREATED',
+          module: 'sofia.crm',
+          entity: 'CustomerTag',
+          entityId: tag.id,
+          after: { name: tag.name },
+        }, tx);
+        return { state: 'CREATED' as const, tag };
+      });
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
       const raced = await this.prisma.customerTag.findUnique({ where: { nameNormalized } });
@@ -494,25 +554,40 @@ export class Phase8CrmRepository {
   }
 
   async assignTag(customerId: string, tagId: string, actorId: string) {
-    await this.prisma.$transaction(async (tx) => {
-      const [customer, tag] = await Promise.all([
-        tx.customer.findUnique({ where: { id: customerId }, select: { id: true } }),
-        tx.customerTag.findUnique({ where: { id: tagId }, select: { id: true } }),
-      ]);
-      if (!customer || !tag) throw new CrmPersistenceError('CRM_INVALID_RELATION');
-      await tx.customerTagAssignment.upsert({
-        where: { customerId_tagId: { customerId, tagId } },
-        create: { customerId, tagId, assignedById: actorId },
-        update: {},
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const [customer, tag] = await Promise.all([
+          tx.customer.findUnique({ where: { id: customerId }, select: { id: true } }),
+          tx.customerTag.findUnique({ where: { id: tagId }, select: { id: true } }),
+        ]);
+        if (!customer || !tag) throw new CrmPersistenceError('CRM_INVALID_RELATION');
+        const existing = await tx.customerTagAssignment.findUnique({
+          where: { customerId_tagId: { customerId, tagId } },
+        });
+        if (existing) {
+          return {
+            state: 'DETERMINISTIC_REPLAY' as const,
+            customer: await this.customerWithTags(tx, customerId),
+          };
+        }
+        await tx.customerTagAssignment.create({ data: { customerId, tagId, assignedById: actorId } });
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TAG_ASSIGNED',
+          module: 'sofia.crm',
+          entity: 'Customer',
+          entityId: customerId,
+          after: { tagId },
+        }, tx);
+        return { state: 'CREATED' as const, customer: await this.customerWithTags(tx, customerId) };
       });
-    });
-    return this.prisma.customer.findUniqueOrThrow({
-      where: { id: customerId },
-      select: {
-        id: true,
-        tagAssignments: { include: { tag: true }, orderBy: { assignedAt: 'asc' } },
-      },
-    });
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+      return {
+        state: 'DETERMINISTIC_REPLAY' as const,
+        customer: await this.customerWithTags(this.prisma, customerId),
+      };
+    }
   }
 
   listSegments(input: { page: number; limit: number }) {
@@ -625,6 +700,42 @@ export class Phase8CrmRepository {
       throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
     }
     return { state: 'DETERMINISTIC_REPLAY' as const, lead: row };
+  }
+
+  private assertPipelineReplay(
+    row: {
+      description: string | null;
+      stages: Array<{
+        nameNormalized: string;
+        position: number;
+        outcome: CrmPipelineStageOutcome;
+      }>;
+    },
+    description: string | null,
+    stages: Array<{
+      nameNormalized: string;
+      position: number;
+      outcome: CrmPipelineStageOutcome;
+    }>,
+  ) {
+    const same = row.description === description
+      && row.stages.length === stages.length
+      && row.stages.every((stage, index) => stage.nameNormalized === stages[index]?.nameNormalized
+        && stage.position === stages[index]?.position && stage.outcome === stages[index]?.outcome);
+    if (!same) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
+  }
+
+  private customerWithTags(
+    client: Pick<Prisma.TransactionClient, 'customer'>,
+    customerId: string,
+  ) {
+    return client.customer.findUniqueOrThrow({
+      where: { id: customerId },
+      select: {
+        id: true,
+        tagAssignments: { include: { tag: true }, orderBy: { assignedAt: 'asc' as const } },
+      },
+    });
   }
 
   private taskCreateReplay(row: {
