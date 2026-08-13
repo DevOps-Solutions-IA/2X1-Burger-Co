@@ -4,10 +4,12 @@ import type { AuthUser } from '../../common/types/auth-user.type';
 import { PrismaService } from '../../prisma/prisma.service';
 import { closeTestApp, createTestApp } from '../../tests/helpers/test-app';
 import { resetDatabase, seedTestData } from '../../tests/helpers/test-data';
+import { AuditService } from '../audit/audit.service';
 import { OrdersService } from './orders.service';
 
 describe('OrdersService Phase 8 kitchen authority persistence', () => {
   let app: INestApplication;
+  let audit: AuditService;
   let orders: OrdersService;
   let prisma: PrismaService;
 
@@ -19,6 +21,7 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
     const testApp = await createTestApp();
     app = testApp.app;
     prisma = testApp.prisma;
+    audit = app.get(AuditService);
     orders = app.get(OrdersService);
   });
 
@@ -110,6 +113,31 @@ describe('OrdersService Phase 8 kitchen authority persistence', () => {
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
     expect(await prisma.orderTicket.findUniqueOrThrow({ where: { id: context.order.id } }))
       .toMatchObject({ status: OrderTicketStatus.IN_PREPARATION, revision: 1 });
+    expect(await prisma.auditLog.count({
+      where: {
+        action: 'KITCHEN_TRANSITION',
+        entityId: context.order.id,
+      },
+    })).toBe(1);
+  });
+
+  it('rolls back status and revision when transactional audit creation fails', async () => {
+    const context = await fixture(OrderTicketStatus.OPEN);
+    const auditCountBefore = await prisma.auditLog.count();
+    const auditFailure = jest.spyOn(audit, 'log').mockRejectedValueOnce(
+      new Error('injected audit persistence failure'),
+    );
+
+    await expect(orders.transitionKitchen(
+      context.order.id,
+      { action: 'START_PREPARATION', expectedRevision: context.order.revision },
+      context.admin,
+    )).rejects.toThrow('injected audit persistence failure');
+
+    expect(await prisma.orderTicket.findUniqueOrThrow({ where: { id: context.order.id } }))
+      .toMatchObject({ status: OrderTicketStatus.OPEN, revision: 0 });
+    expect(await prisma.auditLog.count()).toBe(auditCountBefore);
+    auditFailure.mockRestore();
   });
 
   it('rejects waiter kitchen transitions through both generic update and waiter sync', async () => {

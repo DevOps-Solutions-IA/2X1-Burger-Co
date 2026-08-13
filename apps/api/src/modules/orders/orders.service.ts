@@ -856,20 +856,26 @@ export class OrdersService {
         throw new ConflictException({ code: 'STALE_ORDER_REVISION' });
       }
 
-      return tx.orderTicket.findUniqueOrThrow({
+      const transitioned = await tx.orderTicket.findUniqueOrThrow({
         where: { id },
         include: orderInclude,
       });
-    });
 
-    await this.auditService.log({
-      userId: actor.sub,
-      action: 'KITCHEN_TRANSITION',
-      module: 'orders',
-      entity: 'order_ticket',
-      entityId: id,
-      oldValues: { status: order.status, revision: order.revision },
-      newValues: { status: updated.status, revision: updated.revision, action: dto.action },
+      await this.auditService.log({
+        userId: actor.sub,
+        action: 'KITCHEN_TRANSITION',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: id,
+        oldValues: { status: order.status, revision: order.revision },
+        newValues: {
+          status: transitioned.status,
+          revision: transitioned.revision,
+          action: dto.action,
+        },
+      }, tx);
+
+      return transitioned;
     });
 
     this.realtimeService.publishOrderUpdated({

@@ -54,7 +54,10 @@ describe('OrdersService Phase 8 kitchen authority', () => {
   }
 
   it('applies START_PREPARATION through one atomic status-and-revision authority', async () => {
-    const { service, tx, updated } = harness({ status: OrderTicketStatus.OPEN, revision: 4 });
+    const { audit, realtime, service, tx, updated } = harness({
+      status: OrderTicketStatus.OPEN,
+      revision: 4,
+    });
 
     await expect(service.transitionKitchen(
       'order-1',
@@ -74,6 +77,35 @@ describe('OrdersService Phase 8 kitchen authority', () => {
         revision: { increment: 1 },
       },
     });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'KITCHEN_TRANSITION',
+      entityId: 'order-1',
+      oldValues: { status: OrderTicketStatus.OPEN, revision: 4 },
+      newValues: {
+        status: OrderTicketStatus.IN_PREPARATION,
+        revision: 5,
+        action: 'START_PREPARATION',
+      },
+    }), tx);
+    expect(realtime.publishOrderUpdated).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish realtime when transactional audit creation fails', async () => {
+    const { audit, realtime, service, tx } = harness({
+      status: OrderTicketStatus.OPEN,
+      revision: 4,
+    });
+    audit.log.mockRejectedValueOnce(new Error('audit unavailable'));
+
+    await expect(service.transitionKitchen(
+      'order-1',
+      { action: 'START_PREPARATION', expectedRevision: 4 },
+      supervisor,
+    )).rejects.toThrow('audit unavailable');
+
+    expect(audit.log).toHaveBeenCalledWith(expect.any(Object), tx);
+    expect(realtime.publishOrderUpdated).not.toHaveBeenCalled();
+    expect(realtime.publishOperationalRefresh).not.toHaveBeenCalled();
   });
 
   it('rejects stale, out-of-order and lost-race transitions', async () => {
