@@ -56,7 +56,7 @@ export const serviceCaseSchema = z.object({
   assignedActor: z.object({
     id: z.string(),
     fullName: z.string(),
-    accessName: z.string(),
+    accessName: z.string().nullable(),
   }).nullable(),
   orderCheckout: z.object({
     id: z.string(),

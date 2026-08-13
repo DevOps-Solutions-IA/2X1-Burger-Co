@@ -73,6 +73,26 @@ export function resolveOrderDetailPayment(order: OrderDetail) {
   return { authority: 'Sin autoridad financiera asociada', status: 'UNAVAILABLE', label: 'Sin evidencia financiera asociada', description: 'No se infiere pago por el estado del pedido.' };
 }
 
+export function resolveHistoricalPaidEvidence(order: OrderDetail) {
+  const canonicalStatus = order.orderCheckout?.paymentIntents[0]?.status;
+  const canonicalResultIsUncertain = canonicalStatus === 'UNKNOWN_RESULT'
+    || canonicalStatus === 'FINANCIAL_REVIEW_REQUIRED';
+
+  if (canonicalResultIsUncertain) {
+    return {
+      titleSuffix: ' · evidencia complementaria, no autoritativa',
+      description: `La autoridad canónica permanece en ${paymentStatusLabels[canonicalStatus].toLowerCase()}.`,
+      tone: 'warning' as const,
+    };
+  }
+
+  return {
+    titleSuffix: '',
+    description: undefined,
+    tone: 'success' as const,
+  };
+}
+
 function legacyPaymentEvidence(order: OrderDetail) {
   if (!order.orderCheckout) return [];
   return [
@@ -96,6 +116,7 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
 
   const payment = resolveOrderDetailPayment(order);
   const legacyPayments = legacyPaymentEvidence(order);
+  const historicalPaidEvidence = resolveHistoricalPaidEvidence(order);
   const itemColumns: DataTableColumn<OrderDetail['items'][number]>[] = [
     {
       id: 'product',
@@ -121,7 +142,13 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
   const timeline = [
     { id: 'opened', title: 'Pedido abierto', timestamp: formatDateTime(order.openedAt), description: `${orderTypeLabels[order.type]} · creado por ${order.createdBy.fullName}`, tone: 'info' as const },
     ...(order.servedAt ? [{ id: 'served', title: 'Pedido listo / servido', timestamp: formatDateTime(order.servedAt), tone: 'success' as const }] : []),
-    ...(order.paidAt ? [{ id: 'paid', title: 'Pago registrado en la orden', timestamp: formatDateTime(order.paidAt), tone: 'success' as const }] : []),
+    ...(order.paidAt ? [{
+      id: 'paid',
+      title: `Pago registrado en la orden${historicalPaidEvidence.titleSuffix}`,
+      timestamp: formatDateTime(order.paidAt),
+      description: historicalPaidEvidence.description,
+      tone: historicalPaidEvidence.tone,
+    }] : []),
     ...(order.cancelledAt ? [{ id: 'cancelled', title: 'Pedido cancelado', timestamp: formatDateTime(order.cancelledAt), tone: 'danger' as const }] : []),
     ...(order.deliveryDispatchedAt ? [{ id: 'dispatched', title: 'Domicilio en tránsito', timestamp: formatDateTime(order.deliveryDispatchedAt), tone: 'info' as const }] : []),
     ...(order.deliveryDeliveredAt ? [{ id: 'delivered', title: 'Domicilio entregado', timestamp: formatDateTime(order.deliveryDeliveredAt), tone: 'success' as const }] : []),
@@ -138,10 +165,16 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
     })),
     ...(order.whatsappDeliveryOrder?.paymentEvents ?? []).map((event) => ({
       id: `payment-${event.id}`,
-      title: `Pago: ${event.newStatus.replaceAll('_', ' ')}`,
+      title: `Pago: ${event.newStatus.replaceAll('_', ' ')}${event.newStatus === 'PAID' ? historicalPaidEvidence.titleSuffix : ''}`,
       timestamp: formatDateTime(event.createdAt),
-      description: event.message ?? `${event.previousStatus ?? 'SIN_ESTADO'} → ${event.newStatus}`,
-      tone: event.newStatus === 'PAID' ? 'success' as const : event.newStatus.includes('FAILED') ? 'danger' as const : 'warning' as const,
+      description: event.newStatus === 'PAID' && historicalPaidEvidence.description
+        ? historicalPaidEvidence.description
+        : event.message ?? `${event.previousStatus ?? 'SIN_ESTADO'} → ${event.newStatus}`,
+      tone: event.newStatus === 'PAID'
+        ? historicalPaidEvidence.tone
+        : event.newStatus.includes('FAILED')
+          ? 'danger' as const
+          : 'warning' as const,
     })),
   ];
 

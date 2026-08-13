@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { OrderDetail } from './contracts';
 import { orderDetailSchema } from './contracts';
-import { resolveOrderDetailPayment } from './order-detail-screen';
+import { resolveHistoricalPaidEvidence, resolveOrderDetailPayment } from './order-detail-screen';
 
 function financialOrder(
   status: 'UNKNOWN_RESULT' | 'FINANCIAL_REVIEW_REQUIRED' | 'SUCCEEDED',
@@ -67,9 +67,27 @@ test('keeps financial review distinct from verified success', () => {
   assert.notEqual(payment.label, 'Pago verificado');
 });
 
+test('renders historical PAID evidence as non-authoritative when the canonical result is unknown', () => {
+  const evidence = resolveHistoricalPaidEvidence(financialOrder('UNKNOWN_RESULT'));
+
+  assert.equal(evidence.tone, 'warning');
+  assert.match(evidence.titleSuffix, /complementaria, no autoritativa/i);
+  assert.match(evidence.description ?? '', /resultado financiero desconocido/i);
+});
+
+test('renders historical PAID evidence as non-authoritative during financial review', () => {
+  const evidence = resolveHistoricalPaidEvidence(financialOrder('FINANCIAL_REVIEW_REQUIRED'));
+
+  assert.equal(evidence.tone, 'warning');
+  assert.match(evidence.titleSuffix, /complementaria, no autoritativa/i);
+  assert.match(evidence.description ?? '', /revisión financiera requerida/i);
+});
+
 test('renders success only from a canonical succeeded intent', () => {
   const payment = resolveOrderDetailPayment(financialOrder('SUCCEEDED'));
+  const historicalEvidence = resolveHistoricalPaidEvidence(financialOrder('SUCCEEDED'));
 
   assert.equal(payment.status, 'SUCCEEDED');
   assert.equal(payment.label, 'Pago verificado');
+  assert.equal(historicalEvidence.tone, 'success');
 });
