@@ -197,7 +197,11 @@ jobs:
           pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
             ../../apps/web/src/features/auth/access-control.test.ts \
             ../../apps/web/src/features/crm/labels.test.ts \
-            ../../tests/architecture/phase8-semantic-surfaces.test.ts
+            ../../apps/web/src/features/pos/pos-contrast.test.ts \
+            ../../apps/web/src/features/waiter/catalog-window.test.ts \
+            ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \
+            ../../tests/architecture/phase8-semantic-surfaces.test.ts \
+            ../../tests/architecture/phase8-visible-polling.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \

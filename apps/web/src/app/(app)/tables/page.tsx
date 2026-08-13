@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { getOperationalOrderDisplayCode } from '@/lib/order-display';
+import { visiblePolling } from '@/lib/query-policy';
 
 type TableStatus = 'FREE' | 'OCCUPIED' | 'RESERVED' | 'PAYMENT_PENDING' | 'OUT_OF_SERVICE';
 
@@ -141,7 +142,8 @@ export default function TablesPage() {
   const tables = useQuery({
     queryKey: ['tables'],
     queryFn: () => apiFetch<DiningTable[]>('/tables'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const tableGroups = useQuery({
     queryKey: ['table-groups'],
