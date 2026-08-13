@@ -118,7 +118,7 @@ export function PosCartPanel({
             </div>
             <div>
               <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-500">Diferencia</p>
-              <p className={`mt-2 text-[18px] font-extrabold tabular-nums ${difference === 0 ? 'text-emerald-600' : difference > 0 ? 'text-brand-900' : 'text-red-600'}`}>
+              <p className={`mt-2 text-[18px] font-extrabold tabular-nums ${difference === 0 ? 'text-emerald-800' : difference > 0 ? 'text-brand-900' : 'text-red-600'}`}>
                 {formatCurrency(difference)}
               </p>
             </div>

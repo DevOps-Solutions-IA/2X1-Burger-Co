@@ -125,7 +125,7 @@ export function PosDeliveryPanel({
             <div className="shrink-0 text-right">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-600">Tarifa</p>
               <p
-                className={`mt-1 text-[22px] font-black tabular-nums leading-none tracking-tight ${deliveryStatus === 'LOCAL_FREE' ? 'text-emerald-600' : 'text-ink'}`}
+                className={`mt-1 text-[22px] font-black tabular-nums leading-none tracking-tight ${deliveryStatus === 'LOCAL_FREE' ? 'text-emerald-800' : 'text-ink'}`}
                 data-testid="pos-delivery-final-fee"
               >
                 {deliveryFinalFeeLabel}

@@ -31,6 +31,7 @@ test('keeps low-contrast tokens off light POS operational surfaces', () => {
 
     assert.doesNotMatch(fileSource, /text-stone-400/, `${fileName} uses stone-400`);
     assert.doesNotMatch(fileSource, /text-brand-700/, `${fileName} uses brand-700`);
+    assert.doesNotMatch(fileSource, /text-emerald-600/, `${fileName} uses emerald-600`);
   }
 
   assert.doesNotMatch(
