@@ -210,7 +210,9 @@ jobs:
             ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \
             ../../tests/architecture/phase8-authoritative-kpi.test.ts \
             ../../tests/architecture/phase8-accessibility-contracts.test.ts \
+            ../../tests/architecture/phase8-activation-control-hardening.test.ts \
             ../../tests/architecture/phase8-financial-ui-fail-closed.test.ts \
+            ../../tests/architecture/phase8-operational-source-fail-closed.test.ts \
             ../../tests/architecture/phase8-semantic-surfaces.test.ts \
             ../../tests/architecture/phase8-visible-polling.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
