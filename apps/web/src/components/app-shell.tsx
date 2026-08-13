@@ -118,28 +118,39 @@ const saleCountersSchema = z.object({
   }).passthrough(),
 }).passthrough();
 
+const drawerFocusableSelector = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopNavigation, setDesktopNavigation] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1024px)');
+    const syncNavigationMode = () => {
+      setDesktopNavigation(query.matches);
+      if (query.matches) setMobileNavOpen(false);
+    };
+    syncNavigationMode();
+    query.addEventListener('change', syncNavigationMode);
+    return () => query.removeEventListener('change', syncNavigationMode);
+  }, []);
 
   // Cerrar navegación móvil al navegar
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
-
-  // Cerrar navegación móvil con ESC
-  useEffect(() => {
-    if (!mobileNavOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileNavOpen(false);
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [mobileNavOpen]);
 
   useEffect(() => {
     if (!mobileNavOpen) {
@@ -147,9 +158,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     const menuButton = menuButtonRef.current;
-    const firstLink = sidebarRef.current?.querySelector<HTMLAnchorElement>('a[href]');
-    firstLink?.focus();
-    return () => menuButton?.focus();
+    const frame = window.requestAnimationFrame(() => {
+      const firstControl = sidebarRef.current?.querySelector<HTMLElement>(drawerFocusableSelector);
+      (firstControl ?? sidebarRef.current)?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      menuButton?.focus();
+    };
   }, [mobileNavOpen]);
 
   // Bloquear scroll del body cuando el drawer móvil está abierto
@@ -163,6 +179,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [mobileNavOpen]);
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  const handleDrawerKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMobileNav();
+      return;
+    }
+    if (event.key !== 'Tab' || !sidebarRef.current) return;
+
+    const focusable = Array.from(
+      sidebarRef.current.querySelectorAll<HTMLElement>(drawerFocusableSelector),
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      sidebarRef.current.focus();
+      return;
+    }
+
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, [closeMobileNav]);
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
@@ -183,42 +226,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface text-ink">
-      {/* Botón hamburger para móvil */}
-      <button
-        ref={menuButtonRef}
-        type="button"
-        className="fixed left-3 top-3 z-[60] flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-ink shadow-soft transition active:scale-95 lg:hidden"
-        onClick={() => setMobileNavOpen((v) => !v)}
-        aria-label={mobileNavOpen ? 'Cerrar menú de navegación' : 'Abrir menú de navegación'}
-        aria-expanded={mobileNavOpen}
-      >
-        {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </button>
-
       {/* Backdrop overlay para móvil */}
       {mobileNavOpen ? (
-        <div
+        <button
+          type="button"
           className="fixed inset-0 z-[55] bg-black/30 backdrop-blur-sm lg:hidden"
           onClick={closeMobileNav}
           aria-hidden="true"
+          tabIndex={-1}
         />
       ) : null}
 
-      <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
-        {/* Sidebar: overlay en móvil, fijo en desktop */}
-        <aside
-          ref={sidebarRef}
-          role="navigation"
-          aria-label="Navegación principal"
-          className={cn(
-            'rounded-[2rem] border border-white/[0.06] bg-black px-5 py-5 text-stone-100 shadow-2xl transition-transform duration-200',
-            'lg:fixed lg:bottom-4 lg:top-4 lg:flex lg:w-[280px] lg:flex-col lg:[left:max(1.5rem,calc((100vw-1600px)/2+1.5rem))]',
-            'fixed inset-4 z-[55] overflow-y-auto',
-            mobileNavOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] lg:translate-x-0',
-          )}
-        >
+      {/* Sidebar: diálogo modal en móvil, navegación persistente en desktop. */}
+      <aside
+        ref={sidebarRef}
+        id="mobile-navigation-dialog"
+        role={desktopNavigation ? undefined : 'dialog'}
+        aria-modal={!desktopNavigation && mobileNavOpen ? true : undefined}
+        aria-labelledby={!desktopNavigation ? 'mobile-navigation-title' : undefined}
+        aria-hidden={!desktopNavigation && !mobileNavOpen ? true : undefined}
+        inert={!desktopNavigation && !mobileNavOpen ? true : undefined}
+        tabIndex={!desktopNavigation ? -1 : undefined}
+        onKeyDown={!desktopNavigation ? handleDrawerKeyDown : undefined}
+        className={cn(
+          'rounded-[2rem] border border-white/[0.06] bg-black px-5 py-5 text-stone-100 shadow-2xl transition-transform duration-200',
+          'lg:fixed lg:bottom-4 lg:top-4 lg:flex lg:w-[280px] lg:flex-col lg:[left:max(1.5rem,calc((100vw-1600px)/2+1.5rem))]',
+          'fixed inset-4 z-[60] overflow-y-auto outline-none',
+          mobileNavOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] lg:translate-x-0',
+        )}
+      >
           <div className="flex flex-1 flex-col">
-            <div className="flex shrink-0 justify-center py-3">
+            <div className="flex shrink-0 items-center justify-between gap-3 py-3">
+              <h2 id="mobile-navigation-title" className="sr-only">Navegación principal</h2>
               <div className="relative w-full max-w-[200px]">
                 <Image
                   src="/brand/sidebar-logo.png"
@@ -229,9 +268,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="h-auto w-full object-contain object-center"
                 />
               </div>
+              <button
+                type="button"
+                onClick={closeMobileNav}
+                aria-label="Cerrar menú de navegación"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-stone-200 transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 lg:hidden"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
 
-            <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4" aria-label="Modulos del producto">
+            <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4" aria-label="Navegación principal">
               {visibleNavSections.map((section) => (
                 <div key={section.title}>
                   <h2 className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">
@@ -291,11 +338,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-        </aside>
+      </aside>
 
-        <div className="min-h-0 lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
-          <div className="min-h-0 lg:h-full lg:overflow-y-auto lg:pr-1">
-            <div className="sticky top-0 z-30 pb-4 pt-0">
+      <div
+        inert={mobileNavOpen ? true : undefined}
+        aria-hidden={mobileNavOpen ? true : undefined}
+      >
+        <a
+          href="#main-content"
+          className="fixed left-4 top-3 z-[80] -translate-y-24 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink shadow-xl transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          Saltar al contenido principal
+        </a>
+
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className="fixed left-3 top-3 z-[50] flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-ink shadow-soft transition active:scale-95 lg:hidden"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="Abrir menú de navegación"
+          aria-controls="mobile-navigation-dialog"
+          aria-expanded={mobileNavOpen}
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+        </button>
+
+        <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
+          <div className="min-h-0 lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
+            <div className="min-h-0 lg:h-full lg:overflow-y-auto lg:pr-1">
+              <div className="sticky top-0 z-30 pb-4 pt-0">
               <div className="absolute inset-x-0 inset-y-0 rounded-[2rem] bg-gradient-to-b from-surface via-surface/95 to-surface/70 backdrop-blur-sm" />
               <div className="relative rounded-[2rem] border border-white/[0.08] bg-black px-6 py-3 shadow-2xl">
                 <div className="flex items-center justify-between gap-4">
@@ -304,7 +375,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
                     <p className="hidden truncate text-[11px] font-medium text-stone-400 sm:block">Centro operativo</p>
                   </div>
-                  <div className="hidden min-w-0 flex-1 justify-center px-4 xl:flex">
+                  <div className="ml-auto w-11 min-w-11 overflow-hidden xl:flex xl:w-full xl:max-w-md xl:flex-1 xl:justify-center xl:overflow-visible xl:px-4">
                     <GlobalSearch />
                   </div>
                   <div
@@ -317,16 +388,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               </div>
-            </div>
+              </div>
 
-            <main
-              id="main-content"
-              data-testid="app-main"
-              className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
-              tabIndex={-1}
-            >
-              {children}
-            </main>
+              <main
+                id="main-content"
+                data-testid="app-main"
+                className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
+                tabIndex={-1}
+              >
+                {children}
+              </main>
+            </div>
           </div>
         </div>
       </div>
