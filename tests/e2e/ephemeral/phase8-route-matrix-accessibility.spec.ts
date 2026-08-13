@@ -53,15 +53,24 @@ const ADMIN_ROUTES = [
 
 const INVENTORY_ROUTES = [
   '/categories',
-  '/deliveries',
   '/ingredients',
   '/inventory',
-  '/orders',
   '/products',
   '/purchases',
   '/recipes',
   '/reports',
   '/suppliers',
+] as const;
+
+const INVENTORY_DENIED_ROUTES = [
+  '/audit',
+  '/conversations',
+  '/crm',
+  '/customers',
+  '/deliveries',
+  '/kitchen',
+  '/orders',
+  '/sofia',
   '/tables',
 ] as const;
 
@@ -146,6 +155,13 @@ test.describe('Phase 8 authenticated route accessibility matrix', () => {
         for (const route of INVENTORY_ROUTES) {
           await test.step(route, async () => expectResponsiveAccessibleRoute(page, route));
         }
+        for (const route of INVENTORY_DENIED_ROUTES) {
+          await test.step(`${route} denied`, async () => {
+            await page.goto(route, { waitUntil: 'domcontentloaded' });
+            await expect(page.getByRole('heading', { name: 'No tienes permisos para este módulo' })).toBeVisible();
+          });
+        }
+        await expect(page.getByRole('button', { name: 'Buscar en toda la operación' })).toHaveCount(0);
         expect(mutations).toEqual([]);
       } finally {
         await context.close();

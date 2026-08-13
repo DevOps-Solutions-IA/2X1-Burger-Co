@@ -9,7 +9,7 @@ import { useAuth } from '@/features/auth/auth-provider';
 import { hasPermission } from '@/features/auth/access-control';
 import { ActorBadge, ConversationDetail, PrivacyNotice } from '@/features/customer-operations/components';
 import { scopeLabel, scopeTone, type TimelineActor } from '@/features/customer-operations/model';
-import { useConversationInbox } from '@/features/customer-operations/queries';
+import { useConversationDetail } from '@/features/customer-operations/queries';
 
 const actors: TimelineActor[] = ['CUSTOMER', 'SOFIA', 'HUMAN_AGENT', 'SYSTEM_EVENT'];
 
@@ -19,23 +19,14 @@ export default function ConversationDetailPage() {
   const { user } = useAuth();
   const canRead = hasPermission(user?.permissions, 'orders.read');
   const canGovern = Boolean(user?.roles.some((role) => role === 'admin' || role === 'supervisor'));
-  const inbox = useConversationInbox(canRead);
-  const data = inbox.data;
-  const allConversations = data
-    ? [
-        ...data.real.conversations,
-        ...data.internalValidation.conversations,
-        ...data.sandbox.conversations,
-        ...data.historical.conversations,
-      ]
-    : [];
-  const conversation = allConversations.find((item) => item.id === conversationId);
+  const detail = useConversationDetail(conversationId, canRead);
+  const conversation = detail.data;
 
   const queryStatus = !canRead
     ? 'permission_denied'
-    : inbox.isPending
-      ? 'loading'
-      : inbox.isError
+      : detail.isPending
+        ? 'loading'
+      : detail.isError
         ? 'error'
         : conversation
           ? 'ready'
@@ -62,10 +53,10 @@ export default function ConversationDetailPage() {
 
       <QueryState
         status={queryStatus}
-        title={inbox.isError ? 'No se pudo cargar la conversación' : 'Conversación no disponible'}
-        description={inbox.isError ? 'El inbox no respondió con un contrato válido.' : 'El identificador no existe en el inbox autorizado o quedó fuera de la ventana disponible.'}
-        onRetry={inbox.isError ? () => void inbox.refetch() : undefined}
-        action={!conversation && !inbox.isPending ? <Button asChild variant="secondary"><Link href="/conversations">Abrir bandeja</Link></Button> : undefined}
+        title={detail.isError ? 'No se pudo cargar la conversación' : 'Conversación no disponible'}
+        description={detail.isError ? 'El detalle sanitizado no respondió con un contrato válido.' : 'El identificador no existe o no está autorizado.'}
+        onRetry={detail.isError ? () => void detail.refetch() : undefined}
+        action={!conversation && !detail.isPending ? <Button asChild variant="secondary"><Link href="/conversations">Abrir bandeja</Link></Button> : undefined}
       >
         {conversation ? <ConversationDetail conversation={conversation} canGovern={canGovern} /> : null}
       </QueryState>

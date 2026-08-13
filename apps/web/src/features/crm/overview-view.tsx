@@ -10,9 +10,23 @@ export function CrmOverviewView() {
   const pipelines = useCrmPipelines('ACTIVE');
   const leads = useCrmLeads();
   const tasks = useCrmTasks({ type: 'TASK' });
+  const openTasks = useCrmTasks({ type: 'TASK', status: 'OPEN' });
+  const inProgressTasks = useCrmTasks({ type: 'TASK', status: 'IN_PROGRESS' });
   const followUps = useCrmTasks({ type: 'FOLLOW_UP' });
+  const openFollowUps = useCrmTasks({ type: 'FOLLOW_UP', status: 'OPEN' });
+  const inProgressFollowUps = useCrmTasks({ type: 'FOLLOW_UP', status: 'IN_PROGRESS' });
   const segments = useCrmSegments();
-  const queries = [pipelines, leads, tasks, followUps, segments];
+  const queries = [
+    pipelines,
+    leads,
+    tasks,
+    openTasks,
+    inProgressTasks,
+    followUps,
+    openFollowUps,
+    inProgressFollowUps,
+    segments,
+  ];
   const pending = queries.some((query) => query.isPending);
   const failed = queries.find((query) => query.error)?.error;
 
@@ -21,8 +35,8 @@ export function CrmOverviewView() {
     return <QueryState status="error" onRetry={() => queries.forEach((query) => void query.refetch())} />;
   }
 
-  const openTasks = tasks.data?.data.filter((task) => task.status === 'OPEN' || task.status === 'IN_PROGRESS').length ?? 0;
-  const dueFollowUps = followUps.data?.data.filter((task) => task.status === 'OPEN' || task.status === 'IN_PROGRESS').length ?? 0;
+  const openTaskCount = (openTasks.data?.pagination.total ?? 0) + (inProgressTasks.data?.pagination.total ?? 0);
+  const dueFollowUpCount = (openFollowUps.data?.pagination.total ?? 0) + (inProgressFollowUps.data?.pagination.total ?? 0);
   const activeLeads = leads.data?.data.filter((lead) => !['WON', 'LOST', 'ARCHIVED'].includes(lead.status)).length ?? 0;
 
   return (
@@ -30,8 +44,8 @@ export function CrmOverviewView() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Indicadores reales del CRM">
         <MetricSurface label="Pipelines activos" value={pipelines.data?.pagination.total ?? 0} icon={<Workflow className="h-5 w-5" />} density="compact" />
         <MetricSurface label="Leads visibles" value={leads.data?.pagination.total ?? 0} context={`${activeLeads} activos en esta página`} icon={<Contact className="h-5 w-5" />} density="compact" />
-        <MetricSurface label="Tareas abiertas" value={openTasks} context={`${tasks.data?.pagination.total ?? 0} tareas registradas`} icon={<ListTodo className="h-5 w-5" />} density="compact" />
-        <MetricSurface label="Seguimientos abiertos" value={dueFollowUps} context={`${followUps.data?.pagination.total ?? 0} registrados`} icon={<BriefcaseBusiness className="h-5 w-5" />} density="compact" />
+        <MetricSurface label="Tareas abiertas" value={openTaskCount} context={`${tasks.data?.pagination.total ?? 0} tareas registradas`} icon={<ListTodo className="h-5 w-5" />} density="compact" />
+        <MetricSurface label="Seguimientos abiertos" value={dueFollowUpCount} context={`${followUps.data?.pagination.total ?? 0} registrados`} icon={<BriefcaseBusiness className="h-5 w-5" />} density="compact" />
         <MetricSurface label="Segmentos" value={segments.data?.pagination.total ?? 0} icon={<Tags className="h-5 w-5" />} density="compact" />
       </section>
 

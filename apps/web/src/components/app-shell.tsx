@@ -53,17 +53,17 @@ const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavIt
     title: 'Control',
     items: [
       { href: '/overview', label: 'Overview', icon: Gauge },
-      { href: '/sofia', label: 'Sofia', icon: Bot, permission: 'orders.read' },
+      { href: '/sofia', label: 'Sofia', icon: Bot, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
     ],
   },
   {
     title: 'Servicio',
     items: [
-      { href: '/orders', label: 'Pedidos', icon: ClipboardList, permission: 'orders.read' },
-      { href: '/kitchen', label: 'Cocina', icon: ChefHat, permission: 'orders.read' },
+      { href: '/orders', label: 'Pedidos', icon: ClipboardList, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
+      { href: '/kitchen', label: 'Cocina', icon: ChefHat, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
       { href: '/pos', label: 'Punto de venta', icon: ShoppingCart, permission: 'sales.read' },
-      { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
-      { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
+      { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read', roles: ['admin', 'supervisor', 'cashier', 'waiter'] },
+      { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read', roles: ['admin', 'supervisor', 'cashier', 'delivery', 'rider'] },
       { href: '/payments', label: 'Pagos', icon: CreditCard, permission: 'reports.read', roles: ['admin', 'supervisor'] },
       { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones, permission: 'orders.read', roles: ['admin', 'supervisor'] },
     ],
@@ -71,16 +71,16 @@ const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavIt
   {
     title: 'Relaciones',
     items: [
-      { href: '/crm', label: 'CRM', icon: UserRoundSearch, permission: 'orders.read' },
-      { href: '/customers', label: 'Clientes', icon: ContactRound, permission: 'orders.read' },
-      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText, permission: 'orders.read' },
+      { href: '/crm', label: 'CRM', icon: UserRoundSearch, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
+      { href: '/customers', label: 'Clientes', icon: ContactRound, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
+      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
     ],
   },
   {
     title: 'Inteligencia',
     items: [
       { href: '/analytics', label: 'Analitica', icon: TrendingUp, permission: 'reports.read' },
-      { href: '/audit', label: 'Auditoria', icon: ShieldCheck, permission: 'reports.read' },
+      { href: '/audit', label: 'Auditoria', icon: ShieldCheck, permission: 'reports.read', roles: ['admin', 'supervisor'] },
       { href: '/reports', label: 'Reportes', icon: ReceiptText, permission: 'reports.read' },
     ],
   },
@@ -219,6 +219,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (char) => char.toUpperCase())
     : 'Sesión activa';
+  const canUseGlobalSearch = hasAllowedRole(user?.roles, ['admin', 'supervisor', 'cashier']);
 
   return (
     <div className="min-h-screen bg-surface text-ink">
@@ -371,9 +372,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
                     <p className="hidden truncate text-[11px] font-medium text-stone-400 sm:block">Centro operativo</p>
                   </div>
-                  <div className="ml-auto w-11 min-w-11 overflow-hidden xl:flex xl:w-full xl:max-w-md xl:flex-1 xl:justify-center xl:overflow-visible xl:px-4">
-                    <GlobalSearch />
-                  </div>
+                  {canUseGlobalSearch ? (
+                    <div className="ml-auto w-11 min-w-11 overflow-hidden xl:flex xl:w-full xl:max-w-md xl:flex-1 xl:justify-center xl:overflow-visible xl:px-4">
+                      <GlobalSearch />
+                    </div>
+                  ) : <div className="ml-auto" />}
                   <div
                     className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
                     role="region"

@@ -182,6 +182,7 @@ describe('GlobalSearchService', () => {
     const result = await service.search({ q: 'Cliente Uno', limit: 5 }, actor([], ['cashier']));
 
     expect(result.items.map((item) => item.kind)).toEqual(['CUSTOMER', 'ORDER', 'CONVERSATION']);
+    expect(result.items.find((item) => item.kind === 'CONVERSATION')?.href).toBe('/conversations/conversation-1');
     expect(paymentFindMany).not.toHaveBeenCalled();
     expect(caseFindMany).not.toHaveBeenCalled();
   });

@@ -77,6 +77,61 @@ type InboxConversationRecord = {
   };
 };
 
+const inboxConversationSelect = {
+  id: true,
+  phone: true,
+  customerName: true,
+  source: true,
+  status: true,
+  provider: true,
+  mode: true,
+  sofiaEnabled: true,
+  humanStatus: true,
+  lastMessagePreview: true,
+  lastMessageAt: true,
+  lastInboundAt: true,
+  unreadCount: true,
+  riskFlags: true,
+  createdAt: true,
+  updatedAt: true,
+  messages: {
+    orderBy: { createdAt: 'asc' as const },
+    take: 24,
+    select: {
+      id: true,
+      direction: true,
+      provider: true,
+      body: true,
+      transcript: true,
+      status: true,
+      errorMessage: true,
+      aiIntent: true,
+      confidence: true,
+      createdAt: true,
+    },
+  },
+  outboundMessages: {
+    orderBy: { createdAt: 'asc' as const },
+    take: 24,
+    select: {
+      id: true,
+      body: true,
+      mediaUrl: true,
+      status: true,
+      attempts: true,
+      lastError: true,
+      createdAt: true,
+      sentAt: true,
+    },
+  },
+  _count: {
+    select: {
+      deliveryOrders: true,
+      orderDrafts: true,
+    },
+  },
+} as const satisfies Prisma.WhatsappConversationSelect;
+
 @Injectable()
 export class SofiaService {
   constructor(
@@ -257,60 +312,7 @@ export class SofiaService {
     const aiMode = process.env.SOFIA_AI_MODE ?? this.configService.get<string>('SOFIA_AI_MODE') ?? 'rules';
 
     const conversations = await this.prisma.whatsappConversation.findMany({
-      select: {
-        id: true,
-        phone: true,
-        customerName: true,
-        source: true,
-        status: true,
-        provider: true,
-        mode: true,
-        sofiaEnabled: true,
-        humanStatus: true,
-        lastMessagePreview: true,
-        lastMessageAt: true,
-        lastInboundAt: true,
-        unreadCount: true,
-        riskFlags: true,
-        createdAt: true,
-        updatedAt: true,
-        messages: {
-          orderBy: { createdAt: 'asc' },
-          take: 24,
-          select: {
-            id: true,
-            direction: true,
-            provider: true,
-            body: true,
-            transcript: true,
-            status: true,
-            errorMessage: true,
-            aiIntent: true,
-            confidence: true,
-            createdAt: true,
-          },
-        },
-        outboundMessages: {
-          orderBy: { createdAt: 'asc' },
-          take: 24,
-          select: {
-            id: true,
-            body: true,
-            mediaUrl: true,
-            status: true,
-            attempts: true,
-            lastError: true,
-            createdAt: true,
-            sentAt: true,
-          },
-        },
-        _count: {
-          select: {
-            deliveryOrders: true,
-            orderDrafts: true,
-          },
-        },
-      },
+      select: inboxConversationSelect,
       orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
       take: 100,
     });
@@ -389,6 +391,26 @@ export class SofiaService {
         },
       },
     };
+  }
+
+  async getConversationInbox(id: string) {
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id },
+      select: inboxConversationSelect,
+    });
+    if (!conversation) {
+      throw new NotFoundException('No se encontró la conversación Sofía/WhatsApp.');
+    }
+
+    const realSendingEnabled = this.configBoolean('WHATSAPP_QR_ALLOW_REAL_SEND') && false;
+    const deepSeekEnabled = this.configBoolean('DEEPSEEK_ENABLED');
+    const aiMode = process.env.SOFIA_AI_MODE ?? this.configService.get<string>('SOFIA_AI_MODE') ?? 'rules';
+    return this.toInboxConversation(conversation, {
+      realOperationEnabled: false,
+      realSendingEnabled,
+      deepSeekEnabled,
+      aiMode,
+    });
   }
 
   async findConversation(id: string) {

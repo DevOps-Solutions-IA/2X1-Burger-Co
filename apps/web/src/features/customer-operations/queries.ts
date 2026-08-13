@@ -7,6 +7,7 @@ import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import {
   sofiaConversationActionResponseSchema,
   sofiaConversationsInboxSchema,
+  inboxConversationSchema,
   sofiaCrmCustomerDetailSchema,
   sofiaCrmCustomersSchema,
   sofiaCrmCustomerTimelineSchema,
@@ -68,6 +69,18 @@ export function useConversationInbox(enabled = true) {
       apiFetchSchema('/admin/sofia/conversations/inbox', sofiaConversationsInboxSchema),
     enabled,
     refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
+  });
+}
+
+export function useConversationDetail(conversationId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...sofiaQueryKeys.conversationsInbox, 'detail', conversationId],
+    queryFn: () => apiFetchSchema(
+      `/admin/sofia/conversations/inbox/${encodeURIComponent(conversationId)}`,
+      inboxConversationSchema,
+    ),
+    enabled: enabled && conversationId.length > 0,
+    staleTime: 10_000,
   });
 }
 

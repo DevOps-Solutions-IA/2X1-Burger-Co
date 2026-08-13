@@ -136,7 +136,7 @@ export function PosActiveOrdersPanel({
                     : orderStatusLabels[order.status as OrderStatus] ?? order.status}
                 </Badge>
               </div>
-              <div className="mt-auto grid gap-2 pt-4 text-[12px] text-stone-500 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="mt-auto grid gap-2 pt-4 text-[12px] text-stone-600 sm:grid-cols-[1fr_auto] sm:items-end">
                 <span className="min-w-0 truncate">{formatDateTime(order.updatedAt)}</span>
                 <span className="numeric-tabular text-[15px] font-bold text-ink">{formatCurrency(order.subtotal)}</span>
               </div>

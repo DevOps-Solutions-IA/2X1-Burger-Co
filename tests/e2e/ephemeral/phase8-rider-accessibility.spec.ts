@@ -28,6 +28,7 @@ test('rider receive workflow is accessible at phone and tablet widths without op
   await name.focus();
   await name.press('Tab');
   await expect(code).toBeFocused();
+  await expect(submit).toBeEnabled();
   await code.press('Tab');
   await expect(submit).toBeFocused();
   await submit.press('Enter');

@@ -207,7 +207,7 @@ test.describe.serial('Waiter table-only flows', () => {
     await expect(page.getByRole('heading', { name: new RegExp(waiterTableLabel) })).toBeVisible();
     await page.locator('button:not([disabled])').filter({ hasText: /COP/ }).first().click();
     await page.getByTestId('waiter-save-order').click();
-    await expect(page.getByText(/^1 mias$/i)).toBeVisible();
+    await expect(page.getByText(/^1 m[ií]as$/i)).toBeVisible();
     await expect(page.getByRole('button', { name: new RegExp(`${waiterTableLabel}.*Con servicio`, 's') })).toBeVisible();
 
     const response = await request.get('/api/orders?activeOnly=true', {
@@ -341,7 +341,7 @@ test.describe.serial('Waiter table-only flows', () => {
     expect(persistedHistoricalOrder.waiterNameSnapshot).toBe('Virginia Mesera');
   });
 
-  test('waiter assignment endpoints are reachable for admin and protected for waiter', async ({ page, request, workerAccessToken }) => {
+  test('waiter assignment endpoints are reachable for admin and protected for waiter', async ({ request, workerAccessToken }) => {
     const groups = await request.get('/api/table-groups', {
       headers: { Authorization: `Bearer ${workerAccessToken}` },
     });

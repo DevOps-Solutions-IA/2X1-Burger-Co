@@ -54,37 +54,21 @@ test.describe('Phase 8 enterprise product experience', () => {
     expect(browserErrors).toEqual([]);
   });
 
-  test('customer search and Customer 360 use real or explicit empty states', async ({ page }) => {
+  test('customer search opens the seeded Customer 360 read model', async ({ page }) => {
     await page.goto('/customers');
     await expect(page.getByTestId('customers-page')).toBeVisible();
 
     const search = page.getByPlaceholder('Buscar por nombre o teléfono');
-    await search.fill(`no-existent-phase8-${Date.now()}`);
+    await search.fill('E2E Customer 360');
     await page.getByRole('button', { name: 'Buscar', exact: true }).click();
-    await expect(page.getByRole('status')).toContainText('No hay resultados todavía');
-
-    await page.goto('/customers');
-    const profileLinks = page.getByRole('link', { name: /^Abrir perfil de / });
-    await expect(profileLinks.first().or(page.getByRole('status'))).toBeVisible();
-    if (await profileLinks.count()) {
-      await profileLinks.first().click();
-      await expect(page.getByTestId('customer-360-page')).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Timeline verificable' })).toBeVisible();
-    } else {
-      await page.goto('/customers/e2e-customer-not-present');
-      await expect(page.getByTestId('customer-360-page')).toBeVisible();
-      await expect(page.getByRole('heading', { name: /No se pudo cargar el perfil|No hay resultados todavía/ })).toBeVisible();
-    }
+    await page.getByRole('link', { name: 'Abrir perfil de E2E Customer 360' }).click();
+    await expect(page).toHaveURL(/\/customers\/e2e-crm-customer$/);
+    await expect(page.getByTestId('customer-360-page')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Timeline verificable' })).toBeVisible();
+    await expect(page.getByText('E2E Customer 360', { exact: true }).first()).toBeVisible();
   });
 
-  test('order detail and kitchen expose governed state without mutating it', async ({ page }) => {
-    const unsafeRequests: string[] = [];
-    page.on('request', (request) => {
-      if (request.method() !== 'GET' && /\/orders\/[^/]+\/kitchen-transition(?:\?|$)/.test(request.url())) {
-        unsafeRequests.push(`${request.method()} ${request.url()}`);
-      }
-    });
-
+  test('order detail and kitchen execute one governed transition', async ({ page }) => {
     await page.goto('/orders/e2e-order-fixture');
     await expect(page.getByTestId('order-detail-page')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Pedido #E2E-ORDER-0001' })).toBeVisible();
@@ -92,63 +76,34 @@ test.describe('Phase 8 enterprise product experience', () => {
 
     await page.goto('/kitchen');
     await expect(page.getByTestId('kitchen-page')).toBeVisible();
-    const seededOrder = page.getByRole('heading', { name: '#E2E-ORDER-0001' });
-    const emptyKitchen = page.getByText('No hay pedidos pendientes en cocina');
-    await expect(seededOrder.or(emptyKitchen)).toBeVisible();
-    if (await seededOrder.isVisible().catch(() => false)) {
-      await expect(page.getByRole('button', { name: 'Iniciar preparación' })).toBeVisible();
-    } else {
-      await expect(emptyKitchen).toBeVisible();
-    }
-
-    expect(unsafeRequests).toEqual([]);
+    const seededOrder = page.getByRole('article').filter({ hasText: '#E2E-ORDER-0001' });
+    await expect(seededOrder).toBeVisible();
+    await seededOrder.getByRole('button', { name: 'Iniciar preparación' }).click();
+    await expect(seededOrder.getByText('En preparación', { exact: true })).toBeVisible();
   });
 
-  test('conversation handoff and support cases remain supervised and read-only', async ({ page }) => {
-    const unsafeRequests: string[] = [];
-    page.on('request', (request) => {
-      if (
-        request.method() !== 'GET'
-        && (/\/admin\/sofia\/whatsapp\/conversations\/.+\/(?:pause|resume|take-over|release)/.test(request.url())
-          || /\/admin\/customer-service\/cases\/.+\/transition/.test(request.url()))
-      ) {
-        unsafeRequests.push(`${request.method()} ${request.url()}`);
-      }
-    });
-
+  test('conversation handoff and support case use governed versioned transitions', async ({ page }) => {
     await page.goto('/conversations');
     await expect(page.getByTestId('conversations-page')).toBeVisible();
     await expect(page.getByText('Receive-only', { exact: true })).toBeVisible();
     await expect(page.getByText('Outbound bloqueado', { exact: true })).toBeVisible();
 
-    const conversationLinks = page.getByRole('link', { name: /^Abrir conversación de / });
-    const emptyConversations = page.getByText('Sin conversaciones para este filtro');
-    await expect(conversationLinks.first().or(emptyConversations)).toBeVisible();
-    if (await conversationLinks.count()) {
-      await conversationLinks.first().click();
-      await expect(page.getByTestId('conversation-detail-page')).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Estado operacional' })).toBeVisible();
-    } else {
-      await expect(emptyConversations).toBeVisible();
-    }
+    await page.getByRole('link', { name: 'Abrir conversación de E2E Customer 360' }).click();
+    await expect(page).toHaveURL(/\/conversations\/e2e-conversation-fixture$/);
+    await expect(page.getByTestId('conversation-detail-page')).toBeVisible();
+    await page.getByRole('button', { name: 'Tomar conversación' }).click();
+    await expect(page.getByText('Human taken', { exact: true })).toBeVisible();
 
-    await page.goto('/customer-service');
+    await page.goto('/customer-service?case=e2e-service-case-fixture');
     await expect(page.getByRole('heading', { name: 'Servicio al cliente' })).toBeVisible();
-    const caseButtons = page.getByRole('button', { name: /^Abrir caso / });
-    const emptyCases = page.getByText('No hay casos para estos filtros');
-    await expect(caseButtons.first().or(emptyCases)).toBeVisible();
-    if (await caseButtons.count()) {
-      await caseButtons.first().click();
-      await expect(page.getByRole('heading', { name: 'Expediente del caso' })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Historial versionado' })).toBeVisible();
-    } else {
-      await expect(emptyCases).toBeVisible();
-    }
-
-    expect(unsafeRequests).toEqual([]);
+    await expect(page.getByRole('heading', { name: 'Expediente del caso' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Historial versionado' })).toBeVisible();
+    await page.getByPlaceholder('Ej. revisión solicitada').fill('revision_e2e');
+    await page.getByRole('button', { name: 'Solicitar atención humana' }).click();
+    await expect(page.getByText('Requiere humano', { exact: true }).first()).toBeVisible();
   });
 
-  test('CRM routes expose real empty states without campaign automation', async ({ page }) => {
+  test('CRM routes expose real records and governed lead/task mutations', async ({ page }) => {
     const routes = [
       '/crm',
       '/crm/leads',
@@ -168,6 +123,17 @@ test.describe('Phase 8 enterprise product experience', () => {
 
     await page.goto('/crm');
     await expect(page.getByText('Sin campañas automáticas')).toBeVisible();
+
+    await page.goto('/crm/leads');
+    const leadRow = page.getByRole('row').filter({ hasText: 'E2E Governed Lead' });
+    await leadRow.getByRole('button', { name: 'Mover' }).click();
+    await page.getByRole('button', { name: 'Confirmar transición' }).click();
+    await expect(page.getByText('Calificado', { exact: true }).first()).toBeVisible();
+
+    await page.goto('/crm/tasks');
+    const taskRow = page.getByRole('row').filter({ hasText: 'E2E Call Customer' });
+    await taskRow.getByRole('button', { name: 'Iniciar' }).click();
+    await expect(taskRow.getByText('En curso', { exact: true })).toBeVisible();
   });
 
   test('UNKNOWN_RESULT never renders as verified payment success', async ({ page }) => {
@@ -177,14 +143,7 @@ test.describe('Phase 8 enterprise product experience', () => {
     await expect(page.getByLabel('Estado')).toHaveValue('UNKNOWN_RESULT');
     await expect(page.getByText('Pago verificado', { exact: true })).toHaveCount(0);
 
-    const visibleStatuses = page.getByText('Resultado desconocido', { exact: true });
-    const emptyPaymentResults = page.getByText('No hay registros para estos filtros');
-    await expect(visibleStatuses.first().or(emptyPaymentResults)).toBeVisible();
-    if (await visibleStatuses.count()) {
-      await expect(visibleStatuses.first()).toBeVisible();
-    } else {
-      await expect(emptyPaymentResults).toBeVisible();
-    }
+    await expect(page.getByText('Resultado desconocido', { exact: true }).first()).toBeVisible();
   });
 
   test('activation control keeps Bold, outbound and auto reply disabled', async ({ page }) => {
@@ -206,7 +165,7 @@ test.describe('Phase 8 enterprise product experience', () => {
         requiredEnv('EPHEMERAL_CASHIER_PASSWORD'),
       );
       await page.goto('/payments');
-      await expect(page.getByRole('heading', { name: 'No tienes permisos para este módulo' })).toBeVisible();
+      await expect(page).toHaveURL(/\/dashboard\/?$/, { timeout: 20_000 });
       await expect(page.getByTestId('nav-payments')).toHaveCount(0);
     } finally {
       await context.close();

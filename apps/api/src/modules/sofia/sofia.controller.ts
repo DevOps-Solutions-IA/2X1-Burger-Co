@@ -248,6 +248,11 @@ export class SofiaController {
     return this.sofiaService.getConversationsInbox();
   }
 
+  @Get('conversations/inbox/:id')
+  getConversationInbox(@Param('id') id: string) {
+    return this.sofiaService.getConversationInbox(id);
+  }
+
   @Get('conversations/:id')
   findConversation(@Param('id') id: string) {
     return this.sofiaService.findConversation(id);

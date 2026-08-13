@@ -245,7 +245,7 @@ export const sofiaQrSendBlockedResultSchema = z.object({
   realSendingEnabled: z.literal(false),
 });
 
-const inboxConversationSchema = z.object({
+export const inboxConversationSchema = z.object({
   id: z.string(),
   scope: z.enum(['real', 'internal_validation', 'sandbox', 'historical']),
   customerLabel: z.string(),

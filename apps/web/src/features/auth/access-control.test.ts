@@ -24,6 +24,13 @@ test('CRM is readable by cashiers but mutations require an authorized operator r
   assert.equal(canMutateCrm(['admin']), true);
 });
 
+test('generic permissions never expose operational modules to inventory', () => {
+  const inventoryPermissions = ['orders.read', 'delivery.read', 'tables.read', 'reports.read'];
+  for (const route of ['/sofia', '/crm', '/customers', '/conversations', '/orders', '/kitchen', '/deliveries', '/tables', '/audit']) {
+    assert.equal(canAccessRoute(route, inventoryPermissions, ['inventory']), false, route);
+  }
+});
+
 test('default routes are authorized for every supported operational role', () => {
   const users = [
     { roles: ['admin'], permissions: [], expected: '/dashboard' },

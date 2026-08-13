@@ -153,7 +153,7 @@ export class GlobalSearchService {
         item.customer?.identities[0]?.valueMasked ??
         'Identidad protegida',
       status: item.status,
-      href: `/conversations?conversation=${encodeURIComponent(item.id)}`,
+      href: `/conversations/${encodeURIComponent(item.id)}`,
     }));
   }
 
