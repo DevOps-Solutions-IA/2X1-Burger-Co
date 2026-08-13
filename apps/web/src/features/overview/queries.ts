@@ -16,11 +16,12 @@ export const overviewQueryKeys = {
   sofia: ['overview', 'sofia'] as const,
 };
 
-export function useOperationalReport() {
+export function useOperationalReport(enabled = true) {
   return useQuery({
     queryKey: overviewQueryKeys.operational,
     queryFn: () => apiFetchSchema('/reports/operational', operationalReportSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    enabled,
+    refetchInterval: enabled ? visiblePolling(POLLING_INTERVAL.operational) : false,
   });
 }
 

@@ -61,13 +61,13 @@ export function PosCartPanel({
             </div>
             <div className="mt-2.5 flex items-end justify-between gap-3">
               <div className="inline-flex min-h-11 items-center rounded-xl border border-stone-200 bg-stone-50 p-0.5">
-                <button type="button" aria-label={`Reducir cantidad de ${item.name}`} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}>
+                <button type="button" aria-label={`Reducir cantidad de ${item.name}`} className="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}>
                   <Minus className="h-3.5 w-3.5" />
                 </button>
                 <span className="min-w-8 text-center text-[13px] font-bold tabular-nums text-ink" data-testid={`pos-cart-qty-${item.code.toLowerCase()}`}>
                   {item.quantity}
                 </span>
-                <button type="button" aria-label={`Aumentar cantidad de ${item.name}`} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}>
+                <button type="button" aria-label={`Aumentar cantidad de ${item.name}`} className="flex h-11 w-11 items-center justify-center rounded-lg text-stone-500 transition hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}>
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>

@@ -38,72 +38,70 @@ import { cn } from '@/lib/utils';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { GlobalSearch } from '@/features/search/global-search';
 import { useAuth } from '@/features/auth/auth-provider';
-import { hasAllowedRole, hasPermission } from '@/features/auth/access-control';
+import { canAccessRoute } from '@/features/auth/access-control';
 
 type NavItem = Readonly<{
   href: string;
   label: string;
   icon: LucideIcon;
-  permission?: string;
-  roles?: readonly string[];
 }>;
 
 const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavItem[] }>> = [
   {
     title: 'Control',
     items: [
-      { href: '/overview', label: 'Overview', icon: Gauge, roles: ['admin', 'supervisor', 'cashier'] },
-      { href: '/sofia', label: 'Sofia', icon: Bot, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
+      { href: '/overview', label: 'Overview', icon: Gauge },
+      { href: '/sofia', label: 'Sofia', icon: Bot },
     ],
   },
   {
     title: 'Servicio',
     items: [
-      { href: '/orders', label: 'Pedidos', icon: ClipboardList, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
-      { href: '/kitchen', label: 'Cocina', icon: ChefHat, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
-      { href: '/pos', label: 'Punto de venta', icon: ShoppingCart, permission: 'sales.read' },
-      { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read', roles: ['admin', 'supervisor', 'cashier', 'waiter'] },
-      { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read', roles: ['admin', 'supervisor', 'cashier', 'delivery', 'rider'] },
-      { href: '/payments', label: 'Pagos', icon: CreditCard, permission: 'reports.read', roles: ['admin', 'supervisor'] },
-      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones, permission: 'orders.read', roles: ['admin', 'supervisor'] },
+      { href: '/orders', label: 'Pedidos', icon: ClipboardList },
+      { href: '/kitchen', label: 'Cocina', icon: ChefHat },
+      { href: '/pos', label: 'Punto de venta', icon: ShoppingCart },
+      { href: '/tables', label: 'Mesas', icon: Armchair },
+      { href: '/deliveries', label: 'Domicilios', icon: Truck },
+      { href: '/payments', label: 'Pagos', icon: CreditCard },
+      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones },
     ],
   },
   {
     title: 'Relaciones',
     items: [
-      { href: '/crm', label: 'CRM', icon: UserRoundSearch, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
-      { href: '/customers', label: 'Clientes', icon: ContactRound, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
-      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText, permission: 'orders.read', roles: ['admin', 'supervisor', 'cashier'] },
+      { href: '/crm', label: 'CRM', icon: UserRoundSearch },
+      { href: '/customers', label: 'Clientes', icon: ContactRound },
+      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText },
     ],
   },
   {
     title: 'Inteligencia',
     items: [
-      { href: '/analytics', label: 'Analitica', icon: TrendingUp, permission: 'reports.read' },
-      { href: '/audit', label: 'Auditoria', icon: ShieldCheck, permission: 'reports.read', roles: ['admin', 'supervisor'] },
-      { href: '/reports', label: 'Reportes', icon: ReceiptText, permission: 'reports.read' },
+      { href: '/analytics', label: 'Analitica', icon: TrendingUp },
+      { href: '/audit', label: 'Auditoria', icon: ShieldCheck },
+      { href: '/reports', label: 'Reportes', icon: ReceiptText },
     ],
   },
   {
     title: 'Operacion base',
     items: [
-      { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
-      { href: '/inventory', label: 'Inventario', icon: Boxes, permission: 'inventory.read' },
-      { href: '/purchases', label: 'Compras', icon: Store, permission: 'purchases.read' },
-      { href: '/expenses', label: 'Gastos', icon: ReceiptText, permission: 'expenses.read' },
-      { href: '/suppliers', label: 'Proveedores', icon: Users, permission: 'suppliers.read' },
-      { href: '/products', label: 'Productos', icon: Package2, permission: 'products.read' },
-      { href: '/ingredients', label: 'Ingredientes', icon: Boxes, permission: 'ingredients.read' },
-      { href: '/categories', label: 'Categorias', icon: ClipboardList, permission: 'categories.read' },
-      { href: '/recipes', label: 'Recetas', icon: ChefHat, permission: 'recipes.read' },
+      { href: '/cash', label: 'Caja', icon: Wallet },
+      { href: '/inventory', label: 'Inventario', icon: Boxes },
+      { href: '/purchases', label: 'Compras', icon: Store },
+      { href: '/expenses', label: 'Gastos', icon: ReceiptText },
+      { href: '/suppliers', label: 'Proveedores', icon: Users },
+      { href: '/products', label: 'Productos', icon: Package2 },
+      { href: '/ingredients', label: 'Ingredientes', icon: Boxes },
+      { href: '/categories', label: 'Categorias', icon: ClipboardList },
+      { href: '/recipes', label: 'Recetas', icon: ChefHat },
     ],
   },
   {
     title: 'Administracion',
     items: [
-      { href: '/team', label: 'Equipo y roles', icon: Users, permission: 'users.read' },
-      { href: '/settings', label: 'Configuracion', icon: Settings, permission: 'settings.read' },
-      { href: '/activation-control', label: 'Control de activacion', icon: ShieldCheck, permission: 'settings.read' },
+      { href: '/team', label: 'Equipo y roles', icon: Users },
+      { href: '/settings', label: 'Configuracion', icon: Settings },
+      { href: '/activation-control', label: 'Control de activacion', icon: ShieldCheck },
     ],
   },
 ];
@@ -205,8 +203,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => hasPermission(user?.permissions, item.permission)
-        && hasAllowedRole(user?.roles, item.roles)),
+      items: section.items.filter((item) => canAccessRoute(
+        item.href,
+        user?.permissions,
+        user?.roles,
+      )),
     }))
     .filter((section) => section.items.length > 0);
   const today = new Date().toLocaleDateString('es-CO', {
@@ -219,7 +220,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (char) => char.toUpperCase())
     : 'Sesión activa';
-  const canUseGlobalSearch = hasAllowedRole(user?.roles, ['admin', 'supervisor', 'cashier']);
+  const canUseGlobalSearch = ['/customers', '/orders', '/conversations', '/customer-service', '/payments']
+    .some((route) => canAccessRoute(route, user?.permissions, user?.roles));
+  const canReadOperationalReport = canAccessRoute('/reports', user?.permissions, user?.roles);
 
   return (
     <div className="min-h-screen bg-surface text-ink">
@@ -378,14 +381,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <GlobalSearch />
                     </div>
                   ) : <div className="ml-auto" />}
-                  <div
-                    className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
-                    role="region"
-                    aria-label="Resumen de ventas de la jornada"
-                    tabIndex={0}
-                  >
-                    <SaleCounters />
-                  </div>
+                  {canReadOperationalReport ? (
+                    <div
+                      className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
+                      role="region"
+                      aria-label="Resumen de ventas de la jornada"
+                      tabIndex={0}
+                    >
+                      <SaleCounters />
+                    </div>
+                  ) : null}
                 </div>
               </div>
               </div>

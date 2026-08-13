@@ -24,6 +24,7 @@ import {
   type DataTableColumn,
 } from '@/components/product';
 import { useAuth } from '@/features/auth/auth-provider';
+import { canAccessRoute } from '@/features/auth/access-control';
 import { ApiError } from '@/lib/api';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/format';
 import type { OperationalOrder } from './contracts';
@@ -72,7 +73,21 @@ const orderColumns: readonly DataTableColumn<OperationalOrder>[] = [
 export function OverviewScreen() {
   const { user } = useAuth();
   const [attentionFilter, setAttentionFilter] = useState<'ALL' | 'PRODUCTS' | 'INGREDIENTS'>('ALL');
-  const operational = useOperationalReport();
+  const canAccess = (pathname: string) => canAccessRoute(pathname, user?.permissions, user?.roles);
+  const routeAccess = {
+    activationControl: canAccess('/activation-control'),
+    analytics: canAccess('/analytics'),
+    cash: canAccess('/cash'),
+    conversations: canAccess('/conversations'),
+    deliveries: canAccess('/deliveries'),
+    inventory: canAccess('/inventory'),
+    kitchen: canAccess('/kitchen'),
+    orders: canAccess('/orders'),
+    payments: canAccess('/payments'),
+    pos: canAccess('/pos'),
+    reports: canAccess('/reports'),
+  } as const;
+  const operational = useOperationalReport(routeAccess.reports);
   const observability = useObservabilitySnapshot();
   const sofia = useSofiaDashboardSummary();
 
@@ -81,7 +96,7 @@ export function OverviewScreen() {
   const sofiaState = sofia.data;
   const activeOrders = report?.operations?.activeOrders ?? [];
   const kitchenOrders = activeOrders.filter((order) => order.status === 'IN_PREPARATION').length;
-  const attentionAlerts = buildAttentionAlerts(report);
+  const attentionAlerts = buildAttentionAlerts(report).filter((alert) => canAccess(alert.href));
   const productAttention = attentionAlerts.filter((alert) => alert.type === 'product').length;
   const ingredientAttention = attentionAlerts.filter((alert) => alert.type === 'ingredient').length;
   const filteredAttention = attentionAlerts.filter((alert) => {
@@ -104,23 +119,25 @@ export function OverviewScreen() {
         title="Tu jornada en vivo"
         description={`${greetingForNow()}${greetingName ? `, ${greetingName}` : ''}. Ventas, pedidos y dependencias críticas con datos del dominio; una falla nunca se reemplaza por un cero estimado.`}
         status={health ? <StatusBadge status={health.status} label={isReady ? 'Sistema listo' : 'Sistema degradado'} tone={isReady ? 'success' : 'warning'} /> : undefined}
-        actions={(
+        actions={routeAccess.orders || routeAccess.pos ? (
           <>
-            <Button asChild variant="secondary"><Link href="/orders">Ver pedidos</Link></Button>
-            <Button asChild><Link href="/pos">Abrir POS</Link></Button>
+            {routeAccess.orders ? <Button asChild variant="secondary"><Link href="/orders">Ver pedidos</Link></Button> : null}
+            {routeAccess.pos ? <Button asChild><Link href="/pos">Abrir POS</Link></Button> : null}
           </>
-        )}
+        ) : undefined}
       />
 
-      <section aria-labelledby="quick-access-title">
-        <h2 id="quick-access-title" className="font-heading text-lg font-semibold text-ink">Accesos rápidos</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button asChild><Link href="/pos">Abrir POS</Link></Button>
-          <Button asChild variant="secondary"><Link href="/cash">Ir a caja</Link></Button>
-          <Button asChild variant="secondary"><Link href="/inventory">Ver inventario</Link></Button>
-          <Button asChild variant="secondary"><Link href="/deliveries">Gestionar domicilios</Link></Button>
-        </div>
-      </section>
+      {routeAccess.pos || routeAccess.cash || routeAccess.inventory || routeAccess.deliveries ? (
+        <section aria-labelledby="quick-access-title">
+          <h2 id="quick-access-title" className="font-heading text-lg font-semibold text-ink">Accesos rápidos</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {routeAccess.pos ? <Button asChild><Link href="/pos">Abrir POS</Link></Button> : null}
+            {routeAccess.cash ? <Button asChild variant="secondary"><Link href="/cash">Ir a caja</Link></Button> : null}
+            {routeAccess.inventory ? <Button asChild variant="secondary"><Link href="/inventory">Ver inventario</Link></Button> : null}
+            {routeAccess.deliveries ? <Button asChild variant="secondary"><Link href="/deliveries">Gestionar domicilios</Link></Button> : null}
+          </div>
+        </section>
+      ) : null}
 
       <section aria-labelledby="overview-metrics-title">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -128,40 +145,48 @@ export function OverviewScreen() {
           {report ? <p className="text-xs text-muted">Actualizado {formatDateTime(report.metadata.generatedAt)}</p> : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricSurface
-            label="Ventas hoy"
-            value={report ? formatCurrency(report.sales.total) : undefined}
-            unavailable={operational.isError}
-            context={report ? <MetricLink href="/reports">{formatNumber(report.sales.count)} ventas registradas</MetricLink> : loadingContext(operational.isLoading)}
-            icon={<CircleDollarSign className="h-5 w-5" />}
-          />
-          <MetricSurface
-            label="Pedidos activos"
-            value={report?.operations ? formatNumber(report.operations.activeOrdersCount) : undefined}
-            unavailable={operational.isError || (Boolean(report) && !report?.operations)}
-            context={report?.operations ? <MetricLink href="/orders">Abrir cola operacional</MetricLink> : loadingContext(operational.isLoading)}
-            icon={<ClipboardList className="h-5 w-5" />}
-          />
-          <MetricSurface
-            label="En preparación"
-            value={report?.operations ? formatNumber(kitchenOrders) : undefined}
-            unavailable={operational.isError || (Boolean(report) && !report?.operations)}
-            context={report?.operations ? <MetricLink href="/kitchen">Ver cocina</MetricLink> : loadingContext(operational.isLoading)}
-            icon={<ChefHat className="h-5 w-5" />}
-          />
-          <MetricSurface
-            label="Revisión financiera"
-            value={financialReview == null ? undefined : formatNumber(financialReview)}
-            unavailable={observability.isError}
-            context={financialReview == null ? loadingContext(observability.isLoading) : <MetricLink href="/payments">Abrir evidencia</MetricLink>}
-            icon={<ShieldCheck className="h-5 w-5" />}
-            status={financialReview && financialReview > 0 ? <StatusBadge status="FINANCIAL_REVIEW_REQUIRED" label="Requiere acción" /> : undefined}
-          />
+          {routeAccess.reports ? (
+            <MetricSurface
+              label="Ventas hoy"
+              value={report ? formatCurrency(report.sales.total) : undefined}
+              unavailable={operational.isError}
+              context={report ? <MetricLink href="/reports">{formatNumber(report.sales.count)} ventas registradas</MetricLink> : loadingContext(operational.isLoading)}
+              icon={<CircleDollarSign className="h-5 w-5" />}
+            />
+          ) : null}
+          {routeAccess.orders && routeAccess.reports ? (
+            <MetricSurface
+              label="Pedidos activos"
+              value={report?.operations ? formatNumber(report.operations.activeOrdersCount) : undefined}
+              unavailable={operational.isError || (Boolean(report) && !report?.operations)}
+              context={report?.operations ? <MetricLink href="/orders">Abrir cola operacional</MetricLink> : loadingContext(operational.isLoading)}
+              icon={<ClipboardList className="h-5 w-5" />}
+            />
+          ) : null}
+          {routeAccess.kitchen && routeAccess.reports ? (
+            <MetricSurface
+              label="En preparación"
+              value={report?.operations ? formatNumber(kitchenOrders) : undefined}
+              unavailable={operational.isError || (Boolean(report) && !report?.operations)}
+              context={report?.operations ? <MetricLink href="/kitchen">Ver cocina</MetricLink> : loadingContext(operational.isLoading)}
+              icon={<ChefHat className="h-5 w-5" />}
+            />
+          ) : null}
+          {routeAccess.payments ? (
+            <MetricSurface
+              label="Revisión financiera"
+              value={financialReview == null ? undefined : formatNumber(financialReview)}
+              unavailable={observability.isError}
+              context={financialReview == null ? loadingContext(observability.isLoading) : <MetricLink href="/payments">Abrir evidencia</MetricLink>}
+              icon={<ShieldCheck className="h-5 w-5" />}
+              status={financialReview && financialReview > 0 ? <StatusBadge status="FINANCIAL_REVIEW_REQUIRED" label="Requiere acción" /> : undefined}
+            />
+          ) : null}
         </div>
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.75fr)]">
-        <section aria-labelledby="active-orders-title" className="min-w-0">
+        {routeAccess.orders && routeAccess.reports ? <section aria-labelledby="active-orders-title" className="min-w-0">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 id="active-orders-title" className="font-heading text-lg font-semibold text-ink">Última actividad</h2>
@@ -180,66 +205,78 @@ export function OverviewScreen() {
           >
             <DataTableShell rows={activeOrders.slice(0, 8)} columns={orderColumns} rowKey={(order) => order.id} caption="Pedidos activos" density="compact" />
           </QueryState>
-        </section>
+        </section> : null}
 
+        {attentionAlerts.length > 0 || routeAccess.conversations || routeAccess.payments ? (
         <section aria-labelledby="attention-title" className="space-y-3">
           <div>
             <h2 id="attention-title" className="font-heading text-lg font-semibold text-ink">Atención prioritaria</h2>
             <p className="mt-1 text-sm text-muted">Señales reales que requieren revisión humana.</p>
           </div>
-          <div className="flex flex-wrap gap-2" data-testid="attention-tabs" role="group" aria-label="Filtrar alertas de inventario">
-            <AttentionTab label="Todos" count={attentionAlerts.length} active={attentionFilter === 'ALL'} onClick={() => setAttentionFilter('ALL')} testId="attention-tab-all" />
-            <AttentionTab label="Productos" count={productAttention} active={attentionFilter === 'PRODUCTS'} onClick={() => setAttentionFilter('PRODUCTS')} testId="attention-tab-products" />
-            <AttentionTab label="Insumos" count={ingredientAttention} active={attentionFilter === 'INGREDIENTS'} onClick={() => setAttentionFilter('INGREDIENTS')} testId="attention-tab-ingredients" />
-          </div>
-          {operational.isError ? (
-            <QueryState status="error" title="El inventario no está disponible" description={queryErrorDescription(operational.error)} onRetry={() => void operational.refetch()} skeletonRows={2} />
-          ) : operational.isLoading ? (
-            <QueryState status="loading" title="Consultando alertas" skeletonRows={2} />
-          ) : filteredAttention.length === 0 ? (
-            <QueryState status="empty" title={attentionAlerts.length === 0 ? 'Inventario sin alertas' : 'Sin alertas en este filtro'} description="El reporte operacional no registra elementos pendientes en esta vista." />
-          ) : (
-            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {filteredAttention.map((alert) => (
-                <Link
-                  key={alert.id}
-                  href={alert.href}
-                  data-testid={`attention-card-${alert.type}`}
-                  className="flex min-h-14 items-center gap-3 rounded-xl border border-line bg-panel px-3 py-2.5 transition hover:border-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                >
-                  <TriangleAlert className="h-4 w-4 shrink-0 text-signal-warning" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{alert.label}</span>
-                  <StatusBadge status={alert.severity} label={attentionLabel(alert.severity)} tone={alert.severity === 'OUT_OF_STOCK' || alert.severity === 'CRITICAL' ? 'danger' : 'warning'} />
-                </Link>
-              ))}
-            </div>
-          )}
-          <AttentionLink
-            href="/conversations"
-            icon={<MessageSquareText className="h-5 w-5" />}
-            label="Handoffs humanos"
-            value={sofiaState?.conversations.humanRequired ?? null}
-            unavailable={sofia.isError}
-          />
-          <AttentionLink
-            href="/customer-service"
-            icon={<ShoppingBag className="h-5 w-5" />}
-            label="Pagos en revisión"
-            value={financialReview}
-            unavailable={observability.isError}
-          />
+          {attentionAlerts.length > 0 ? (
+            <>
+              <div className="flex flex-wrap gap-2" data-testid="attention-tabs" role="group" aria-label="Filtrar alertas de inventario">
+                <AttentionTab label="Todos" count={attentionAlerts.length} active={attentionFilter === 'ALL'} onClick={() => setAttentionFilter('ALL')} testId="attention-tab-all" />
+                <AttentionTab label="Productos" count={productAttention} active={attentionFilter === 'PRODUCTS'} onClick={() => setAttentionFilter('PRODUCTS')} testId="attention-tab-products" />
+                <AttentionTab label="Insumos" count={ingredientAttention} active={attentionFilter === 'INGREDIENTS'} onClick={() => setAttentionFilter('INGREDIENTS')} testId="attention-tab-ingredients" />
+              </div>
+              {operational.isError ? (
+                <QueryState status="error" title="El inventario no está disponible" description={queryErrorDescription(operational.error)} onRetry={() => void operational.refetch()} skeletonRows={2} />
+              ) : operational.isLoading ? (
+                <QueryState status="loading" title="Consultando alertas" skeletonRows={2} />
+              ) : filteredAttention.length === 0 ? (
+                <QueryState status="empty" title="Sin alertas en este filtro" description="El reporte operacional no registra elementos pendientes en esta vista." />
+              ) : (
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredAttention.map((alert) => (
+                    <Link
+                      key={alert.id}
+                      href={alert.href}
+                      data-testid={`attention-card-${alert.type}`}
+                      className="flex min-h-14 items-center gap-3 rounded-xl border border-line bg-panel px-3 py-2.5 transition hover:border-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      <TriangleAlert className="h-4 w-4 shrink-0 text-signal-warning" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{alert.label}</span>
+                      <StatusBadge status={alert.severity} label={attentionLabel(alert.severity)} tone={alert.severity === 'OUT_OF_STOCK' || alert.severity === 'CRITICAL' ? 'danger' : 'warning'} />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : null}
+          {routeAccess.conversations ? (
+            <AttentionLink
+              href="/conversations"
+              icon={<MessageSquareText className="h-5 w-5" />}
+              label="Handoffs humanos"
+              value={sofiaState?.conversations.humanRequired ?? null}
+              unavailable={sofia.isError}
+            />
+          ) : null}
+          {routeAccess.payments ? (
+            <AttentionLink
+              href="/payments"
+              icon={<ShoppingBag className="h-5 w-5" />}
+              label="Pagos en revisión"
+              value={financialReview}
+              unavailable={observability.isError}
+            />
+          ) : null}
         </section>
+        ) : null}
       </div>
 
-      <section aria-labelledby="best-sellers-title">
+      {routeAccess.reports ? <section aria-labelledby="best-sellers-title">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="best-sellers-title" className="font-heading text-lg font-semibold text-ink">Lo más vendido</h2>
             <p className="mt-1 text-sm text-muted">Productos con venta registrada en la jornada actual.</p>
           </div>
-          <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-800 hover:underline" href="/analytics">
-            Analizar resultados <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
+          {routeAccess.analytics ? (
+            <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-800 hover:underline" href="/analytics">
+              Analizar resultados <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          ) : null}
         </div>
         <QueryState
           status={queryStatus(operational, report?.sales.bestSellers.length ?? 0)}
@@ -258,7 +295,7 @@ export function OverviewScreen() {
             ))}
           </div>
         </QueryState>
-      </section>
+      </section> : null}
 
       <section aria-labelledby="readiness-title">
         <div className="mb-3">
@@ -277,7 +314,7 @@ export function OverviewScreen() {
             description="Handoff, conversación y AI sin autoridad transaccional."
             state={!sofiaState ? 'unknown' : sofiaState.general.killSwitchActive || sofiaState.general.globalPaused ? 'blocked' : 'ready'}
             details={sofiaState ? `${sofiaState.ai.aiProvider} · ${sofiaState.ai.aiMode} · ${sofiaState.general.sofiaMode}` : 'Dependencia no disponible'}
-            action={<Link className="text-sm font-semibold text-brand-800 hover:underline" href="/activation-control">Control</Link>}
+            action={routeAccess.activationControl ? <Link className="text-sm font-semibold text-brand-800 hover:underline" href="/activation-control">Control</Link> : undefined}
           />
           <ReadinessSurface
             title="Automatización de clientes"
