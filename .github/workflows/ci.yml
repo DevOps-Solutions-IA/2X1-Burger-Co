@@ -390,7 +390,7 @@ jobs:
           trap cleanup EXIT
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 291d541f408d14b3c9b66942583dc6a8c7522bcb)"
+          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 8a9335c40bddb0318d84c3c7d74d3af9ab505b71)"
           BASELINE_RECORD="${BASELINE_OUTPUT##*$'\n'}"
           test -f "$BASELINE_RECORD"
           CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"

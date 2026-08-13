@@ -56,6 +56,18 @@ describe('migration identity attestation', () => {
     });
   });
 
+  it('binds the authorized forward checksum to the repository migration SQL', () => {
+    const migrationSql = path.resolve(
+      process.cwd(),
+      '../../prisma/migrations/20260812130000_sofia_crm_product_core/migration.sql',
+    );
+    const checksum = createHash('sha256')
+      .update(readFileSync(migrationSql))
+      .digest('hex');
+
+    expect(checksum).toBe(authorizedForwardRow().checksum);
+  });
+
   it.each([
     ['wrong checksum', '20260812130000_sofia_crm_product_core', 'f'.repeat(64)],
     ['wrong name', '20260812130001_unapproved', '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd'],

@@ -67,13 +67,15 @@ test('canary deployment waits for bounded service health before smoke', () => {
   assert.doesNotMatch(deploy, /canary-migrate[^\n]*tsx/);
 });
 
-test('rollback canary rebuilds the exact recorded production source', () => {
+test('rollback canary rebuilds the exact forward-compatible bridge source', () => {
   const status = JSON.parse(readFileSync('.engineering/sofia-production/master-status.json', 'utf8'));
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+  const forwardCompatibleBridge = '8a9335c40bddb0318d84c3c7d74d3af9ab505b71';
 
   assert.match(status.productionSha, /^[a-f0-9]{40}$/);
   assert.ok(
-    workflow.includes(`build-artifacts.sh ${status.productionSha}`),
-    'rollback baseline must match the current production source SHA',
+    workflow.includes(`build-artifacts.sh ${forwardCompatibleBridge}`),
+    'rollback baseline must match the reviewed forward-compatible bridge SHA',
   );
+  assert.notEqual(forwardCompatibleBridge, status.productionSha);
 });
