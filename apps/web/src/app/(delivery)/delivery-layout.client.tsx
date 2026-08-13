@@ -80,7 +80,7 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="rounded-[1.75rem] border border-stone-200 bg-white px-6 py-5 text-center shadow-soft">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-brand-600">Domicilios</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-brand-900">Domicilios</p>
           <p className="mt-2 text-[15px] font-semibold text-ink">Cargando sesión...</p>
         </div>
       </div>
@@ -91,7 +91,7 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
     return (
       <div className="flex min-h-dvh items-center justify-center bg-surface px-4 py-6">
         <div className="w-full max-w-xl rounded-[2rem] border border-stone-200 bg-white p-8 text-center shadow-soft">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-brand-600">Acceso restringido</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-brand-900">Acceso restringido</p>
           <h1 className="mt-3 text-[1.9rem] font-bold text-ink">No tienes permisos para reparto</h1>
           <p className="mt-3 text-[13px] leading-6 text-stone-600">
             Esta superficie está reservada para domiciliarios o supervisores con permisos de delivery.
