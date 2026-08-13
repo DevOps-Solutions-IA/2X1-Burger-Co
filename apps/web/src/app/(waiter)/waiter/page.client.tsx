@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LogOut, X } from 'lucide-react';
+import { LogOut, Minus, Plus, RefreshCw, ShoppingBag, UtensilsCrossed, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -395,7 +395,7 @@ export default function WaiterClientPage() {
     queryKey: ['tables', 'waiter'],
     queryFn: () => apiFetch<DiningTable[]>('/tables/waiter'),
     refetchInterval: 30000,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     initialData: () =>
@@ -405,7 +405,7 @@ export default function WaiterClientPage() {
     queryKey: ['orders-active', 'waiter'],
     queryFn: () => apiFetch<ActiveOrder[]>('/orders/waiter-active'),
     refetchInterval: 30000,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     initialData: () =>
@@ -417,7 +417,7 @@ export default function WaiterClientPage() {
     queryKey: ['operational-alerts', 'waiter'],
     queryFn: () => apiFetch<WaiterOperationalAlert[]>('/orders/operational-alerts?module=waiters'),
     refetchInterval: 10000,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     initialData: () =>
@@ -1489,6 +1489,16 @@ export default function WaiterClientPage() {
     <Badge tone="warning">Caja pendiente</Badge>
   );
 
+  const cashState = currentCash.isError
+    ? { label: 'Caja no disponible', className: 'bg-red-500/20 text-red-300' }
+    : currentCash.data
+      ? { label: 'Caja abierta', className: 'bg-emerald-500/20 text-emerald-300' }
+      : { label: 'Caja cerrada', className: 'bg-amber-500/20 text-amber-300' };
+  const operationalDataUnavailable = tables.isError || activeOrders.isError || currentCash.isError || waiterAlerts.isError;
+  const retryOperationalData = async () => {
+    await Promise.all([tables.refetch(), activeOrders.refetch(), currentCash.refetch(), waiterAlerts.refetch()]);
+  };
+
   return (
     <div
       className="space-y-4 p-3.5 sm:space-y-5 sm:p-5 lg:p-6"
@@ -1496,44 +1506,78 @@ export default function WaiterClientPage() {
     >
       {viewMode === 'home' ? (
         <>
-          <div className="-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 lg:-mx-6 lg:-mt-6 mb-4 rounded-b-2xl bg-black px-4 py-4 sm:px-5 lg:px-6">
+          <div className="-mx-3.5 -mt-3.5 mb-4 rounded-b-2xl bg-black px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5 lg:-mx-6 lg:-mt-6 lg:px-6">
             <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <Image src="/brand/sidebar-logo.png" alt="2X1" width={32} height={32} className="h-8 w-8 rounded-lg object-contain opacity-90" />
+              <div className="flex min-w-0 items-center gap-3">
+                <Image src="/brand/sidebar-logo.png" alt="2X1 Burger Co." width={40} height={40} className="h-10 w-10 rounded-xl object-contain" />
                 <div className="min-w-0">
-                  <h1 className="text-[1.1rem] font-extrabold text-white leading-tight truncate">{user?.fullName ?? 'Mesero'}</h1>
-                  <p className="text-[10px] text-stone-400">Turno {shiftStartedLabel} · {serviceMetrics.free} mesas libres</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-400">Servicio de mesas</p>
+                  <h1 className="truncate text-lg font-extrabold leading-tight text-white">{user?.fullName ?? 'Mesero'}</h1>
+                  <p className="mt-0.5 text-xs text-stone-300">Turno {shiftStartedLabel} · {serviceMetrics.free} mesas libres</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {!isOnline ? <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[9px] font-bold text-red-400">Sin red</span> : null}
-                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${currentCash.data ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                  {currentCash.data ? 'Abierta' : 'Cerrada'}
+              <div className="flex shrink-0 items-center gap-2">
+                {!isOnline ? <span className="rounded-full bg-red-500/20 px-2.5 py-1 text-[11px] font-bold text-red-300">Sin red</span> : null}
+                <span className={`hidden rounded-full px-2.5 py-1 text-[11px] font-bold sm:inline-flex ${cashState.className}`}>
+                  {cashState.label}
                 </span>
-                <button type="button" onClick={async () => { await logout(); window.location.href = '/waiter/login'; }}
-                  className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-stone-500 hover:bg-white/10 hover:text-stone-300 transition"
-                  title="Cerrar sesion">
-                  <LogOut className="h-3.5 w-3.5" />
+                <button
+                  type="button"
+                  onClick={async () => { await logout(); window.location.href = '/waiter/login'; }}
+                  className="ml-1 flex h-11 w-11 items-center justify-center rounded-xl text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400/30"
+                  aria-label="Cerrar sesión de mesero"
+                >
+                  <LogOut className="h-5 w-5" />
                 </button>
               </div>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 sm:hidden">
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${cashState.className}`}>{cashState.label}</span>
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-stone-200">
+                {streamStatus === 'open' ? 'Actualización en vivo' : streamStatus === 'connecting' ? 'Reconectando' : 'Sin canal en vivo'}
+              </span>
+            </div>
           </div>
 
-          {!currentCash.data ? (
+          {!isOnline ? (
+            <StatusBanner tone="warning" title="Trabajando sin conexión" description={pendingQueueCount ? `${pendingQueueCount} cambio(s) permanecen en cola hasta recuperar red.` : 'La última información guardada sigue visible. Los cambios seguros se sincronizarán al volver la red.'} />
+          ) : null}
+
+          {operationalDataUnavailable ? (
+            <StatusBanner
+              tone="danger"
+              title="Información operativa incompleta"
+              description="No asumimos que una mesa esté libre ni que la caja esté cerrada cuando un servicio no responde. Reintenta antes de guardar."
+              action={
+                <Button variant="secondary" size="sm" className="min-h-11" onClick={() => void retryOperationalData()} disabled={tables.isFetching || activeOrders.isFetching || currentCash.isFetching || waiterAlerts.isFetching}>
+                  <RefreshCw className={`h-4 w-4 ${tables.isFetching || activeOrders.isFetching || currentCash.isFetching || waiterAlerts.isFetching ? 'animate-spin' : ''}`} />
+                  Reintentar
+                </Button>
+              }
+            />
+          ) : null}
+
+          {!currentCash.isError && !currentCash.isLoading && !currentCash.data ? (
             <StatusBanner tone="warning" title="La caja esta cerrada" description="Abre caja para registrar pedidos." />
           ) : null}
 
-          <div className="flex items-center gap-3 mb-3 text-[11px] font-bold text-stone-500">
-            <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{serviceMetrics.free} libres</span>
-            <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{serviceMetrics.inService} en servicio</span>
-            <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-brand-500" />{serviceMetrics.myTables} mias</span>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-600" aria-label="Resumen de mesas">
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-emerald-50 px-3 text-emerald-800"><span className="h-2 w-2 rounded-full bg-emerald-500" />{serviceMetrics.free} libres</span>
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-amber-50 px-3 text-amber-800"><span className="h-2 w-2 rounded-full bg-amber-500" />{serviceMetrics.inService} en servicio</span>
+            <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-brand-50 px-3 text-brand-800"><span className="h-2 w-2 rounded-full bg-brand-500" />{serviceMetrics.myTables} mías</span>
           </div>
 
-<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-            {!tables.isLoading && !visibleTables.length ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" aria-busy={tables.isLoading}>
+            {tables.isLoading && tables.data === undefined
+              ? Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="min-h-[7.5rem] animate-pulse rounded-2xl border border-stone-200 bg-stone-100" aria-hidden="true" />
+                ))
+              : null}
+            {!tables.isLoading && !tables.isError && !visibleTables.length ? (
               <div className="col-span-2 rounded-2xl border border-dashed border-stone-200 bg-white p-5 text-center sm:col-span-3 lg:col-span-4">
-                <p className="text-[14px] font-extrabold text-ink">No tienes mesas asignadas</p>
-                <p className="mt-1 text-[12px] text-stone-500">Consulta con el administrador.</p>
+                <UtensilsCrossed className="mx-auto h-6 w-6 text-stone-400" />
+                <p className="mt-2 text-sm font-extrabold text-ink">No tienes mesas asignadas</p>
+                <p className="mt-1 text-sm text-stone-500">Consulta con el administrador del turno.</p>
               </div>
             ) : null}
 
@@ -1543,11 +1587,11 @@ export default function WaiterClientPage() {
               return (
                 <button key={table.id} type="button" onClick={() => openComposer(table.id)}
                   data-testid={`waiter-table-${table.label.toLowerCase().replace(/\s+/g, '-')}`}
-                  className={`group relative flex min-h-[6.5rem] flex-col overflow-hidden rounded-2xl border text-left transition-all ${table.id === selectedTableId ? 'border-brand-300 bg-brand-50/40 ring-1 ring-brand-200 shadow-sm' : 'border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm'}`}>
+                  className={`group relative flex min-h-[7.5rem] flex-col overflow-hidden rounded-2xl border text-left transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${table.id === selectedTableId ? 'border-brand-300 bg-brand-50/40 ring-1 ring-brand-200 shadow-sm' : 'border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm'}`}>
                   <div className="h-1 w-full shrink-0" style={{ backgroundColor: activeOrder ? (table.group?.color ?? '#e7e5e4') : 'transparent' }} />
                   <div className="flex flex-1 flex-col items-center justify-center px-3 py-3 text-center">
                     <p className="text-[1.5rem] font-black leading-none text-ink">{table.label}</p>
-                    <span className={`mt-1.5 inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${activeOrder ? (tableStatus.tone === 'info' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700') : 'bg-emerald-100 text-emerald-700'}`}>
+                    <span className={`mt-1.5 inline-block rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${activeOrder ? (tableStatus.tone === 'info' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700') : 'bg-emerald-100 text-emerald-700'}`}>
                       {activeOrder ? 'Con servicio' : 'Libre'}
                     </span>
                     {activeOrder ? (
@@ -1561,42 +1605,51 @@ export default function WaiterClientPage() {
         </>
       ) : (
         <>
-          {/* Header premium */}
-          <div className="-mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 mb-4 rounded-t-2xl bg-black px-4 py-4 sm:px-5">
+          <div className="-mx-3.5 -mt-3.5 mb-4 rounded-t-2xl bg-black px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <button type="button" onClick={() => { setViewMode('home'); setSelectedTableId(''); setCart([]); }}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-stone-300 hover:bg-white/20">
-                  <X className="h-4 w-4" />
+                <button
+                  type="button"
+                  onClick={() => { setViewMode('home'); setSelectedTableId(''); setCart([]); }}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-stone-200 transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-400/30"
+                  aria-label="Cerrar comanda y volver a las mesas"
+                >
+                  <X className="h-5 w-5" />
                 </button>
                 <div>
                   <h1 className="text-[1.2rem] font-extrabold text-white">{selectedTable?.label ?? 'Mesa'}</h1>
-                  <p className="text-[11px] text-stone-400">
+                  <p className="text-xs text-stone-300">
                     {selectedOrder ? `Comanda ${selectedOrder.number} · ${formatCurrency(selectedOrder.subtotal)}` : 'Nueva comanda'}
                   </p>
                 </div>
               </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${currentCash.data ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                {currentCash.data ? 'Caja abierta' : 'Cerrada'}
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${cashState.className}`}>
+                {cashState.label}
               </span>
             </div>
           </div>
 
-          {/* Status banner si caja cerrada */}
-          {!currentCash.data ? (
+          {currentCash.isError ? (
+            <StatusBanner
+              tone="danger"
+              title="No podemos confirmar el estado de caja"
+              description="La comanda permanece en este dispositivo, pero guardar está bloqueado hasta recuperar el estado real."
+              action={<Button variant="secondary" size="sm" className="min-h-11" onClick={() => void currentCash.refetch()}>Reintentar</Button>}
+            />
+          ) : !currentCash.isLoading && !currentCash.data ? (
             <StatusBanner tone="warning" title="Caja cerrada" description="Abre caja para guardar pedidos." />
           ) : null}
 
-          {/* Category tabs */}
           <div
-            className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1 no-scrollbar"
+            className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar"
             role="region"
-            aria-label="Filtros de mesas"
+            aria-label="Categorías de productos"
             tabIndex={0}
           >
             {composeCategories.map((cat) => (
               <button key={cat} type="button" onClick={() => { setComposeCategory(cat); }}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${
+                aria-pressed={composeCategory === cat}
+                className={`min-h-11 shrink-0 rounded-full px-4 py-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${
                   composeCategory === cat ? 'bg-brand-500 text-ink shadow-sm' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
                 }`}>
                 {cat}
@@ -1604,53 +1657,67 @@ export default function WaiterClientPage() {
             ))}
           </div>
 
-          {/* Product grid — limit 10 visible, premium scroll */}
-          {composeFilteredProducts.length > 0 ? (
+          {products.isError ? (
+            <StatusBanner
+              tone="danger"
+              title="Catálogo no disponible"
+              description="No mostramos productos ni precios de memoria. Recupera el catálogo antes de agregar artículos."
+              action={<Button variant="secondary" size="sm" className="min-h-11" onClick={() => void products.refetch()} disabled={products.isFetching}>Reintentar</Button>}
+            />
+          ) : products.isLoading ? (
+            <div className="grid grid-cols-2 gap-2" aria-label="Cargando productos" aria-busy="true">
+              {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-xl bg-stone-100" aria-hidden="true" />)}
+            </div>
+          ) : composeFilteredProducts.length > 0 ? (
             <div className={`${composeFilteredProducts.length > 10 ? 'max-h-[26rem] overflow-y-auto no-scrollbar rounded-xl' : ''}`}>
               <div className="grid gap-2 grid-cols-2 pr-0.5">
                 {composeFilteredProducts.map((product) => (
-              <button key={product.id} type="button"
-                onClick={() => setCart((c) => addCartItem(c, product, `Sin stock para ${product.name}`))}
-                disabled={!product.isActive || (product.kind === 'DIRECT_STOCK' && Number(product.currentStock) <= 0)}
-                className="rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/30 hover:shadow-sm disabled:opacity-40">
-                <p className="truncate text-[13px] font-extrabold leading-tight text-ink">{product.name}</p>
-                <div className="mt-1.5 flex items-center justify-between">
-                  <p className="text-[13px] font-black text-brand-600 tabular-nums">{formatCurrency(product.salePrice)}</p>
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-[12px] font-black text-ink">+</span>
-                </div>
-              </button>
-            ))}
-            {composeFilteredProducts.length === 0 ? (
-              <p className="col-span-2 py-8 text-center text-[12px] text-stone-400">Sin productos en esta categoria</p>
-            ) : null}
+                  <button key={product.id} type="button"
+                    onClick={() => setCart((c) => addCartItem(c, product, `Sin stock para ${product.name}`))}
+                    disabled={!product.isActive || (product.kind === 'DIRECT_STOCK' && Number(product.currentStock) <= 0)}
+                    className="min-h-24 rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-brand-300 hover:bg-brand-50/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 disabled:opacity-40">
+                    <p className="line-clamp-2 text-sm font-extrabold leading-tight text-ink">{product.name}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-sm font-black text-brand-700 tabular-nums">{formatCurrency(product.salePrice)}</p>
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-ink" aria-hidden="true"><Plus className="h-4 w-4" /></span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
-            <p className="py-8 text-center text-[12px] text-stone-400">Cargando productos...</p>
+            <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-6 text-center">
+              <ShoppingBag className="mx-auto h-6 w-6 text-stone-400" />
+              <p className="mt-2 text-sm font-bold text-stone-600">No hay productos en esta categoría</p>
+            </div>
           )}
 
-          {/* Carrito premium */}
           {cart.length > 0 ? (
             <div className="mt-4 rounded-2xl border border-brand-200 bg-brand-50/30 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-[13px] font-extrabold text-ink">Comanda</p>
-                  <p className="text-[10px] text-stone-500">{cart.length} items · Mesa {selectedTable?.label}</p>
+                  <p className="text-sm font-extrabold text-ink">Comanda</p>
+                  <p className="text-xs text-stone-500">{cart.length} artículos · Mesa {selectedTable?.label}</p>
                 </div>
-                <button type="button" onClick={() => setCart([])} className="rounded-lg px-2.5 py-1 text-[11px] font-bold text-red-500 hover:bg-red-50">Limpiar</button>
+                <button type="button" onClick={() => setCart([])} className="min-h-11 rounded-xl px-3 text-sm font-bold text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100">Limpiar</button>
               </div>
               <div className="space-y-1.5">
                 {cart.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => updateQuantity(item.productId, item.quantity - 1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full border border-stone-200 bg-white text-[12px] font-bold text-stone-500 hover:border-stone-300">-</button>
-                      <span className="text-[13px] font-bold tabular-nums w-5 text-center">{item.quantity}</span>
-                      <button type="button" onClick={() => updateQuantity(item.productId, item.quantity + 1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-[12px] font-bold text-ink hover:bg-brand-600">+</button>
+                  <div key={`${item.productId}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 shadow-sm">
+                    <span className="min-w-0 flex-1 text-sm font-bold text-ink">{item.name}</span>
+                    <span className="text-sm font-extrabold text-ink tabular-nums">{formatCurrency(item.price * item.quantity)}</span>
+                    <div className="flex w-full items-center justify-between border-t border-stone-100 pt-2">
+                      <span className="text-xs font-semibold text-stone-500">Cantidad</span>
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-600 hover:border-stone-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
+                          aria-label={`Quitar una unidad de ${item.name}`}><Minus className="h-4 w-4" /></button>
+                        <span className="w-7 text-center text-sm font-bold tabular-nums" aria-label={`${item.quantity} unidades`}>{item.quantity}</span>
+                        <button type="button" onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-500 text-ink hover:bg-brand-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
+                          aria-label={`Agregar una unidad de ${item.name}`}><Plus className="h-4 w-4" /></button>
+                      </div>
                     </div>
-                    <span className="text-[12px] font-bold text-ink truncate flex-1 mx-3">{item.name}</span>
-                    <span className="text-[13px] font-extrabold text-ink tabular-nums">{formatCurrency(item.price * item.quantity)}</span>
                   </div>
                 ))}
               </div>
@@ -1668,29 +1735,29 @@ export default function WaiterClientPage() {
             </div>
           )}
 
-          {/* Notas */}
           <div className="mt-4">
+            <label htmlFor="waiter-order-notes" className="mb-2 block text-sm font-bold text-ink">Instrucciones de preparación</label>
             <div className="flex items-center gap-1.5 mb-2 flex-wrap">
               {['Sin cebolla', 'Sin salsas', 'Bien asada', 'Para llevar'].map((n) => (
                 <button key={n} type="button" onClick={() => setNotes((prev) => prev.includes(n) ? prev.replace(n, '').trim() : `${prev} ${n}`.trim())}
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${notes.includes(n) ? 'bg-brand-500 text-ink' : 'border border-stone-200 bg-white text-stone-500 hover:bg-stone-50'}`}>
+                  aria-pressed={notes.includes(n)}
+                  className={`min-h-11 rounded-full px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 ${notes.includes(n) ? 'bg-brand-500 text-ink' : 'border border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
                   {n}
                 </button>
               ))}
             </div>
             <div className="relative">
-              <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
+              <input id="waiter-order-notes" type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Instrucciones especiales..."
-                className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-[12px] font-medium text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-200" />
+                className="min-h-11 w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 pr-12 text-base font-medium text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100" />
               {notes ? (
-                <button type="button" onClick={() => setNotes('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600">
-                  <X className="h-3.5 w-3.5" />
+                <button type="button" onClick={() => setNotes('')} className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-stone-500 hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100" aria-label="Borrar instrucciones">
+                  <X className="h-4 w-4" />
                 </button>
               ) : null}
             </div>
           </div>
 
-          {/* Guardar */}
           <Button type="button" disabled={!cart.length || saveOrder.isPending || !currentCash.data} data-testid="waiter-save-order"
             onClick={() => {
               if (!selectedTableId) { toast.error('Selecciona una mesa'); return; }
@@ -1700,13 +1767,12 @@ export default function WaiterClientPage() {
             {saveOrder.isPending ? 'Guardando...' : selectedOrder ? 'Actualizar comanda' : 'Guardar comanda'}
           </Button>
 
-          {/* Feedback */}
           {saveFeedback === 'saved' ? (
-            <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-bold text-emerald-800 text-center" data-testid="waiter-save-success-banner">
+            <div role="status" className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-center text-sm font-bold text-emerald-800" data-testid="waiter-save-success-banner">
               Comanda guardada. POS ya puede verla.
             </div>
           ) : saveFeedback === 'error' ? (
-            <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-800 text-center" data-testid="waiter-save-error-banner">
+            <div role="alert" className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-center text-sm font-bold text-red-800" data-testid="waiter-save-error-banner">
               No pudimos guardar. Intenta nuevamente.
             </div>
           ) : null}
