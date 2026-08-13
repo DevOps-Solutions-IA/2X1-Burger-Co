@@ -104,7 +104,7 @@ export function ActivationControl() {
   const qrStatus = qr.data;
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8" data-testid="activation-control-page">
       <PageHeader
         eyebrow="Gobernanza operacional"
         title="Control de activación"

@@ -10,11 +10,21 @@ function requiredEnv(name: string) {
 
 async function login(page: Page, email: string, password: string) {
   await page.goto('/login', { waitUntil: 'networkidle' });
+  if (/\/dashboard\/?$/.test(page.url())) return;
   await expect(page.getByTestId('login-submit')).toBeVisible();
   await page.getByTestId('login-email').fill(email);
   await page.getByTestId('login-password').fill(password);
   await page.getByTestId('login-submit').click();
   await expect(page).toHaveURL(/\/dashboard\/?$/, { timeout: 20_000 });
+}
+
+async function loginViaApi(page: Page, email: string, password: string) {
+  const response = await page.context().request.post('/api/auth/login', {
+    data: { email, password },
+  });
+  expect(response.status()).toBe(201);
+  await page.goto('/dashboard');
+  await expect(page.getByTestId('dashboard-page')).toBeVisible();
 }
 
 async function isolatedPage(browser: Browser) {
@@ -177,7 +187,7 @@ test.describe('Phase 8 enterprise product experience', () => {
   test('cashier route RBAC denies privileged financial evidence', async ({ browser }) => {
     const { context, page } = await isolatedPage(browser);
     try {
-      await login(
+      await loginViaApi(
         page,
         requiredEnv('EPHEMERAL_CASHIER_EMAIL'),
         requiredEnv('EPHEMERAL_CASHIER_PASSWORD'),

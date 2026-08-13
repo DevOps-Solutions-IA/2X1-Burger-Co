@@ -78,8 +78,8 @@ export function CrmOverviewView() {
           <h2 className="mt-2 font-heading text-xl font-bold">Sin campañas automáticas</h2>
           <p className="mt-2 text-sm leading-6 text-stone-300">Este módulo organiza trabajo comercial y recuperación. No envía campañas, mensajes de WhatsApp ni promesas de compensación.</p>
           <div className="mt-5 flex flex-wrap gap-2">
-            <StatusBadge status="BLOCKED" label="Outbound bloqueado" tone="warning" />
-            <StatusBadge status="ACTIVE" label="Historial auditable" tone="success" />
+            <StatusBadge status="BLOCKED" label="Outbound bloqueado" tone="warning" onDark />
+            <StatusBadge status="ACTIVE" label="Historial auditable" tone="success" onDark />
           </div>
         </aside>
       </section>

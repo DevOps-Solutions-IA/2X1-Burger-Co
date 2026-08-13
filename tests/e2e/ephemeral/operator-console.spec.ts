@@ -45,7 +45,7 @@ test('operator console handles authentication, safe navigation and logout', asyn
     ['/users', '/team', 'team-page'],
     ['/sofia', '/sofia', 'sofia-admin-page'],
     ['/sofia/conversations', '/conversations', 'conversations-page'],
-    ['/sofia/whatsapp-qr', '/sofia/whatsapp-qr', 'sofia-whatsapp-qr-page'],
+    ['/sofia/whatsapp-qr', '/activation-control', 'activation-control-page'],
     ['/sofia/customers', '/customers', 'customers-page'],
   ] as const;
 
@@ -62,6 +62,7 @@ test('operator console handles authentication, safe navigation and logout', asyn
   await expect(page.locator('body')).toContainText(/Envío real:\s*bloqueado/i);
   await expect(page.locator('body')).toContainText(/Producción\s*Bloqueada/i);
   await page.goto('/sofia/whatsapp-qr');
+  await expect(page).toHaveURL(/\/activation-control\/?$/);
   await expect(page.locator('body')).toContainText(/Deshabilitado|DISABLED/i);
   await expect(page.locator('body')).not.toContainText('QR real de WhatsApp disponible para escanear');
   await expectAccessiblePage(page);

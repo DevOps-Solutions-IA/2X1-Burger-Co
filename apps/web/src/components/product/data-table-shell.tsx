@@ -48,7 +48,7 @@ export function DataTableShell<Row>({
   return (
     <div className={cn('min-w-0 max-w-full overflow-hidden rounded-2xl border border-line bg-panel shadow-sm', className)}>
       <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} tabIndex={0} className="w-full max-w-full overflow-x-auto text-sm">
-        <div role="rowgroup" className="hidden min-w-max border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted md:block">
+        <div role="rowgroup" className="hidden min-w-max border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted lg:block">
           <div role="row" style={gridStyle} className="grid grid-cols-[var(--data-table-columns)]">
             {columns.map((column) => (
               <div key={column.id} role="columnheader" className={cn('font-semibold', density === 'compact' ? 'px-3 py-2' : 'px-4 py-3', column.className)}>
@@ -67,8 +67,8 @@ export function DataTableShell<Row>({
               aria-rowindex={rowIndex + 2}
               style={gridStyle}
               className={cn(
-                'grid min-w-0 gap-3 transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55 md:min-w-max md:grid-cols-[var(--data-table-columns)] md:gap-0',
-                density === 'compact' ? 'p-3 md:p-0' : 'p-4 md:p-0',
+                'grid min-w-0 gap-3 transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55 lg:min-w-max lg:grid-cols-[var(--data-table-columns)] lg:gap-0',
+                density === 'compact' ? 'p-3 lg:p-0' : 'p-4 lg:p-0',
               )}
             >
               {columns.map((column) => (
@@ -76,20 +76,20 @@ export function DataTableShell<Row>({
                   key={column.id}
                   role="cell"
                   className={cn(
-                    'grid min-w-0 grid-cols-[minmax(6.5rem,0.8fr)_minmax(0,1.2fr)] gap-3 text-ink md:block md:align-middle',
-                    density === 'compact' ? 'md:px-3 md:py-2.5' : 'md:px-4 md:py-3.5',
+                    'grid min-w-0 grid-cols-[minmax(6.5rem,0.8fr)_minmax(0,1.2fr)] gap-3 text-ink lg:block lg:align-middle',
+                    density === 'compact' ? 'lg:px-3 lg:py-2.5' : 'lg:px-4 lg:py-3.5',
                     column.numeric && 'tabular-nums',
                     column.className,
                   )}
                 >
-                  <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted md:hidden">
+                  <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted lg:hidden">
                     {column.mobileLabel ?? column.header}
                   </span>
                   <span className="min-w-0">{column.cell(row)}</span>
                 </div>
               ))}
               {rowActions ? (
-                <div role="cell" className={cn('flex min-h-11 justify-end border-t border-line pt-3 md:block md:border-0 md:text-right', density === 'compact' ? 'md:px-3 md:py-1.5' : 'md:px-4 md:py-2')}>
+                <div role="cell" className={cn('flex min-h-11 justify-end border-t border-line pt-3 lg:block lg:border-0 lg:text-right', density === 'compact' ? 'lg:px-3 lg:py-1.5' : 'lg:px-4 lg:py-2')}>
                   <span className="sr-only">Acciones: </span>{rowActions(row)}
                 </div>
               ) : null}

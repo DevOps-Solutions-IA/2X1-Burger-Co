@@ -53,11 +53,13 @@ export function StatusBadge({
   status,
   label,
   tone = statusTone(status),
+  onDark = false,
   className,
 }: {
   status: string;
   label?: string;
   tone?: ProductStatusTone;
+  onDark?: boolean;
   className?: string;
 }) {
   const Icon = toneIcons[tone] ?? Clock3;
@@ -66,12 +68,13 @@ export function StatusBadge({
       className={cn(
         'inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-none',
         toneStyles[tone],
+        onDark && 'text-white',
         className,
       )}
       data-status={status}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      <span className="text-ink">{label ?? status.replaceAll('_', ' ')}</span>
+      <span>{label ?? status.replaceAll('_', ' ')}</span>
     </span>
   );
 }

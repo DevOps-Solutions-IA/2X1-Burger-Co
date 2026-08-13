@@ -98,6 +98,7 @@ test('keeps merged legacy routes on canonical enterprise modules', () => {
   assert.match(source('app/(app)/users/page.tsx'), /redirect\('\/team'\)/);
   assert.match(source('app/(app)/sofia/customers/page.tsx'), /redirect\('\/customers'\)/);
   assert.match(source('app/(app)/sofia/conversations/page.tsx'), /redirect\('\/conversations'\)/);
+  assert.match(source('app/(app)/sofia/whatsapp-qr/page.tsx'), /redirect\('\/activation-control'\)/);
 });
 
 test('names direct table assignment controls for assistive technology', () => {
@@ -114,10 +115,23 @@ test('keeps bounded report regions keyboard reachable', () => {
   }
 });
 
-test('uses high-contrast text inside semantic status badges', () => {
+test('uses explicit high-contrast status badges on dark surfaces', () => {
   const badge = source('components/product/status-badge.tsx');
+  const crmOverview = source('features/crm/overview-view.tsx');
 
-  assert.match(badge, /<span className="text-ink">/);
+  assert.match(badge, /onDark && 'text-white'/);
+  assert.match(crmOverview, /tone="warning" onDark/);
+  assert.match(crmOverview, /tone="success" onDark/);
+});
+
+test('keeps disabled actions readable and wide tables contained at tablet widths', () => {
+  const button = source('components/ui/button.tsx');
+  const table = source('components/product/data-table-shell.tsx');
+
+  assert.match(button, /disabled:opacity-70/);
+  assert.doesNotMatch(button, /disabled:opacity-50/);
+  assert.match(table, /lg:min-w-max lg:grid-cols/);
+  assert.doesNotMatch(table, /md:min-w-max md:grid-cols/);
 });
 
 test('requires explicit RBAC capabilities for customer evidence links', () => {
