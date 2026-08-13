@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import type { OrderDetail } from './contracts';
-import { modifierLabel, orderStatusLabels, orderTotal, orderTypeLabels } from './presentation';
+import { modifierLabel, orderStatusLabels, orderTotal, orderTypeLabels, paymentStatusLabels } from './presentation';
 import { useOrderDetail } from './queries';
 
 function detailState(error: unknown, isPending: boolean, hasData: boolean) {
@@ -17,22 +17,68 @@ function detailState(error: unknown, isPending: boolean, hasData: boolean) {
   return hasData ? 'ready' as const : 'empty' as const;
 }
 
-function paymentEvidence(order: OrderDetail) {
+export function resolveOrderDetailPayment(order: OrderDetail) {
+  const intent = order.orderCheckout?.paymentIntents[0] ?? null;
+  if (order.orderCheckout && intent) {
+    return {
+      authority: 'Checkout e intento de pago canónicos',
+      status: intent.status,
+      label: paymentStatusLabels[intent.status],
+      description: `Intento ${intent.attemptNumber} · ${intent.provider} · ${formatCurrency(intent.amount)} · ${intent.currency}`,
+    };
+  }
+  if (order.orderCheckout) {
+    const operationalPreference = order.orderCheckout.paymentPreference === 'CASH_ON_DELIVERY'
+      ? 'Cobro contra entrega'
+      : order.orderCheckout.paymentPreference === 'PAY_AT_PICKUP'
+        ? 'Pago al recoger'
+        : null;
+    if (operationalPreference) {
+      return {
+        authority: 'Checkout canónico',
+        status: order.orderCheckout.status === 'FINANCIAL_REVIEW_REQUIRED'
+          ? 'FINANCIAL_REVIEW_REQUIRED'
+          : 'PENDING',
+        label: operationalPreference,
+        description: 'Obligación de pago operacional. No equivale a un pago financiero verificado.',
+      };
+    }
+    return {
+      authority: 'Checkout canónico',
+      status: order.orderCheckout.status === 'FINANCIAL_REVIEW_REQUIRED'
+        ? 'FINANCIAL_REVIEW_REQUIRED'
+        : 'UNAVAILABLE',
+      label: order.orderCheckout.status === 'FINANCIAL_REVIEW_REQUIRED'
+        ? 'Revisión financiera requerida'
+        : 'Sin intento de pago canónico',
+      description: 'No se puede afirmar pago verificado sin un intento financiero canónico.',
+    };
+  }
   if (order.sale) {
     return {
+      authority: 'Venta asociada',
       status: order.sale.status,
       label: order.sale.status === 'PAID' ? 'Venta pagada' : `Venta ${order.sale.status.toLowerCase()}`,
-      description: `${order.sale.payments.length} registro${order.sale.payments.length === 1 ? '' : 's'} de pago canónico`,
+      description: `${order.sale.payments.length} registro${order.sale.payments.length === 1 ? '' : 's'} de pago en la venta`,
     };
   }
   if (order.whatsappDeliveryOrder) {
     return {
-      status: order.whatsappDeliveryOrder.paymentStatus,
-      label: order.whatsappDeliveryOrder.paymentStatus.replaceAll('_', ' '),
-      description: order.whatsappDeliveryOrder.paymentReviewReason ?? order.whatsappDeliveryOrder.paymentFailureReason ?? 'Evidencia de pago de domicilio',
+      authority: 'Evidencia histórica de domicilio',
+      status: 'UNAVAILABLE',
+      label: 'Sin pago canónico verificable',
+      description: order.whatsappDeliveryOrder.paymentReviewReason ?? order.whatsappDeliveryOrder.paymentFailureReason ?? `Estado histórico: ${order.whatsappDeliveryOrder.paymentStatus.replaceAll('_', ' ')}`,
     };
   }
-  return { status: 'UNAVAILABLE', label: 'Sin evidencia financiera asociada', description: 'No se infiere pago por el estado del pedido.' };
+  return { authority: 'Sin autoridad financiera asociada', status: 'UNAVAILABLE', label: 'Sin evidencia financiera asociada', description: 'No se infiere pago por el estado del pedido.' };
+}
+
+function legacyPaymentEvidence(order: OrderDetail) {
+  if (!order.orderCheckout) return [];
+  return [
+    ...(order.sale ? [`Venta asociada: ${order.sale.status} · ${order.sale.payments.length} registro${order.sale.payments.length === 1 ? '' : 's'}`] : []),
+    ...(order.whatsappDeliveryOrder ? [`Domicilio histórico: ${order.whatsappDeliveryOrder.paymentStatus}`] : []),
+  ];
 }
 
 export function OrderDetailScreen({ orderId }: { orderId: string }) {
@@ -48,7 +94,8 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
     );
   }
 
-  const payment = paymentEvidence(order);
+  const payment = resolveOrderDetailPayment(order);
+  const legacyPayments = legacyPaymentEvidence(order);
   const itemColumns: DataTableColumn<OrderDetail['items'][number]>[] = [
     {
       id: 'product',
@@ -78,6 +125,17 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
     ...(order.cancelledAt ? [{ id: 'cancelled', title: 'Pedido cancelado', timestamp: formatDateTime(order.cancelledAt), tone: 'danger' as const }] : []),
     ...(order.deliveryDispatchedAt ? [{ id: 'dispatched', title: 'Domicilio en tránsito', timestamp: formatDateTime(order.deliveryDispatchedAt), tone: 'info' as const }] : []),
     ...(order.deliveryDeliveredAt ? [{ id: 'delivered', title: 'Domicilio entregado', timestamp: formatDateTime(order.deliveryDeliveredAt), tone: 'success' as const }] : []),
+    ...(order.orderCheckout?.paymentIntents ?? []).map((intent) => ({
+      id: `canonical-payment-${intent.id}`,
+      title: `Intento canónico: ${paymentStatusLabels[intent.status]}`,
+      timestamp: formatDateTime(intent.completedAt ?? intent.updatedAt),
+      description: `${intent.provider} · ${formatCurrency(intent.amount)} · intento ${intent.attemptNumber}`,
+      tone: intent.status === 'SUCCEEDED'
+        ? 'success' as const
+        : intent.status === 'FAILED' || intent.status === 'CANCELLED'
+          ? 'danger' as const
+          : 'warning' as const,
+    })),
     ...(order.whatsappDeliveryOrder?.paymentEvents ?? []).map((event) => ({
       id: `payment-${event.id}`,
       title: `Pago: ${event.newStatus.replaceAll('_', ' ')}`,
@@ -139,8 +197,17 @@ export function OrderDetailScreen({ orderId }: { orderId: string }) {
 
           <section className="rounded-2xl border border-line bg-panel p-4 shadow-sm" aria-labelledby="payment-title">
             <div className="flex items-center gap-2"><CircleDollarSign className="h-5 w-5 text-brand-800" aria-hidden="true" /><h2 id="payment-title" className="font-heading text-lg font-bold">Estado financiero</h2></div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.1em] text-muted">{payment.authority}</p>
             <div className="mt-4"><StatusBadge status={payment.status} label={payment.label} /></div>
             <p className="mt-3 text-sm leading-6 text-muted">{payment.description}</p>
+            {legacyPayments.length ? (
+              <div className="mt-4 border-t border-line pt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted">Evidencia complementaria, no autoritativa</p>
+                <ul className="mt-2 space-y-1 text-sm text-muted">
+                  {legacyPayments.map((entry) => <li key={entry}>{entry}</li>)}
+                </ul>
+              </div>
+            ) : null}
           </section>
 
           {order.type === 'DELIVERY' ? (

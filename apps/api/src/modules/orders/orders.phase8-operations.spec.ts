@@ -163,4 +163,69 @@ describe('OrdersService Phase 8 kitchen authority', () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('loads bounded canonical checkout payment truth in order detail', async () => {
+    const canonicalOrder = {
+      id: 'order-1',
+      orderCheckout: {
+        id: 'checkout-1',
+        status: 'FINANCIAL_REVIEW_REQUIRED',
+        paymentPreference: 'ONLINE',
+        total: 30_000,
+        currency: 'COP',
+        paymentIntents: [{
+          id: 'intent-2',
+          attemptNumber: 2,
+          provider: 'BOLD',
+          amount: 30_000,
+          currency: 'COP',
+          status: 'UNKNOWN_RESULT',
+          failureCode: 'PROVIDER_TIMEOUT',
+          completedAt: null,
+          updatedAt: new Date('2026-08-13T00:00:00.000Z'),
+        }],
+      },
+    };
+    const prisma = {
+      orderTicket: { findUnique: jest.fn().mockResolvedValue(canonicalOrder) },
+    };
+    const service = new OrdersService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(service.findOne('order-1')).resolves.toEqual(canonicalOrder);
+    expect(prisma.orderTicket.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'order-1' },
+      include: expect.objectContaining({
+        orderCheckout: {
+          select: expect.objectContaining({
+            id: true,
+            status: true,
+            paymentPreference: true,
+            total: true,
+            currency: true,
+            paymentIntents: {
+              select: expect.objectContaining({
+                id: true,
+                attemptNumber: true,
+                provider: true,
+                amount: true,
+                currency: true,
+                status: true,
+              }),
+              orderBy: { attemptNumber: 'desc' },
+              take: 10,
+            },
+          }),
+        },
+      }),
+    }));
+  });
 });

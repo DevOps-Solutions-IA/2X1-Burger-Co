@@ -148,6 +148,30 @@ const orderInclude = {
       },
     },
   },
+  orderCheckout: {
+    select: {
+      id: true,
+      status: true,
+      paymentPreference: true,
+      total: true,
+      currency: true,
+      paymentIntents: {
+        select: {
+          id: true,
+          attemptNumber: true,
+          provider: true,
+          amount: true,
+          currency: true,
+          status: true,
+          failureCode: true,
+          completedAt: true,
+          updatedAt: true,
+        },
+        orderBy: { attemptNumber: 'desc' },
+        take: 10,
+      },
+    },
+  },
   items: {
     include: {
       product: {

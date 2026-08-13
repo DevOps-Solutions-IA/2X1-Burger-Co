@@ -40,6 +40,15 @@ const paymentIntentSummarySchema = z.object({
   provider: z.string(),
 });
 
+const paymentIntentDetailSchema = paymentIntentSummarySchema.extend({
+  attemptNumber: z.number().int().positive(),
+  amount: numericSchema,
+  currency: z.string(),
+  failureCode: z.string().nullable(),
+  completedAt: nullableDateSchema,
+  updatedAt: z.string(),
+});
+
 export const checkoutSummarySchema = z
   .object({
     id: z.string(),
@@ -174,6 +183,16 @@ export const orderDetailSchema = z
     assignedWaiter: operatorSchema.nullable(),
     assignedRider: operatorSchema.nullable(),
     items: z.array(orderItemSchema),
+    orderCheckout: z
+      .object({
+        id: z.string(),
+        status: z.string(),
+        paymentPreference: z.string(),
+        total: numericSchema,
+        currency: z.string(),
+        paymentIntents: z.array(paymentIntentDetailSchema).max(10),
+      })
+      .nullable(),
     sale: z
       .object({
         id: z.string(),
