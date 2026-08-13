@@ -44,7 +44,7 @@ const envSchema = z
     WHATSAPP_QR_RECONNECT_ENABLED: envBoolean.default(true),
     WHATSAPP_QR_MAX_RECONNECT_ATTEMPTS: z.coerce.number().int().positive().default(5),
     WHATSAPP_QR_ALLOW_REAL_SEND: envBoolean.default(false),
-    WHATSAPP_QR_ALLOW_RECEIVE: envBoolean.default(true),
+    WHATSAPP_QR_ALLOW_RECEIVE: envBoolean.default(false),
     WHATSAPP_QR_SANDBOX_ONLY: envBoolean.default(true),
     SOFIA_QR_PILOT_ALLOWLIST_ENABLED: envBoolean.default(true),
     SOFIA_QR_PILOT_ALLOWED_PHONES: z.string().optional(),

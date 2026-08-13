@@ -415,10 +415,10 @@ export class SofiaGovernanceService {
     autoSafeProductionAllowed?: boolean;
     secretRotationStatus?: SofiaSecretRotationStatus;
   }) {
-    if (input.qrRealAllowed === true || input.deepSeekRealAllowed === true || input.autoSafeProductionAllowed === true) {
+    if (input.deepSeekRealAllowed === true || input.autoSafeProductionAllowed === true) {
       await this.audit('SOFIA_GOVERNANCE_REAL_ACTIVATION_BLOCKED', actorId, {
         requested: {
-          qrRealAllowed: input.qrRealAllowed === true,
+          qrRealAllowed: false,
           deepSeekRealAllowed: input.deepSeekRealAllowed === true,
           autoSafeProductionAllowed: input.autoSafeProductionAllowed === true,
         },
@@ -427,14 +427,54 @@ export class SofiaGovernanceService {
       throw new BadRequestException({
         status: 'BLOCKED',
         reason: 'PHASE_NOT_READY',
-        message: 'F3 no permite activar QR real, DeepSeek real ni auto_safe producción.',
+        message: 'No se permite activar DeepSeek real ni auto_safe producción.',
       });
+    }
+    if (input.qrRealAllowed === true && !this.qrReceiveOnlyConfigurationIsSafe()) {
+      await this.audit('SOFIA_GOVERNANCE_REAL_ACTIVATION_BLOCKED', actorId, {
+        requested: { qrRealAllowed: true },
+        reason: 'PHASE_NOT_READY',
+      });
+      throw new BadRequestException({
+        status: 'BLOCKED',
+        reason: 'PHASE_NOT_READY',
+        message: 'QR receive-only requiere binding exacto y todos los gates de envío desactivados.',
+      });
+    }
+    if (input.qrRealAllowed !== undefined) {
+      await this.upsertSetting(
+        GOVERNANCE_KEYS.qrRealAllowed,
+        { allowed: input.qrRealAllowed },
+        actorId,
+      );
     }
     if (input.secretRotationStatus) {
       await this.upsertSetting(GOVERNANCE_KEYS.secretRotationStatus, { status: input.secretRotationStatus }, actorId);
     }
     await this.audit('SOFIA_GOVERNANCE_SETTINGS_UPDATED', actorId, { secretRotationStatus: input.secretRotationStatus ?? null });
     return this.getGovernanceStatus();
+  }
+
+  private qrReceiveOnlyConfigurationIsSafe(): boolean {
+    const requiredBindings = [
+      'WHATSAPP_EXPECTED_ACCOUNT_ID',
+      'WHATSAPP_EXPECTED_BUSINESS_IDENTITY',
+      'WHATSAPP_EXPECTED_SESSION_OWNER',
+    ].every((key) => Boolean(this.configService.get<string>(key)?.trim()));
+
+    return (
+      requiredBindings &&
+      this.configService.get<boolean>('WHATSAPP_QR_ENABLED') === true &&
+      this.configService.get<boolean>('WHATSAPP_QR_ALLOW_RECEIVE') === true &&
+      this.configService.get<boolean>('WHATSAPP_QR_SANDBOX_ONLY') === false &&
+      this.configService.get<string>('WHATSAPP_MODE') === 'receive_only' &&
+      this.configService.get<string>('WHATSAPP_PROVIDER') === 'qr_gateway' &&
+      this.configService.get<boolean>('WHATSAPP_QR_ALLOW_REAL_SEND') !== true &&
+      this.configService.get<boolean>('SOFIA_AUTO_REPLY_ENABLED') !== true &&
+      this.configService.get<boolean>('SOFIA_AUTO_SAFE_ENABLED') !== true &&
+      this.configService.get<boolean>('SOFIA_PRODUCTION_ENABLED') !== true &&
+      this.configService.get<boolean>('SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED') !== true
+    );
   }
 
   private async getGovernanceSettings() {
