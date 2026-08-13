@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, matchesSearch } from '@/lib/format';
+import { visiblePolling } from '@/lib/query-policy';
 import {
   buildWhatsAppUrl,
   printThermalReceipt,
@@ -155,12 +156,14 @@ export default function PosPage() {
   const tables = useQuery({
     queryKey: ['tables'],
     queryFn: () => apiFetch<DiningTable[]>('/tables'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const activeOrders = useQuery({
     queryKey: ['orders-active'],
     queryFn: () => apiFetch<ActiveOrder[]>('/orders?activeOnly=true'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const orderFromUrl = useQuery({
     queryKey: ['orders', orderIdFromUrl],
