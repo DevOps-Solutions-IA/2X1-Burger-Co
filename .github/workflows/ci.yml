@@ -59,6 +59,8 @@ jobs:
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
       - name: Phase 6 representative legacy migration 36 to 37
         run: bash infra/testing/phase6-legacy-migration.sh
+      - name: Phase 8 representative legacy migration 37 to 38
+        run: bash infra/testing/phase8-legacy-migration.sh
       - name: API lint with visible debt and web zero-warning gate
         run: |
           pnpm --filter @inventory-fastfood/api lint
