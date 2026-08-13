@@ -27,6 +27,8 @@ The authenticated product uses one application shell, one semantic token system,
 
 Primary modules: Overview, Sofia, CRM, Orders, Kitchen, Customers, Conversations, Payments, Delivery, Customer Service, Analytics, Audit, Team, Settings and Activation Control.
 
+The architecture applies to the complete authenticated operational product. POS, tables, cash, inventory, purchases, expenses, suppliers, products, ingredients, categories, recipes, waiter and rider workflows keep their canonical behavior but must adopt the same shell, semantic states, responsive rules and accessible primitives before Phase 8 closes. Public storefront and marketing surfaces remain out of scope.
+
 ## Write ownership
 
 | Owner | Exclusive write scope |
@@ -40,6 +42,7 @@ Primary modules: Overview, Sofia, CRM, Orders, Kitchen, Customers, Conversations
 | Operations | payments/delivery/customer-service protected reads and routes |
 | Governance | team/audit/settings/activation-control routes |
 | Quality | tests, accessibility and performance fixes after integration |
+| Legacy operations | authenticated POS, supply, catalog, cash, waiter and rider presentation only; no domain mutation redesign |
 
 Shared authoritative files are changed only by the lead.
 

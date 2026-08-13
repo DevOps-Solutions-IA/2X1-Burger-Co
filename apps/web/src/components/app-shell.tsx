@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -8,7 +8,6 @@ import { z } from 'zod';
 import { apiFetch } from '@/lib/api';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  LayoutDashboard,
   Package2,
   Boxes,
   ShoppingCart,
@@ -18,57 +17,78 @@ import {
   Store,
   ChefHat,
   Truck,
-  PiggyBank,
-  Tags,
   Users,
   ContactRound,
   Settings,
   Armchair,
   Bot,
+  ClipboardList,
+  CreditCard,
+  Gauge,
+  Headphones,
+  MessageSquareText,
+  ShieldCheck,
+  TrendingUp,
+  UserRoundSearch,
   Menu,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { useAuth } from '@/features/auth/auth-provider';
 import { hasPermission } from '@/features/auth/access-control';
 
 const navSections = [
   {
-    title: 'Operación',
+    title: 'Control',
     items: [
-      { href: '/dashboard', label: 'Inicio', icon: LayoutDashboard },
+      { href: '/overview', label: 'Overview', icon: Gauge },
+      { href: '/sofia', label: 'Sofia', icon: Bot, permission: 'orders.read' },
+    ],
+  },
+  {
+    title: 'Servicio',
+    items: [
+      { href: '/orders', label: 'Pedidos', icon: ClipboardList, permission: 'orders.read' },
+      { href: '/kitchen', label: 'Cocina', icon: ChefHat, permission: 'orders.read' },
       { href: '/pos', label: 'Punto de venta', icon: ShoppingCart, permission: 'sales.read' },
       { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
       { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
-      { href: '/sofia', label: 'Sofía', icon: Bot, permission: 'orders.read' },
-      { href: '/sofia/customers', label: 'Clientes Sofía', icon: ContactRound, permission: 'orders.read' },
-      { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
-      { href: '/reports', label: 'Reportes e histórico', icon: ReceiptText, permission: 'reports.read' },
+      { href: '/payments', label: 'Pagos', icon: CreditCard, permission: 'reports.read' },
+      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones, permission: 'orders.read' },
     ],
   },
   {
-    title: 'Abastecimiento',
+    title: 'Relaciones',
     items: [
+      { href: '/crm', label: 'CRM', icon: UserRoundSearch, permission: 'orders.read' },
+      { href: '/customers', label: 'Clientes', icon: ContactRound, permission: 'orders.read' },
+      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText, permission: 'orders.read' },
+    ],
+  },
+  {
+    title: 'Inteligencia',
+    items: [
+      { href: '/analytics', label: 'Analitica', icon: TrendingUp, permission: 'reports.read' },
+      { href: '/audit', label: 'Auditoria', icon: ShieldCheck, permission: 'reports.read' },
+      { href: '/reports', label: 'Reportes', icon: ReceiptText, permission: 'reports.read' },
+    ],
+  },
+  {
+    title: 'Operacion base',
+    items: [
+      { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
       { href: '/inventory', label: 'Inventario', icon: Boxes, permission: 'inventory.read' },
       { href: '/purchases', label: 'Compras', icon: Store, permission: 'purchases.read' },
-      { href: '/expenses', label: 'Gastos', icon: PiggyBank, permission: 'expenses.read' },
-      { href: '/suppliers', label: 'Proveedores', icon: Truck, permission: 'suppliers.read' },
-    ],
-  },
-  {
-    title: 'Catálogo',
-    items: [
       { href: '/products', label: 'Productos', icon: Package2, permission: 'products.read' },
-      { href: '/ingredients', label: 'Insumos', icon: ChefHat, permission: 'ingredients.read' },
-      { href: '/categories', label: 'Categorías', icon: Tags, permission: 'categories.read' },
-      { href: '/recipes', label: 'Recetas', icon: ChefHat, permission: 'recipes.read' },
     ],
   },
   {
-    title: 'Administración',
+    title: 'Administracion',
     items: [
-      { href: '/users', label: 'Usuarios', icon: Users, permission: 'users.read' },
-      { href: '/settings', label: 'Configuración', icon: Settings, permission: 'settings.read' },
+      { href: '/team', label: 'Equipo y roles', icon: Users, permission: 'users.read' },
+      { href: '/settings', label: 'Configuracion', icon: Settings, permission: 'settings.read' },
+      { href: '/activation-control', label: 'Control de activacion', icon: ShieldCheck, permission: 'settings.read' },
     ],
   },
 ];
@@ -88,6 +108,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
 
   // Cerrar navegación móvil al navegar
   useEffect(() => {
@@ -102,6 +124,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return;
+    }
+
+    const menuButton = menuButtonRef.current;
+    const firstLink = sidebarRef.current?.querySelector<HTMLAnchorElement>('a[href]');
+    firstLink?.focus();
+    return () => menuButton?.focus();
   }, [mobileNavOpen]);
 
   // Bloquear scroll del body cuando el drawer móvil está abierto
@@ -136,6 +169,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-surface text-ink">
       {/* Botón hamburger para móvil */}
       <button
+        ref={menuButtonRef}
         type="button"
         className="fixed left-3 top-3 z-[60] flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-ink shadow-soft transition active:scale-95 lg:hidden"
         onClick={() => setMobileNavOpen((v) => !v)}
@@ -157,6 +191,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
         {/* Sidebar: overlay en móvil, fijo en desktop */}
         <aside
+          ref={sidebarRef}
           role="navigation"
           aria-label="Navegación principal"
           className={cn(
@@ -167,8 +202,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         >
           <div className="flex flex-1 flex-col">
-            {/* Logo */}
-            <div className="flex justify-center py-4 shrink-0">
+            <div className="flex shrink-0 justify-center py-3">
               <div className="relative w-full max-w-[200px]">
                 <Image
                   src="/brand/sidebar-logo.png"
@@ -181,8 +215,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* Navegación */}
-            <nav className="flex flex-1 flex-col justify-between px-1 overflow-hidden">
+            <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4" aria-label="Modulos del producto">
               {visibleNavSections.map((section) => (
                 <div key={section.title}>
                   <h2 className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">
@@ -200,7 +233,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           href={item.href}
                           data-testid={`nav-${item.href.replace('/', '') || 'home'}`}
                           className={cn(
-                            'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-medium transition-all duration-200',
+                            'group flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-medium transition-all duration-200',
                             active
                               ? 'bg-brand-500 text-ink shadow-[0_6px_16px_rgba(255,159,28,0.25)]'
                               : 'text-stone-300 hover:bg-white/[0.06] hover:text-white',
@@ -235,7 +268,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     await logout();
                     router.push('/login');
                   }}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition hover:bg-white/[0.08] hover:text-white"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition hover:bg-white/[0.08] hover:text-white"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
@@ -253,7 +286,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div className="flex items-center gap-3 min-w-0">
                     <p className="text-[12px] font-semibold capitalize text-white whitespace-nowrap">{today}</p>
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
-                    <p className="hidden sm:block text-[11px] font-medium text-stone-400 truncate">Jornada actual</p>
+                    <p className="hidden truncate text-[11px] font-medium text-stone-400 sm:block">Centro operativo</p>
                   </div>
                   <div
                     className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
@@ -283,14 +316,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function SaleCounters() {
-  const { data } = useQuery({
+  const { data, isPending, isError } = useQuery({
     queryKey: ['sale-counters'],
     queryFn: async () => saleCountersSchema.parse(await apiFetch<unknown>('/reports/operational')),
-    refetchInterval: 3000,
+    refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
   });
 
+  if (isPending) {
+    return <span className="text-xs font-semibold text-stone-400">Actualizando jornada...</span>;
+  }
+
+  if (isError || !data) {
+    return (
+      <span className="inline-flex min-h-9 items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-4 text-xs font-semibold text-amber-100">
+        Resumen no disponible
+      </span>
+    );
+  }
+
   const sellers = data?.sales.bestSellers ?? [];
-  const itemsSold = Number(data?.sales.itemsSold ?? 0);
+  const itemsSold = Number(data.sales.itemsSold);
 
   const targetProducts = [
     { key: '2x1', label: '2X1', match: '2x1' },

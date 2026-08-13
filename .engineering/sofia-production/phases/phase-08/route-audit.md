@@ -8,6 +8,8 @@
 
 `/login`, `/delivery/login`, `/waiter/login`, `/pagos/[token]`, `/pos`, `/tables`, `/cash`, `/inventory`, `/purchases`, `/expenses`, `/suppliers`, `/products`, `/ingredients`, `/categories`, `/recipes`, `/delivery`, `/waiter`.
 
+Every authenticated route in this list is mandatory Phase 8 scope. `REFACTOR` means preserve domain behavior while replacing inconsistent page chrome, controls, states, responsiveness and accessibility with the shared enterprise system; it does not mean defer or leave untouched.
+
 ## Redesign
 
 `/dashboard`, `/deliveries`, `/reports`, `/settings`, `/sofia` and the authenticated shell.
