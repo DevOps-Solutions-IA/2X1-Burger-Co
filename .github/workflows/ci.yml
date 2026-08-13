@@ -194,7 +194,7 @@ jobs:
             src/tests/phase8-crm-concurrency.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
-          pnpm --filter @inventory-fastfood/api exec tsx --test \
+          pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
             ../../apps/web/src/features/auth/access-control.test.ts \
             ../../apps/web/src/features/crm/labels.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
