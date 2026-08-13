@@ -18,6 +18,7 @@ SEED_SECONDS=0
 READY_SECONDS=0
 TEST_SECONDS=0
 CLEANUP_DONE=false
+PRODUCTION_ISOLATION_CONTAINER=""
 
 mkdir -p "$RUN_ROOT" "$EVIDENCE_DIR"
 chmod 700 "$RUN_ROOT" "$EVIDENCE_DIR"
@@ -45,6 +46,11 @@ cleanup() {
   local original_status="${1:-0}"
   if [[ "$CLEANUP_DONE" == true ]]; then return "$original_status"; fi
   set +e
+  if [[ -n "$PRODUCTION_ISOLATION_CONTAINER" ]]; then
+    docker logs "$PRODUCTION_ISOLATION_CONTAINER" >"$EVIDENCE_DIR/production-isolation-service.log" 2>&1
+    docker rm -f "$PRODUCTION_ISOLATION_CONTAINER" >/dev/null 2>&1
+    PRODUCTION_ISOLATION_CONTAINER=""
+  fi
   docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --no-color >"$EVIDENCE_DIR/service-logs.log" 2>&1
   docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down --volumes --remove-orphans --timeout 10 >"$EVIDENCE_DIR/teardown.log" 2>&1
   local compose_status=$?
@@ -269,6 +275,59 @@ if ('dirtyBuild' in api || 'dirtyBuild' in web) {
   throw new Error('Runtime version contract exposes dirty-build metadata.');
 }
 NODE
+
+"${compose[@]}" stop ephemeral-web ephemeral-api >"$EVIDENCE_DIR/production-isolation-runtime-stop.log" 2>&1
+PRODUCTION_ISOLATION_PORT="$(allocate_port)"
+PRODUCTION_ISOLATION_CONTAINER="${PROJECT}-production-isolation-api"
+docker run -d --name "$PRODUCTION_ISOLATION_CONTAINER" \
+  --label "com.docker.compose.project=$PROJECT" \
+  --network "${PROJECT}_default" \
+  -p "127.0.0.1:${PRODUCTION_ISOLATION_PORT}:3000" \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e "DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@ephemeral-postgres:5432/${DB_NAME}?schema=public" \
+  -e "JWT_ACCESS_SECRET=e2e-access-$RUN_ID-strong-synthetic-value" \
+  -e "JWT_REFRESH_SECRET=e2e-refresh-$RUN_ID-different-strong-synthetic-value" \
+  -e ADMIN_EMAIL=admin.e2e@invalid.local \
+  -e ADMIN_PASSWORD='Admin-E2E-2300!' \
+  -e APP_URL=https://phase8-isolation.invalid \
+  -e PUBLIC_PAYMENTS_BASE_URL=https://phase8-isolation.invalid/pagos \
+  -e CORS_ORIGIN=https://phase8-isolation.invalid \
+  -e COOKIE_SECURE=true \
+  -e WHATSAPP_INTERNAL_ENABLED=false \
+  -e WHATSAPP_MODE=receive_only \
+  -e WHATSAPP_PROVIDER=qr_gateway \
+  -e WHATSAPP_QR_ENABLED=false \
+  -e WHATSAPP_QR_ALLOW_RECEIVE=false \
+  -e WHATSAPP_QR_ALLOW_REAL_SEND=false \
+  -e WHATSAPP_QR_RECONNECT_ENABLED=false \
+  -e SOFIA_QR_PILOT_RECEIVE_ONLY=true \
+  -e SOFIA_QR_PILOT_REAL_SEND=false \
+  -e SOFIA_AUTO_REPLY_ENABLED=false \
+  -e SOFIA_AUTO_SAFE_ENABLED=false \
+  -e SOFIA_PRODUCTION_ENABLED=false \
+  -e SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED=false \
+  -e SOFIA_AI_PROVIDER=rules \
+  -e SOFIA_AI_MODE=disabled \
+  -e DEEPSEEK_ENABLED=false \
+  -e PHASE5_ORDER_CREATION_ENABLED=false \
+  -e PHASE5_PAYMENT_ORCHESTRATION_ENABLED=false \
+  -e PHASE5_KITCHEN_ENABLED=false \
+  -e PHASE5_TEST_OPERATIONAL_ENABLED=false \
+  -e DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false \
+  -e "CRM_IDENTITY_HASH_SECRET=e2e-crm-$RUN_ID-synthetic-rotation-safe-secret" \
+  -e RELEASE_MANIFEST_PATH=/app/release-manifest.json \
+  -e "RELEASE_ARTIFACT_DIGEST=$API_DIGEST" \
+  -v "$MANIFEST_FILE:/app/release-manifest.json:ro" \
+  "$API_IMAGE" >"$EVIDENCE_DIR/production-isolation-start.log"
+wait_url "http://127.0.0.1:$PRODUCTION_ISOLATION_PORT/health/ready"
+PRODUCTION_ISOLATION_API_BASE_URL="http://127.0.0.1:$PRODUCTION_ISOLATION_PORT" \
+PRODUCTION_ISOLATION_ADMIN_EMAIL="$EPHEMERAL_ADMIN_EMAIL" \
+PRODUCTION_ISOLATION_ADMIN_PASSWORD="$EPHEMERAL_ADMIN_PASSWORD" \
+  node infra/testing/production-isolation-smoke.mjs >"$EVIDENCE_DIR/production-isolation.log"
+docker logs "$PRODUCTION_ISOLATION_CONTAINER" >"$EVIDENCE_DIR/production-isolation-service.log" 2>&1
+docker rm -f "$PRODUCTION_ISOLATION_CONTAINER" >/dev/null
+PRODUCTION_ISOLATION_CONTAINER=""
 
 if [[ "${EPHEMERAL_INCLUDE_API_REGRESSION:-false}" == true ]]; then
   "${compose[@]}" stop ephemeral-web ephemeral-api >"$EVIDENCE_DIR/regression-runtime-stop.log" 2>&1
