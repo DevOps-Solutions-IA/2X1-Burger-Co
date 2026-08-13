@@ -40,6 +40,11 @@ export type CustomerOperationalRelation = {
   financialSuccess: boolean | null;
 };
 
+export type CustomerOperationalRelationAccess = Readonly<{
+  payments: boolean;
+  serviceCases: boolean;
+}>;
+
 const operationalRelationTypes = new Set<CustomerOperationalRelationType>([
   'CONVERSATION',
   'ORDER_CHECKOUT',
@@ -55,6 +60,7 @@ function factString(facts: Record<string, unknown>, key: string) {
 
 export function customerOperationalRelations(
   events: readonly CrmTimelineEvent[],
+  access: CustomerOperationalRelationAccess = { payments: true, serviceCases: true },
 ): CustomerOperationalRelation[] {
   return events.flatMap((event) => {
     if (!operationalRelationTypes.has(event.type as CustomerOperationalRelationType)) return [];
@@ -67,12 +73,14 @@ export function customerOperationalRelations(
     const href = type === 'CONVERSATION'
       ? `/conversations/${encodeURIComponent(event.id)}`
       : type === 'PAYMENT_INTENT'
-        ? `/payments?intent=${encodeURIComponent(event.id)}`
+        ? access.payments ? `/payments?intent=${encodeURIComponent(event.id)}` : null
         : type === 'DELIVERY_EVENT'
           ? orderTicketId ? `/orders/${encodeURIComponent(orderTicketId)}` : null
           : type === 'SERVICE_CASE'
-            ? `/customer-service?case=${encodeURIComponent(event.id)}`
-            : null;
+            ? access.serviceCases ? `/customer-service?case=${encodeURIComponent(event.id)}` : null
+            : type === 'ORDER_CHECKOUT'
+              ? orderTicketId ? `/orders/${encodeURIComponent(orderTicketId)}` : null
+              : null;
 
     return [{
       id: event.id,

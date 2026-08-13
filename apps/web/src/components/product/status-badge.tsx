@@ -71,7 +71,7 @@ export function StatusBadge({
       data-status={status}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      <span>{label ?? status.replaceAll('_', ' ')}</span>
+      <span className="text-ink">{label ?? status.replaceAll('_', ' ')}</span>
     </span>
   );
 }

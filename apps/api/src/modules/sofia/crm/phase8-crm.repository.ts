@@ -617,7 +617,7 @@ export class Phase8CrmRepository {
         where: { customerId },
         select: {
           id: true, status: true, fulfillment: true, paymentPreference: true, total: true, currency: true,
-          createdAt: true, updatedAt: true,
+          orderTicketId: true, createdAt: true, updatedAt: true,
           paymentIntents: { select: { id: true, status: true, provider: true, amount: true, currency: true, updatedAt: true }, take: 20, orderBy: { updatedAt: 'desc' } },
         },
         orderBy: { createdAt: 'desc' }, take,
@@ -658,7 +658,7 @@ export class Phase8CrmRepository {
       ...checkouts.flatMap((item) => [
         { id: item.id, type: 'ORDER_CHECKOUT', occurredAt: item.createdAt, facts: {
           status: item.status, fulfillment: item.fulfillment, paymentPreference: item.paymentPreference,
-          total: item.total.toString(), currency: item.currency,
+          total: item.total.toString(), currency: item.currency, orderTicketId: item.orderTicketId,
         } },
         ...item.paymentIntents.map((payment) => ({ id: payment.id, type: 'PAYMENT_INTENT', occurredAt: payment.updatedAt, facts: {
           status: payment.status, provider: payment.provider, amount: payment.amount.toString(), currency: payment.currency,

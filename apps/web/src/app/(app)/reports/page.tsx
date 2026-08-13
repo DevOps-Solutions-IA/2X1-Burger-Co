@@ -527,7 +527,7 @@ export default function ReportsPage() {
 
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Margen por producto</h2>
-          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1" role="region" aria-label="Margen por producto" tabIndex={0}>
             {(productMargins.data ?? []).map((item) => (
               <div key={item.productId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
@@ -544,7 +544,7 @@ export default function ReportsPage() {
 
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Rotación de insumos</h2>
-          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1">
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 space-y-2.5 pr-1" role="region" aria-label="Rotación de insumos" tabIndex={0}>
             {(ingredientRotation.data ?? []).map((item) => (
               <div key={item.ingredientId} className="rounded-xl bg-stone-50 px-3 py-2.5 border-l-[2px] border-l-brand-300">
                 <div className="flex items-center justify-between gap-3">
@@ -580,7 +580,7 @@ export default function ReportsPage() {
               <p className="mt-0.5 text-[12px] text-stone-600">Consulta y reimprime cierres guardados.</p>
             </div>
           </div>
-          <div className="hide-scrollbar list-scroll-5-cards mt-5 space-y-3 pr-1">
+          <div className="hide-scrollbar list-scroll-5-cards mt-5 space-y-3 pr-1" role="region" aria-label="Histórico de cierres" tabIndex={0}>
             {closures.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-[1.5rem]" />) : null}
             {displayClosures.map((closure) => (
               <div key={closure.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
@@ -602,7 +602,7 @@ export default function ReportsPage() {
       {canManageSupply && supplierNotifications.data?.length ? (
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Histórico de notificaciones a proveedor</h2>
-          <div className="hide-scrollbar list-scroll-5-cards mt-4 grid gap-3 pr-1 md:grid-cols-2">
+          <div className="hide-scrollbar list-scroll-5-cards mt-4 grid gap-3 pr-1 md:grid-cols-2" role="region" aria-label="Histórico de notificaciones a proveedor" tabIndex={0}>
             {supplierNotifications.data.map((notification) => (
               <div key={notification.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
                 <p className="font-medium text-ink">{notification.supplier?.name ?? 'Proveedor'}</p>

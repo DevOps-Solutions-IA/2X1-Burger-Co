@@ -64,3 +64,30 @@ test('maps canonical customer events without converting uncertain payment into s
   assert.equal(relations[0]?.href, '/payments?intent=payment-1');
   assert.equal(relations[1]?.href, '/conversations/conversation-1');
 });
+
+test('links checkout evidence to its canonical order and suppresses inaccessible privileged routes', () => {
+  const relations = customerOperationalRelations([
+    {
+      id: 'checkout-1',
+      type: 'ORDER_CHECKOUT',
+      occurredAt: '2026-08-13T00:00:00.000Z',
+      facts: { status: 'ORDER_CREATED', orderTicketId: 'ticket-1' },
+    },
+    {
+      id: 'payment-1',
+      type: 'PAYMENT_INTENT',
+      occurredAt: '2026-08-13T00:01:00.000Z',
+      facts: { status: 'UNKNOWN_RESULT' },
+    },
+    {
+      id: 'case-1',
+      type: 'SERVICE_CASE',
+      occurredAt: '2026-08-13T00:02:00.000Z',
+      facts: { status: 'OPEN' },
+    },
+  ], { payments: false, serviceCases: false });
+
+  assert.equal(relations[0]?.href, '/orders/ticket-1');
+  assert.equal(relations[1]?.href, null);
+  assert.equal(relations[2]?.href, null);
+});

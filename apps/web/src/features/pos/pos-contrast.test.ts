@@ -32,4 +32,10 @@ test('keeps low-contrast tokens off light POS operational surfaces', () => {
     assert.doesNotMatch(fileSource, /text-stone-400/, `${fileName} uses stone-400`);
     assert.doesNotMatch(fileSource, /text-brand-700/, `${fileName} uses brand-700`);
   }
+
+  assert.doesNotMatch(
+    source('PosCartPanel.tsx'),
+    /difference > 0 \? 'text-brand-600'/,
+    'PosCartPanel uses low-contrast brand-600 for a financial amount',
+  );
 });

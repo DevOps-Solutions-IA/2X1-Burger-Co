@@ -20,7 +20,7 @@ import {
 } from '@/components/product';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/auth-provider';
-import { hasPermission } from '@/features/auth/access-control';
+import { canAccessRoute, hasPermission } from '@/features/auth/access-control';
 import {
   ActorBadge,
   ConsentList,
@@ -56,7 +56,13 @@ export default function CustomerDetailPage() {
   const timeline = useCustomerTimeline(customerId, { page: timelinePage, limit: TIMELINE_PAGE_SIZE }, canRead);
   const operationalTimeline = useCrmUnifiedTimeline(canRead ? customerId : '');
   const profile = customer.data;
-  const operationalRelations = customerOperationalRelations(operationalTimeline.data?.data ?? []);
+  const operationalRelations = customerOperationalRelations(
+    operationalTimeline.data?.data ?? [],
+    {
+      payments: canAccessRoute('/payments', user?.permissions, user?.roles),
+      serviceCases: canAccessRoute('/customer-service', user?.permissions, user?.roles),
+    },
+  );
 
   const profileStatus = !canRead
     ? 'permission_denied'

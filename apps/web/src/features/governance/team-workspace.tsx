@@ -219,7 +219,7 @@ export function TeamWorkspace() {
           : 'ready';
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8" data-testid="team-page">
       <PageHeader
         eyebrow="Administración"
         title="Equipo y acceso"

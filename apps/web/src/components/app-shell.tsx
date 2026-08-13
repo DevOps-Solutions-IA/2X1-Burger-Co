@@ -223,6 +223,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface text-ink">
+      <a
+        href="#main-content"
+        className="fixed left-4 top-3 z-[80] -translate-y-24 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink shadow-xl transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      >
+        Saltar al contenido principal
+      </a>
+
       {/* Backdrop overlay para móvil */}
       {mobileNavOpen ? (
         <button
@@ -342,13 +349,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         inert={mobileNavOpen ? true : undefined}
         aria-hidden={mobileNavOpen ? true : undefined}
       >
-        <a
-          href="#main-content"
-          className="fixed left-4 top-3 z-[80] -translate-y-24 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink shadow-xl transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          Saltar al contenido principal
-        </a>
-
         <button
           ref={menuButtonRef}
           type="button"
@@ -362,8 +362,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
 
         <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
-          <div className="min-h-0 lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
-            <div className="min-h-0 lg:h-full lg:overflow-y-auto lg:pr-1">
+          <div className="min-h-0 min-w-0 max-w-full lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
+            <div className="min-h-0 min-w-0 max-w-full lg:h-full lg:overflow-y-auto lg:pr-1">
               <div className="sticky top-0 z-30 pb-4 pt-0">
               <div className="absolute inset-x-0 inset-y-0 rounded-[2rem] bg-gradient-to-b from-surface via-surface/95 to-surface/70 backdrop-blur-sm" />
               <div className="relative rounded-[2rem] border border-white/[0.08] bg-black px-6 py-3 shadow-2xl">
@@ -393,7 +393,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <main
                 id="main-content"
                 data-testid="app-main"
-                className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
+                className="w-full min-w-0 max-w-full overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
                 tabIndex={-1}
               >
                 {children}

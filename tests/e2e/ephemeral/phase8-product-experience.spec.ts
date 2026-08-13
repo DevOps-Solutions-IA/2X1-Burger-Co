@@ -9,7 +9,8 @@ function requiredEnv(name: string) {
 }
 
 async function login(page: Page, email: string, password: string) {
-  await page.goto('/login');
+  await page.goto('/login', { waitUntil: 'networkidle' });
+  await expect(page.getByTestId('login-submit')).toBeVisible();
   await page.getByTestId('login-email').fill(email);
   await page.getByTestId('login-password').fill(password);
   await page.getByTestId('login-submit').click();
@@ -72,6 +73,17 @@ test.describe('Phase 8 enterprise product experience', () => {
     await expect(page.getByText('Resultado desconocido: no equivale a pago confirmado.')).toBeVisible();
     await expect(page.getByText('Resultado de pago incierto; requiere revisión humana.')).toBeVisible();
     await expect(page.getByText('E2E Customer 360', { exact: true }).first()).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('573000002399');
+    await expect(page.locator('body')).not.toContainText('+57 300 000 2399');
+
+    await expect(page.locator('a[href="/orders/e2e-delivery-fixture"]')).toBeVisible();
+    await page.locator('a[href="/orders/e2e-delivery-fixture"]').click();
+    await expect(page).toHaveURL(/\/orders\/e2e-delivery-fixture$/);
+    await page.goBack();
+    await expect(page.getByTestId('customer-360-page')).toBeVisible();
+
+    await page.locator('a[href="/conversations/e2e-conversation-fixture"]').click();
+    await expect(page).toHaveURL(/\/conversations\/e2e-conversation-fixture$/);
   });
 
   test('order detail and kitchen execute one governed transition', async ({ page }) => {
@@ -174,6 +186,11 @@ test.describe('Phase 8 enterprise product experience', () => {
       await page.goto('/payments');
       await expect(page.getByRole('heading', { name: 'No tienes permisos para este módulo' })).toBeVisible();
       await expect(page.getByTestId('nav-payments')).toHaveCount(0);
+
+      await page.goto('/customers/e2e-crm-customer');
+      await expect(page.getByTestId('customer-360-page')).toBeVisible();
+      await expect(page.locator('a[href^="/payments"]')).toHaveCount(0);
+      await expect(page.locator('a[href^="/customer-service"]')).toHaveCount(0);
     } finally {
       await context.close().catch(() => undefined);
     }

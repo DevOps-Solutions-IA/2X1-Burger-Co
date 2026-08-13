@@ -1032,6 +1032,7 @@ export default function TablesPage() {
                         </div>
                         <Select
                           className="mt-2"
+                          aria-label={`Asignación directa para ${table.label}`}
                           value={directAssignment?.waiterId ?? ''}
                           onChange={(event) => {
                             if (event.target.value) {

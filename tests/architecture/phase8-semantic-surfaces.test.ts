@@ -84,6 +84,42 @@ test('keeps field shells scrollable with valid shell-owned skip targets', () => 
   assert.match(deliveryLayout, /canAccessRoute\(safePathname, user\?\.permissions, user\?\.roles\)/);
 });
 
+test('places the application skip link before persistent navigation in keyboard order', () => {
+  const appShell = source('components/app-shell.tsx');
+  const skipLinkIndex = appShell.indexOf('href="#main-content"');
+  const navigationIndex = appShell.indexOf('<aside');
+
+  assert.notEqual(skipLinkIndex, -1);
+  assert.notEqual(navigationIndex, -1);
+  assert.ok(skipLinkIndex < navigationIndex);
+});
+
+test('keeps merged legacy routes on canonical enterprise modules', () => {
+  assert.match(source('app/(app)/users/page.tsx'), /redirect\('\/team'\)/);
+  assert.match(source('app/(app)/sofia/customers/page.tsx'), /redirect\('\/customers'\)/);
+  assert.match(source('app/(app)/sofia/conversations/page.tsx'), /redirect\('\/conversations'\)/);
+});
+
+test('names direct table assignment controls for assistive technology', () => {
+  const tables = source('app/(app)/tables/page.tsx');
+
+  assert.match(tables, /aria-label=\{`Asignación directa para \$\{table\.label\}`\}/);
+});
+
+test('keeps bounded report regions keyboard reachable', () => {
+  const reports = source('app/(app)/reports/page.tsx');
+
+  for (const label of ['Margen por producto', 'Rotación de insumos', 'Histórico de cierres', 'Histórico de notificaciones a proveedor']) {
+    assert.match(reports, new RegExp(`aria-label="${label}" tabIndex=\\{0\\}`));
+  }
+});
+
+test('uses high-contrast text inside semantic status badges', () => {
+  const badge = source('components/product/status-badge.tsx');
+
+  assert.match(badge, /<span className="text-ink">/);
+});
+
 test('uses canonical detail links for customer-service conversations', () => {
   const support = source('features/support-operations/customer-service-screen.tsx');
 
