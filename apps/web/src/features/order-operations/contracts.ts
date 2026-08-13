@@ -106,7 +106,7 @@ export const kitchenOrderSchema = z.object({
       productId: z.string(),
       quantity: numericSchema,
       notes: z.string().nullable(),
-      modifiersSnapshot: z.array(kitchenModifierSchema).catch([]),
+      modifiersSnapshot: z.array(kitchenModifierSchema),
       product: z.object({ name: z.string(), code: z.string() }),
     }),
   ),
@@ -128,7 +128,7 @@ const orderItemSchema = z
     unitPrice: numericSchema,
     totalPrice: numericSchema,
     notes: z.string().nullable(),
-    modifiersSnapshot: z.array(kitchenModifierSchema).catch([]),
+    modifiersSnapshot: z.array(kitchenModifierSchema),
     product: z
       .object({
         name: z.string(),

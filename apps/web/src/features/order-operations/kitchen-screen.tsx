@@ -12,11 +12,15 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { hasPermission } from '@/features/auth/access-control';
 import { useAuth } from '@/features/auth/auth-provider';
-import type { KitchenOrder, OrderStatus, OrderType } from './contracts';
+import type { KitchenOrder, KitchenQueuePage, OrderStatus, OrderType } from './contracts';
 import { elapsedLabel, modifierLabel, orderStatusLabels, orderTypeLabels, paymentSummary } from './presentation';
 import { useKitchenQueue, useKitchenTransition, useOrderOperationsRealtime } from './queries';
 
 const PAGE_SIZE = 100;
+
+export function operableKitchenItems(data: KitchenQueuePage | undefined, hasError: boolean) {
+  return hasError ? [] : data?.items ?? [];
+}
 
 function queryState(error: unknown, isPending: boolean, hasData: boolean) {
   if (isPending) return 'loading' as const;
@@ -83,7 +87,9 @@ export function KitchenScreen() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const items = result.data?.items ?? [];
+  const incompatibleEvidence = result.error instanceof ApiError && result.error.status === 502;
+  // Never operate on retained queue data after its authoritative contract fails.
+  const items = operableKitchenItems(result.data, result.isError);
   const state = queryState(result.error, result.isPending, items.length > 0);
   const handleTransition = (order: KitchenOrder) => {
     transition.mutate(
@@ -120,7 +126,12 @@ export function KitchenScreen() {
         filters={<><label className="min-w-44"><span className="sr-only">Estado de cocina</span><Select value={status} onChange={(event) => setStatus(event.target.value as OrderStatus | '')}><option value="">Abiertos y preparando</option><option value="OPEN">Abiertos</option><option value="IN_PREPARATION">En preparación</option></Select></label><label className="min-w-40"><span className="sr-only">Canal del pedido</span><Select value={type} onChange={(event) => setType(event.target.value as OrderType | '')}><option value="">Todos los canales</option>{Object.entries(orderTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label></>}
         actions={<Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Limpiar</Button>}
       />
-      <QueryState status={state} title={state === 'empty' ? 'No hay pedidos pendientes en cocina' : undefined} description={state === 'empty' ? 'La cola está al día. Los nuevos pedidos aparecerán cuando el backend los autorice.' : undefined} onRetry={() => void result.refetch()}>
+      <QueryState
+        status={state}
+        title={state === 'empty' ? 'No hay pedidos pendientes en cocina' : incompatibleEvidence ? 'La evidencia de cocina no es válida' : undefined}
+        description={state === 'empty' ? 'La cola está al día. Los nuevos pedidos aparecerán cuando el backend los autorice.' : incompatibleEvidence ? 'Bloqueamos las transiciones porque los productos o sus modificadores no pudieron verificarse.' : undefined}
+        onRetry={() => void result.refetch()}
+      >
         <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3" aria-label="Cola de cocina">
           {items.map((order) => <KitchenCard key={order.id} order={order} now={now} onTransition={handleTransition} canTransition={canTransition} pending={transition.isPending && transition.variables?.id === order.id} />)}
         </section>
