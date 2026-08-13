@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canAccessRoute } from './access-control';
+import { canAccessRoute, canMutateCrm } from './access-control';
 
 test('financial and support routes align permission and backend role policy', () => {
   assert.equal(canAccessRoute('/payments', ['reports.read'], ['cashier']), false);
@@ -13,4 +13,13 @@ test('operational overview is internal and unknown routes fail closed', () => {
   assert.equal(canAccessRoute('/overview', [], ['delivery']), false);
   assert.equal(canAccessRoute('/overview', [], ['cashier']), true);
   assert.equal(canAccessRoute('/not-classified', ['reports.read'], ['admin']), false);
+});
+
+test('CRM is readable by cashiers but mutations require an authorized operator role', () => {
+  assert.equal(canAccessRoute('/crm/leads', ['orders.read'], ['cashier']), true);
+  assert.equal(canMutateCrm(['cashier']), false);
+  assert.equal(canMutateCrm(['waiter']), false);
+  assert.equal(canMutateCrm(undefined), false);
+  assert.equal(canMutateCrm(['supervisor']), true);
+  assert.equal(canMutateCrm(['admin']), true);
 });

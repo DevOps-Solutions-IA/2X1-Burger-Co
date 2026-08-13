@@ -54,6 +54,12 @@ export function hasAllowedRole(roles: string[] | undefined, allowedRoles?: reado
   return (roles ?? []).some((role) => allowedRoles.includes(role));
 }
 
+const CRM_MUTATION_ROLES = ['admin', 'supervisor'] as const;
+
+export function canMutateCrm(roles: string[] | undefined) {
+  return hasAllowedRole(roles, CRM_MUTATION_ROLES);
+}
+
 export function canAccessRoute(
   pathname: string,
   permissions: string[] | undefined,

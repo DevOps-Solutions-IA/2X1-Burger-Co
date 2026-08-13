@@ -6,10 +6,12 @@ import { toast } from 'sonner';
 import { DataTableShell, FilterBar, type DataTableColumn, QueryState, StatusBadge } from '@/components/product';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { canMutateCrm } from '@/features/auth/access-control';
+import { useAuth } from '@/features/auth/auth-provider';
 import { ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { CrmLead, CrmLeadStatus } from './contracts';
-import { customerName, leadStatusLabels } from './labels';
+import { customerName, isPermissionDeniedError, leadStatusLabels } from './labels';
 import { useCrmLeads, useCrmPipelines, useTransitionCrmLead } from './queries';
 
 const statuses: CrmLeadStatus[] = ['NEW', 'QUALIFIED', 'ACTIVE', 'WON', 'LOST', 'ARCHIVED'];
@@ -21,19 +23,23 @@ function transitionStatus(outcome: 'OPEN' | 'WON' | 'LOST', requested: CrmLeadSt
 }
 
 export function LeadsView() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<CrmLeadStatus | ''>('');
   const [pipelineId, setPipelineId] = useState('');
   const [selected, setSelected] = useState<CrmLead | null>(null);
   const [targetStageId, setTargetStageId] = useState('');
   const [targetStatus, setTargetStatus] = useState<CrmLeadStatus>('ACTIVE');
+  const [mutationPermissionDenied, setMutationPermissionDenied] = useState(false);
   const leads = useCrmLeads({ status: status || undefined, pipelineId: pipelineId || undefined });
   const pipelines = useCrmPipelines('ACTIVE');
   const transition = useTransitionCrmLead();
-  const canTransition = selected && !['WON', 'LOST', 'ARCHIVED'].includes(selected.status);
+  const canManageLeads = canMutateCrm(user?.roles) && !mutationPermissionDenied;
+  const canTransition = canManageLeads && selected && !['WON', 'LOST', 'ARCHIVED'].includes(selected.status);
   const selectedPipeline = pipelines.data?.data.find((pipeline) => pipeline.id === selected?.pipelineId);
   const targetStage = selectedPipeline?.stages.find((stage) => stage.id === targetStageId);
 
   function openTransition(lead: CrmLead) {
+    if (!canManageLeads) return;
     const pipeline = pipelines.data?.data.find((item) => item.id === lead.pipelineId);
     const next = pipeline?.stages.find((stage) => stage.position > lead.currentStage.position) ?? pipeline?.stages[0];
     setSelected(lead);
@@ -56,7 +62,11 @@ export function LeadsView() {
       toast.success('Lead actualizado con historial auditable.');
       setSelected(null);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
+      if (isPermissionDeniedError(error)) {
+        setMutationPermissionDenied(true);
+        setSelected(null);
+        toast.error('Tu sesión no tiene permiso para modificar leads. La consulta permanece disponible.');
+      } else if (error instanceof ApiError && error.status === 409) {
         toast.error('El lead cambió en otra sesión. Recargamos la versión actual.');
         await leads.refetch();
       } else {
@@ -82,7 +92,15 @@ export function LeadsView() {
         density="compact"
       />
 
-      {leads.isPending ? <QueryState status="loading" title="Consultando leads" /> : leads.error ? <QueryState status="error" onRetry={() => void leads.refetch()} /> : leads.data?.data.length === 0 ? <QueryState status="empty" title="No hay leads con estos filtros" description="Ajusta los filtros o crea el lead desde un flujo autorizado." /> : <DataTableShell rows={leads.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption="Leads CRM" density="compact" rowActions={(row) => <Button type="button" variant="secondary" size="sm" onClick={() => openTransition(row)} disabled={['WON', 'LOST', 'ARCHIVED'].includes(row.status)}><ArrowRightLeft className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Mover</span></Button>} />}
+      {!canManageLeads ? (
+        <QueryState
+          status="permission_denied"
+          title="CRM en modo consulta"
+          description="Puedes revisar leads, pero solo administración y supervisión pueden modificar su etapa o estado."
+        />
+      ) : null}
+
+      {leads.isPending ? <QueryState status="loading" title="Consultando leads" /> : leads.error ? isPermissionDeniedError(leads.error) ? <QueryState status="permission_denied" title="No puedes consultar leads" description="El servidor rechazó el acceso a esta información." /> : <QueryState status="error" onRetry={() => void leads.refetch()} /> : leads.data?.data.length === 0 ? <QueryState status="empty" title="No hay leads con estos filtros" description="Ajusta los filtros o crea el lead desde un flujo autorizado." /> : <DataTableShell rows={leads.data?.data ?? []} columns={columns} rowKey={(row) => row.id} caption="Leads CRM" density="compact" rowActions={canManageLeads ? (row) => <Button type="button" variant="secondary" size="sm" onClick={() => openTransition(row)} disabled={['WON', 'LOST', 'ARCHIVED'].includes(row.status)}><ArrowRightLeft className="h-4 w-4" /><span className="sr-only sm:not-sr-only">Mover</span></Button> : undefined} />}
 
       {selected ? (
         <section className="rounded-2xl border border-brand-200 bg-panel p-4 shadow-sm" aria-labelledby="lead-transition-title">

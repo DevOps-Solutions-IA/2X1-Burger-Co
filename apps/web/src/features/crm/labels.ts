@@ -1,4 +1,5 @@
 import type { CrmLeadStatus, CrmTaskStatus } from './contracts';
+import { ApiError } from '@/lib/api';
 
 export const leadStatusLabels: Record<CrmLeadStatus, string> = {
   NEW: 'Nuevo',
@@ -22,4 +23,8 @@ export function customerName(name: string | null) {
 
 export function apiErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'No pudimos completar la operación.';
+}
+
+export function isPermissionDeniedError(error: unknown) {
+  return error instanceof ApiError && error.status === 403;
 }
