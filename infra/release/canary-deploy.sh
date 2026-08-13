@@ -35,6 +35,7 @@ CANARY_POSTGRES_USER=canary
 CANARY_POSTGRES_PASSWORD=$(openssl rand -hex 24)
 CANARY_JWT_ACCESS_SECRET=$(openssl rand -hex 48)
 CANARY_JWT_REFRESH_SECRET=$(openssl rand -hex 48)
+CANARY_CRM_IDENTITY_HASH_SECRET=$(openssl rand -hex 48)
 CANARY_ADMIN_EMAIL=canary-admin@local.invalid
 CANARY_ADMIN_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')
 CANARY_API_PORT=4400
@@ -56,6 +57,7 @@ ensure_default CANARY_SAFETY_ALLOWED_PHONES '573000000000,573000000010,573000000
 ensure_default CANARY_PUBLIC_WEB_ORIGIN 'https://canary-web.local.invalid'
 ensure_default CANARY_PUBLIC_PAYMENTS_BASE_URL 'https://canary-pay.local.invalid'
 ensure_default CANARY_PUBLIC_API_URL 'https://canary-api.local.invalid'
+ensure_default CANARY_CRM_IDENTITY_HASH_SECRET "$(openssl rand -hex 48)"
 
 sed -i '/^CANARY_API_IMAGE=/d;/^CANARY_WEB_IMAGE=/d;/^CANARY_API_DIGEST=/d;/^CANARY_WEB_DIGEST=/d;/^CANARY_EXPECTED_MIGRATION_COUNT=/d;/^RELEASE_BUILD_ID=/d' "$ENV_FILE"
 cat >>"$ENV_FILE" <<EOF

@@ -165,6 +165,12 @@ test('snapshots every required operational and financial authority deterministic
     'delivery_location_inbox',
     'notification_intents',
     'crm_customer_consents',
+    'crm_pipelines',
+    'crm_pipeline_stages',
+    'crm_leads',
+    'crm_lead_stage_history',
+    'crm_tasks',
+    'crm_notes',
     'whatsapp_conversations',
     'sofia_commands',
     'whatsapp_messages',
@@ -187,10 +193,10 @@ test('snapshots every required operational and financial authority deterministic
   assert.match(source, /sum\("currentStock"\)/);
   assert.match(source, /sum\("openingAmount"\)/);
   assert.match(source, /sum\("closingAmount"\)/);
-  assert.match(source, /'snapshotSchemaVersion', 2/);
+  assert.match(source, /'snapshotSchemaVersion', 3/);
 });
 
-test('fails closed before snapshotting when any required frontier-37 table is absent', () => {
+test('fails closed before snapshotting when any required frontier-38 table is absent', () => {
   const source = readFileSync(drill, 'utf8');
   const preflightStart = source.indexOf('DO $rpo_preflight$');
   const snapshotStart = source.indexOf('SELECT jsonb_build_object(');

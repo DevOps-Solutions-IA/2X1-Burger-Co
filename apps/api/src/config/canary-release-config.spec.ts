@@ -39,6 +39,7 @@ describe('production canary release configuration', () => {
       DATABASE_URL: 'postgresql://canary:canary@canary-postgres:5432/canary?schema=public',
       JWT_ACCESS_SECRET: 'canary-test-access-secret-with-at-least-thirty-two-characters',
       JWT_REFRESH_SECRET: 'canary-test-refresh-secret-with-at-least-thirty-two-characters',
+      CRM_IDENTITY_HASH_SECRET: 'canary-test-crm-hash-secret-with-at-least-thirty-two-characters',
       ADMIN_EMAIL: 'canary-admin@example.test',
       ADMIN_PASSWORD: 'CanaryTestPassword123!',
       CORS_ORIGIN: 'https://canary-web.2x1burger.example',
@@ -63,6 +64,7 @@ describe('production canary release configuration', () => {
     );
     expect(compose).toContain('NEXT_PUBLIC_API_URL: ${CANARY_PUBLIC_API_URL:?required}');
     expect(compose).toContain('INTERNAL_API_URL: http://api:3000');
+    expect(compose).toContain('CRM_IDENTITY_HASH_SECRET: ${CANARY_CRM_IDENTITY_HASH_SECRET:?required}');
     expect(compose).toContain('127.0.0.1:${CANARY_API_PORT:-4400}:3000');
     expect(compose).toContain('127.0.0.1:${CANARY_WEB_PORT:-3401}:3001');
   });

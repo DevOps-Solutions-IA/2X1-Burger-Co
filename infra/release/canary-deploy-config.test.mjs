@@ -14,8 +14,8 @@ test('canary deployment renders a complete fail-closed environment before Docker
     manifest: {
       buildId: 'phase7-config-test',
       dirtyBuild: false,
-      schemaMigrationCount: 37,
-      migrationInventory: Array.from({ length: 37 }, (_, index) => `migration-${index + 1}`),
+      schemaMigrationCount: 38,
+      migrationInventory: Array.from({ length: 38 }, (_, index) => `migration-${index + 1}`),
     },
     api: { digest },
     web: { digest },
@@ -42,6 +42,7 @@ test('canary deployment renders a complete fail-closed environment before Docker
   ]) {
     assert.match(rendered, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
+  assert.match(rendered, /^CANARY_CRM_IDENTITY_HASH_SECRET=[a-f0-9]{96}$/m);
 });
 
 test('canary deployment waits for bounded service health before smoke', () => {
