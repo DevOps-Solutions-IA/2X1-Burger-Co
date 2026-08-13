@@ -7,8 +7,8 @@ const VIEWPORTS = [
   { name: 'tablet', width: 768, height: 1024 },
 ] as const;
 
-// Every static authenticated App Router page. Dynamic details are covered by their
-// workflow specs because they require an authoritative fixture identity.
+// Every static authenticated App Router page plus dynamic pages backed by the
+// deterministic fixture identities created for this isolated database.
 const ADMIN_ROUTES = [
   '/activation-control',
   '/analytics',
@@ -16,6 +16,7 @@ const ADMIN_ROUTES = [
   '/cash',
   '/categories',
   '/conversations',
+  '/conversations/e2e-conversation-fixture',
   '/crm',
   '/crm/activity',
   '/crm/follow-ups',
@@ -26,6 +27,7 @@ const ADMIN_ROUTES = [
   '/crm/tasks',
   '/customer-service',
   '/customers',
+  '/customers/e2e-crm-customer',
   '/dashboard',
   '/deliveries',
   '/expenses',
@@ -33,6 +35,7 @@ const ADMIN_ROUTES = [
   '/inventory',
   '/kitchen',
   '/orders',
+  '/orders/e2e-order-fixture',
   '/overview',
   '/payments',
   '/pos',
@@ -44,12 +47,17 @@ const ADMIN_ROUTES = [
   '/sofia',
   '/sofia/conversations',
   '/sofia/customers',
+  '/sofia/customers/e2e-crm-customer',
   '/sofia/whatsapp-qr',
   '/suppliers',
   '/tables',
   '/team',
   '/users',
 ] as const;
+
+const READ_ONLY_POST_PATHS = new Set([
+  '/api/admin/sofia/crm/customers/search',
+]);
 
 const INVENTORY_ROUTES = [
   '/categories',
@@ -86,6 +94,7 @@ function observeOperationalMutations(page: Page) {
     if (request.method() === 'GET' || request.method() === 'HEAD') return;
     const pathname = new URL(request.url()).pathname;
     if (/^\/api\/auth\/(?:login|refresh)$/.test(pathname)) return;
+    if (request.method() === 'POST' && READ_ONLY_POST_PATHS.has(pathname)) return;
     mutations.push(`${request.method()} ${pathname}`);
   });
   return mutations;

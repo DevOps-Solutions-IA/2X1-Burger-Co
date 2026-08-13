@@ -97,6 +97,10 @@ test('places the application skip link before persistent navigation in keyboard 
 test('keeps merged legacy routes on canonical enterprise modules', () => {
   assert.match(source('app/(app)/users/page.tsx'), /redirect\('\/team'\)/);
   assert.match(source('app/(app)/sofia/customers/page.tsx'), /redirect\('\/customers'\)/);
+  assert.match(
+    source('app/(app)/sofia/customers/[customerId]/page.tsx'),
+    /redirect\(`\/customers\/\$\{encodeURIComponent\(customerId\)\}`\)/,
+  );
   assert.match(source('app/(app)/sofia/conversations/page.tsx'), /redirect\('\/conversations'\)/);
   assert.match(source('app/(app)/sofia/whatsapp-qr/page.tsx'), /redirect\('\/activation-control'\)/);
 });
