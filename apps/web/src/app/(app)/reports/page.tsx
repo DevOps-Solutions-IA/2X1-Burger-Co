@@ -154,6 +154,7 @@ export default function ReportsPage() {
     user?.roles.some((role) => ['admin', 'inventory'].includes(role))
     && hasPermission(user?.permissions, 'suppliers.update'),
   );
+  const canExportReports = hasPermission(user?.permissions, 'reports.pdf');
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
   const [reportMode, setReportMode] = useState<ReportMode>('CURRENT_SESSION');
   const [from, setFrom] = useState(today);
@@ -296,7 +297,7 @@ export default function ReportsPage() {
           </div>
         }
         actions={
-          user?.permissions.includes('reports.pdf') ? (
+          canExportReports ? (
             <Button data-testid="reports-open-pdf" size="sm" onClick={() => openPdf(pdfPath)}>
               <FileDown className="mr-1.5 h-4 w-4" />Abrir PDF
             </Button>
@@ -640,9 +641,13 @@ export default function ReportsPage() {
                     <p className="font-medium text-ink">{closure.periodLabel}</p>
                     <p className="mt-0.5 text-[12px] text-stone-600">{formatDateTime(closure.createdAt)} · {closure.responsibleUser}</p>
                   </div>
-                  <Button variant="secondary" onClick={() => openPdf(closure.pdfPath)}>
-                    Reimprimir
-                  </Button>
+                  {canExportReports ? (
+                    <Button variant="secondary" onClick={() => openPdf(closure.pdfPath)}>
+                      Reimprimir
+                    </Button>
+                  ) : (
+                    <StatusBadge status="PERMISSION_DENIED" label="Sin permiso PDF" tone="neutral" />
+                  )}
                 </div>
               </div>
             ))}

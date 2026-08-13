@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { OrderCheckoutStatus, PaymentIntentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   ListAdminPaymentIntentsDto,
@@ -83,7 +83,7 @@ export class AdminPaymentReadService {
 
   async listIntents(query: ListAdminPaymentIntentsDto) {
     const where: Prisma.PaymentIntentWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
+      ...this.effectiveIntentStatusWhere(query.status),
       ...(query.provider ? { provider: query.provider } : {}),
       ...(query.checkoutId ? { checkoutId: query.checkoutId } : {}),
     };
@@ -160,7 +160,15 @@ export class AdminPaymentReadService {
       revokedAt: true,
       createdAt: true,
       updatedAt: true,
-      paymentIntent: { select: { status: true, amount: true, currency: true, checkoutId: true } },
+      paymentIntent: {
+        select: {
+          status: true,
+          amount: true,
+          currency: true,
+          checkoutId: true,
+          checkout: { select: { status: true } },
+        },
+      },
     } satisfies Prisma.PaymentLinkSelect;
     const [total, items] = await this.prisma.$transaction([
       this.prisma.paymentLink.count({ where }),
@@ -196,6 +204,7 @@ export class AdminPaymentReadService {
             amount: true,
             currency: true,
             expiresAt: true,
+            checkout: { select: { status: true } },
           },
         },
       },
@@ -273,6 +282,22 @@ export class AdminPaymentReadService {
         ? { webhookEvents: webhookEvents.map((event) => this.webhookView(event as Record<string, unknown>)) }
         : {}),
     });
+  }
+
+  private effectiveIntentStatusWhere(status?: PaymentIntentStatus): Prisma.PaymentIntentWhereInput {
+    if (!status) return {};
+    if (status === PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED) {
+      return {
+        OR: [
+          { status },
+          { checkout: { is: { status: OrderCheckoutStatus.FINANCIAL_REVIEW_REQUIRED } } },
+        ],
+      };
+    }
+    return {
+      status,
+      checkout: { is: { status: { not: OrderCheckoutStatus.FINANCIAL_REVIEW_REQUIRED } } },
+    };
   }
 
   private webhookView<T extends Record<string, unknown>>(event: T) {

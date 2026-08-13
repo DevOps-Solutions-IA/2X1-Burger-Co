@@ -30,6 +30,7 @@ import {
   paymentIntentStatuses,
   paymentLinkStatuses,
   requiresFinancialReview,
+  resolveFinancialTruthStatus,
   type PaymentIntent,
   type PaymentIntentStatus,
   type PaymentLink,
@@ -144,7 +145,7 @@ function IntentTable({ rows, onOpen }: { rows: PaymentIntent[]; onOpen: (id: str
     { id: 'intent', header: 'Intento', cell: (row) => <div><p className="font-semibold">Intento {row.attemptNumber}</p><p className="mt-1 font-mono text-xs text-muted">{shortId(row.id)}</p></div> },
     { id: 'provider', header: 'Proveedor', cell: (row) => row.provider },
     { id: 'amount', header: 'Monto', numeric: true, cell: (row) => <span className="font-semibold">{formatCurrency(row.amount)}</span> },
-    { id: 'status', header: 'Estado', cell: (row) => <StatusBadge status={row.status} label={financialStatusLabel(row.status)} tone={financialTone(row.status)} /> },
+    { id: 'status', header: 'Estado', cell: (row) => <FinancialStatus status={resolveFinancialTruthStatus(row.status, row.checkout.status)} /> },
     { id: 'checkout', header: 'Checkout', cell: (row) => <span className="font-mono text-xs">{shortId(row.checkoutId)}</span> },
     { id: 'updated', header: 'Actualizado', cell: (row) => formatDateTime(row.updatedAt) },
   ];
@@ -155,7 +156,7 @@ function LinkTable({ rows, onOpenIntent }: { rows: PaymentLink[]; onOpenIntent: 
   const columns: readonly DataTableColumn<PaymentLink>[] = [
     { id: 'link', header: 'Enlace', cell: (row) => <span className="font-mono text-xs">{shortId(row.id)}</span> },
     { id: 'status', header: 'Estado', cell: (row) => <StatusBadge status={row.status} /> },
-    { id: 'payment', header: 'Pago', cell: (row) => <StatusBadge status={row.paymentIntent.status} label={financialStatusLabel(row.paymentIntent.status)} tone={financialTone(row.paymentIntent.status)} /> },
+    { id: 'payment', header: 'Pago', cell: (row) => <FinancialStatus status={resolveFinancialTruthStatus(row.paymentIntent.status, row.paymentIntent.checkout.status)} /> },
     { id: 'amount', header: 'Monto', numeric: true, cell: (row) => formatCurrency(row.paymentIntent.amount) },
     { id: 'expires', header: 'Expira', cell: (row) => formatDateTime(row.expiresAt) },
   ];
@@ -186,18 +187,21 @@ function WebhookTable({ rows, onOpenIntent }: { rows: PaymentWebhook[]; onOpenIn
 
 function PaymentIntentDetail({ query }: { query: ReturnType<typeof usePaymentIntent> }) {
   const intent = query.data;
+  const financialStatus = intent
+    ? resolveFinancialTruthStatus(intent.status, intent.checkout.status)
+    : null;
   return (
     <QueryState status={queryStatus(query, intent ? 1 : 0)} onRetry={query.isError ? () => void query.refetch() : undefined}>
       {intent ? (
         <div className="space-y-6">
-          {requiresFinancialReview(intent.status) ? (
+          {financialStatus && requiresFinancialReview(financialStatus) ? (
             <div className="flex gap-3 rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-4" role="alert">
               <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-signal-warning" aria-hidden="true" />
               <div><p className="font-semibold text-ink">No existe confirmación financiera segura</p><p className="mt-1 text-sm leading-6 text-muted">Este estado requiere conciliación. No se interpreta como pago recibido.</p></div>
             </div>
           ) : null}
           <dl className="grid gap-3 sm:grid-cols-2">
-            <Fact label="Estado"><StatusBadge status={intent.status} label={financialStatusLabel(intent.status)} tone={financialTone(intent.status)} /></Fact>
+            <Fact label="Estado"><FinancialStatus status={financialStatus ?? intent.status} /></Fact>
             <Fact label="Monto"><strong>{formatCurrency(intent.amount)} {intent.currency}</strong></Fact>
             <Fact label="Proveedor">{intent.provider}</Fact>
             <Fact label="Cuenta vinculada">{intent.providerAccountBound ? 'Sí, mediante evidencia protegida' : 'No verificada'}</Fact>
@@ -273,6 +277,10 @@ function financialStatusLabel(status: PaymentIntentStatus) {
   if (status === 'UNKNOWN_RESULT') return 'Resultado desconocido';
   if (status === 'FINANCIAL_REVIEW_REQUIRED') return 'Revisión financiera';
   return humanize(status);
+}
+
+function FinancialStatus({ status }: { status: PaymentIntentStatus }) {
+  return <StatusBadge status={status} label={financialStatusLabel(status)} tone={financialTone(status)} />;
 }
 
 function humanize(value: string) {

@@ -123,6 +123,7 @@ export const paymentLinkSchema = paymentLinkSummarySchema.extend({
     amount: moneyValue,
     currency: z.string(),
     expiresAt: nullableDate.optional(),
+    checkout: z.object({ status: z.string() }),
   }).passthrough(),
 }).passthrough();
 
@@ -152,4 +153,13 @@ export function isFinancialSuccess(status: PaymentIntentStatus) {
 
 export function requiresFinancialReview(status: PaymentIntentStatus) {
   return status === 'UNKNOWN_RESULT' || status === 'FINANCIAL_REVIEW_REQUIRED';
+}
+
+export function resolveFinancialTruthStatus(
+  intentStatus: PaymentIntentStatus,
+  checkoutStatus: string | null | undefined,
+): PaymentIntentStatus {
+  return checkoutStatus === 'FINANCIAL_REVIEW_REQUIRED'
+    ? 'FINANCIAL_REVIEW_REQUIRED'
+    : intentStatus;
 }

@@ -26,6 +26,7 @@ import {
 import { ApiError } from '@/lib/api';
 import { hasPermission } from '@/features/auth/access-control';
 import { useAuth } from '@/features/auth/auth-provider';
+import { resolveFinancialTruthStatus, type PaymentIntentStatus } from '@/features/financial-operations/contracts';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   nextServiceCaseStatus,
@@ -47,6 +48,10 @@ const categoryLabels: Readonly<Record<ServiceCaseCategory, string>> = {
   DELIVERY_PROBLEM: 'Problema de entrega',
   OTHER: 'Otro',
 };
+
+export function resolveServiceCasePaymentStatus(intentStatus: string, checkoutStatus?: string | null) {
+  return resolveFinancialTruthStatus(intentStatus as PaymentIntentStatus, checkoutStatus);
+}
 
 export function CustomerServiceScreen() {
   const { user } = useAuth();
@@ -128,6 +133,9 @@ function CaseDetail({ query, canTransition }: { query: ReturnType<typeof useServ
   const serviceCase = query.data;
   const transition = useServiceCaseTransition();
   const nextStatus = serviceCase ? nextServiceCaseStatus[serviceCase.status] : null;
+  const paymentStatus = serviceCase?.paymentIntent
+    ? resolveServiceCasePaymentStatus(serviceCase.paymentIntent.status, serviceCase.orderCheckout?.status)
+    : null;
 
   return (
     <QueryState status={queryStatus(query, serviceCase ? 1 : 0)} onRetry={query.isError ? () => void query.refetch() : undefined}>
@@ -162,9 +170,9 @@ function CaseDetail({ query, canTransition }: { query: ReturnType<typeof useServ
 
           {serviceCase.paymentIntent ? (
             <section className="rounded-xl border border-line bg-canvas p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-heading text-base font-semibold text-ink">Pago relacionado</h3><StatusBadge status={serviceCase.paymentIntent.status} /></div>
+              <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-heading text-base font-semibold text-ink">Pago relacionado</h3><StatusBadge status={paymentStatus ?? serviceCase.paymentIntent.status} /></div>
               <p className="mt-2 text-sm text-muted">{serviceCase.paymentIntent.provider} · {formatCurrency(serviceCase.paymentIntent.amount)} {serviceCase.paymentIntent.currency}</p>
-              {['UNKNOWN_RESULT', 'FINANCIAL_REVIEW_REQUIRED'].includes(serviceCase.paymentIntent.status) ? <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-signal-warning"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />No existe pago confirmado; requiere revisión financiera.</p> : null}
+              {paymentStatus && ['UNKNOWN_RESULT', 'FINANCIAL_REVIEW_REQUIRED'].includes(paymentStatus) ? <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-signal-warning"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />No existe pago confirmado; requiere revisión financiera.</p> : null}
             </section>
           ) : null}
 

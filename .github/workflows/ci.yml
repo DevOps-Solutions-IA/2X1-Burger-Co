@@ -203,8 +203,10 @@ jobs:
             ../../apps/web/src/features/crm/labels.test.ts \
             ../../apps/web/src/features/crm/pagination.test.ts \
             ../../apps/web/src/features/customer-operations/model.test.ts \
+            ../../apps/web/src/features/financial-operations/contracts.test.ts \
             ../../apps/web/src/features/order-operations/order-detail-screen.test.ts \
             ../../apps/web/src/features/support-operations/contracts.test.ts \
+            ../../apps/web/src/features/support-operations/customer-service-screen.test.ts \
             ../../apps/web/src/features/pos/pos-contrast.test.ts \
             ../../apps/web/src/features/waiter/catalog-window.test.ts \
             ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \

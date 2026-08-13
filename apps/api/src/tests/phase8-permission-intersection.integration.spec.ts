@@ -77,4 +77,38 @@ describe('Phase 8 API role and permission intersection', () => {
       expect(response.status).toBe(403);
     }
   });
+
+  it('allows settings status reads without orders.read while operational reads remain denied', async () => {
+    await resetDatabase(prisma);
+    await seedTestData(prisma);
+    await prisma.rolePermission.deleteMany({
+      where: {
+        role: { name: 'admin' },
+        permission: { code: 'orders.read' },
+      },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-Forwarded-For', '10.88.0.3')
+      .send({ email: 'admin@2x1burgerco.local', password: 'Admin12345*' });
+    expect(login.status).toBe(201);
+    expect(login.body.user.permissions).toContain('settings.read');
+    expect(login.body.user.permissions).not.toContain('orders.read');
+    const authorization = `Bearer ${login.body.accessToken as string}`;
+
+    for (const path of [
+      '/admin/sofia/enterprise-status',
+      '/admin/sofia/runtime-safety',
+      '/admin/sofia/governance/status',
+    ]) {
+      const response = await request(app.getHttpServer()).get(path).set('Authorization', authorization);
+      expect(response.status).toBe(200);
+    }
+
+    const operational = await request(app.getHttpServer())
+      .get('/admin/sofia/conversations')
+      .set('Authorization', authorization);
+    expect(operational.status).toBe(403);
+  });
 });

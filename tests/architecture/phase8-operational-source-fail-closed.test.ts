@@ -66,4 +66,6 @@ test('financial history never turns source failure into empty or fabricated evid
   assert.match(reports, /Sin cierres en el rango/);
   assert.match(reports, /supplyAlerts\.isError[\s\S]*?Abastecimiento no disponible/);
   assert.match(reports, /supplierNotifications\.isError[\s\S]*?Notificaciones no disponibles/);
+  assert.match(reports, /const canExportReports = hasPermission\(user\?\.permissions, 'reports\.pdf'\)/);
+  assert.match(reports, /<div key=\{closure\.id\}[\s\S]*?\{canExportReports \? \([\s\S]*?Reimprimir[\s\S]*?\) : \([\s\S]*?Sin permiso PDF/);
 });

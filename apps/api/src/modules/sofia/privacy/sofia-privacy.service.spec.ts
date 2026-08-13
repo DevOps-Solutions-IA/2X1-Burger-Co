@@ -35,6 +35,12 @@ describe('SofiaPrivacyService status', () => {
   it.each([
     ['Escribeme al 300 123 4567', 'Escribeme al [telefono-redactado]'],
     ['Contacto +57 300-123-4567', 'Contacto [telefono-redactado]'],
+    ['Contacto +57 (300) 123-4567', 'Contacto [telefono-redactado]'],
+    ['Contacto 300/123/4567', 'Contacto [telefono-redactado]'],
+    ['Contacto (300) 123/4567', 'Contacto [telefono-redactado]'],
+    ['Contacto +57 (300) 123/4567', 'Contacto [telefono-redactado]'],
+    ['Contacto (+57 300) 123/4567', 'Contacto [telefono-redactado]'],
+    ['Contacto (300 123/4567)', 'Contacto [telefono-redactado]'],
     ['Correo cliente@example.com', 'Correo [correo-redactado]'],
   ])('redacts formatted preview identity: %s', (input, expected) => {
     expect(new SofiaPrivacyService().redactText(input)).toBe(expected);

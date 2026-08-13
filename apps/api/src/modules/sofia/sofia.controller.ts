@@ -46,7 +46,6 @@ import { SofiaWhatsappService } from './sofia-whatsapp.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @UseInterceptors(SofiaAdminResponseSanitizerInterceptor)
 @Roles('admin', 'cashier', 'supervisor')
-@Permissions('orders.read')
 export class SofiaController {
   constructor(
     private readonly sofiaService: SofiaService,
@@ -71,27 +70,32 @@ export class SofiaController {
   ) {}
 
   @Get('prompt/active')
+  @Permissions('settings.read')
   getActivePrompt() {
     return this.promptService.getActivePrompt();
   }
 
   @Get('prompt/versions')
+  @Permissions('settings.read')
   listPromptVersions() {
     return this.promptService.listPromptVersions();
   }
 
   @Get('catalog')
+  @Permissions('orders.read')
   listCatalog() {
     return this.catalogService.listActiveItems();
   }
 
   @Get('catalog/:slug')
+  @Permissions('orders.read')
   findCatalogItem(@Param('slug') slug: string) {
     return this.catalogService.findBySlug(slug);
   }
 
   @Post('sandbox/commercial-message')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   processCommercialSandbox(
     @Body() dto: ProcessSofiaAgentMessageDto,
     @CurrentUser() actor: AuthUser,
@@ -102,6 +106,7 @@ export class SofiaController {
 
   @Post('sandbox/auto-safe-evaluate')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   async evaluateAutoSafe(
     @Body() dto: EvaluateSofiaAutoSafeDto,
     @CurrentUser() actor: AuthUser,
@@ -184,17 +189,20 @@ export class SofiaController {
   }
 
   @Get('ai/status')
+  @Permissions('settings.read')
   getAiStatus(@Headers() headers: Record<string, string | string[] | undefined>) {
     return this.aiProviderFactory.getStatus(headers);
   }
 
   @Post('ai/health-check')
+  @Permissions('settings.update')
   healthCheckAi(@Headers() headers: Record<string, string | string[] | undefined>) {
     return this.aiProviderFactory.healthCheck(headers);
   }
 
   @Post('ai/test')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('settings.update')
   testAiProvider(
     @Body() dto: TestSofiaAiProviderDto,
     @CurrentUser() actor: AuthUser,
@@ -220,12 +228,14 @@ export class SofiaController {
   }
 
   @Get('whatsapp/status')
+  @Permissions('settings.read')
   getWhatsappStatus() {
     return this.sofiaWhatsappService.getStatus();
   }
 
   @Post('agent/process')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   processAgentMessage(
     @Body() dto: ProcessSofiaAgentMessageDto,
     @CurrentUser() actor: AuthUser,
@@ -236,38 +246,45 @@ export class SofiaController {
 
   @Post('agent/recover-abandoned')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   recoverAbandonedDraft(@Body() dto: RecoverSofiaAbandonedDraftDto) {
     return this.sofiaAgentService.recoverAbandonedDraft(dto);
   }
 
   @Get('conversations')
+  @Permissions('orders.read')
   listConversations() {
     return this.sofiaService.listConversations();
   }
 
   @Get('conversations/inbox')
+  @Permissions('orders.read')
   getConversationsInbox() {
     return this.sofiaService.getConversationsInbox();
   }
 
   @Get('conversations/inbox/:id')
+  @Permissions('orders.read')
   getConversationInbox(@Param('id') id: string) {
     return this.sofiaService.getConversationInbox(id);
   }
 
   @Get('conversations/:id')
+  @Permissions('orders.read')
   findConversation(@Param('id') id: string) {
     return this.sofiaService.findConversation(id);
   }
 
   @Post('conversations/mock-inbound')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   mockInbound(@Body() dto: CreateMockConversationDto, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.registerMockInbound(dto, actor.sub);
   }
 
   @Post('conversations/:id/mock-outbound')
   @UseGuards(SofiaTestOnlyGuard)
+  @Permissions('orders.update')
   mockOutbound(
     @Param('id') id: string,
     @Body() dto: MockOutboundMessageDto,
@@ -348,11 +365,13 @@ export class SofiaController {
   }
 
   @Get('order-drafts')
+  @Permissions('orders.read')
   listDrafts() {
     return this.sofiaService.listDrafts();
   }
 
   @Get('order-drafts/:id')
+  @Permissions('orders.read')
   findDraft(@Param('id') id: string) {
     return this.sofiaService.findDraft(id);
   }
@@ -390,11 +409,13 @@ export class SofiaController {
   }
 
   @Get('delivery-orders')
+  @Permissions('delivery.read')
   listDeliveryOrders() {
     return this.sofiaService.listDeliveryOrders();
   }
 
   @Get('delivery-orders/:id')
+  @Permissions('delivery.read')
   findDeliveryOrder(@Param('id') id: string) {
     return this.sofiaService.findDeliveryOrder(id);
   }
@@ -416,36 +437,42 @@ export class SofiaController {
 
   @Get('metrics/summary')
   @Roles('admin')
+  @Permissions('reports.read')
   getMetricsSummary(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.getSummary(range ?? 'today');
   }
 
   @Get('metrics/auto-safe')
   @Roles('admin')
+  @Permissions('reports.read')
   getAutoSafeMetrics(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.getAutoSafe(range ?? 'today');
   }
 
   @Get('metrics/conversations')
   @Roles('admin')
+  @Permissions('reports.read')
   getConversationMetrics(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.getConversations(range ?? 'today');
   }
 
   @Get('metrics/qr')
   @Roles('admin')
+  @Permissions('reports.read')
   getQrMetrics(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.getQr(range ?? 'today');
   }
 
   @Get('metrics/safety')
   @Roles('admin')
+  @Permissions('reports.read')
   getSafetyMetrics(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.getSafety(range ?? 'today');
   }
 
   @Get('metrics/export-sanitized')
   @Roles('admin')
+  @Permissions('reports.read')
   exportMetricsSanitized(@Query('range') range?: 'today' | '7d' | '30d') {
     return this.metricsService.exportSanitized(range ?? 'today');
   }
@@ -472,36 +499,42 @@ export class SofiaController {
 
   @Get('learning/feedback')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.read')
   listLearningFeedback(@Query('limit') limit?: string) {
     return this.humanFeedbackService.listFeedback(limit ? Number(limit) : 50);
   }
 
   @Get('learning/insights')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.read')
   getLearningInsights() {
     return this.learningService.insights();
   }
 
   @Get('privacy/status')
   @Roles('admin')
+  @Permissions('settings.read')
   getPrivacyStatus() {
     return this.privacyService.status();
   }
 
   @Post('privacy/redact-preview')
   @Roles('admin')
+  @Permissions('settings.read')
   redactPreview(@Body() dto: Record<string, unknown>) {
     return this.privacyService.sanitizeJson(dto);
   }
 
   @Get('retention/status')
   @Roles('admin')
+  @Permissions('settings.read')
   getRetentionStatus() {
     return this.retentionService.status();
   }
 
   @Post('retention/dry-run')
   @Roles('admin')
+  @Permissions('settings.read')
   retentionDryRun() {
     return this.retentionService.dryRun();
   }
@@ -515,6 +548,7 @@ export class SofiaController {
 
   @Get('alerts')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.read')
   listSofiaAlerts() {
     return this.alertsService.list();
   }
@@ -535,6 +569,7 @@ export class SofiaController {
 
   @Get('backups/status')
   @Roles('admin')
+  @Permissions('settings.read')
   getSofiaBackupsStatus() {
     return this.backupsService.status();
   }
@@ -548,6 +583,7 @@ export class SofiaController {
 
   @Get('hardening/status')
   @Roles('admin')
+  @Permissions('settings.read')
   getSofiaHardeningStatus() {
     return this.hardeningService.status();
   }
@@ -557,11 +593,13 @@ export class SofiaController {
   /* ------------------------------------------------------------------ */
 
   @Get('enterprise-status')
+  @Permissions('settings.read')
   async getEnterpriseStatus() {
     return this.governanceService.getEnterpriseStatus();
   }
 
   @Get('dashboard/summary')
+  @Permissions('orders.read')
   getDashboardSummary() {
     return this.governanceService.getDashboardSummary();
   }
@@ -585,26 +623,31 @@ export class SofiaController {
   }
 
   @Get('control/status')
+  @Permissions('settings.read')
   async getControlStatus() {
     return this.governanceService.getGovernanceStatus();
   }
 
   @Get('readiness')
+  @Permissions('settings.read')
   getReadiness() {
     return this.governanceService.getReadiness();
   }
 
   @Get('metrics')
+  @Permissions('settings.read')
   getGovernanceMetrics() {
     return this.governanceService.getMetrics();
   }
 
   @Get('security-status')
+  @Permissions('settings.read')
   getSecurityStatus() {
     return this.governanceService.getSecurityStatus();
   }
 
   @Get('runtime-safety')
+  @Permissions('settings.read')
   getRuntimeSafety() {
     return this.runtimeSafetyService.getPublicStatus();
   }
@@ -624,11 +667,13 @@ export class SofiaController {
   }
 
   @Get('governance/events')
+  @Permissions('settings.read')
   getGovernanceEvents() {
     return this.governanceService.getGovernanceEvents();
   }
 
   @Get('governance/status')
+  @Permissions('settings.read')
   getGovernanceStatus() {
     return this.governanceService.getGovernanceStatus();
   }

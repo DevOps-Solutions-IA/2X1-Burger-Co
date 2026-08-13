@@ -14,11 +14,13 @@ export function hashPreview(value: string | null | undefined) {
   return hash.toString(16).padStart(8, '0').slice(0, 8);
 }
 
+const COLOMBIAN_MOBILE_PHONE = /(?<!\d)(?:\(\s*)?(?:\+?57(?:\s*\))?[\s./-]*)?(?:\(\s*)?3(?:[\s./-]*\d){2}(?:\s*\))?(?:[\s./-]*\d){7}(?:\s*\))?(?!\d)/g;
+
 export function redactSensitiveText(value: string | null | undefined) {
   if (!value) return value ?? null;
   return value
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[correo-redactado]')
-    .replace(/(?<!\d)(?:\+?57[\s.-]*)?3(?:[\s.-]*\d){9}(?!\d)/g, '[telefono-redactado]')
+    .replace(COLOMBIAN_MOBILE_PHONE, '[telefono-redactado]')
     .replace(/\b(?:sk-|AIza|eyJ|or-)[A-Za-z0-9._-]{8,}\b/g, '[secreto-redactado]')
     .replace(/-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/g, '[private-key-redactada]')
     .replace(/\b\d{12,}\b/g, '[numero-largo-redactado]')
