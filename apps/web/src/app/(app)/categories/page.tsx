@@ -4,13 +4,15 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Tags, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { SectionTitle } from '@/components/ui/section-title';
+import { FilterBar } from '@/components/product/filter-bar';
+import { ModuleTabs } from '@/components/product/module-tabs';
+import { PageHeader } from '@/components/product/page-header';
+import { QueryState } from '@/components/product/query-state';
+import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
 import { matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -29,12 +31,28 @@ const initialForm = {
   isActive: true,
 };
 
+const catalogTabs = [
+  { id: 'products', label: 'Productos', href: '/products' },
+  { id: 'ingredients', label: 'Insumos', href: '/ingredients' },
+  { id: 'categories', label: 'Categorías', href: '/categories', active: true },
+  { id: 'recipes', label: 'Recetas', href: '/recipes' },
+] as const;
+
 export default function CategoriesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState(initialForm);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  const formErrors = useMemo(() => {
+    const errors: { name?: string; description?: string } = {};
+    if (!form.name.trim()) errors.name = 'El nombre es obligatorio.';
+    if (form.name.trim().length > 100) errors.name = 'Usa máximo 100 caracteres.';
+    if (form.description.length > 300) errors.description = 'Usa máximo 300 caracteres.';
+    return errors;
+  }, [form]);
 
   const categories = useQuery({
     queryKey: ['categories'],
@@ -51,6 +69,7 @@ export default function CategoriesPage() {
 
   const saveCategory = useMutation({
     mutationFn: async () => {
+      if (Object.keys(formErrors).length > 0) throw new Error('Corrige los campos marcados antes de guardar.');
       if (selectedCategory) {
         return apiFetch(`/categories/${selectedCategory.id}`, {
           method: 'PATCH',
@@ -91,12 +110,12 @@ export default function CategoriesPage() {
   });
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Catálogo"
+    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="categories-page">
+      <PageHeader
+        eyebrow="Catálogo operativo"
         title="Categorías"
-        description="Organizá productos e insumos para mantener la carta ordenada."
-        status={<Badge tone="info">{categories.data?.length ?? 0} categorías</Badge>}
+        description="Ordena la carta sin perder la relación histórica de productos, recetas e inventario."
+        status={<StatusBadge status="ACTIVE" label={`${categories.data?.length ?? 0} categorías`} />}
         actions={
           <Button
             type="button"
@@ -104,6 +123,7 @@ export default function CategoriesPage() {
             onClick={() => {
               setSelectedCategory(null);
               setForm(initialForm);
+              setSubmitAttempted(false);
             }}
           >
             Nueva categoría
@@ -111,25 +131,36 @@ export default function CategoriesPage() {
         }
       />
 
+      <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
+
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card className="overflow-hidden p-0">
-          <div className="flex flex-col gap-3.5 border-b border-stone-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-4 border-b border-line px-4 py-4 sm:px-5">
             <div>
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">Categorías registradas</h2>
               <p className="mt-1 text-[13px] leading-5 text-stone-500">Activa o depura la estructura del catálogo sin perder historial.</p>
             </div>
-            <div className="relative w-full md:w-72">
+            <FilterBar density="compact" activeCount={Number(Boolean(search.trim()))} search={<div className="relative w-full">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
               <Input
+                aria-label="Buscar categorías"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar categoría..."
                 className="pl-9"
               />
-            </div>
+            </div>} actions={<Button type="button" variant="ghost" onClick={() => setSearch('')}>Limpiar</Button>} />
           </div>
 
-          <div className="divide-y divide-stone-100">
+          <QueryState
+            status={categories.isLoading ? 'loading' : categories.isError ? 'error' : filteredCategories.length === 0 ? 'empty' : 'ready'}
+            title={categories.isError ? 'No pudimos cargar las categorías' : 'Sin categorías para mostrar'}
+            description={categories.isError ? 'La estructura real del catálogo no está disponible.' : 'Ajusta la búsqueda o crea una categoría autorizada.'}
+            onRetry={categories.isError ? () => void categories.refetch() : undefined}
+            action={!categories.isError ? <Button type="button" variant="secondary" onClick={() => setSearch('')}>Restablecer búsqueda</Button> : undefined}
+            className="m-4"
+          >
+          <div className="divide-y divide-line">
             {filteredCategories.map((category) => (
               <div key={category.id} className="grid gap-3 px-5 py-3.5 transition hover:bg-stone-50/80 md:grid-cols-[1fr_auto]">
                 <button
@@ -147,9 +178,7 @@ export default function CategoriesPage() {
                   <div>
                     <div className="flex items-center gap-2.5">
                       <p className="text-[15px] font-semibold text-ink">{category.name}</p>
-                      <Badge tone={category.isActive ? 'success' : 'danger'}>
-                        {category.isActive ? 'Activa' : 'Inactiva'}
-                      </Badge>
+                      <StatusBadge status={category.isActive ? 'ACTIVE' : 'INACTIVE'} label={category.isActive ? 'Activa' : 'Inactiva'} tone={category.isActive ? 'success' : 'neutral'} />
                     </div>
                     <p className="mt-1.5 text-[12px] leading-5 text-stone-500">{category.description || 'Sin descripción operativa.'}</p>
                   </div>
@@ -172,15 +201,8 @@ export default function CategoriesPage() {
                 </div>
               </div>
             ))}
-            {!filteredCategories.length ? (
-              <div className="p-6">
-                <EmptyState
-                  title="Sin categorías para mostrar"
-                  description="Ajusta la búsqueda o crea una categoría nueva."
-                />
-              </div>
-            ) : null}
           </div>
+          </QueryState>
         </Card>
 
         <Card>
@@ -200,19 +222,22 @@ export default function CategoriesPage() {
 
           <form
             className="mt-6 space-y-4"
+            noValidate
             onSubmit={(event) => {
               event.preventDefault();
+              setSubmitAttempted(true);
+              if (Object.keys(formErrors).length > 0) return;
               saveCategory.mutate();
             }}
           >
-            <Field label="Nombre">
+            <Field label="Nombre" error={submitAttempted ? formErrors.name : null} required>
               <Input
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                 placeholder="Ej. Hamburguesas premium"
               />
             </Field>
-            <Field label="Descripción">
+            <Field label="Descripción" error={submitAttempted ? formErrors.description : null}>
               <Input
                 value={form.description}
                 onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
@@ -232,7 +257,7 @@ export default function CategoriesPage() {
               />
             </label>
             <div className="flex gap-3">
-              <Button type="submit" className="flex-1" disabled={saveCategory.isPending}>
+              <Button type="submit" className="flex-1" disabled={saveCategory.isPending || (submitAttempted && Object.keys(formErrors).length > 0)}>
                 {saveCategory.isPending ? 'Guardando categoría...' : selectedCategory ? 'Guardar cambios de la categoría' : 'Crear categoría'}
               </Button>
               {selectedCategory ? (
@@ -277,6 +302,6 @@ export default function CategoriesPage() {
           onCancel={() => setConfirmDelete(null)}
         />
       ) : null}
-    </div>
+    </main>
   );
 }

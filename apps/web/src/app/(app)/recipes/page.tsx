@@ -4,15 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ModuleTabs } from '@/components/product/module-tabs';
+import { PageHeader } from '@/components/product/page-header';
+import { QueryState } from '@/components/product/query-state';
+import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
 
 type RecipeRow = { ingredientId: string; quantity: string };
@@ -38,6 +38,13 @@ type Recipe = {
     ingredient: Ingredient;
   }>;
 };
+
+const catalogTabs = [
+  { id: 'products', label: 'Productos', href: '/products' },
+  { id: 'ingredients', label: 'Insumos', href: '/ingredients' },
+  { id: 'categories', label: 'Categorías', href: '/categories' },
+  { id: 'recipes', label: 'Recetas', href: '/recipes', active: true },
+] as const;
 
 export default function RecipesPage() {
   const queryClient = useQueryClient();
@@ -121,13 +128,22 @@ export default function RecipesPage() {
   const catalogLoading = products.isLoading || ingredients.isLoading;
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Producción"
+    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="recipes-page">
+      <PageHeader
+        eyebrow="Producción gobernada"
         title="Recetas — El secreto de cada plato"
-        description="Define qué insumos lleva cada producto preparado."
-        status={<Badge tone="info">{preparedProducts.length} configurables</Badge>}
+        description="Define el consumo exacto de insumos por producto preparado; esta composición gobierna disponibilidad e inventario."
+        status={<StatusBadge status="ACTIVE" label={`${preparedProducts.length} configurables`} />}
       />
+
+      <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
+
+      <QueryState
+        status={catalogLoading ? 'loading' : products.isError || ingredients.isError ? 'error' : preparedProducts.length === 0 ? 'empty' : 'ready'}
+        title={products.isError || ingredients.isError ? 'No pudimos cargar el catálogo de producción' : 'No hay productos preparados configurables'}
+        description={products.isError || ingredients.isError ? 'Productos e insumos deben estar disponibles antes de editar una receta.' : 'Crea primero un producto preparado para asociar su composición.'}
+        onRetry={products.isError || ingredients.isError ? () => void Promise.all([products.refetch(), ingredients.refetch()]) : undefined}
+      >
 
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <Card>
@@ -138,7 +154,7 @@ export default function RecipesPage() {
 
           <div className="mt-5">
             <Field label="Producto preparado" error={submitAttempted ? formErrors.productId : null} required>
-              <Select value={productId} disabled={products.isLoading} onChange={(event) => { setProductId(event.target.value); setSubmitAttempted(false); }}>
+              <Select value={productId} disabled={products.isLoading} onChange={(event) => { setProductId(event.target.value); setSubmitAttempted(false); }} aria-label="Producto preparado">
                 <option value="">Selecciona producto</option>
                 {preparedProducts.map((product) => (
                   <option key={product.id} value={product.id}>
@@ -163,12 +179,13 @@ export default function RecipesPage() {
               {rows.map((row, index) => (
                 <div key={`${index}-${row.ingredientId}`} className="rounded-2xl border border-stone-200 bg-stone-50 p-3.5">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <Badge tone="default">Insumo {index + 1}</Badge>
+                    <StatusBadge status="RECIPE_ITEM" label={`Insumo ${index + 1}`} />
                     {rows.length > 1 ? (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 text-[13px] font-medium text-danger"
+                        className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-[13px] font-medium text-danger transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                         onClick={() => setRows((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                        aria-label={`Eliminar insumo ${index + 1} de la receta`}
                       >
                         <Trash2 className="h-4 w-4" />
                         Eliminar línea
@@ -233,10 +250,14 @@ export default function RecipesPage() {
           <p className="mt-1 text-sm text-stone-500">Lectura clara de la receta activa del producto seleccionado.</p>
 
           <div className="mt-6 space-y-3">
-            {recipe.isLoading || (productId && recipe.isFetching) ? Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-20 rounded-2xl" />
-            )) : null}
-            {!recipe.isLoading && !recipe.isFetching && recipe.data?.items?.map((item) => (
+            <QueryState
+              status={!productId ? 'empty' : recipe.isLoading || recipe.isFetching ? 'loading' : recipe.isError ? 'error' : !recipe.data?.items?.length ? 'empty' : 'ready'}
+              title={!productId ? 'Selecciona un producto preparado' : recipe.isError ? 'No pudimos cargar la receta' : 'Sin receta registrada'}
+              description={!productId ? 'Elige un producto para consultar su composición real.' : recipe.isError ? 'La receta no está disponible; no se presenta una composición estimada.' : 'Agrega insumos y cantidades para configurar el consumo.'}
+              onRetry={recipe.isError ? () => void recipe.refetch() : undefined}
+              skeletonRows={3}
+            >
+            {recipe.data?.items?.map((item) => (
                 <div key={item.id} className="flex items-center justify-between rounded-2xl bg-stone-50 px-4 py-3">
                   <div>
                     <p className="font-semibold">{item.ingredient.name}</p>
@@ -245,15 +266,11 @@ export default function RecipesPage() {
                   <p className="text-[13px] font-medium">{Number(item.quantity).toLocaleString('es-CO')}</p>
                 </div>
             ))}
-            {!recipe.isLoading && !recipe.isFetching && !recipe.data?.items?.length ? (
-              <EmptyState
-                title={productId ? 'Sin receta registrada' : 'Selecciona un producto preparado'}
-                description={productId ? 'Agrega insumos y cantidades para activar el consumo automático.' : 'Aquí podrás crear o ajustar su receta.'}
-              />
-            ) : null}
+            </QueryState>
           </div>
         </Card>
       </div>
-    </div>
+      </QueryState>
+    </main>
   );
 }
