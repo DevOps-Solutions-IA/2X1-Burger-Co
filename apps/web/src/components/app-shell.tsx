@@ -88,20 +88,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [today, setToday] = useState('Fecha local');
 
   // Cerrar navegación móvil al navegar
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
-
-  useEffect(() => {
-    setToday(new Date().toLocaleDateString('es-CO', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    }));
-  }, []);
 
   // Cerrar navegación móvil con ESC
   useEffect(() => {
@@ -130,6 +121,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       items: section.items.filter((item) => hasPermission(user?.permissions, item.permission)),
     }))
     .filter((section) => section.items.length > 0);
+  const today = new Date().toLocaleDateString('es-CO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
   const primaryRole = user?.roles[0]
     ? user.roles[0]
         .replace(/_/g, ' ')

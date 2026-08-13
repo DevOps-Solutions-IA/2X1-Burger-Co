@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
@@ -136,20 +136,9 @@ type DashboardReplenishment = z.infer<typeof replenishmentSchema>;
 export default function DashboardPage() {
   const { user } = useAuth();
   const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>('ALL');
-  const [clock, setClock] = useState<{ greeting: string; today: string; now: string } | null>(null);
-  useEffect(() => {
-    const updateClock = () => setClock({
-      greeting: getGreeting(),
-      today: getTodayLabel(),
-      now: getTimeLabel(),
-    });
-    updateClock();
-    const interval = window.setInterval(updateClock, 60_000);
-    return () => window.clearInterval(interval);
-  }, []);
-  const greeting = clock?.greeting ?? 'Operación';
-  const today = clock?.today ?? 'Fecha local';
-  const now = clock?.now ?? '--:--';
+  const greeting = getGreeting();
+  const today = getTodayLabel();
+  const now = getTimeLabel();
   const operatorName = user?.fullName?.split(' ')[0] ?? '';
 
   const dailyReport = useQuery({

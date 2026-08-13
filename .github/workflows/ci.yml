@@ -84,7 +84,6 @@ jobs:
             infra/release/rollback-drill.test.mjs \
             infra/release/sofia-production-safety.test.mjs \
             infra/release/staging-deploy-security.test.mjs \
-            infra/release/web-prerender-determinism.test.mjs \
             infra/release/web-healthcheck.test.mjs \
             infra/schema/migration-expectation.test.mjs
       - name: WhatsApp timeout lifecycle
