@@ -9,6 +9,7 @@ import type { PrismaService } from '../../../prisma/prisma.service';
 import type { ConfigService } from '@nestjs/config';
 import type { AuditService } from '../../audit/audit.service';
 import { CAMPAIGN_SEND_BLOCK_REASON, SofiaCrmService } from './sofia-crm.service';
+import type { Phase8CrmRepository } from './phase8-crm.repository';
 
 describe('SofiaCrmService', () => {
   const customerFindUnique = jest.fn();
@@ -28,10 +29,11 @@ describe('SofiaCrmService', () => {
     customerCampaignDelivery: { createMany: deliveryCreateMany, updateMany: deliveryUpdateMany },
   } as unknown as PrismaService;
   const audit = { log: auditLog } as unknown as AuditService;
+  const phase8Repository = {} as Phase8CrmRepository;
   const config = {
     get: jest.fn().mockReturnValue('test-crm-identity-secret-at-least-32-bytes'),
   } as unknown as ConfigService;
-  const service = new SofiaCrmService(prisma, audit, config);
+  const service = new SofiaCrmService(prisma, audit, config, phase8Repository);
   const consentDto = {
     purpose: CustomerConsentPurpose.MARKETING,
     channel: CustomerConsentChannel.WHATSAPP,
@@ -87,7 +89,7 @@ describe('SofiaCrmService', () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     const missingConfig = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService;
-    const unconfiguredService = new SofiaCrmService(prisma, audit, missingConfig);
+    const unconfiguredService = new SofiaCrmService(prisma, audit, missingConfig, phase8Repository);
 
     try {
       await expect(

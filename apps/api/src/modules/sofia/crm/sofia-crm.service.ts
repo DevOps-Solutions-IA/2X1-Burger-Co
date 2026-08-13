@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CustomerCampaignDeliveryStatus,
@@ -16,12 +16,24 @@ import {
   CreateCustomerCampaignDto,
   CreateCustomerInteractionDto,
   CreateCustomerSegmentDto,
+  CreateCrmLeadDto,
+  CreateCrmNoteDto,
+  CreateCrmPipelineDto,
+  CreateCrmTaskDto,
+  CreateCustomerTagDto,
   CustomerConsentDto,
+  ListCrmLeadsDto,
+  ListCrmNotesDto,
+  ListCrmPipelinesDto,
+  ListCrmTasksDto,
   ListCustomersDto,
   ListTimelineDto,
   ResolveCustomerByPhoneDto,
+  TransitionCrmLeadDto,
+  UpdateCrmTaskDto,
 } from './dto/crm.dto';
 import { maskPhone, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
+import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
 
 export const CAMPAIGN_SEND_BLOCK_REASON = 'BAILEYS_PROACTIVE_OUTREACH_DISABLED';
 
@@ -42,6 +54,7 @@ export class SofiaCrmService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly configService: ConfigService,
+    private readonly phase8Repository: Phase8CrmRepository,
   ) {}
 
   async resolveOrCreateByPhone(dto: ResolveCustomerByPhoneDto, actorId: string) {
@@ -432,9 +445,208 @@ export class SofiaCrmService {
     };
   }
 
+  listPipelines(dto: ListCrmPipelinesDto) {
+    return this.phase8Repository.listPipelines(dto);
+  }
+
+  async createPipeline(dto: CreateCrmPipelineDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.createPipeline(dto, actorId);
+      if (result.state === 'CREATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_PIPELINE_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmPipeline',
+          entityId: result.pipeline.id,
+          after: { status: result.pipeline.status, stageCount: result.pipeline.stages.length },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  listLeads(dto: ListCrmLeadsDto) {
+    return this.phase8Repository.listLeads(dto);
+  }
+
+  async getLead(leadId: string) {
+    try {
+      return await this.phase8Repository.getLead(leadId);
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  async createLead(dto: CreateCrmLeadDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.createLead(dto, actorId);
+      if (result.state === 'CREATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_LEAD_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmLead',
+          entityId: result.lead.id,
+          after: { source: result.lead.source, status: result.lead.status, version: result.lead.version },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  async transitionLead(leadId: string, dto: TransitionCrmLeadDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.transitionLead(leadId, dto, actorId);
+      if (result.state === 'UPDATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_LEAD_TRANSITIONED',
+          module: 'sofia.crm',
+          entity: 'CrmLead',
+          entityId: result.lead.id,
+          idempotencyKey: dto.idempotencyKey,
+          after: { stageId: result.lead.currentStageId, status: result.lead.status, version: result.lead.version },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  listTasks(dto: ListCrmTasksDto) {
+    return this.phase8Repository.listTasks(dto);
+  }
+
+  async createTask(dto: CreateCrmTaskDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.createTask(dto);
+      if (result.state === 'CREATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TASK_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmTask',
+          entityId: result.task.id,
+          after: { type: result.task.type, status: result.task.status, priority: result.task.priority },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  async updateTask(taskId: string, dto: UpdateCrmTaskDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.updateTask(taskId, dto);
+      if (result.state === 'UPDATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TASK_UPDATED',
+          module: 'sofia.crm',
+          entity: 'CrmTask',
+          entityId: result.task.id,
+          after: { status: result.task.status, version: result.task.version },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  listNotes(dto: ListCrmNotesDto) {
+    return this.phase8Repository.listNotes(dto);
+  }
+
+  async createNote(dto: CreateCrmNoteDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.createNote(dto, actorId);
+      if (result.state === 'CREATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_NOTE_CREATED',
+          module: 'sofia.crm',
+          entity: 'CrmNote',
+          entityId: result.note.id,
+          after: { customerId: result.note.customerId, contentHash: result.note.contentHash },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  listTags(dto: ListTimelineDto) {
+    return this.phase8Repository.listTags(dto);
+  }
+
+  async createTag(dto: CreateCustomerTagDto, actorId: string) {
+    try {
+      const result = await this.phase8Repository.createTag(dto.name);
+      if (result.state === 'CREATED') {
+        await this.auditService.log({
+          actorId,
+          action: 'CRM_TAG_CREATED',
+          module: 'sofia.crm',
+          entity: 'CustomerTag',
+          entityId: result.tag.id,
+          after: { name: result.tag.name },
+        });
+      }
+      return result;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  async assignTag(customerId: string, tagId: string, actorId: string) {
+    try {
+      const customer = await this.phase8Repository.assignTag(customerId, tagId, actorId);
+      await this.auditService.log({
+        actorId,
+        action: 'CRM_TAG_ASSIGNED',
+        module: 'sofia.crm',
+        entity: 'Customer',
+        entityId: customerId,
+        after: { tagId },
+      });
+      return customer;
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
+  listSegments(dto: ListTimelineDto) {
+    return this.phase8Repository.listSegments(dto);
+  }
+
+  async listUnifiedTimeline(customerId: string, dto: ListTimelineDto) {
+    try {
+      return await this.phase8Repository.unifiedTimeline(customerId, dto);
+    } catch (error) {
+      return this.mapPersistenceError(error);
+    }
+  }
+
   private async assertCustomer(customerId: string) {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
     if (!customer) throw new NotFoundException('Cliente CRM no encontrado.');
+  }
+
+  private mapPersistenceError(error: unknown): never {
+    if (!(error instanceof CrmPersistenceError)) throw error;
+    if (error.code === 'CRM_NOT_FOUND') throw new NotFoundException('Recurso CRM no encontrado.');
+    if (error.code === 'STALE_CRM_VERSION') throw new ConflictException('STALE_CRM_VERSION');
+    if (error.code === 'CRM_INVALID_RELATION') throw new BadRequestException('Relacion o transicion CRM invalida.');
+    throw new ConflictException(error.code);
   }
 
   private latestConsent(customerId: string, dto: CustomerConsentDto) {
