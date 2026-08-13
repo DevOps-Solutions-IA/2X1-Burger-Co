@@ -373,7 +373,7 @@ test.describe.serial('Waiter table-only flows', () => {
     });
   });
 
-  test('waiter standalone workflow is keyboard accessible at phone and tablet widths', async ({ page }) => {
+  test('waiter standalone workflow is keyboard accessible at phone, tablet and desktop widths', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await loginAsWaiter(page);
 
@@ -395,5 +395,18 @@ test.describe.serial('Waiter table-only flows', () => {
     await expect(table).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectAccessiblePage(page);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(table).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessiblePage(page);
+
+    await table.focus();
+    await table.press('Enter');
+    await expect(back).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await back.focus();
+    await back.press('Enter');
+    await expect(table).toBeVisible();
   });
 });

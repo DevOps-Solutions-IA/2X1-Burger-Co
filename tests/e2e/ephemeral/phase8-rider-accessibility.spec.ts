@@ -9,7 +9,7 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
   expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
-test('rider receive workflow is accessible at phone and tablet widths without operational mutation', async ({ page }) => {
+test('rider receive workflow is accessible at phone, tablet and desktop widths without operational mutation', async ({ page }) => {
   const workflowMutations: string[] = [];
   page.on('request', (request) => {
     if (request.method() !== 'GET' && /\/api\/orders\/[^/]+\/delivery-workflow(?:\?|$)/.test(request.url())) {
@@ -55,6 +55,18 @@ test('rider receive workflow is accessible at phone and tablet widths without op
   await expect(page.getByText('E2E-DELIVERY-0001')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessiblePage(page);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('heading', { name: 'Domicilios — Tus entregas' })).toBeVisible();
+  await expect(page.getByText('E2E-DELIVERY-0001')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessiblePage(page);
+
+  await menuTrigger.focus();
+  await menuTrigger.press('Enter');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
 
   expect(workflowMutations).toEqual([]);
 });

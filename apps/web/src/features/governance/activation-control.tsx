@@ -15,7 +15,12 @@ import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import type { EnterpriseStatus } from './contracts';
 import { errorIsPermissionDenied, fetchEnterpriseStatus, fetchQrStatus, fetchRuntimeSafety, formatDateTime, humanize } from './queries';
 
-type SafetyAction = 'pause' | 'resume' | 'kill' | 'unkill';
+export type SafetyAction = 'pause' | 'resume' | 'kill' | 'unkill';
+
+type SafetyActor = Readonly<{
+  roles: readonly string[];
+  permissions: readonly string[];
+}>;
 
 const actionCopy: Record<SafetyAction, { title: string; description: string; endpoint: string; needsReason: boolean }> = {
   pause: {
@@ -44,13 +49,28 @@ const actionCopy: Record<SafetyAction, { title: string; description: string; end
   },
 };
 
+export function canOperateSafetyControls(user: SafetyActor | null | undefined) {
+  const hasSafetyRole = user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false;
+  return hasSafetyRole && (user?.permissions.includes('settings.update') ?? false);
+}
+
+export function isSafetyReasonValid(action: SafetyAction | null, reason: string) {
+  return !action || !actionCopy[action].needsReason || reason.trim().length >= 8;
+}
+
 export function ActivationControl() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isAdmin = user?.roles.includes('admin') ?? false;
-  const canOperateSafety = isAdmin || (user?.roles.includes('supervisor') ?? false);
+  const canOperateSafety = canOperateSafetyControls(user);
   const [pendingAction, setPendingAction] = useState<SafetyAction | null>(null);
   const [reason, setReason] = useState('');
+  const pendingPolicy = pendingAction ? actionCopy[pendingAction] : null;
+  const reasonIsValid = isSafetyReasonValid(pendingAction, reason);
+  const canConfirmPendingAction = canOperateSafety
+    && Boolean(pendingAction)
+    && reasonIsValid
+    && (pendingAction !== 'unkill' || isAdmin);
 
   const enterprise = useQuery({
     queryKey: ['governance', 'activation', 'enterprise'],
@@ -71,6 +91,9 @@ export function ActivationControl() {
   const control = useMutation({
     mutationFn: async (action: SafetyAction) => {
       const policy = actionCopy[action];
+      if (!canOperateSafety || (action === 'unkill' && !isAdmin)) {
+        throw new Error('No tienes permiso para modificar controles defensivos.');
+      }
       if (policy.needsReason && reason.trim().length < 8) throw new Error('Registra un motivo de al menos 8 caracteres.');
       return apiFetch(policy.endpoint, {
         method: 'POST',
@@ -164,7 +187,7 @@ export function ActivationControl() {
                     onAction={() => setPendingAction(runtimeStatus.state.killSwitchActive ? 'unkill' : 'kill')}
                   />
                 </div>
-                {!canOperateSafety ? <p className="mt-4 rounded-xl bg-canvas p-3 text-sm text-muted">Tu rol permite consultar, pero no modificar controles defensivos.</p> : null}
+                {!canOperateSafety ? <p className="mt-4 rounded-xl bg-canvas p-3 text-sm text-muted">Tu acceso actual permite consultar, pero no modificar controles defensivos.</p> : null}
               </div>
 
               <div className="space-y-4">
@@ -198,11 +221,25 @@ export function ActivationControl() {
         footer={(
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => { setPendingAction(null); setReason(''); }}>Cancelar</Button>
-            <Button type="button" onClick={() => { if (pendingAction) control.mutate(pendingAction); }} disabled={control.isPending}>{control.isPending ? 'Aplicando…' : 'Confirmar control'}</Button>
+            <Button type="button" onClick={() => { if (pendingAction) control.mutate(pendingAction); }} disabled={control.isPending || !canConfirmPendingAction}>{control.isPending ? 'Aplicando…' : 'Confirmar control'}</Button>
           </div>
         )}
       >
-        {pendingAction && actionCopy[pendingAction].needsReason ? <Field label="Motivo operacional" required hint="Se registrará sanitizado en auditoría."><Textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={180} /></Field> : <p className="rounded-2xl bg-canvas p-4 text-sm leading-6 text-muted">El servidor volverá a evaluar todos los gates. Esta acción no habilita envío, pagos ni producción.</p>}
+        {pendingPolicy?.needsReason ? (
+          <Field
+            label="Motivo operacional"
+            required
+            hint="Se registrará sanitizado en auditoría."
+            error={reasonIsValid ? null : 'Escribe un motivo de al menos 8 caracteres.'}
+          >
+            <Textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              minLength={8}
+              maxLength={180}
+            />
+          </Field>
+        ) : <p className="rounded-2xl bg-canvas p-4 text-sm leading-6 text-muted">El servidor volverá a evaluar todos los gates. Esta acción no habilita envío, pagos ni producción.</p>}
       </DetailDialog>
     </div>
   );
