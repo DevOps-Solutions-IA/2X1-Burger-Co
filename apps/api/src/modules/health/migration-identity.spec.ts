@@ -37,7 +37,7 @@ describe('migration identity attestation', () => {
   });
 
   it('accepts only the owner-attested additive Phase 8 migration after frontier 37', () => {
-    const frontier37 = repositoryInventory();
+    const frontier37 = repositoryFrontier37Inventory();
     const rows = appliedRepositoryRows(frontier37);
     rows.push({
       migrationName: '20260812130000_sofia_crm_product_core',
@@ -60,7 +60,7 @@ describe('migration identity attestation', () => {
     ['wrong checksum', '20260812130000_sofia_crm_product_core', 'f'.repeat(64)],
     ['wrong name', '20260812130001_unapproved', '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd'],
   ])('blocks an additional migration with %s', (_case, migrationName, checksum) => {
-    const frontier37 = repositoryInventory();
+    const frontier37 = repositoryFrontier37Inventory();
     const rows = appliedRepositoryRows(frontier37);
     rows.push({ migrationName, checksum, finished: true, rolledBack: false });
     expect(evaluateMigrationIdentity(rows, frontier37, [attestation])).toMatchObject({
@@ -79,7 +79,7 @@ describe('migration identity attestation', () => {
   });
 
   it('blocks an unknown migration after the authorized Phase 8 suffix', () => {
-    const frontier37 = repositoryInventory();
+    const frontier37 = repositoryFrontier37Inventory();
     const rows = appliedRepositoryRows(frontier37);
     rows.push(
       {
@@ -95,6 +95,68 @@ describe('migration identity attestation', () => {
         rolledBack: false,
       },
     );
+    expect(evaluateMigrationIdentity(rows, frontier37, [attestation])).toMatchObject({
+      compatible: false,
+      status: 'MIGRATION_HISTORY_INCOMPATIBLE',
+    });
+  });
+
+  it('blocks the forward suffix when an intermediate frontier-37 checksum is altered', () => {
+    const frontier37 = repositoryFrontier37Inventory();
+    const rows = appliedRepositoryRows(frontier37);
+    const altered = frontier37.map((migration, index) =>
+      index === 10 ? { ...migration, checksum: 'd'.repeat(64) } : migration,
+    );
+    rows.push(authorizedForwardRow());
+
+    expect(evaluateMigrationIdentity(rows, altered, [attestation])).toMatchObject({
+      compatible: false,
+      status: 'MIGRATION_HISTORY_INCOMPATIBLE',
+    });
+  });
+
+  it('blocks the forward suffix from an incomplete frontier', () => {
+    const frontier36 = repositoryFrontier37Inventory().slice(0, -1);
+    const rows = appliedRepositoryRows(frontier36);
+    rows.push(authorizedForwardRow());
+
+    expect(evaluateMigrationIdentity(rows, frontier36, [attestation])).toMatchObject({
+      compatible: false,
+      status: 'MIGRATION_HISTORY_INCOMPATIBLE',
+    });
+  });
+
+  it('blocks reordered applied migration history', () => {
+    const frontier37 = repositoryFrontier37Inventory();
+    const rows = appliedRepositoryRows(frontier37);
+    [rows[10], rows[11]] = [rows[11]!, rows[10]!];
+    rows.push(authorizedForwardRow());
+
+    expect(evaluateMigrationIdentity(rows, frontier37, [attestation])).toMatchObject({
+      compatible: false,
+      status: 'MIGRATION_HISTORY_INCOMPATIBLE',
+    });
+  });
+
+  it.each([
+    ['unfinished', false, false],
+    ['rolled back', true, true],
+  ])('blocks an authorized forward migration that is %s', (_case, finished, rolledBack) => {
+    const frontier37 = repositoryFrontier37Inventory();
+    const rows = appliedRepositoryRows(frontier37);
+    rows.push({ ...authorizedForwardRow(), finished, rolledBack });
+
+    expect(evaluateMigrationIdentity(rows, frontier37, [attestation])).toMatchObject({
+      compatible: false,
+      status: 'MIGRATION_HISTORY_INCOMPATIBLE',
+    });
+  });
+
+  it('blocks duplicate authorized forward migration rows', () => {
+    const frontier37 = repositoryFrontier37Inventory();
+    const rows = appliedRepositoryRows(frontier37);
+    rows.push(authorizedForwardRow(), authorizedForwardRow());
+
     expect(evaluateMigrationIdentity(rows, frontier37, [attestation])).toMatchObject({
       compatible: false,
       status: 'MIGRATION_HISTORY_INCOMPATIBLE',
@@ -164,11 +226,12 @@ function unsafeAttestations(value: unknown): ReleaseManifest['migrationAttestati
   return [value] as ReleaseManifest['migrationAttestations'];
 }
 
-function repositoryInventory(): ReleaseManifest['migrationInventory'] {
+function repositoryFrontier37Inventory(): ReleaseManifest['migrationInventory'] {
   const root = path.resolve(process.cwd(), '../../prisma/migrations');
-  return readdirSync(root, { withFileTypes: true })
+  const inventory = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => name !== '20260812130000_sofia_crm_product_core')
     .sort()
     .map((name) => ({
       name,
@@ -176,6 +239,9 @@ function repositoryInventory(): ReleaseManifest['migrationInventory'] {
       // eslint-disable-next-line security/detect-non-literal-fs-filename
       checksum: createHash('sha256').update(readFileSync(path.join(root, name, 'migration.sql'))).digest('hex'),
     }));
+  expect(inventory).toHaveLength(37);
+  expect(inventory.at(-1)?.name).toBe('20260809030000_sofia_live_operations_recovery_core');
+  return inventory;
 }
 
 function appliedRepositoryRows(inventory: ReleaseManifest['migrationInventory']): AppliedMigration[] {
@@ -185,4 +251,13 @@ function appliedRepositoryRows(inventory: ReleaseManifest['migrationInventory'])
     finished: true,
     rolledBack: false,
   }));
+}
+
+function authorizedForwardRow(): AppliedMigration {
+  return {
+    migrationName: '20260812130000_sofia_crm_product_core',
+    checksum: '64e17e19f394af2e0781032025e1afb293987bda7f95d7c53ed3345800bf1fdd',
+    finished: true,
+    rolledBack: false,
+  };
 }

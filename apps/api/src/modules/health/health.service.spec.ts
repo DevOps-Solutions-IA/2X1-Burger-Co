@@ -164,7 +164,7 @@ describe('HealthService', () => {
   });
 
   it('keeps a release ready only for the exact owner-attested forward migration', async () => {
-    const frontier37 = repositoryInventory();
+    const frontier37 = repositoryFrontier37Inventory();
     const rows = appliedRows(frontier37);
     rows.push({
       migrationName: '20260812130000_sofia_crm_product_core',
@@ -263,11 +263,12 @@ function appliedRows(inventory: Array<{ name: string; checksum: string }>) {
   }));
 }
 
-function repositoryInventory() {
+function repositoryFrontier37Inventory() {
   const root = path.resolve(process.cwd(), '../../prisma/migrations');
-  return readdirSync(root, { withFileTypes: true })
+  const inventory = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => name !== '20260812130000_sofia_crm_product_core')
     .sort()
     .map((name) => ({
       name,
@@ -275,4 +276,7 @@ function repositoryInventory() {
       // eslint-disable-next-line security/detect-non-literal-fs-filename
       checksum: createHash('sha256').update(readFileSync(path.join(root, name, 'migration.sql'))).digest('hex'),
     }));
+  expect(inventory).toHaveLength(37);
+  expect(inventory.at(-1)?.name).toBe('20260809030000_sofia_live_operations_recovery_core');
+  return inventory;
 }
