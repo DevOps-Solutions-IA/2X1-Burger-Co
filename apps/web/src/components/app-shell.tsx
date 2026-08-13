@@ -33,13 +33,22 @@ import {
   Menu,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { GlobalSearch } from '@/features/search/global-search';
 import { useAuth } from '@/features/auth/auth-provider';
-import { hasPermission } from '@/features/auth/access-control';
+import { hasAllowedRole, hasPermission } from '@/features/auth/access-control';
 
-const navSections = [
+type NavItem = Readonly<{
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  permission?: string;
+  roles?: readonly string[];
+}>;
+
+const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavItem[] }>> = [
   {
     title: 'Control',
     items: [
@@ -55,8 +64,8 @@ const navSections = [
       { href: '/pos', label: 'Punto de venta', icon: ShoppingCart, permission: 'sales.read' },
       { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
       { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
-      { href: '/payments', label: 'Pagos', icon: CreditCard, permission: 'reports.read' },
-      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones, permission: 'orders.read' },
+      { href: '/payments', label: 'Pagos', icon: CreditCard, permission: 'reports.read', roles: ['admin', 'supervisor'] },
+      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones, permission: 'orders.read', roles: ['admin', 'supervisor'] },
     ],
   },
   {
@@ -81,7 +90,12 @@ const navSections = [
       { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
       { href: '/inventory', label: 'Inventario', icon: Boxes, permission: 'inventory.read' },
       { href: '/purchases', label: 'Compras', icon: Store, permission: 'purchases.read' },
+      { href: '/expenses', label: 'Gastos', icon: ReceiptText, permission: 'expenses.read' },
+      { href: '/suppliers', label: 'Proveedores', icon: Users, permission: 'suppliers.read' },
       { href: '/products', label: 'Productos', icon: Package2, permission: 'products.read' },
+      { href: '/ingredients', label: 'Ingredientes', icon: Boxes, permission: 'ingredients.read' },
+      { href: '/categories', label: 'Categorias', icon: ClipboardList, permission: 'categories.read' },
+      { href: '/recipes', label: 'Recetas', icon: ChefHat, permission: 'recipes.read' },
     ],
   },
   {
@@ -152,7 +166,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => hasPermission(user?.permissions, item.permission)),
+      items: section.items.filter((item) => hasPermission(user?.permissions, item.permission)
+        && hasAllowedRole(user?.roles, item.roles)),
     }))
     .filter((section) => section.items.length > 0);
   const today = new Date().toLocaleDateString('es-CO', {

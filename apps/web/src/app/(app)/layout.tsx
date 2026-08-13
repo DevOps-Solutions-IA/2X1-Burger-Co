@@ -13,7 +13,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const safePathname = pathname ?? '/dashboard';
-  const canAccess = canAccessRoute(safePathname, user?.permissions);
+  const canAccess = canAccessRoute(safePathname, user?.permissions, user?.roles);
 
   useEffect(() => {
     if (!loading && !user) {

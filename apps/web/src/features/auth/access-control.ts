@@ -1,18 +1,24 @@
-const routePermissionMap: Array<{ prefix: string; permission?: string }> = [
+type RouteAccessPolicy = Readonly<{
+  prefix: string;
+  permission?: string;
+  roles?: readonly string[];
+}>;
+
+export const routePermissionMap: readonly RouteAccessPolicy[] = [
   { prefix: '/activation-control', permission: 'settings.read' },
-  { prefix: '/customer-service', permission: 'orders.read' },
+  { prefix: '/customer-service', permission: 'orders.read', roles: ['admin', 'supervisor'] },
   { prefix: '/conversations', permission: 'orders.read' },
   { prefix: '/customers', permission: 'orders.read' },
   { prefix: '/crm', permission: 'orders.read' },
-  { prefix: '/payments', permission: 'reports.read' },
+  { prefix: '/payments', permission: 'reports.read', roles: ['admin', 'supervisor'] },
   { prefix: '/analytics', permission: 'reports.read' },
   { prefix: '/kitchen', permission: 'orders.read' },
   { prefix: '/orders', permission: 'orders.read' },
   { prefix: '/audit', permission: 'reports.read' },
   { prefix: '/team', permission: 'users.read' },
-  { prefix: '/overview' },
+  { prefix: '/overview', roles: ['admin', 'supervisor', 'cashier'] },
   { prefix: '/sofia', permission: 'orders.read' },
-  { prefix: '/dashboard' },
+  { prefix: '/dashboard', roles: ['admin', 'supervisor', 'cashier'] },
   { prefix: '/waiter', permission: 'orders.create' },
   { prefix: '/delivery', permission: 'delivery.read' },
   { prefix: '/deliveries', permission: 'delivery.read' },
@@ -40,7 +46,19 @@ export function hasPermission(permissions: string[] | undefined, permission?: st
   return (permissions ?? []).includes(permission);
 }
 
-export function canAccessRoute(pathname: string, permissions: string[] | undefined) {
+export function hasAllowedRole(roles: string[] | undefined, allowedRoles?: readonly string[]) {
+  if (!allowedRoles?.length) {
+    return true;
+  }
+
+  return (roles ?? []).some((role) => allowedRoles.includes(role));
+}
+
+export function canAccessRoute(
+  pathname: string,
+  permissions: string[] | undefined,
+  roles?: string[],
+) {
   const matchedRoute = routePermissionMap.find(
     (route) => pathname === route.prefix || pathname.startsWith(`${route.prefix}/`),
   );
@@ -48,7 +66,8 @@ export function canAccessRoute(pathname: string, permissions: string[] | undefin
     return false;
   }
 
-  return hasPermission(permissions, matchedRoute.permission);
+  return hasPermission(permissions, matchedRoute.permission)
+    && hasAllowedRole(roles, matchedRoute.roles);
 }
 
 export function resolveDefaultRoute(user: { roles?: string[]; permissions?: string[] } | null | undefined) {
