@@ -45,14 +45,14 @@ export function PosCartPanel({
                 <div className="flex items-center gap-2">
                   <p className="truncate text-[13px] font-bold text-ink">{item.name}</p>
                   {item.kind === 'DIRECT_STOCK' && item.stock <= 3 ? (
-                    <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-600">Queda {formatNumber(item.stock)}</span>
+                    <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold uppercase text-red-700">Queda {formatNumber(item.stock)}</span>
                   ) : null}
                 </div>
-                <p className="mt-0.5 truncate text-[11px] text-stone-400">{item.categoryName} · {item.code}</p>
+                <p className="mt-0.5 truncate text-xs text-stone-600">{item.categoryName} · {item.code}</p>
               </div>
               <button
                 type="button"
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-600 transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100"
                 onClick={() => onUpdateQuantity(item.productId, 0)}
                 aria-label={`Quitar ${item.name}`}
               >
@@ -73,7 +73,7 @@ export function PosCartPanel({
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-stone-400">Unitario</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-stone-600">Unitario</p>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -85,7 +85,7 @@ export function PosCartPanel({
                   />
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-stone-400">Subtotal</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-stone-600">Subtotal</p>
                   <p className="mt-0.5 min-w-[5rem] text-[15px] font-bold tabular-nums text-ink">
                     {formatCurrency(item.price * item.quantity)}
                   </p>
@@ -110,7 +110,7 @@ export function PosCartPanel({
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-500">Subtotal</p>
-              <p className="mt-2 text-[18px] font-extrabold tabular-nums text-brand-700">{formatCurrency(baseSaleTotal)}</p>
+              <p className="mt-2 text-[18px] font-extrabold tabular-nums text-brand-900">{formatCurrency(baseSaleTotal)}</p>
             </div>
             <div>
               <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-500">Pagado</p>
@@ -125,7 +125,7 @@ export function PosCartPanel({
           </div>
           {orderType === 'DELIVERY' ? (
             <div className="mt-3 border-t border-stone-200 pt-3 text-center">
-              <p className="text-[11px] text-stone-500">
+              <p className="text-xs text-stone-600">
                 Domicilio: {formatCurrency(deliveryFeeValue)}
                 {deliveryZoneValue ? ` · ${deliveryZoneValue}` : ''}
               </p>
@@ -138,7 +138,7 @@ export function PosCartPanel({
               type="text"
               inputMode="numeric"
                 aria-label="Ajuste manual del total"
-                className="h-11 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-base font-semibold tabular-nums text-ink placeholder:text-stone-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
+                className="h-11 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-base font-semibold tabular-nums text-ink placeholder:text-stone-500 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
               value={manualSaleTotal}
               onChange={(event) => onManualSaleTotalChange(sanitizeCurrencyInput(event.target.value))}
               placeholder="Ajuste global"

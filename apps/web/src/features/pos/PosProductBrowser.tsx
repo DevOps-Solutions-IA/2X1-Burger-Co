@@ -49,7 +49,7 @@ export function PosProductBrowser({
             </p>
           </div>
           {!isLoading && !isError ? (
-            <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-[11px] font-bold text-brand-900">
+            <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-1.5 text-xs font-bold text-brand-900">
               {filteredProducts.length} listos
             </div>
           ) : null}
@@ -57,7 +57,7 @@ export function PosProductBrowser({
 
         <div className="grid gap-3 md:grid-cols-[1fr_220px]">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-600" />
             <Input
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
