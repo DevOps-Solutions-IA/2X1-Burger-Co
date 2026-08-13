@@ -93,16 +93,19 @@ test('injects a detected failure and rolls API and Web back with RTO and RPO evi
   assert.equal(evidence.candidate.webDigest, `sha256:${'d'.repeat(64)}`);
   assert.equal(evidence.rpo.status, 'PASS');
   assert.equal(evidence.rpo.beforeDigest, evidence.rpo.afterDigest);
+  assert.equal(evidence.rpo.beforeDigest, evidence.rpo.restoredDigest);
   assert.ok(Number.isInteger(evidence.rtoMilliseconds));
+  assert.ok(Number.isInteger(evidence.durationsMilliseconds.candidateRestoration));
   assert.equal(evidence.databaseRollbackPerformed, false);
   assert.equal(evidence.rebuildDuringRollback, false);
-  assert.equal(evidence.candidateRestoredAfterRollback, false);
+  assert.equal(evidence.candidateRestoredAfterRollback, true);
 
   const events = readFileSync(path.join(instance.state, 'events'), 'utf8').trim().split('\n');
   assert.deepEqual(events.filter((event) => event.startsWith('deploy:')), [
     'deploy:baseline.json',
     'deploy:candidate.json',
     'deploy:baseline.json',
+    'deploy:candidate.json',
   ]);
 });
 

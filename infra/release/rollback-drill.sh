@@ -284,11 +284,23 @@ rpo_after_digest="$(printf '%s' "$rpo_after" | snapshot_digest)"
 [[ "$rpo_after" == "$rpo_before" ]] || { echo "RPO invariant changed during application rollback" >&2; false; }
 rollback_rto_ms="$(elapsed_ms "$started")"
 
+CURRENT_STAGE="candidate-restoration"
+started="$(now_ms)"
+deploy "$CANDIDATE"
+smoke "$CANDIDATE"
+verify_images "$CANDIDATE"
+rpo_restored="$(rpo_snapshot)"
+[[ -n "$rpo_restored" ]] || { echo "Post-restoration RPO snapshot hook returned no evidence" >&2; false; }
+rpo_restored_digest="$(printf '%s' "$rpo_restored" | snapshot_digest)"
+[[ "$rpo_restored" == "$rpo_before" ]] || { echo "RPO invariant changed during candidate restoration" >&2; false; }
+candidate_restoration_ms="$(elapsed_ms "$started")"
+
 CURRENT_STAGE="result"
 node - "$RESULT" "$BASELINE" "$CANDIDATE" "$baseline_initial_ms" "$candidate_ms" \
-  "$failure_detection_ms" "$rollback_rto_ms" "$rpo_before_digest" "$rpo_after_digest" <<'NODE'
+  "$failure_detection_ms" "$rollback_rto_ms" "$candidate_restoration_ms" \
+  "$rpo_before_digest" "$rpo_after_digest" "$rpo_restored_digest" <<'NODE'
 const fs = require('fs');
-const [output, baselinePath, candidatePath, baselineInitial, candidate, failureDetection, rollbackRto, rpoBefore, rpoAfter] = process.argv.slice(2);
+const [output, baselinePath, candidatePath, baselineInitial, candidate, failureDetection, rollbackRto, candidateRestoration, rpoBefore, rpoAfter, rpoRestored] = process.argv.slice(2);
 const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
 const candidateRecord = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
 fs.writeFileSync(output, JSON.stringify({
@@ -304,12 +316,13 @@ fs.writeFileSync(output, JSON.stringify({
     candidate: Number(candidate),
     failureDetection: Number(failureDetection),
     rollbackRto: Number(rollbackRto),
+    candidateRestoration: Number(candidateRestoration),
   },
   rtoMilliseconds: Number(rollbackRto),
-  rpo: { status: 'PASS', beforeDigest: rpoBefore, afterDigest: rpoAfter },
+  rpo: { status: 'PASS', beforeDigest: rpoBefore, afterDigest: rpoAfter, restoredDigest: rpoRestored },
   databaseRollbackPerformed: false,
   rebuildDuringRollback: false,
-  candidateRestoredAfterRollback: false,
+  candidateRestoredAfterRollback: true,
 }, null, 2) + '\n');
 NODE
 trap - ERR
