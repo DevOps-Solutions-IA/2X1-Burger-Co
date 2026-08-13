@@ -2,6 +2,7 @@ import {
   CrmLeadStatus,
   CrmPipelineStageOutcome,
   CrmTaskPriority,
+  CrmTaskStatus,
   CrmTaskType,
 } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
@@ -153,5 +154,56 @@ describe('Phase8CrmRepository', () => {
       customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR', sourceReference: 'task-1',
       type: CrmTaskType.TASK, priority: CrmTaskPriority.MEDIUM, title: 'Different',
     })).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({ code: 'CRM_IDEMPOTENCY_CONFLICT' }));
+  });
+
+  it('recovers a lost task-update response only from the exact next semantic state', async () => {
+    const current = {
+      id: 'task-1', version: 6, status: CrmTaskStatus.COMPLETED, assignedToId: 'actor-1',
+    };
+    const taskUpdateMany = jest.fn();
+    const taskRepository = new Phase8CrmRepository({
+      crmTask: { findUnique: jest.fn().mockResolvedValue(current), updateMany: taskUpdateMany },
+    } as unknown as PrismaService);
+
+    await expect(taskRepository.updateTask('task-1', {
+      expectedVersion: 5,
+      status: CrmTaskStatus.COMPLETED,
+      assignedToId: 'actor-1',
+    })).resolves.toEqual({ state: 'DETERMINISTIC_REPLAY', task: current });
+    expect(taskUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale task updates with a materially different state or assignee', async () => {
+    const taskUpdateMany = jest.fn();
+    const taskRepository = new Phase8CrmRepository({
+      crmTask: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'task-1', version: 6, status: CrmTaskStatus.IN_PROGRESS, assignedToId: 'actor-2',
+        }),
+        updateMany: taskUpdateMany,
+      },
+    } as unknown as PrismaService);
+
+    await expect(taskRepository.updateTask('task-1', {
+      expectedVersion: 5,
+      status: CrmTaskStatus.IN_PROGRESS,
+      assignedToId: 'actor-1',
+    })).rejects.toEqual(expect.objectContaining<Partial<CrmPersistenceError>>({ code: 'STALE_CRM_VERSION' }));
+    expect(taskUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('turns a concurrent identical task update into deterministic replay', async () => {
+    const before = { id: 'task-1', version: 5, status: CrmTaskStatus.OPEN, assignedToId: null };
+    const after = { id: 'task-1', version: 6, status: CrmTaskStatus.IN_PROGRESS, assignedToId: 'actor-1' };
+    const taskFindUnique = jest.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after);
+    const taskRepository = new Phase8CrmRepository({
+      crmTask: { findUnique: taskFindUnique, updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    } as unknown as PrismaService);
+
+    await expect(taskRepository.updateTask('task-1', {
+      expectedVersion: 5,
+      status: CrmTaskStatus.IN_PROGRESS,
+      assignedToId: 'actor-1',
+    })).resolves.toEqual({ state: 'DETERMINISTIC_REPLAY', task: after });
   });
 });

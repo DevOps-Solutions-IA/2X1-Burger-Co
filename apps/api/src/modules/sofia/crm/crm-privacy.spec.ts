@@ -23,6 +23,31 @@ describe('Sofia CRM privacy', () => {
     expect(sanitized).not.toContain('202');
   });
 
+  it('redacts Basic auth, cookie sessions, explicit credential variants and known access keys', () => {
+    const awsAccessKey = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
+    const githubAccessKey = ['github', '_pat_', '11AAExampleCredentialValue999'].join('');
+    const sanitized = sanitizeTimelineText([
+      'Authorization: Basic dXNlcjpwYXNz',
+      'Cookie: session_id=sess-secret; theme=dark',
+      'client_secret="client-secret" access_token=>token-secret sessionKey=session-secret',
+      `${awsAccessKey} ${githubAccessKey}`,
+    ].join('\n'));
+
+    expect(sanitized).toContain('[AUTHORIZATION_REDACTED]');
+    expect(sanitized).toContain('[COOKIE_HEADER_REDACTED]');
+    expect(sanitized).toContain('[SECRET_REDACTED]');
+    expect(sanitized).toContain('[ACCESS_KEY_REDACTED]');
+    expect(sanitized).not.toMatch(/dXNlcjpwYXNz|sess-secret|client-secret|token-secret/);
+    expect(sanitized).not.toContain(awsAccessKey);
+    expect(sanitized).not.toContain(githubAccessKey);
+  });
+
+  it('does not over-redact safe operational language', () => {
+    expect(sanitizeTimelineText('Cliente pide acceso al local y una sesion de seguimiento comercial.')).toBe(
+      'Cliente pide acceso al local y una sesion de seguimiento comercial.',
+    );
+  });
+
   it('converts technical source identities into stable opaque references', () => {
     const first = opaqueCrmReference('task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');
     const second = opaqueCrmReference('task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');

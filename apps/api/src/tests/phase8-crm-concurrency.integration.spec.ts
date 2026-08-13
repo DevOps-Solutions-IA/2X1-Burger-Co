@@ -3,6 +3,9 @@ import {
   CrmLeadSource,
   CrmLeadStatus,
   CrmPipelineStageOutcome,
+  CrmTaskPriority,
+  CrmTaskStatus,
+  CrmTaskType,
 } from '@prisma/client';
 import { Phase8CrmRepository } from '../modules/sofia/crm/phase8-crm.repository';
 import { PrismaService } from '../prisma/prisma.service';
@@ -118,5 +121,53 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
         title: 'Invalid cross-pipeline lead',
       },
     })).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it('recovers an identical concurrent task update without accepting a different stale request', async () => {
+    const [actor, otherActor] = await Promise.all([
+      prisma.user.create({
+        data: { email: 'crm-task-owner@example.test', fullName: 'CRM Task Owner', passwordHash: 'not-used' },
+      }),
+      prisma.user.create({
+        data: { email: 'crm-task-other@example.test', fullName: 'CRM Task Other', passwordHash: 'not-used' },
+      }),
+    ]);
+    const customer = await prisma.customer.create({
+      data: { displayName: 'Cliente Task', displayNameNormalized: 'cliente task' },
+    });
+    await repository.createTask({
+      customerId: customer.id,
+      source: 'AUTHORIZED_OPERATOR',
+      sourceReference: 'crm-task-replay-1',
+      type: CrmTaskType.TASK,
+      priority: CrmTaskPriority.MEDIUM,
+      title: 'Seguimiento seguro',
+    });
+    const task = await prisma.crmTask.findFirstOrThrow({ where: { customerId: customer.id } });
+    const update = {
+      expectedVersion: 0,
+      status: CrmTaskStatus.IN_PROGRESS,
+      assignedToId: actor.id,
+    };
+
+    const concurrent = await Promise.all([
+      repository.updateTask(task.id, update),
+      repository.updateTask(task.id, update),
+    ]);
+    expect(concurrent.map(({ state }) => state).sort()).toEqual(['DETERMINISTIC_REPLAY', 'UPDATED']);
+    expect(await prisma.crmTask.findUniqueOrThrow({ where: { id: task.id } })).toMatchObject({
+      version: 1,
+      status: CrmTaskStatus.IN_PROGRESS,
+      assignedToId: actor.id,
+    });
+
+    await expect(repository.updateTask(task.id, update)).resolves.toMatchObject({
+      state: 'DETERMINISTIC_REPLAY',
+      task: { version: 1 },
+    });
+    await expect(repository.updateTask(task.id, {
+      ...update,
+      assignedToId: otherActor.id,
+    })).rejects.toMatchObject({ code: 'STALE_CRM_VERSION' });
   });
 });

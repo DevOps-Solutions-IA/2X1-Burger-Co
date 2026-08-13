@@ -363,6 +363,9 @@ export class Phase8CrmRepository {
   async updateTask(taskId: string, input: UpdateCrmTaskDto) {
     const current = await this.prisma.crmTask.findUnique({ where: { id: taskId } });
     if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
+    if (this.isTaskUpdateReplay(current, input)) {
+      return { state: 'DETERMINISTIC_REPLAY' as const, task: current };
+    }
     if (current.version !== input.expectedVersion) throw new CrmPersistenceError('STALE_CRM_VERSION');
     if (current.status === CrmTaskStatus.COMPLETED || current.status === CrmTaskStatus.CANCELLED) {
       throw new CrmPersistenceError('CRM_CONFLICT');
@@ -378,7 +381,13 @@ export class Phase8CrmRepository {
         cancelledAt: input.status === CrmTaskStatus.CANCELLED ? now : undefined,
       },
     });
-    if (changed.count !== 1) throw new CrmPersistenceError('STALE_CRM_VERSION');
+    if (changed.count !== 1) {
+      const raced = await this.prisma.crmTask.findUnique({ where: { id: taskId } });
+      if (raced && this.isTaskUpdateReplay(raced, input)) {
+        return { state: 'DETERMINISTIC_REPLAY' as const, task: raced };
+      }
+      throw new CrmPersistenceError('STALE_CRM_VERSION');
+    }
     return { state: 'UPDATED' as const, task: await this.prisma.crmTask.findUniqueOrThrow({ where: { id: taskId } }) };
   }
 
@@ -615,6 +624,15 @@ export class Phase8CrmRepository {
       throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
     }
     return { state: 'DETERMINISTIC_REPLAY' as const, task: row };
+  }
+
+  private isTaskUpdateReplay(
+    row: { version: number; status: CrmTaskStatus; assignedToId: string | null },
+    input: UpdateCrmTaskDto,
+  ): boolean {
+    return row.version === input.expectedVersion + 1
+      && row.status === input.status
+      && (input.assignedToId === undefined || row.assignedToId === input.assignedToId);
   }
 
   private async assertCustomerBindings(
