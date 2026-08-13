@@ -22,7 +22,14 @@ describe('SofiaCrmService', () => {
   const deliveryCreateMany = jest.fn();
   const deliveryUpdateMany = jest.fn();
   const auditLog = jest.fn();
+  const consentTransactionClient = {
+    customer: { findUnique: customerFindUnique },
+    customerConsent: { findFirst: consentFindFirst, create: consentCreate },
+  };
   const prisma = {
+    $transaction: jest.fn((operation: (client: typeof consentTransactionClient) => unknown) => (
+      operation(consentTransactionClient)
+    )),
     customer: { findUnique: customerFindUnique },
     customerIdentity: { findUnique: identityFindUnique, updateMany: identityUpdateMany },
     customerConsent: { findFirst: consentFindFirst, create: consentCreate },
@@ -184,7 +191,10 @@ describe('SofiaCrmService', () => {
     });
     expect(consent.evidenceHash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(consentCreate.mock.calls[0])).not.toContain(consentDto.evidence);
-    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'CRM_CONSENT_GRANTED' }));
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CRM_CONSENT_GRANTED' }),
+      consentTransactionClient,
+    );
   });
 
   it('appends a revoked consent version without overwriting the grant', async () => {
@@ -205,7 +215,10 @@ describe('SofiaCrmService', () => {
       grantedAt,
     });
     expect(consent.revokedAt).toBeInstanceOf(Date);
-    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'CRM_CONSENT_REVOKED' }));
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CRM_CONSENT_REVOKED' }),
+      consentTransactionClient,
+    );
   });
 
   it('blocks every campaign send attempt and only records blocked deliveries', async () => {

@@ -30,6 +30,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { apiFetchSchema } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
+import { hasPermission } from '@/features/auth/access-control';
+import { useAuth } from '@/features/auth/auth-provider';
 import { sofiaAlertAckResponseSchema, sofiaGovernancePauseResponseSchema } from '@/features/sofia/contracts';
 import {
   sofiaQueryKeys,
@@ -49,11 +51,16 @@ function formatDate(value: string | null) {
 
 export default function SofiaMainDashboardPage() {
   const [showFullChecklist, setShowFullChecklist] = useState(false);
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const summary = useSofiaDashboardSummary();
   const readiness = useSofiaReadiness();
   const events = useSofiaGovernanceEvents();
   const alerts = useSofiaAlerts();
+  const canGovern = Boolean(
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor')
+    && hasPermission(user?.permissions, 'settings.update'),
+  );
 
   const invalidateOperationalQueries = async () => {
     await Promise.all([
@@ -181,7 +188,8 @@ export default function SofiaMainDashboardPage() {
                   <Button
                     type="button"
                     onClick={() => resumeSofia.mutate()}
-                    disabled={resumeSofia.isPending}
+                    disabled={!canGovern || resumeSofia.isPending}
+                    title={!canGovern ? 'Requiere settings.update' : undefined}
                     data-testid="sofia-main-resume"
                   >
                     <Play className="h-4 w-4" aria-hidden="true" />
@@ -194,7 +202,8 @@ export default function SofiaMainDashboardPage() {
                     onClick={() => {
                       if (window.confirm('Pausar Sofia globalmente? No se generaran sugerencias hasta reanudar.')) pauseSofia.mutate();
                     }}
-                    disabled={pauseSofia.isPending}
+                    disabled={!canGovern || pauseSofia.isPending}
+                    title={!canGovern ? 'Requiere settings.update' : undefined}
                     data-testid="sofia-main-pause"
                   >
                     <Pause className="h-4 w-4" aria-hidden="true" />
@@ -266,7 +275,8 @@ export default function SofiaMainDashboardPage() {
                               size="sm"
                               variant="secondary"
                               onClick={() => ackAlert.mutate(alert.id)}
-                              disabled={ackAlert.isPending}
+                              disabled={!canGovern || ackAlert.isPending}
+                              title={!canGovern ? 'Requiere settings.update' : undefined}
                               data-testid={`sofia-alert-ack-${alert.id}`}
                             >
                               <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Reconocer

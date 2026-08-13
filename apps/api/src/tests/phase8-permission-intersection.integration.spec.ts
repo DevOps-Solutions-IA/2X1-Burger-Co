@@ -37,6 +37,7 @@ describe('Phase 8 API role and permission intersection', () => {
       '/admin/payments/intents',
       '/orders/operations/list',
       '/admin/customer-service/cases',
+      '/admin/customer-service/cases/missing',
       '/admin/sofia/crm/customers',
     ]) {
       const response = await request(app.getHttpServer()).get(path).set('Authorization', authorization);
@@ -50,7 +51,7 @@ describe('Phase 8 API role and permission intersection', () => {
     await prisma.rolePermission.deleteMany({
       where: {
         role: { name: 'admin' },
-        permission: { code: { in: ['orders.create', 'orders.update', 'settings.update'] } },
+        permission: { code: { in: ['orders.create', 'orders.update', 'settings.update', 'suppliers.update'] } },
       },
     });
 
@@ -64,8 +65,12 @@ describe('Phase 8 API role and permission intersection', () => {
     const attempts = [
       () => request(app.getHttpServer()).post('/admin/sofia/crm/segments').send({ name: 'Segmento', customerIds: [] }),
       () => request(app.getHttpServer()).post('/admin/sofia/control/pause-global').send({ reason: 'Prueba de revocación' }),
+      () => request(app.getHttpServer()).post('/admin/sofia/governance/resume').send({}),
+      () => request(app.getHttpServer()).post('/admin/sofia/order-drafts').send({}),
+      () => request(app.getHttpServer()).post('/admin/sofia/conversations/missing/handoff').send({}),
       () => request(app.getHttpServer()).post('/admin/sofia/whatsapp/qr/connect').send({}),
       () => request(app.getHttpServer()).post('/orders/customers/find-or-create').send({ fullName: 'Cliente' }),
+      () => request(app.getHttpServer()).post('/reports/supplier-notifications/manual').send({ supplierId: 'missing' }),
     ];
     for (const attempt of attempts) {
       const response = await attempt().set('Authorization', authorization);

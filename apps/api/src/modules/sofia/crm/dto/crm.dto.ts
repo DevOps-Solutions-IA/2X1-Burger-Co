@@ -374,6 +374,11 @@ export class ListCrmTasksDto extends CrmPaginationDto {
 }
 
 export class UpdateCrmTaskDto {
+  @IsString()
+  @MinLength(8)
+  @MaxLength(160)
+  idempotencyKey!: string;
+
   @Type(() => Number)
   @IsInt()
   @Min(0)

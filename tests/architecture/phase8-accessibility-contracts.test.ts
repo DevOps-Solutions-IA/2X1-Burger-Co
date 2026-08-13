@@ -15,6 +15,10 @@ const routeMatrixSource = readFileSync(
   'utf8',
 );
 
+function source(path: string) {
+  return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
+}
+
 test('required Field controls expose native and ARIA required semantics without dropping existing descriptions', () => {
   assert.match(fieldSource, /mergeDescriptionIds\(/);
   assert.match(fieldSource, /children\.props\['aria-describedby'\]/);
@@ -34,4 +38,14 @@ test('the route accessibility matrix waits for resolved UI and covers desktop', 
   assert.match(routeMatrixSource, /main \[aria-busy="true"\]:visible/);
   assert.match(routeMatrixSource, /main \[class\*="animate-pulse"\]:visible/);
   assert.match(routeMatrixSource, /document\.fonts\?\.ready/);
+});
+
+test('operational catalog forms focus their first invalid field', () => {
+  const helper = source('apps/web/src/lib/form-accessibility.ts');
+  const pages = ['products', 'categories', 'ingredients', 'recipes', 'suppliers'];
+
+  assert.match(helper, /querySelector<HTMLElement>\('\[aria-invalid="true"\]'\)\?\.focus\(\)/);
+  for (const page of pages) {
+    assert.match(source(`apps/web/src/app/(app)/${page}/page.tsx`), /focusFirstInvalidField\(event\.currentTarget\)/);
+  }
 });

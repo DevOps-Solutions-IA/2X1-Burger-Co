@@ -10,6 +10,8 @@ import { ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { hasPermission } from '@/features/auth/access-control';
+import { useAuth } from '@/features/auth/auth-provider';
 import type { KitchenOrder, OrderStatus, OrderType } from './contracts';
 import { elapsedLabel, modifierLabel, orderStatusLabels, orderTypeLabels, paymentSummary } from './presentation';
 import { useKitchenQueue, useKitchenTransition, useOrderOperationsRealtime } from './queries';
@@ -23,7 +25,7 @@ function queryState(error: unknown, isPending: boolean, hasData: boolean) {
   return hasData ? 'ready' as const : 'empty' as const;
 }
 
-function KitchenCard({ order, now, onTransition, pending }: { order: KitchenOrder; now: number; onTransition: (order: KitchenOrder) => void; pending: boolean }) {
+function KitchenCard({ order, now, onTransition, pending, canTransition }: { order: KitchenOrder; now: number; onTransition: (order: KitchenOrder) => void; pending: boolean; canTransition: boolean }) {
   const payment = paymentSummary(order.orderCheckout);
   const actionLabel = order.status === 'OPEN' ? 'Iniciar preparación' : 'Marcar listo';
   const uncertainPayment = payment.status === 'UNKNOWN_RESULT' || payment.status === 'FINANCIAL_REVIEW_REQUIRED';
@@ -54,19 +56,26 @@ function KitchenCard({ order, now, onTransition, pending }: { order: KitchenOrde
         {order.notes ? <p className="rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-3 text-sm font-medium text-ink"><strong>Nota general:</strong> {order.notes}</p> : null}
       </div>
       <footer className="border-t border-line p-3">
-        <Button type="button" className="w-full" disabled={pending} onClick={() => onTransition(order)}>{pending ? 'Actualizando…' : actionLabel}</Button>
+        {canTransition ? (
+          <Button type="button" className="w-full" disabled={pending} onClick={() => onTransition(order)}>{pending ? 'Actualizando…' : actionLabel}</Button>
+        ) : <StatusBadge status="READ_ONLY" label="Solo consulta" tone="neutral" />}
       </footer>
     </article>
   );
 }
 
 export function KitchenScreen() {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<OrderStatus | ''>('');
   const [type, setType] = useState<OrderType | ''>('');
   const [now, setNow] = useState(() => Date.now());
   const result = useKitchenQueue({ page: 1, limit: PAGE_SIZE, q: query, status: status || undefined, type: type || undefined });
   const transition = useKitchenTransition();
+  const canTransition = Boolean(
+    user?.roles.some((role) => ['admin', 'supervisor', 'cashier'].includes(role))
+    && hasPermission(user?.permissions, 'orders.update'),
+  );
   useOrderOperationsRealtime();
 
   useEffect(() => {
@@ -113,7 +122,7 @@ export function KitchenScreen() {
       />
       <QueryState status={state} title={state === 'empty' ? 'No hay pedidos pendientes en cocina' : undefined} description={state === 'empty' ? 'La cola está al día. Los nuevos pedidos aparecerán cuando el backend los autorice.' : undefined} onRetry={() => void result.refetch()}>
         <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3" aria-label="Cola de cocina">
-          {items.map((order) => <KitchenCard key={order.id} order={order} now={now} onTransition={handleTransition} pending={transition.isPending && transition.variables?.id === order.id} />)}
+          {items.map((order) => <KitchenCard key={order.id} order={order} now={now} onTransition={handleTransition} canTransition={canTransition} pending={transition.isPending && transition.variables?.id === order.id} />)}
         </section>
       </QueryState>
       {result.data && result.data.total > PAGE_SIZE ? <p className="rounded-xl border border-signal-warning/30 bg-signal-warning/10 p-3 text-sm text-ink">La cola contiene más de {PAGE_SIZE} pedidos. Refina los filtros para operar el resto sin cargar una lista sin límites.</p> : null}

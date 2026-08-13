@@ -70,6 +70,19 @@ async function main() {
   ]);
   const productPrice = Number(product.salePrice);
 
+  // E2E mutations are replayed across focused runs; remove only derived fixture evidence.
+  await prisma.$transaction([
+    prisma.crmLeadStageHistory.deleteMany({
+      where: { leadId: 'e2e-crm-lead', id: { not: 'e2e-crm-lead-history-v0' } },
+    }),
+    prisma.customerServiceCaseEvent.deleteMany({
+      where: { caseId: 'e2e-service-case-fixture', id: { not: 'e2e-service-case-event-fixture' } },
+    }),
+    prisma.whatsappHandoffEvent.deleteMany({
+      where: { conversationId: 'e2e-conversation-fixture' },
+    }),
+  ]);
+
   const closedCash = await prisma.cashSession.upsert({
     where: { id: 'e2e-cash-closed' },
     update: {},
@@ -124,7 +137,13 @@ async function main() {
 
   await prisma.orderTicket.upsert({
     where: { id: 'e2e-order-fixture' },
-    update: {},
+    update: {
+      status: OrderTicketStatus.OPEN,
+      revision: 1,
+      servedAt: null,
+      paidAt: null,
+      cancelledAt: null,
+    },
     create: {
       id: 'e2e-order-fixture',
       number: 'E2E-ORDER-0001',
@@ -206,7 +225,14 @@ async function main() {
 
   const conversation = await prisma.whatsappConversation.upsert({
     where: { id: 'e2e-conversation-fixture' },
-    update: {},
+    update: {
+      status: WhatsappConversationStatus.ACTIVE,
+      sofiaEnabled: true,
+      humanStatus: 'SOFIA_ACTIVE',
+      assignedToUserId: null,
+      lastHumanTakeoverAt: null,
+      handoffVersion: 0,
+    },
     create: {
       id: 'e2e-conversation-fixture',
       customerId: crmCustomer.id,
@@ -294,7 +320,15 @@ async function main() {
 
   const serviceCase = await prisma.customerServiceCase.upsert({
     where: { id: 'e2e-service-case-fixture' },
-    update: {},
+    update: {
+      status: CustomerServiceCaseStatus.OPEN,
+      assignedActorId: null,
+      resolutionActorId: null,
+      resolutionCode: null,
+      version: 0,
+      resolvedAt: null,
+      closedAt: null,
+    },
     create: {
       id: 'e2e-service-case-fixture',
       category: CustomerServiceCaseCategory.PAYMENT_PROBLEM,
@@ -362,7 +396,15 @@ async function main() {
   });
   const lead = await prisma.crmLead.upsert({
     where: { id: 'e2e-crm-lead' },
-    update: {},
+    update: {
+      currentStageId: firstStage.id,
+      status: CrmLeadStatus.NEW,
+      version: 0,
+      qualifiedAt: null,
+      wonAt: null,
+      lostAt: null,
+      archivedAt: null,
+    },
     create: {
       id: 'e2e-crm-lead',
       customerId: crmCustomer.id,
@@ -393,7 +435,13 @@ async function main() {
   });
   await prisma.crmTask.upsert({
     where: { id: 'e2e-crm-task' },
-    update: {},
+    update: {
+      status: CrmTaskStatus.OPEN,
+      assignedToId: admin.id,
+      completedAt: null,
+      cancelledAt: null,
+      version: 0,
+    },
     create: {
       id: 'e2e-crm-task',
       customerId: crmCustomer.id,

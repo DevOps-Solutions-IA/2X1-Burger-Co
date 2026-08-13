@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { DetailDialog, FilterBar, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { matchesSearch } from '@/lib/format';
+import { focusFirstInvalidField } from '@/lib/form-accessibility';
 
 type Supplier = {
   id: string;
@@ -200,7 +201,15 @@ export default function SuppliersPage() {
             </div>
           </div>
 
-          <form className="mt-5 grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); setSubmitAttempted(true); if (form.name.trim()) saveSupplier.mutate(); }}>
+          <form className="mt-5 grid gap-3 md:grid-cols-2" noValidate onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitAttempted(true);
+            if (!form.name.trim()) {
+              focusFirstInvalidField(event.currentTarget);
+              return;
+            }
+            saveSupplier.mutate();
+          }}>
             <Field label="Nombre" error={submitAttempted && !form.name.trim() ? 'Ingresa el nombre del proveedor.' : null} required><Input value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} data-testid="supplier-name-input" /></Field>
             <Field label="NIT / identificacion"><Input value={form.taxId} onChange={(e) => setForm((c) => ({ ...c, taxId: e.target.value }))} data-testid="supplier-nit-input" /></Field>
             <Field label="Contacto"><Input value={form.contactName} onChange={(e) => setForm((c) => ({ ...c, contactName: e.target.value }))} data-testid="supplier-contact-input" /></Field>

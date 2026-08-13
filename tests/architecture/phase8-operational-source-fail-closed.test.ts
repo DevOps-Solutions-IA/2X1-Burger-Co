@@ -53,3 +53,17 @@ test('catalog counters disclose unavailable or stale authority and supplier swit
   assert.match(tables, /tables\.data && !tables\.isError[\s\S]*?Salón desactualizado[\s\S]*?Salón sin verificar/);
   assert.equal((purchases.match(/inline-flex min-h-11 min-w-11[^"]*focus-visible:ring-2/g) ?? []).length, 2);
 });
+
+test('financial history never turns source failure into empty or fabricated evidence', () => {
+  const cash = source('apps/web/src/app/(app)/cash/page.tsx');
+  const reports = source('apps/web/src/app/(app)/reports/page.tsx');
+
+  assert.match(cash, /history\.isError[\s\S]*?Historial de caja no disponible[\s\S]*?history\.refetch/);
+  assert.match(cash, /!history\.isError && !history\.isLoading && history\.data\?\.length/);
+  assert.doesNotMatch(reports, /id: isCurrentSession \? 'operational-live'/);
+  assert.doesNotMatch(reports, /new Date\(\)\.toISOString\(\)/);
+  assert.match(reports, /closures\.isError[\s\S]*?Histórico no disponible[\s\S]*?closures\.refetch/);
+  assert.match(reports, /Sin cierres en el rango/);
+  assert.match(reports, /supplyAlerts\.isError[\s\S]*?Abastecimiento no disponible/);
+  assert.match(reports, /supplierNotifications\.isError[\s\S]*?Notificaciones no disponibles/);
+});

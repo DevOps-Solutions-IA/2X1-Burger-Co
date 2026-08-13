@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
@@ -15,6 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const safePathname = pathname ?? '/dashboard';
   const canAccess = canAccessRoute(safePathname, user?.permissions, user?.roles);
   const defaultRoute = resolveDefaultRoute(user);
+  const deniedHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -30,6 +31,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.replace(defaultRoute);
     }
   }, [defaultRoute, loading, router, user]);
+
+  useEffect(() => {
+    if (!loading && user && !canAccess) deniedHeadingRef.current?.focus();
+  }, [canAccess, loading, user]);
 
   if (loading || !user) {
     return (
@@ -48,7 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex min-h-[70vh] items-center justify-center p-6">
           <div className="w-full max-w-xl rounded-[2rem] border border-stone-200 bg-white p-8 text-center shadow-soft">
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-brand-900">Acceso restringido</p>
-            <h1 className="mt-3 text-[1.9rem] font-bold text-ink">No tienes permisos para este módulo</h1>
+            <h1 ref={deniedHeadingRef} tabIndex={-1} className="mt-3 text-[1.9rem] font-bold text-ink outline-none">No tienes permisos para este módulo</h1>
             <p className="mt-3 text-[13px] leading-6 text-stone-600">
               Tu sesión está activa, pero el rol asignado no permite entrar a esta sección.
             </p>

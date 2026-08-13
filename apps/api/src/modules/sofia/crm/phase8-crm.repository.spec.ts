@@ -155,6 +155,24 @@ describe('Phase8CrmRepository', () => {
     expect(auditLog).not.toHaveBeenCalled();
   });
 
+  it('treats reordered sanitized metadata as the same immutable transition evidence', async () => {
+    historyFindUnique.mockResolvedValue({
+      leadId: 'lead-1',
+      toStageId: transition.toStageId,
+      toStatus: transition.toStatus,
+      actorId: 'actor-1',
+      reasonCode: transition.reasonCode,
+      sanitizedMetadata: { source: 'operator', redacted_field_1: '[REDACTED]' },
+    });
+    leadFindUnique.mockResolvedValue({ id: 'lead-1', version: 3, status: CrmLeadStatus.ACTIVE });
+
+    await expect(repository.transitionLead('lead-1', {
+      ...transition,
+      metadata: { source: 'operator', phone: '3237963047' },
+    }, 'actor-1')).resolves.toMatchObject({ state: 'DETERMINISTIC_REPLAY' });
+    expect(historyCreate).not.toHaveBeenCalled();
+  });
+
   it('sanitizes a note and stores only its deterministic content hash', async () => {
     noteFindUnique.mockResolvedValue(null);
     noteCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'note-1', ...data }));
@@ -246,12 +264,20 @@ describe('Phase8CrmRepository', () => {
       id: 'task-1', version: 6, status: CrmTaskStatus.COMPLETED, assignedToId: 'actor-1',
     };
     const taskUpdateMany = jest.fn();
+    const updateAudit = {
+      actorId: 'actor-1',
+      after: { version: 6, status: CrmTaskStatus.COMPLETED, assignedToId: 'actor-1' },
+    };
     const taskRepository = new Phase8CrmRepository({
       crmTask: { findUnique: jest.fn().mockResolvedValue(current), updateMany: taskUpdateMany },
-      $transaction: jest.fn((operation) => operation({ crmTask: { findUnique: jest.fn().mockResolvedValue(current), updateMany: taskUpdateMany } })),
+      $transaction: jest.fn((operation) => operation({
+        crmTask: { findUnique: jest.fn().mockResolvedValue(current), updateMany: taskUpdateMany },
+        auditLog: { findFirst: jest.fn().mockResolvedValue(updateAudit) },
+      })),
     } as unknown as PrismaService, config, audit);
 
     await expect(taskRepository.updateTask('task-1', {
+      idempotencyKey: 'task-update-replay-1',
       expectedVersion: 5,
       status: CrmTaskStatus.COMPLETED,
       assignedToId: 'actor-1',
@@ -275,10 +301,12 @@ describe('Phase8CrmRepository', () => {
           }),
           updateMany: taskUpdateMany,
         },
+        auditLog: { findFirst: jest.fn().mockResolvedValue(null) },
       })),
     } as unknown as PrismaService, config, audit);
 
     await expect(taskRepository.updateTask('task-1', {
+      idempotencyKey: 'task-update-stale-1',
       expectedVersion: 5,
       status: CrmTaskStatus.IN_PROGRESS,
       assignedToId: 'actor-1',
@@ -290,13 +318,21 @@ describe('Phase8CrmRepository', () => {
     const before = { id: 'task-1', version: 5, status: CrmTaskStatus.OPEN, assignedToId: null };
     const after = { id: 'task-1', version: 6, status: CrmTaskStatus.IN_PROGRESS, assignedToId: 'actor-1' };
     const taskFindUnique = jest.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after);
+    const auditFindFirst = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        actorId: 'actor-1',
+        after: { version: 6, status: CrmTaskStatus.IN_PROGRESS, assignedToId: 'actor-1' },
+      });
     const taskRepository = new Phase8CrmRepository({
       $transaction: jest.fn((operation) => operation({
         crmTask: { findUnique: taskFindUnique, updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        auditLog: { findFirst: auditFindFirst },
       })),
     } as unknown as PrismaService, config, audit);
 
     await expect(taskRepository.updateTask('task-1', {
+      idempotencyKey: 'task-update-race-1',
       expectedVersion: 5,
       status: CrmTaskStatus.IN_PROGRESS,
       assignedToId: 'actor-1',

@@ -15,6 +15,7 @@ import { apiFetch, getStoredAccessToken, resolveApiUrl } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import { useAuth } from '@/features/auth/auth-provider';
+import { hasPermission } from '@/features/auth/access-control';
 
 type ReportMode = 'CURRENT_SESSION' | 'CUSTOM_RANGE';
 
@@ -149,7 +150,10 @@ type ComparisonBlock = z.infer<typeof comparisonBlockSchema>;
 export default function ReportsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canManageSupply = Boolean(user?.roles.some((role) => ['admin', 'inventory', 'supervisor'].includes(role)));
+  const canManageSupply = Boolean(
+    user?.roles.some((role) => ['admin', 'inventory'].includes(role))
+    && hasPermission(user?.permissions, 'suppliers.update'),
+  );
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
   const [reportMode, setReportMode] = useState<ReportMode>('CURRENT_SESSION');
   const [from, setFrom] = useState(today);
@@ -246,30 +250,14 @@ export default function ReportsPage() {
 
   const hourlyTop = useMemo(() => (salesByHour.data ?? []).filter((item) => item.total > 0).slice(0, 8), [salesByHour.data]);
   const displayClosures = useMemo(() => {
-    if ((closures.data?.length ?? 0) > 0) {
-      return (closures.data ?? []).map((closure) => ({
-        id: closure.id,
-        periodLabel: closure.periodStart.slice(0, 10),
-        createdAt: closure.createdAt,
-        responsibleUser: closure.journey?.responsibleUser || 'Sin responsable',
-        pdfPath: `/reports/daily-closures/${closure.id}/pdf`,
-      }));
-    }
-
-    if (isCurrentSession || (from === to && to === today)) {
-      return [
-        {
-          id: isCurrentSession ? 'operational-live' : `daily-${to}`,
-          periodLabel: isCurrentSession ? 'Jornada actual' : to,
-          createdAt: summary.data?.journey?.closedAt ?? new Date().toISOString(),
-          responsibleUser: summary.data?.journey?.responsibleUser || 'Sin responsable',
-          pdfPath: isCurrentSession ? '/reports/operational/pdf' : `/reports/daily/${to}/pdf`,
-        },
-      ];
-    }
-
-    return [];
-  }, [closures.data, from, isCurrentSession, summary.data?.journey?.closedAt, summary.data?.journey?.responsibleUser, to, today]);
+    return (closures.data ?? []).map((closure) => ({
+      id: closure.id,
+      periodLabel: closure.periodStart.slice(0, 10),
+      createdAt: closure.createdAt,
+      responsibleUser: closure.journey?.responsibleUser || 'Sin responsable',
+      pdfPath: `/reports/daily-closures/${closure.id}/pdf`,
+    }));
+  }, [closures.data]);
 
   const activateRangeMode = (next: Partial<{ from: string; to: string }>) => {
     setReportMode('CUSTOM_RANGE');
@@ -284,7 +272,8 @@ export default function ReportsPage() {
       ? `Desde apertura de caja: ${formatDateTime(summary.data.journey.openedAt)} hasta ahora.`
       : 'Desde apertura de caja hasta ahora.'
     : `Reporte del ${from} al ${to}. Puede no coincidir con la jornada actual.`;
-  const secondaryFailure = [closures, supplyAlerts, salesByHour, productMargins, ingredientRotation, comparisons]
+  const secondaryFailure = [closures, supplyAlerts, salesByHour, productMargins, ingredientRotation, comparisons,
+    ...(canManageSupply ? [supplierNotifications] : [])]
     .some((query) => query.isError);
   const summaryAvailable = Boolean(summary.data) && !summary.isError;
 
@@ -490,8 +479,13 @@ export default function ReportsPage() {
             </div>
           </div>
           <div className="mt-4 space-y-2">
-            {supplyAlerts.isLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />) : null}
-            {(supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group) => (
+            {supplyAlerts.isError ? (
+              <QueryState status="error" title="Abastecimiento no disponible" description="No mostramos recomendaciones sin la fuente de inventario." onRetry={() => void supplyAlerts.refetch()} />
+            ) : supplyAlerts.isLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />) : null}
+            {!supplyAlerts.isError && !supplyAlerts.isLoading && (supplyAlerts.data?.groupedBySupplier.length ?? 0) === 0 ? (
+              <EmptyState title="Sin alertas de abastecimiento" description="La fuente real no reporta insumos para reponer." />
+            ) : null}
+            {!supplyAlerts.isError && (supplyAlerts.data?.groupedBySupplier ?? []).slice(0, 5).map((group) => (
               <div key={group.supplierId ?? group.supplierName} className="rounded-xl border border-stone-200 bg-white p-3">
                 <div className="space-y-1.5">
                   {group.items.slice(0, 3).map((item) => (
@@ -633,8 +627,13 @@ export default function ReportsPage() {
             </div>
           </div>
           <div className="hide-scrollbar list-scroll-5-cards mt-5 space-y-3 pr-1" role="region" aria-label="Histórico de cierres" tabIndex={0}>
-            {closures.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-[1.5rem]" />) : null}
-            {displayClosures.map((closure) => (
+            {closures.isError ? (
+              <QueryState status="error" title="Histórico no disponible" description="No interpretamos el fallo financiero como ausencia de cierres." onRetry={() => void closures.refetch()} />
+            ) : closures.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-[1.5rem]" />) : null}
+            {!closures.isError && !closures.isLoading && displayClosures.length === 0 ? (
+              <EmptyState title="Sin cierres en el rango" description="No existen cierres guardados para las fechas seleccionadas." />
+            ) : null}
+            {!closures.isError && displayClosures.map((closure) => (
               <div key={closure.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -651,16 +650,20 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {canManageSupply && supplierNotifications.data?.length ? (
+      {canManageSupply ? (
         <Card>
           <h2 className="text-[15px] font-extrabold text-ink">Histórico de notificaciones a proveedor</h2>
           <div className="hide-scrollbar list-scroll-5-cards mt-4 grid gap-3 pr-1 md:grid-cols-2" role="region" aria-label="Histórico de notificaciones a proveedor" tabIndex={0}>
-            {supplierNotifications.data.map((notification) => (
+            {supplierNotifications.isError ? (
+              <QueryState status="error" title="Notificaciones no disponibles" description="El histórico real no respondió." onRetry={() => void supplierNotifications.refetch()} />
+            ) : supplierNotifications.isLoading ? (
+              <Skeleton className="h-24 rounded-[1.5rem]" />
+            ) : supplierNotifications.data?.length ? supplierNotifications.data.map((notification) => (
               <div key={notification.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 p-4">
                 <p className="font-medium text-ink">{notification.supplier?.name ?? 'Proveedor'}</p>
                 <p className="mt-0.5 text-[12px] text-stone-600">{notification.status} · {formatDateTime(notification.createdAt)}</p>
               </div>
-            ))}
+            )) : <EmptyState title="Sin notificaciones" description="No existen notificaciones reales a proveedores." />}
           </div>
         </Card>
       ) : null}

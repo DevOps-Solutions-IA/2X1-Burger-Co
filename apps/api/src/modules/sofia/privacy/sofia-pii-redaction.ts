@@ -17,7 +17,8 @@ export function hashPreview(value: string | null | undefined) {
 export function redactSensitiveText(value: string | null | undefined) {
   if (!value) return value ?? null;
   return value
-    .replace(/\b(?:\+?57)?3\d{9}\b/g, '[telefono-redactado]')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[correo-redactado]')
+    .replace(/(?<!\d)(?:\+?57[\s.-]*)?3(?:[\s.-]*\d){9}(?!\d)/g, '[telefono-redactado]')
     .replace(/\b(?:sk-|AIza|eyJ|or-)[A-Za-z0-9._-]{8,}\b/g, '[secreto-redactado]')
     .replace(/-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/g, '[private-key-redactada]')
     .replace(/\b\d{12,}\b/g, '[numero-largo-redactado]')

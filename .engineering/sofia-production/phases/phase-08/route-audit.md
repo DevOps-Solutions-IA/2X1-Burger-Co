@@ -75,6 +75,12 @@ is proven and bookmarks/operators have migrated.
   valid skip target and desktop scroll.
 - Root layout: `REFACTOR`; global providers and tokens only. Each operational
   shell owns exactly one valid skip link for its own main landmark.
+- CRM layout and module tabs: `BUILD_NEW`; one bounded sub-navigation using the
+  shared route-policy and responsive contracts.
+- `QueryState`, loading, error and permission surfaces: `REDESIGN`; live-region,
+  retry, fail-closed and focus-management behavior is shared by every module.
+- Tables, filters, forms, dialogs, drawers and status badges: `REFACTOR`; shared
+  tokens, accessible names, bounded rendering and canonical status semantics.
 
 Public storefront and marketing surfaces do not exist in this app tree. The
 public payment route remains explicitly out of visual scope.

@@ -27,6 +27,7 @@ export class CustomerServiceController {
   }
 
   @Get(':id')
+  @Permissions('reports.read')
   get(@Param('id') id: string) {
     return this.reads.get(id);
   }

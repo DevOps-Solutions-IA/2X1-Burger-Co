@@ -20,6 +20,7 @@ import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber, matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { focusFirstInvalidField } from '@/lib/form-accessibility';
 
 type Product = {
   id: string;
@@ -469,7 +470,10 @@ export default function ProductsPage() {
             onSubmit={(event) => {
               event.preventDefault();
               setSubmitAttempted(true);
-              if (Object.keys(formErrors).length > 0) return;
+              if (Object.keys(formErrors).length > 0) {
+                focusFirstInvalidField(event.currentTarget);
+                return;
+              }
               saveProduct.mutate();
             }}
           >

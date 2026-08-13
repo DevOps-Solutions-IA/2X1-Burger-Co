@@ -67,6 +67,21 @@ test('keeps financial review distinct from verified success', () => {
   assert.notEqual(payment.label, 'Pago verificado');
 });
 
+test('checkout financial review overrides an individually succeeded intent', () => {
+  const order = financialOrder('SUCCEEDED');
+  if (!order.orderCheckout) throw new Error('Expected checkout fixture');
+  order.orderCheckout.status = 'FINANCIAL_REVIEW_REQUIRED';
+
+  const payment = resolveOrderDetailPayment(order);
+  const historicalEvidence = resolveHistoricalPaidEvidence(order);
+
+  assert.equal(payment.authority, 'Checkout canónico');
+  assert.equal(payment.status, 'FINANCIAL_REVIEW_REQUIRED');
+  assert.equal(payment.label, 'Revisión financiera requerida');
+  assert.equal(historicalEvidence.tone, 'warning');
+  assert.notEqual(payment.label, 'Pago verificado');
+});
+
 test('renders historical PAID evidence as non-authoritative when the canonical result is unknown', () => {
   const evidence = resolveHistoricalPaidEvidence(financialOrder('UNKNOWN_RESULT'));
 

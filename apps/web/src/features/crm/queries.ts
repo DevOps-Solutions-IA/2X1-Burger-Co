@@ -129,10 +129,10 @@ export function useTransitionCrmLead() {
 export function useUpdateCrmTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { taskId: string; expectedVersion: number; status: CrmTaskStatus; assignedToId?: string }) =>
+    mutationFn: (input: { taskId: string; idempotencyKey: string; expectedVersion: number; status: CrmTaskStatus; assignedToId?: string }) =>
       apiFetchSchema(`${ROOT}/tasks/${encodeURIComponent(input.taskId)}`, crmTaskUpdateResponseSchema, {
         method: 'PATCH',
-        body: JSON.stringify({ expectedVersion: input.expectedVersion, status: input.status, assignedToId: input.assignedToId }),
+        body: JSON.stringify({ idempotencyKey: input.idempotencyKey, expectedVersion: input.expectedVersion, status: input.status, assignedToId: input.assignedToId }),
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['crm', 'tasks'] }),
   });

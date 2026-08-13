@@ -62,11 +62,9 @@ test('rider receive workflow is accessible at phone, tablet and desktop widths w
   await expectNoHorizontalOverflow(page);
   await expectAccessiblePage(page);
 
-  await menuTrigger.focus();
-  await menuTrigger.press('Enter');
-  await expect(menu).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(menu).toHaveCount(0);
+  const desktopLogout = page.getByRole('button', { name: 'Salir' });
+  await desktopLogout.focus();
+  await expect(desktopLogout).toBeFocused();
 
   expect(workflowMutations).toEqual([]);
 });

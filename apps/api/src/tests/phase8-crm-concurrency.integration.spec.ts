@@ -6,8 +6,12 @@ import {
   CrmTaskPriority,
   CrmTaskStatus,
   CrmTaskType,
+  CustomerConsentChannel,
+  CustomerConsentPurpose,
+  CustomerConsentStatus,
 } from '@prisma/client';
 import { Phase8CrmRepository } from '../modules/sofia/crm/phase8-crm.repository';
+import { SofiaCrmService } from '../modules/sofia/crm/sofia-crm.service';
 import { AuditService } from '../modules/audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { closeTestApp, createTestApp } from './helpers/test-app';
@@ -18,6 +22,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
   let prisma: PrismaService;
   let repository: Phase8CrmRepository;
   let auditService: AuditService;
+  let crmService: SofiaCrmService;
 
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -29,6 +34,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     prisma = testApp.prisma;
     repository = app.get(Phase8CrmRepository);
     auditService = app.get(AuditService);
+    crmService = app.get(SofiaCrmService);
   });
 
   afterAll(async () => closeTestApp(app));
@@ -76,6 +82,33 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     expect(note.sourceReference).toMatch(/^[a-f0-9]{64}$/);
     expect(note.body).not.toMatch(/secret\.token|hunter2|202/);
     expect(await prisma.auditLog.count({ where: { action: 'CRM_NOTE_CREATED' } })).toBe(1);
+  });
+
+  it('atomically deduplicates concurrent consent evidence with one audit event', async () => {
+    const actor = await prisma.user.create({
+      data: { email: 'crm-consent@example.test', fullName: 'CRM Consent', passwordHash: 'not-used' },
+    });
+    const customer = await prisma.customer.create({
+      data: { displayName: 'Cliente Consent', displayNameNormalized: 'cliente consent' },
+    });
+    const consent = {
+      purpose: CustomerConsentPurpose.MARKETING,
+      channel: CustomerConsentChannel.WHATSAPP,
+      source: 'ADMIN_CONSOLE',
+      evidence: 'bounded-customer-consent-evidence',
+    };
+
+    const results = await Promise.all([
+      crmService.grantOptIn(customer.id, consent, actor.id),
+      crmService.grantOptIn(customer.id, consent, actor.id),
+    ]);
+
+    expect(new Set(results.map(({ id }) => id)).size).toBe(1);
+    expect(results[0]).toMatchObject({ status: CustomerConsentStatus.GRANTED, version: 1 });
+    expect(await prisma.customerConsent.count({ where: { customerId: customer.id } })).toBe(1);
+    expect(await prisma.auditLog.count({
+      where: { action: 'CRM_CONSENT_GRANTED', entityId: results[0]!.id },
+    })).toBe(1);
   });
 
   it('deduplicates concurrent lead creation with one row, history event and audit record', async () => {
@@ -210,6 +243,7 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     }, actor.id);
     const task = await prisma.crmTask.findFirstOrThrow({ where: { customerId: customer.id } });
     const update = {
+      idempotencyKey: 'crm-task-update-replay-1',
       expectedVersion: 0,
       status: CrmTaskStatus.IN_PROGRESS,
       assignedToId: actor.id,
@@ -233,8 +267,12 @@ describe('Phase 8 CRM PostgreSQL concurrency and relational invariants', () => {
     });
     await expect(repository.updateTask(task.id, {
       ...update,
+      idempotencyKey: 'crm-task-update-different-request',
       assignedToId: otherActor.id,
     }, actor.id)).rejects.toMatchObject({ code: 'STALE_CRM_VERSION' });
+
+    await expect(repository.updateTask(task.id, update, otherActor.id))
+      .rejects.toMatchObject({ code: 'CRM_IDEMPOTENCY_CONFLICT' });
   });
 
   it('rolls back the business write when transactional audit persistence fails', async () => {

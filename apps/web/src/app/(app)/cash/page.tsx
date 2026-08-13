@@ -936,10 +936,19 @@ export default function CashPage() {
               aria-label="Historial de jornadas de caja"
               tabIndex={0}
             >
-              {history.isLoading ? Array.from({ length: 5 }).map((_, index) => (
+              {history.isError ? (
+                <div className="p-6">
+                  <QueryState
+                    status="error"
+                    title="Historial de caja no disponible"
+                    description="No interpretamos el fallo financiero como un historial vacío."
+                    onRetry={() => void history.refetch()}
+                  />
+                </div>
+              ) : history.isLoading ? Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="px-5 py-4"><Skeleton className="h-16 rounded-2xl" /></div>
               )) : null}
-              {!history.isLoading && history.data?.length ? history.data.map((session) => (
+              {!history.isError && !history.isLoading && history.data?.length ? history.data.map((session) => (
                 <div key={session.id} className="grid gap-4 px-5 py-4 md:grid-cols-[0.95fr_0.7fr_0.7fr_0.7fr]">
                   <div>
                     <p className="font-medium text-ink">{formatDate(session.openedAt)}</p>
@@ -958,7 +967,7 @@ export default function CashPage() {
                     <p className="mt-1 font-medium text-ink">{formatCurrency(session.difference)}</p>
                   </div>
                 </div>
-              )) : <div className="p-6"><EmptyState title="Tu historial de caja va a aparecer acá." description="Aquí aparecerá el histórico de caja." /></div>}
+              )) : !history.isError && !history.isLoading ? <div className="p-6"><EmptyState title="Tu historial de caja va a aparecer acá." description="Aquí aparecerá el histórico de caja." /></div> : null}
             </div>
           </Card>
         </div>

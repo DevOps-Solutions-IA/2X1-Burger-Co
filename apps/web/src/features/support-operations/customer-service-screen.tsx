@@ -24,6 +24,8 @@ import {
   type DataTableColumn,
 } from '@/components/product';
 import { ApiError } from '@/lib/api';
+import { hasPermission } from '@/features/auth/access-control';
+import { useAuth } from '@/features/auth/auth-provider';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   nextServiceCaseStatus,
@@ -47,6 +49,7 @@ const categoryLabels: Readonly<Record<ServiceCaseCategory, string>> = {
 };
 
 export function CustomerServiceScreen() {
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<ServiceCaseStatus | ''>('');
@@ -59,6 +62,10 @@ export function CustomerServiceScreen() {
   }, [searchParams]);
   const cases = useServiceCases(page, status, category);
   const selectedCase = useServiceCase(selectedId);
+  const canTransition = Boolean(
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor')
+    && hasPermission(user?.permissions, 'orders.update'),
+  );
   const pages = cases.data ? Math.ceil(cases.data.total / cases.data.limit) : 0;
 
   return (
@@ -99,7 +106,7 @@ export function CustomerServiceScreen() {
         description="Estado actual, relaciones y eventos versionados."
         mode="drawer"
       >
-        <CaseDetail query={selectedCase} />
+        <CaseDetail query={selectedCase} canTransition={canTransition} />
       </DetailDialog>
     </div>
   );
@@ -117,7 +124,7 @@ function CasesTable({ rows, onOpen }: { rows: ServiceCase[]; onOpen: (id: string
   return <DataTableShell rows={rows} columns={columns} rowKey={(row) => row.id} caption="Casos de servicio al cliente" density="compact" rowActions={(row) => <Button type="button" size="sm" variant="ghost" onClick={() => onOpen(row.id)} aria-label={`Abrir caso ${row.id}`}>Abrir</Button>} />;
 }
 
-function CaseDetail({ query }: { query: ReturnType<typeof useServiceCase> }) {
+function CaseDetail({ query, canTransition }: { query: ReturnType<typeof useServiceCase>; canTransition: boolean }) {
   const serviceCase = query.data;
   const transition = useServiceCaseTransition();
   const nextStatus = serviceCase ? nextServiceCaseStatus[serviceCase.status] : null;
@@ -168,7 +175,7 @@ function CaseDetail({ query }: { query: ReturnType<typeof useServiceCase> }) {
             </div>
           </section>
 
-          {nextStatus ? <TransitionForm serviceCase={serviceCase} nextStatus={nextStatus} pending={transition.isPending} onSubmit={(payload) => transition.mutate(payload)} /> : <div className="flex gap-3 rounded-xl border border-signal-success/30 bg-signal-success/10 p-4"><ClipboardCheck className="h-5 w-5 shrink-0 text-signal-success" /><p className="text-sm leading-6 text-ink">El caso está cerrado. Su historial permanece disponible como evidencia.</p></div>}
+          {nextStatus && canTransition ? <TransitionForm serviceCase={serviceCase} nextStatus={nextStatus} pending={transition.isPending} onSubmit={(payload) => transition.mutate(payload)} /> : nextStatus ? <QueryState status="permission_denied" title="Caso en modo consulta" description="La sesión no tiene orders.update para cambiar el estado." /> : <div className="flex gap-3 rounded-xl border border-signal-success/30 bg-signal-success/10 p-4"><ClipboardCheck className="h-5 w-5 shrink-0 text-signal-success" /><p className="text-sm leading-6 text-ink">El caso está cerrado. Su historial permanece disponible como evidencia.</p></div>}
         </div>
       ) : null}
     </QueryState>

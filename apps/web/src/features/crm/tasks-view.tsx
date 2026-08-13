@@ -36,7 +36,13 @@ export function TasksView({ type }: { type: CrmTaskType }) {
   async function updateStatus(task: CrmTask, nextStatus: CrmTaskStatus) {
     if (!canManageTasks) return;
     try {
-      await update.mutateAsync({ taskId: task.id, expectedVersion: task.version, status: nextStatus, assignedToId: task.assignedToId ?? undefined });
+      await update.mutateAsync({
+        taskId: task.id,
+        idempotencyKey: crypto.randomUUID(),
+        expectedVersion: task.version,
+        status: nextStatus,
+        assignedToId: task.assignedToId ?? undefined,
+      });
       toast.success(nextStatus === 'COMPLETED' ? 'Trabajo completado.' : 'Estado actualizado.');
     } catch (error) {
       if (isPermissionDeniedError(error)) {

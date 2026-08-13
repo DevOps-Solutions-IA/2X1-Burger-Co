@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Header, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -27,6 +28,7 @@ export class ReportsController {
   @Get('operational/pdf')
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
+  @Permissions('reports.pdf')
   async getOperationalPdf(@Res() response: Response) {
     const buffer = await this.reportsService.generateOperationalPdf();
     response.setHeader('Content-Disposition', 'inline; filename="jornada-actual.pdf"');
@@ -96,6 +98,7 @@ export class ReportsController {
   @Get('daily-closures/:id/pdf')
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
+  @Permissions('reports.pdf')
   async getDailyClosurePdf(@Param('id') id: string, @Res() response: Response) {
     const buffer = await this.reportsService.generateDailyClosurePdf(id);
     response.setHeader('Content-Disposition', `inline; filename="cierre-diario-${id}.pdf"`);
@@ -104,12 +107,14 @@ export class ReportsController {
 
   @Get('supplier-notifications')
   @Roles('admin', 'inventory', 'supervisor')
+  @Permissions('reports.read')
   listSupplierNotifications() {
     return this.reportsService.listSupplierNotifications();
   }
 
   @Post('supplier-notifications/manual')
-  @Roles('admin', 'inventory', 'supervisor')
+  @Roles('admin', 'inventory')
+  @Permissions('suppliers.update')
   createSupplierNotification(
     @Body() dto: CreateSupplierNotificationDto,
     @CurrentUser('sub') actorId: string,
@@ -120,6 +125,7 @@ export class ReportsController {
   @Get('daily/:date/pdf')
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
+  @Permissions('reports.pdf')
   async getDailyPdf(@Param('date') date: string, @Res() response: Response) {
     const buffer = await this.reportsService.generateDailyPdf(date);
     response.setHeader('Content-Disposition', `inline; filename="daily-close-${date}.pdf"`);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -11,9 +11,11 @@ export default function OperationalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     // The global logger captures technical context; the UI exposes no stack or internal metadata.
     console.error('Operational route rendering failed', { name: error.name, digest: error.digest });
+    headingRef.current?.focus();
   }, [error]);
 
   return (
@@ -23,7 +25,7 @@ export default function OperationalError({
           <AlertTriangle className="h-6 w-6" aria-hidden="true" />
         </span>
         <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-signal-danger">Modulo no disponible</p>
-        <h1 id="route-error-title" className="mt-2 text-2xl font-semibold text-ink sm:text-3xl">
+        <h1 ref={headingRef} id="route-error-title" tabIndex={-1} className="mt-2 text-2xl font-semibold text-ink outline-none sm:text-3xl">
           No pudimos mostrar esta operacion
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted">

@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/product/page-header';
 import { QueryState } from '@/components/product/query-state';
 import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
+import { focusFirstInvalidField } from '@/lib/form-accessibility';
 
 type RecipeRow = { ingredientId: string; quantity: string };
 
@@ -175,7 +176,10 @@ export default function RecipesPage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 setSubmitAttempted(true);
-                if (!isFormValid) return;
+                if (!isFormValid) {
+                  focusFirstInvalidField(event.currentTarget);
+                  return;
+                }
                 saveRecipe.mutate();
               }}
             >

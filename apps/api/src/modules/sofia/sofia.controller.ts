@@ -46,6 +46,7 @@ import { SofiaWhatsappService } from './sofia-whatsapp.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @UseInterceptors(SofiaAdminResponseSanitizerInterceptor)
 @Roles('admin', 'cashier', 'supervisor')
+@Permissions('orders.read')
 export class SofiaController {
   constructor(
     private readonly sofiaService: SofiaService,
@@ -276,6 +277,7 @@ export class SofiaController {
   }
 
   @Post('conversations/:id/handoff')
+  @Permissions('orders.update')
   handoff(
     @Param('id') id: string,
     @Body() dto: MarkConversationHandoffDto,
@@ -285,53 +287,62 @@ export class SofiaController {
   }
 
   @Post('conversations/:id/resolve')
+  @Permissions('orders.update')
   resolve(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.resolveConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/pause')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   pauseConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.pauseConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/resume')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   resumeConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.resumeConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/take-over')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   takeOverConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.takeOverConversation(id, actor.sub);
   }
 
   @Post('conversations/:id/release')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   releaseConversation(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.releaseConversation(id, actor.sub);
   }
 
   @Post('outbound/:id/approve-send')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   approveOutbound(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.approveSend(id, actor.sub);
   }
 
   @Post('outbound/:id/cancel')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   cancelOutbound(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaWhatsappService.cancelOutbound(id, actor.sub);
   }
 
   @Post('outbound/:id/retry')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   retryOutbound(@Param('id') id: string) {
     return this.sofiaWhatsappService.retryOutbound(id);
   }
 
   @Post('order-drafts')
+  @Permissions('orders.create')
   createDraft(@Body() dto: CreateSofiaOrderDraftDto, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.createDraft(dto, actor.sub);
   }
@@ -347,6 +358,7 @@ export class SofiaController {
   }
 
   @Patch('order-drafts/:id')
+  @Permissions('orders.update')
   updateDraft(
     @Param('id') id: string,
     @Body() dto: UpdateSofiaOrderDraftDto,
@@ -356,17 +368,20 @@ export class SofiaController {
   }
 
   @Post('order-drafts/:id/confirm')
+  @Permissions('orders.update')
   confirmDraft(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.confirmDraft(id, actor.sub);
   }
 
   @Post('order-drafts/:id/cancel')
+  @Permissions('orders.update')
   cancelDraft(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.cancelDraft(id, actor.sub);
   }
 
   @Post('delivery-orders/from-draft/:draftId')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.create', 'delivery.update')
   createDeliveryOrderFromDraft(
     @Param('draftId') draftId: string,
     @CurrentUser() actor: AuthUser,
@@ -386,6 +401,7 @@ export class SofiaController {
 
   @Patch('delivery-orders/:id/status')
   @Roles('admin', 'supervisor')
+  @Permissions('delivery.update')
   updateDeliveryOrderStatus(
     @Param('id') id: string,
     @Body() dto: UpdateWhatsappDeliveryOrderStatusDto,
@@ -436,6 +452,7 @@ export class SofiaController {
 
   @Post('learning/feedback')
   @Roles('admin', 'supervisor')
+  @Permissions('orders.update')
   createLearningFeedback(@Body() dto: Record<string, unknown>, @CurrentUser() actor: AuthUser) {
     return this.humanFeedbackService.createFeedback(
       {
@@ -491,6 +508,7 @@ export class SofiaController {
 
   @Post('retention/run')
   @Roles('admin')
+  @Permissions('settings.update')
   retentionRun(@Body() dto: Record<string, unknown>, @CurrentUser() actor: AuthUser) {
     return this.retentionService.run({ confirm: dto.confirm === true }, actor.sub);
   }
@@ -503,12 +521,14 @@ export class SofiaController {
 
   @Post('alerts/check')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   checkSofiaAlerts() {
     return this.alertsService.check();
   }
 
   @Post('alerts/:id/ack')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   ackSofiaAlert(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.alertsService.ack(id, actor.sub);
   }
@@ -521,6 +541,7 @@ export class SofiaController {
 
   @Post('backups/dry-run')
   @Roles('admin')
+  @Permissions('settings.update')
   runSofiaBackupDryRun(@CurrentUser() actor: AuthUser) {
     return this.backupsService.dryRun(actor.sub);
   }
@@ -614,18 +635,21 @@ export class SofiaController {
 
   @Post('governance/pause')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   pauseGovernance(@Body() dto: PauseSofiaGovernanceDto, @CurrentUser() actor: AuthUser) {
     return this.governanceService.pauseGlobal(actor.sub, dto.reason);
   }
 
   @Post('governance/resume')
   @Roles('admin', 'supervisor')
+  @Permissions('settings.update')
   resumeGovernance(@CurrentUser() actor: AuthUser) {
     return this.governanceService.resumeGlobal(actor.sub);
   }
 
   @Post('governance/settings')
   @Roles('admin')
+  @Permissions('settings.update')
   updateGovernanceSettings(@Body() dto: UpdateSofiaGovernanceSettingsDto, @CurrentUser() actor: AuthUser) {
     return this.governanceService.updateGovernanceSettings(actor.sub, dto);
   }

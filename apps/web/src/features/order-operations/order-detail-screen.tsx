@@ -19,6 +19,14 @@ function detailState(error: unknown, isPending: boolean, hasData: boolean) {
 
 export function resolveOrderDetailPayment(order: OrderDetail) {
   const intent = order.orderCheckout?.paymentIntents[0] ?? null;
+  if (order.orderCheckout?.status === 'FINANCIAL_REVIEW_REQUIRED') {
+    return {
+      authority: 'Checkout canónico',
+      status: 'FINANCIAL_REVIEW_REQUIRED',
+      label: 'Revisión financiera requerida',
+      description: 'El checkout invalida cualquier lectura aislada de un intento exitoso hasta completar la revisión financiera.',
+    };
+  }
   if (order.orderCheckout && intent) {
     return {
       authority: 'Checkout e intento de pago canónicos',
@@ -74,7 +82,9 @@ export function resolveOrderDetailPayment(order: OrderDetail) {
 }
 
 export function resolveHistoricalPaidEvidence(order: OrderDetail) {
-  const canonicalStatus = order.orderCheckout?.paymentIntents[0]?.status;
+  const canonicalStatus = order.orderCheckout?.status === 'FINANCIAL_REVIEW_REQUIRED'
+    ? 'FINANCIAL_REVIEW_REQUIRED'
+    : order.orderCheckout?.paymentIntents[0]?.status;
   const canonicalResultIsUncertain = canonicalStatus === 'UNKNOWN_RESULT'
     || canonicalStatus === 'FINANCIAL_REVIEW_REQUIRED';
 

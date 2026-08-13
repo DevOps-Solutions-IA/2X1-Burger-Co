@@ -65,8 +65,20 @@ function page<T>(data: T[], total: number, input: { page: number; limit: number 
   };
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return value ?? null;
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 
 @Injectable()
@@ -146,24 +158,6 @@ export class Phase8CrmRepository {
       action: 'CRM_REFERENCE_HASH_ROTATED',
       module: 'sofia.crm',
       entity: 'CrmNote',
-      entityId: row.id,
-      after: { hashVersion: 'CURRENT' },
-    }, client);
-    return promoted;
-  }
-
-  private async promoteLeadTransitionReference(
-    client: PrismaService | Prisma.TransactionClient,
-    row: { id: string },
-    idempotencyKey: string,
-    actorId: string,
-  ) {
-    const promoted = await client.crmLeadStageHistory.update({ where: { id: row.id }, data: { idempotencyKey } });
-    await this.auditService.log({
-      actorId,
-      action: 'CRM_REFERENCE_HASH_ROTATED',
-      module: 'sofia.crm',
-      entity: 'CrmLeadStageHistory',
       entityId: row.id,
       after: { hashVersion: 'CURRENT' },
     }, client);
@@ -362,7 +356,7 @@ export class Phase8CrmRepository {
           tx.crmLeadStageHistory.findUnique({
             where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
           })
-        ), (row, currentReference) => this.promoteLeadTransitionReference(tx, row, currentReference, actorId));
+        ));
         if (replay) return this.leadTransitionReplay(tx, replay, input, actorId, metadata);
 
         const current = await tx.crmLead.findUnique({ where: { id: leadId } });
@@ -420,7 +414,7 @@ export class Phase8CrmRepository {
         this.prisma.crmLeadStageHistory.findUnique({
           where: { leadId_idempotencyKey: { leadId, idempotencyKey: reference } },
         })
-      ), (row, currentReference) => this.promoteLeadTransitionReference(this.prisma, row, currentReference, actorId));
+      ));
       if (!replay) throw error;
       return this.leadTransitionReplay(this.prisma, replay, input, actorId, metadata);
     }
@@ -508,12 +502,16 @@ export class Phase8CrmRepository {
   }
 
   async updateTask(taskId: string, input: UpdateCrmTaskDto, actorId: string) {
+    const idempotencyKeys = this.opaqueReferences(`task-update:${taskId}`, input.idempotencyKey);
+    const idempotencyKey = idempotencyKeys[0];
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.crmTask.findUnique({ where: { id: taskId } });
       if (!current) throw new CrmPersistenceError('CRM_NOT_FOUND');
-      if (this.isTaskUpdateReplay(current, input)) {
+      const replayAudit = await this.findTaskUpdateAudit(tx, taskId, idempotencyKeys);
+      if (replayAudit && this.isTaskUpdateReplay(current, input, replayAudit, actorId)) {
         return { state: 'DETERMINISTIC_REPLAY' as const, task: current };
       }
+      if (replayAudit) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
       if (current.version !== input.expectedVersion) throw new CrmPersistenceError('STALE_CRM_VERSION');
       if (current.status === CrmTaskStatus.COMPLETED || current.status === CrmTaskStatus.CANCELLED) {
         throw new CrmPersistenceError('CRM_CONFLICT');
@@ -531,9 +529,11 @@ export class Phase8CrmRepository {
       });
       if (changed.count !== 1) {
         const raced = await tx.crmTask.findUnique({ where: { id: taskId } });
-        if (raced && this.isTaskUpdateReplay(raced, input)) {
+        const racedAudit = await this.findTaskUpdateAudit(tx, taskId, idempotencyKeys);
+        if (raced && racedAudit && this.isTaskUpdateReplay(raced, input, racedAudit, actorId)) {
           return { state: 'DETERMINISTIC_REPLAY' as const, task: raced };
         }
+        if (racedAudit) throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
         throw new CrmPersistenceError('STALE_CRM_VERSION');
       }
       const task = await tx.crmTask.findUniqueOrThrow({ where: { id: taskId } });
@@ -543,7 +543,8 @@ export class Phase8CrmRepository {
         module: 'sofia.crm',
         entity: 'CrmTask',
         entityId: task.id,
-        after: { status: task.status, version: task.version },
+        idempotencyKey,
+        after: { status: task.status, version: task.version, assignedToId: task.assignedToId },
       }, tx);
       return { state: 'UPDATED' as const, task };
     });
@@ -872,13 +873,38 @@ export class Phase8CrmRepository {
     return { state: 'DETERMINISTIC_REPLAY' as const, task: row };
   }
 
+  private findTaskUpdateAudit(
+    client: Pick<Prisma.TransactionClient, 'auditLog'>,
+    taskId: string,
+    idempotencyKeys: readonly string[],
+  ) {
+    return client.auditLog.findFirst({
+      where: {
+        module: 'sofia.crm',
+        action: 'CRM_TASK_UPDATED',
+        entityId: taskId,
+        idempotencyKey: { in: [...idempotencyKeys] },
+      },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+    });
+  }
+
   private isTaskUpdateReplay(
     row: { version: number; status: CrmTaskStatus; assignedToId: string | null },
     input: UpdateCrmTaskDto,
+    audit: { actorId: string | null; after: Prisma.JsonValue | null },
+    actorId: string,
   ): boolean {
+    const after = audit.after && typeof audit.after === 'object' && !Array.isArray(audit.after)
+      ? audit.after as Record<string, Prisma.JsonValue>
+      : null;
     return row.version === input.expectedVersion + 1
       && row.status === input.status
-      && (input.assignedToId === undefined || row.assignedToId === input.assignedToId);
+      && (input.assignedToId === undefined || row.assignedToId === input.assignedToId)
+      && audit.actorId === actorId
+      && after?.version === row.version
+      && after?.status === row.status
+      && after?.assignedToId === row.assignedToId;
   }
 
   private async assertCustomerBindings(

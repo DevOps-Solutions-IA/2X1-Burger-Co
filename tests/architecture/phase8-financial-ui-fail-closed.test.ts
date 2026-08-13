@@ -66,3 +66,24 @@ test('cash sale actions retain at least 44px touch targets', () => {
   assert.equal((cash.match(/className="h-11 w-11 min-w-0 rounded-full p-0"/g) ?? []).length, 2);
   assert.equal((cash.match(/className="min-h-11 min-w-0 rounded-full px-3 text-\[11px\]"/g) ?? []).length, 2);
 });
+
+test('financial review remains authoritative over an isolated succeeded intent', () => {
+  const presentation = readFileSync(resolve(repositoryRoot, 'apps/web/src/features/order-operations/presentation.ts'), 'utf8');
+  const orderDetail = readFileSync(resolve(repositoryRoot, 'apps/web/src/features/order-operations/order-detail-screen.tsx'), 'utf8');
+
+  assert.match(presentation, /checkout\?\.status === 'FINANCIAL_REVIEW_REQUIRED'[\s\S]*?return 'FINANCIAL_REVIEW_REQUIRED'/);
+  assert.match(orderDetail, /order\.orderCheckout\?\.status === 'FINANCIAL_REVIEW_REQUIRED'[\s\S]*?authority: 'Checkout canónico'/);
+  assert.match(orderDetail, /canonicalStatus = order\.orderCheckout\?\.status === 'FINANCIAL_REVIEW_REQUIRED'/);
+});
+
+test('kitchen and customer service mutations require explicit capabilities', () => {
+  const kitchen = readFileSync(resolve(repositoryRoot, 'apps/web/src/features/order-operations/kitchen-screen.tsx'), 'utf8');
+  const support = readFileSync(resolve(repositoryRoot, 'apps/web/src/features/support-operations/customer-service-screen.tsx'), 'utf8');
+
+  assert.match(kitchen, /hasPermission\(user\?\.permissions, 'orders\.update'\)/);
+  assert.match(kitchen, /canTransition \? \(/);
+  assert.match(kitchen, /label="Solo consulta"/);
+  assert.match(support, /hasPermission\(user\?\.permissions, 'orders\.update'\)/);
+  assert.match(support, /nextStatus && canTransition/);
+  assert.match(support, /status="permission_denied"/);
+});

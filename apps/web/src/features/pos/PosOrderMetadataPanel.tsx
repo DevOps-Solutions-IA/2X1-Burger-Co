@@ -115,7 +115,7 @@ export function PosOrderMetadataPanel({
                 <button
                   key={snippet}
                   type="button"
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${isActive ? 'border-brand-300 bg-brand-50 text-brand-900' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-300 hover:text-brand-900'}`}
+                  className={`min-h-11 rounded-full border px-3 py-2 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${isActive ? 'border-brand-300 bg-brand-50 text-brand-900' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-300 hover:text-brand-900'}`}
                   onClick={() => onOrderNotesChange((current) => toggleNoteSnippet(current, snippet))}
                 >
                   {snippet}

@@ -272,49 +272,67 @@ export class SofiaCrmService {
   }
 
   async grantOptIn(customerId: string, dto: CustomerConsentDto, actorId: string) {
-    await this.assertCustomer(customerId);
-    const previous = await this.latestConsent(customerId, dto);
-    const now = new Date();
-    const consent = await this.prisma.customerConsent.create({
-      data: {
-        customerId,
-        purpose: dto.purpose,
-        channel: dto.channel,
-        status: CustomerConsentStatus.GRANTED,
-        source: dto.source.trim(),
-        evidenceHash: this.hashEvidence(dto.evidence),
-        version: (previous?.version ?? 0) + 1,
-        grantedAt: now,
-      },
-    });
-
-    await this.auditConsent('CRM_CONSENT_GRANTED', consent, actorId);
-    return consent;
+    const source = dto.source.trim();
+    const evidenceHash = this.hashEvidence(dto.evidence);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.assertCustomer(customerId, tx);
+        const previous = await this.latestConsent(customerId, dto, tx);
+        if (previous?.status === CustomerConsentStatus.GRANTED) {
+          if (previous.source === source && previous.evidenceHash === evidenceHash) return previous;
+          throw new ConflictException('Ya existe un opt-in vigente con evidencia diferente.');
+        }
+        const consent = await tx.customerConsent.create({
+          data: {
+            customerId,
+            purpose: dto.purpose,
+            channel: dto.channel,
+            status: CustomerConsentStatus.GRANTED,
+            source,
+            evidenceHash,
+            version: (previous?.version ?? 0) + 1,
+            grantedAt: new Date(),
+          },
+        });
+        await this.auditConsent('CRM_CONSENT_GRANTED', consent, actorId, tx);
+        return consent;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      return this.recoverConsentReplay(error, customerId, dto, actorId, CustomerConsentStatus.GRANTED, source, evidenceHash);
+    }
   }
 
   async revokeOptIn(customerId: string, dto: CustomerConsentDto, actorId: string) {
-    await this.assertCustomer(customerId);
-    const previous = await this.latestConsent(customerId, dto);
-    if (!previous || previous.status !== CustomerConsentStatus.GRANTED) {
-      throw new BadRequestException('No existe un opt-in vigente para revocar.');
+    const source = dto.source.trim();
+    const evidenceHash = this.hashEvidence(dto.evidence);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.assertCustomer(customerId, tx);
+        const previous = await this.latestConsent(customerId, dto, tx);
+        if (previous?.status === CustomerConsentStatus.REVOKED
+          && previous.source === source && previous.evidenceHash === evidenceHash) return previous;
+        if (!previous || previous.status !== CustomerConsentStatus.GRANTED) {
+          throw new BadRequestException('No existe un opt-in vigente para revocar.');
+        }
+        const consent = await tx.customerConsent.create({
+          data: {
+            customerId,
+            purpose: dto.purpose,
+            channel: dto.channel,
+            status: CustomerConsentStatus.REVOKED,
+            source,
+            evidenceHash,
+            version: previous.version + 1,
+            grantedAt: previous.grantedAt,
+            revokedAt: new Date(),
+          },
+        });
+        await this.auditConsent('CRM_CONSENT_REVOKED', consent, actorId, tx);
+        return consent;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      return this.recoverConsentReplay(error, customerId, dto, actorId, CustomerConsentStatus.REVOKED, source, evidenceHash);
     }
-
-    const consent = await this.prisma.customerConsent.create({
-      data: {
-        customerId,
-        purpose: dto.purpose,
-        channel: dto.channel,
-        status: CustomerConsentStatus.REVOKED,
-        source: dto.source.trim(),
-        evidenceHash: this.hashEvidence(dto.evidence),
-        version: previous.version + 1,
-        grantedAt: previous.grantedAt,
-        revokedAt: new Date(),
-      },
-    });
-
-    await this.auditConsent('CRM_CONSENT_REVOKED', consent, actorId);
-    return consent;
   }
 
   async listTimeline(customerId: string, dto: ListTimelineDto) {
@@ -599,8 +617,11 @@ export class SofiaCrmService {
     }
   }
 
-  private async assertCustomer(customerId: string) {
-    const customer = await this.prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
+  private async assertCustomer(
+    customerId: string,
+    client: Pick<Prisma.TransactionClient, 'customer'> = this.prisma,
+  ) {
+    const customer = await client.customer.findUnique({ where: { id: customerId }, select: { id: true } });
     if (!customer) throw new NotFoundException('Cliente CRM no encontrado.');
   }
 
@@ -612,8 +633,12 @@ export class SofiaCrmService {
     throw new ConflictException(error.code);
   }
 
-  private latestConsent(customerId: string, dto: CustomerConsentDto) {
-    return this.prisma.customerConsent.findFirst({
+  private latestConsent(
+    customerId: string,
+    dto: CustomerConsentDto,
+    client: Pick<Prisma.TransactionClient, 'customerConsent'> = this.prisma,
+  ) {
+    return client.customerConsent.findFirst({
       where: { customerId, purpose: dto.purpose, channel: dto.channel },
       orderBy: { version: 'desc' },
     });
@@ -640,6 +665,7 @@ export class SofiaCrmService {
       version: number;
     },
     actorId: string,
+    client: Prisma.TransactionClient,
   ) {
     await this.auditService.log({
       actorId,
@@ -655,7 +681,36 @@ export class SofiaCrmService {
         source: consent.source,
         version: consent.version,
       },
+    }, client);
+  }
+
+  private async recoverConsentReplay(
+    error: unknown,
+    customerId: string,
+    dto: CustomerConsentDto,
+    actorId: string,
+    status: CustomerConsentStatus,
+    source: string,
+    evidenceHash: string,
+  ) {
+    const concurrencyConflict = error instanceof Prisma.PrismaClientKnownRequestError
+      && (error.code === 'P2002' || error.code === 'P2034');
+    if (!concurrencyConflict) throw error;
+    const winner = await this.latestConsent(customerId, dto);
+    if (winner?.status === status && winner.source === source && winner.evidenceHash === evidenceHash) {
+      return winner;
+    }
+    await this.auditService.log({
+      actorId,
+      action: 'CRM_CONSENT_CONFLICT',
+      module: 'sofia.crm',
+      entity: 'CustomerConsent',
+      entityId: customerId,
+      result: 'REJECTED',
+      reasonCode: 'CRM_CONSENT_CONCURRENCY_CONFLICT',
+      after: { purpose: dto.purpose, channel: dto.channel, requestedStatus: status },
     });
+    throw new ConflictException('El consentimiento cambió en otra sesión.');
   }
 
   private serializeCustomerSummary(customer: {

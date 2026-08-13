@@ -35,6 +35,7 @@ export const paymentStatusLabels: Record<PaymentIntentStatus, string> = {
 };
 
 export function currentPaymentStatus(checkout: CheckoutSummary) {
+  if (checkout?.status === 'FINANCIAL_REVIEW_REQUIRED') return 'FINANCIAL_REVIEW_REQUIRED';
   return checkout?.paymentIntents[0]?.status ?? null;
 }
 

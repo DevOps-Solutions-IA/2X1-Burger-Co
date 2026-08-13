@@ -18,7 +18,10 @@ export default function ConversationDetailPage() {
   const conversationId = params?.conversationId ?? '';
   const { user } = useAuth();
   const canRead = hasPermission(user?.permissions, 'orders.read');
-  const canGovern = Boolean(user?.roles.some((role) => role === 'admin' || role === 'supervisor'));
+  const canGovern = Boolean(
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor')
+    && hasPermission(user?.permissions, 'orders.update'),
+  );
   const detail = useConversationDetail(conversationId, canRead);
   const conversation = detail.data;
 

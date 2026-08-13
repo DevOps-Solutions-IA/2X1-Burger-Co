@@ -72,6 +72,7 @@ export function sanitizeTimelineMetadata(value: unknown, depth = 0): unknown {
 
   return Object.fromEntries(
     Object.entries(value)
+      .sort(([left], [right]) => left.normalize('NFKC').trim().localeCompare(right.normalize('NFKC').trim()))
       .slice(0, 30)
       .map(([key, entry], index) => {
         const normalizedKey = key.normalize('NFKC').trim();
