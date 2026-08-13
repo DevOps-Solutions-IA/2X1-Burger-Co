@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
+import { GlobalSearch } from '@/features/search/global-search';
 import { useAuth } from '@/features/auth/auth-provider';
 import { hasPermission } from '@/features/auth/access-control';
 
@@ -283,10 +284,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="absolute inset-x-0 inset-y-0 rounded-[2rem] bg-gradient-to-b from-surface via-surface/95 to-surface/70 backdrop-blur-sm" />
               <div className="relative rounded-[2rem] border border-white/[0.08] bg-black px-6 py-3 shadow-2xl">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex min-w-0 items-center gap-3">
                     <p className="text-[12px] font-semibold capitalize text-white whitespace-nowrap">{today}</p>
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
                     <p className="hidden truncate text-[11px] font-medium text-stone-400 sm:block">Centro operativo</p>
+                  </div>
+                  <div className="hidden min-w-0 flex-1 justify-center px-4 xl:flex">
+                    <GlobalSearch />
                   </div>
                   <div
                     className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"

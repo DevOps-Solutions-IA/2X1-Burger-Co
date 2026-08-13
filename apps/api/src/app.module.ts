@@ -30,6 +30,7 @@ import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { SofiaModule } from './modules/sofia/sofia.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { ReleaseModule } from './release/release.module';
+import { GlobalSearchModule } from './modules/search/global-search.module';
 import { SecureCommandModule } from './modules/secure-command/secure-command.module';
 import { OrderCheckoutModule } from './modules/order-checkout/order-checkout.module';
 
@@ -72,6 +73,7 @@ import { OrderCheckoutModule } from './modules/order-checkout/order-checkout.mod
     WhatsappModule,
     SofiaModule,
     ReleaseModule,
+    GlobalSearchModule,
     SecureCommandModule,
     OrderCheckoutModule,
   ],
