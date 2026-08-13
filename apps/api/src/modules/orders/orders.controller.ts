@@ -16,6 +16,8 @@ import { SyncWaiterOrderDto } from './dto/sync-waiter-order.dto';
 import { UpdateOperationalAlertDto } from './dto/update-operational-alert.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
+import { KitchenTransitionDto } from './dto/kitchen-transition.dto';
+import { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -71,6 +73,28 @@ export class OrdersController {
   @Roles('admin', 'cashier', 'supervisor')
   findAll(@Query('status') status?: string, @Query('activeOnly') activeOnly?: string) {
     return this.ordersService.findAll(status, activeOnly === 'true');
+  }
+
+  @Get('operations/list')
+  @Roles('admin', 'cashier', 'supervisor')
+  listOperational(@Query() query: ListOperationalOrdersDto) {
+    return this.ordersService.listOperational(query);
+  }
+
+  @Get('kitchen/queue')
+  @Roles('admin', 'cashier', 'supervisor')
+  listKitchenQueue(@Query() query: ListOperationalOrdersDto) {
+    return this.ordersService.listKitchenQueue(query);
+  }
+
+  @Post(':id/kitchen-transition')
+  @Roles('admin', 'cashier', 'supervisor')
+  transitionKitchen(
+    @Param('id') id: string,
+    @Body() dto: KitchenTransitionDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.ordersService.transitionKitchen(id, dto, actor);
   }
 
   @Get(':id/delivery-receipt')

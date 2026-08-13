@@ -20,13 +20,20 @@ describe('Phase 5 architecture boundaries', () => {
     expect(orchestration).not.toMatch(/PrismaService|this\.prisma|\$transaction/);
   });
 
-  it('exposes only the bounded public payment controller and does not import Sofia orchestration', () => {
+  it('exposes bounded public payment and protected read-only administration without Sofia orchestration', () => {
     const moduleSource = source('order-checkout.module.ts');
-    expect(moduleSource).toContain('controllers: [CanonicalPublicPaymentsController, CanonicalPaymentWebhooksController]');
+    expect(moduleSource).toContain(
+      'controllers: [CanonicalPublicPaymentsController, CanonicalPaymentWebhooksController, AdminPaymentReadController]',
+    );
     expect(moduleSource).not.toMatch(/SofiaAgentService|SofiaService|CommercialCheckoutService/);
-    const controller = source('canonical-public-payments.controller.ts');
-    expect(controller).toContain("@Controller('public/payments')");
-    expect(controller).not.toMatch(/OrderCheckoutService|OrdersService|PrismaService|BoldPaymentProvider/);
+    const publicController = source('canonical-public-payments.controller.ts');
+    expect(publicController).toContain("@Controller('public/payments')");
+    expect(publicController).not.toMatch(/OrderCheckoutService|OrdersService|PrismaService|BoldPaymentProvider/);
+    const adminController = source('admin-payment-read.controller.ts');
+    expect(adminController).toContain("@Controller('admin/payments')");
+    expect(adminController).toContain('@UseGuards(JwtAuthGuard, RolesGuard)');
+    expect(adminController).toContain("@Roles('admin', 'supervisor')");
+    expect(adminController).not.toMatch(/@Post|@Patch|@Put|@Delete|PrismaService|BoldPaymentProvider/);
   });
 
   it('keeps all production gates false and creates exactly migration 36', () => {

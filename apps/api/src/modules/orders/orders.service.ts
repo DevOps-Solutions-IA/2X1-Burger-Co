@@ -50,6 +50,8 @@ import { ReopenOrderTicketDto } from './dto/reopen-order-ticket.dto';
 import { SyncWaiterOrderDto } from './dto/sync-waiter-order.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
+import type { KitchenTransitionDto } from './dto/kitchen-transition.dto';
+import type { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
@@ -708,6 +710,145 @@ export class OrdersService {
       include: orderInclude,
       orderBy: { openedAt: 'desc' },
     });
+  }
+
+  async listOperational(query: ListOperationalOrdersDto) {
+    const where = this.operationalOrderWhere(query);
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.orderTicket.count({ where }),
+      this.prisma.orderTicket.findMany({
+        where,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          status: true,
+          type: true,
+          customerName: true,
+          customerPhone: true,
+          subtotal: true,
+          deliveryFee: true,
+          deliveryWorkflowStatus: true,
+          deliveryStatusUpdatedAt: true,
+          openedAt: true,
+          updatedAt: true,
+          assignedWaiter: { select: { id: true, fullName: true, accessName: true } },
+          assignedRider: { select: { id: true, fullName: true } },
+          orderCheckout: {
+            select: {
+              id: true,
+              status: true,
+              paymentPreference: true,
+              paymentIntents: {
+                select: { id: true, status: true, provider: true },
+                orderBy: { attemptNumber: 'desc' },
+                take: 1,
+              },
+            },
+          },
+          _count: { select: { items: true, customerServiceCases: true } },
+        },
+        orderBy: [{ openedAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return { items, page: query.page, limit: query.limit, total };
+  }
+
+  async listKitchenQueue(query: ListOperationalOrdersDto) {
+    const where: Prisma.OrderTicketWhereInput = {
+      ...this.operationalOrderWhere(query),
+      status: query.status ?? { in: [OrderTicketStatus.OPEN, OrderTicketStatus.IN_PREPARATION] },
+    };
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.orderTicket.count({ where }),
+      this.prisma.orderTicket.findMany({
+        where,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          status: true,
+          type: true,
+          customerName: true,
+          notes: true,
+          openedAt: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              productId: true,
+              quantity: true,
+              notes: true,
+              modifiersSnapshot: true,
+              product: { select: { name: true, code: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+          orderCheckout: {
+            select: {
+              id: true,
+              status: true,
+              paymentPreference: true,
+              paymentIntents: {
+                select: { id: true, status: true, provider: true },
+                orderBy: { attemptNumber: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+        orderBy: [{ openedAt: 'asc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return { items, page: query.page, limit: query.limit, total };
+  }
+
+  async transitionKitchen(id: string, dto: KitchenTransitionDto, actor: AuthUser) {
+    const order = await this.prisma.orderTicket.findUnique({
+      where: { id },
+      select: { id: true, status: true, revision: true },
+    });
+    if (!order) throw new NotFoundException({ code: 'ORDER_TICKET_NOT_FOUND' });
+    if (order.revision !== dto.expectedRevision) {
+      throw new ConflictException({ code: 'STALE_ORDER_REVISION' });
+    }
+    const expectedStatus = dto.action === 'START_PREPARATION'
+      ? OrderTicketStatus.OPEN
+      : OrderTicketStatus.IN_PREPARATION;
+    const nextStatus = dto.action === 'START_PREPARATION'
+      ? OrderTicketStatus.IN_PREPARATION
+      : OrderTicketStatus.SERVED;
+    if (order.status !== expectedStatus) {
+      throw new ConflictException({ code: 'KITCHEN_TRANSITION_BLOCKED' });
+    }
+    return this.update(id, { status: nextStatus, expectedRevision: dto.expectedRevision }, actor);
+  }
+
+  private operationalOrderWhere(query: ListOperationalOrdersDto): Prisma.OrderTicketWhereInput {
+    const activeStatuses = { in: ACTIVE_ORDER_STATUSES };
+    const search = query.q?.trim();
+    return {
+      ...(query.status
+        ? { status: query.status }
+        : query.activeOnly === 'true'
+          ? { status: activeStatuses }
+          : {}),
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.deliveryWorkflowStatus ? { deliveryWorkflowStatus: query.deliveryWorkflowStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { number: { contains: search, mode: 'insensitive' } },
+              { customerName: { contains: search, mode: 'insensitive' } },
+              { customerPhone: { contains: search } },
+            ],
+          }
+        : {}),
+    };
   }
 
   private assertDeliveryOrder(order: {
