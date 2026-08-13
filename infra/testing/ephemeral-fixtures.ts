@@ -458,6 +458,21 @@ async function main() {
       dueAt: new Date(FIXED_TIME.getTime() + 86_400_000),
     },
   });
+  await prisma.crmNote.upsert({
+    where: { id: 'e2e-crm-note' },
+    update: {},
+    create: {
+      id: 'e2e-crm-note',
+      customerId: crmCustomer.id,
+      leadId: lead.id,
+      source: 'E2E_FIXTURE',
+      sourceReference: 'E2E-CRM-NOTE-0001',
+      body: 'Deterministic CRM note for recovery reconciliation.',
+      contentHash: 'd'.repeat(64),
+      authorId: admin.id,
+      createdAt: FIXED_TIME,
+    },
+  });
 
   void secondStage;
 

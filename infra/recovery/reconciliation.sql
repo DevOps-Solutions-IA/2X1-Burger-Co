@@ -20,7 +20,13 @@ WITH summary AS (
       'settings', (SELECT COUNT(*) FROM settings),
       'whatsappConversations', (SELECT COUNT(*) FROM whatsapp_conversations),
       'whatsappInbound', (SELECT COUNT(*) FROM whatsapp_inbound_events),
-      'whatsappOutbound', (SELECT COUNT(*) FROM whatsapp_outbound_messages)
+      'whatsappOutbound', (SELECT COUNT(*) FROM whatsapp_outbound_messages),
+      'crmPipelines', (SELECT COUNT(*) FROM crm_pipelines),
+      'crmPipelineStages', (SELECT COUNT(*) FROM crm_pipeline_stages),
+      'crmLeads', (SELECT COUNT(*) FROM crm_leads),
+      'crmLeadStageHistory', (SELECT COUNT(*) FROM crm_lead_stage_history),
+      'crmTasks', (SELECT COUNT(*) FROM crm_tasks),
+      'crmNotes', (SELECT COUNT(*) FROM crm_notes)
     ),
     'financial', jsonb_build_object(
       'salesSubtotal', (SELECT COALESCE(SUM(subtotal), 0)::text FROM sales),
@@ -44,7 +50,13 @@ WITH summary AS (
       'products', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, code, "currentStock", "salePrice"), '||' ORDER BY id), '')) FROM products),
       'inventoryMovements', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, "ingredientId", "productId", type, quantity, "balanceAfter"), '||' ORDER BY id), '')) FROM inventory_movements),
       'auditLogs', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, action, module, entity, "entityId", "createdAt"), '||' ORDER BY id), '')) FROM audit_logs),
-      'settings', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, key, md5(value::text)), '||' ORDER BY id), '')) FROM settings)
+      'settings', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, key, md5(value::text)), '||' ORDER BY id), '')) FROM settings),
+      'crmPipelines', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, name_normalized, status, version, created_by_id), '||' ORDER BY id), '')) FROM crm_pipelines),
+      'crmPipelineStages', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, pipeline_id, name_normalized, position, outcome), '||' ORDER BY id), '')) FROM crm_pipeline_stages),
+      'crmLeads', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, customer_id, pipeline_id, current_stage_id, source, source_reference, status, version, owner_id), '||' ORDER BY id), '')) FROM crm_leads),
+      'crmLeadStageHistory', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, lead_id, pipeline_id, version, idempotency_key, from_stage_id, to_stage_id, from_status, to_status, actor_id, reason_code, md5(COALESCE(sanitized_metadata::text, ''))), '||' ORDER BY id), '')) FROM crm_lead_stage_history),
+      'crmTasks', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, customer_id, lead_id, customer_service_case_id, source, source_reference, type, status, priority, title, md5(COALESCE(sanitized_description, '')), assigned_to_id, due_at, completed_at, cancelled_at, version), '||' ORDER BY id), '')) FROM crm_tasks),
+      'crmNotes', (SELECT md5(COALESCE(string_agg(concat_ws('|', id, customer_id, lead_id, customer_service_case_id, source, source_reference, content_hash, author_id, md5(body)), '||' ORDER BY id), '')) FROM crm_notes)
     )
   ) AS value
 )

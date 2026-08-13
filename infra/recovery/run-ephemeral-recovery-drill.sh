@@ -157,7 +157,7 @@ EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" ADMIN_EMAIL=admin.e2e@i
 
 "${compose[@]}" exec -T source-db psql -U "$DB_USER" -d "$SOURCE_DB" -At <infra/recovery/reconciliation.sql >"$EVIDENCE_DIR/source-reconciliation.json"
 jq -e --argjson expected "$EXPECTED_MIGRATION_COUNT" \
-  '.schema.appliedMigrations == $expected and .schema.failedMigrations == 0 and .counts.users > 0 and .counts.sales > 0 and .counts.orders > 0' \
+  '.schema.appliedMigrations == $expected and .schema.failedMigrations == 0 and .counts.users > 0 and .counts.sales > 0 and .counts.orders > 0 and .counts.crmPipelines > 0 and .counts.crmPipelineStages > 0 and .counts.crmLeads > 0 and .counts.crmLeadStageHistory > 0 and .counts.crmTasks > 0 and .counts.crmNotes > 0' \
   "$EVIDENCE_DIR/source-reconciliation.json" >/dev/null
 
 BACKUP_START_MS="$(date +%s%3N)"
@@ -208,15 +208,10 @@ chmod 600 "$RESTORED_BACKUP"
 "${compose[@]}" exec -T restore-db pg_restore -U "$DB_USER" -d "$RESTORE_DB" --exit-on-error --no-owner --no-privileges <"$RESTORED_BACKUP" >"$EVIDENCE_DIR/restore.log" 2>&1
 "${compose[@]}" exec -T restore-db psql -U "$DB_USER" -d "$RESTORE_DB" -At <infra/recovery/reconciliation.sql >"$EVIDENCE_DIR/restore-reconciliation.json"
 
-node - "$EVIDENCE_DIR/source-reconciliation.json" "$EVIDENCE_DIR/restore-reconciliation.json" "$EVIDENCE_DIR/reconciliation-result.json" <<'NODE'
-const fs = require('node:fs');
-const [sourcePath, restorePath, output] = process.argv.slice(2);
-const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-const restored = JSON.parse(fs.readFileSync(restorePath, 'utf8'));
-const equal = JSON.stringify(source) === JSON.stringify(restored);
-fs.writeFileSync(output, `${JSON.stringify({ status: equal ? 'PASS' : 'FAIL', equal, source, restored }, null, 2)}\n`);
-if (!equal) process.exitCode = 1;
-NODE
+node infra/recovery/reconciliation.mjs \
+  "$EVIDENCE_DIR/source-reconciliation.json" \
+  "$EVIDENCE_DIR/restore-reconciliation.json" \
+  "$EVIDENCE_DIR/reconciliation-result.json"
 
 cat >"$STATUS_FILE" <<EOF
 {"status":"PASS","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","checksumVerified":true,"restoreVerified":true}
