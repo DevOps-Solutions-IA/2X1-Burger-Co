@@ -11,22 +11,23 @@ describe('RolesGuard persistent audit context', () => {
   const prisma = { auditLog: { create: auditCreate } } as unknown as PrismaService;
   const auditContext = new AuditContextService();
   const auditService = new AuditService(prisma, auditContext);
-  const reflector = { getAllAndOverride: jest.fn() } as unknown as Reflector;
+  const reflector = { getAllAndOverride: jest.fn(), getAllAndMerge: jest.fn() } as unknown as Reflector;
   const guard = new RolesGuard(reflector, auditService, auditContext);
 
   beforeEach(() => {
     jest.clearAllMocks();
     (reflector.getAllAndOverride as jest.Mock).mockReturnValue(['admin']);
+    (reflector.getAllAndMerge as jest.Mock).mockReturnValue([]);
   });
 
-  function principal(role: string | null): AuthUser {
+  function principal(role: string | null, permissions: string[] = []): AuthUser {
     return {
       sub: `actor-${role ?? 'none'}`,
       email: `${role ?? 'none'}@invalid.local`,
       fullName: role ?? 'No role',
       sessionVersion: 1,
       roles: role ? [role] : [],
-      permissions: [],
+      permissions,
     };
   }
 
@@ -61,6 +62,14 @@ describe('RolesGuard persistent audit context', () => {
     );
     expect(allowed).toBe(true);
     expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it('requires role and explicit permission when both policies are present', async () => {
+    (reflector.getAllAndMerge as jest.Mock).mockReturnValue(['reports.read']);
+
+    await expect(guard.canActivate(execution(principal('admin')))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(execution(principal(null, ['reports.read'])))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(execution(principal('admin', ['reports.read'])))).resolves.toBe(true);
   });
 
   it.each([

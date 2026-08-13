@@ -180,6 +180,7 @@ jobs:
       - name: Phase 8 product, CRM and receive-only suites
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/common/guards/phase8-permission-boundaries.spec.ts \
             src/modules/customer-service/customer-service.controller.spec.ts \
             src/modules/order-checkout/admin-payment-read.service.spec.ts \
             src/modules/order-checkout/order-checkout.architecture.spec.ts \

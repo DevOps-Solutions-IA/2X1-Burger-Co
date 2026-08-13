@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import type { AuthUser } from '../../../common/types/auth-user.type';
@@ -29,6 +30,7 @@ import { SofiaCrmService } from './sofia-crm.service';
 
 @Controller('admin/sofia/crm')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('orders.read')
 export class SofiaCrmController {
   constructor(private readonly crmService: SofiaCrmService) {}
 

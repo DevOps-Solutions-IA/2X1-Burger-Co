@@ -1,7 +1,9 @@
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../../common/types/auth-user.type';
 import { CustomerServiceController } from './customer-service.controller';
 import type { CustomerServiceCaseReadService } from './customer-service-case-read.service';
-import type { CustomerServiceCaseService } from './customer-service-case.service';
+import { CustomerServiceCaseError, type CustomerServiceCaseService } from './customer-service-case.service';
+import { CustomerServiceCasePersistenceError } from './persistence/prisma-customer-service-case.repository';
 
 describe('CustomerServiceController transition replay boundary', () => {
   const actor: AuthUser = {
@@ -40,5 +42,28 @@ describe('CustomerServiceController transition replay boundary', () => {
       actorId: 'supervisor-1',
       idempotencyKey: dto.idempotencyKey,
     }));
+  });
+
+  it.each([
+    [new CustomerServiceCasePersistenceError('CASE_NOT_FOUND'), NotFoundException],
+    [new CustomerServiceCasePersistenceError('STALE_CASE_VERSION'), ConflictException],
+    [new CustomerServiceCasePersistenceError('CASE_IDEMPOTENCY_CONFLICT'), ConflictException],
+    [new CustomerServiceCaseError('CUSTOMER_SERVICE_CASE_TRANSITION_BLOCKED'), ConflictException],
+    [new CustomerServiceCaseError('CUSTOMER_SERVICE_CASE_INPUT_INVALID'), BadRequestException],
+    [new CustomerServiceCaseError('CUSTOMER_SERVICE_CASE_ACTOR_REQUIRED'), BadRequestException],
+  ])('maps expected domain failure %s to an actionable HTTP exception', async (error, expected) => {
+    const transition = jest.fn().mockRejectedValue(error);
+    const controller = new CustomerServiceController(
+      { transition } as unknown as CustomerServiceCaseService,
+      {} as CustomerServiceCaseReadService,
+    );
+
+    await expect(controller.transition('case-1', {
+      expectedVersion: 0,
+      fromStatus: 'OPEN',
+      toStatus: 'HUMAN_REQUIRED',
+      idempotencyKey: 'phase8-ui:case-1:0:OPEN:HUMAN_REQUIRED:REVIEW',
+      reasonCode: 'REVIEW',
+    }, actor)).rejects.toBeInstanceOf(expected);
   });
 });
