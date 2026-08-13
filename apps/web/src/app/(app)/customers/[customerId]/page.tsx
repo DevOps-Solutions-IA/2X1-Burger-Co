@@ -122,7 +122,7 @@ export default function CustomerDetailPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(19rem,0.75fr)] xl:items-start">
-              <main className="space-y-6">
+              <div className="space-y-6">
                 <section className="rounded-2xl border border-line bg-panel p-4 shadow-sm sm:p-5" aria-labelledby="customer-timeline-heading">
                   <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -164,7 +164,7 @@ export default function CustomerDetailPage() {
                     <UnavailableDomain title="Casos de servicio" description="El contrato actual no incluye casos de recuperación vinculados." />
                   </div>
                 </section>
-              </main>
+              </div>
 
               <aside className="space-y-4" aria-label="Datos protegidos del cliente">
                 <section className="rounded-2xl border border-line bg-panel p-4 shadow-sm">

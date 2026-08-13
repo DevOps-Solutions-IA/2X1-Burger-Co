@@ -226,7 +226,7 @@ export default function IngredientsPage() {
   }, [editIngredientId, ingredients.data]);
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="ingredients-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="ingredients-page">
       <PageHeader
         eyebrow="Catálogo operativo"
         title="Insumos"
@@ -461,6 +461,6 @@ export default function IngredientsPage() {
           onCancel={() => setConfirmDelete(null)}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

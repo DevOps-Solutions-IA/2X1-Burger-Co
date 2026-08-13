@@ -110,7 +110,7 @@ export default function CategoriesPage() {
   });
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="categories-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="categories-page">
       <PageHeader
         eyebrow="Catálogo operativo"
         title="Categorías"
@@ -302,6 +302,6 @@ export default function CategoriesPage() {
           onCancel={() => setConfirmDelete(null)}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

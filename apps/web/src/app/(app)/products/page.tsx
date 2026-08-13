@@ -298,7 +298,7 @@ export default function ProductsPage() {
   }, [editProductId, products.data]);
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="products-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="products-page">
       <PageHeader
         eyebrow="Catálogo operativo"
         title="Productos — Carta y stock"
@@ -621,6 +621,6 @@ export default function ProductsPage() {
           onCancel={() => setConfirmDelete(null)}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

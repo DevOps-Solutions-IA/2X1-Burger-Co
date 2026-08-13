@@ -128,7 +128,7 @@ export default function RecipesPage() {
   const catalogLoading = products.isLoading || ingredients.isLoading;
 
   return (
-    <main className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="recipes-page">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="recipes-page">
       <PageHeader
         eyebrow="Producción gobernada"
         title="Recetas — El secreto de cada plato"
@@ -271,6 +271,6 @@ export default function RecipesPage() {
         </Card>
       </div>
       </QueryState>
-    </main>
+    </div>
   );
 }
