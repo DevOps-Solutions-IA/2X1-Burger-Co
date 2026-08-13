@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   CrmLeadStatus,
   CrmPipelineStageOutcome,
@@ -63,7 +64,20 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 @Injectable()
 export class Phase8CrmRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private opaqueReference(namespace: string, value: string): string {
+    const configuredSecret = this.configService.get<string>('CRM_IDENTITY_HASH_SECRET')?.trim();
+    const secret = configuredSecret
+      || (process.env.NODE_ENV === 'test' ? 'crm-test-only-identity-hash-secret' : undefined);
+    if (!secret || secret.length < 32) {
+      throw new ServiceUnavailableException('CRM identity hashing is not configured.');
+    }
+    return opaqueCrmReference(secret, namespace, value);
+  }
 
   async listPipelines(input: ListCrmPipelinesDto) {
     const where: Prisma.CrmPipelineWhereInput = input.status ? { status: input.status } : {};
@@ -178,7 +192,7 @@ export class Phase8CrmRepository {
 
   async createLead(input: CreateCrmLeadDto, actorId: string) {
     const title = sanitizeTimelineText(input.title.trim()).slice(0, 160);
-    const sourceReference = opaqueCrmReference(`lead:${input.source}`, input.sourceReference);
+    const sourceReference = this.opaqueReference(`lead:${input.source}`, input.sourceReference);
     const existing = await this.prisma.crmLead.findUnique({
       where: { source_sourceReference: { source: input.source, sourceReference } },
     });
@@ -211,7 +225,7 @@ export class Phase8CrmRepository {
           data: {
             leadId: lead.id,
             version: 0,
-            idempotencyKey: opaqueCrmReference('lead:create', `${input.source}:${sourceReference}`),
+            idempotencyKey: this.opaqueReference('lead:create', `${input.source}:${sourceReference}`),
             fromStageId: null,
             toStageId: input.currentStageId,
             fromStatus: null,
@@ -235,7 +249,7 @@ export class Phase8CrmRepository {
 
   async transitionLead(leadId: string, input: TransitionCrmLeadDto, actorId: string) {
     const metadata = sanitizeTimelineMetadata(input.metadata) as Prisma.InputJsonValue | undefined;
-    const idempotencyKey = opaqueCrmReference(`lead-transition:${leadId}`, input.idempotencyKey);
+    const idempotencyKey = this.opaqueReference(`lead-transition:${leadId}`, input.idempotencyKey);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const replay = await tx.crmLeadStageHistory.findUnique({
@@ -320,7 +334,7 @@ export class Phase8CrmRepository {
 
   async createTask(input: CreateCrmTaskDto) {
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
-    const sourceReference = opaqueCrmReference(`task:${source}`, input.sourceReference);
+    const sourceReference = this.opaqueReference(`task:${source}`, input.sourceReference);
     const normalized = {
       title: sanitizeTimelineText(input.title.trim()).slice(0, 160),
       description: input.description ? sanitizeTimelineText(input.description.trim()).slice(0, 1_000) : null,
@@ -410,7 +424,7 @@ export class Phase8CrmRepository {
     const body = sanitizeTimelineText(input.body.trim()).slice(0, 2_000);
     const contentHash = createHash('sha256').update(body, 'utf8').digest('hex');
     const source = sanitizeTimelineText(input.source.trim()).slice(0, 64);
-    const sourceReference = opaqueCrmReference(`note:${source}`, input.sourceReference);
+    const sourceReference = this.opaqueReference(`note:${source}`, input.sourceReference);
     const existing = await this.prisma.crmNote.findUnique({
       where: { source_sourceReference: { source, sourceReference } },
     });
@@ -606,7 +620,7 @@ export class Phase8CrmRepository {
   }, input: CreateCrmLeadDto, title: string) {
     if (row.customerId !== input.customerId || row.pipelineId !== input.pipelineId
       || row.currentStageId !== input.currentStageId
-      || row.sourceReference !== opaqueCrmReference(`lead:${input.source}`, input.sourceReference)
+      || row.sourceReference !== this.opaqueReference(`lead:${input.source}`, input.sourceReference)
       || row.title !== title || row.ownerId !== (input.ownerId ?? null)) {
       throw new CrmPersistenceError('CRM_IDEMPOTENCY_CONFLICT');
     }

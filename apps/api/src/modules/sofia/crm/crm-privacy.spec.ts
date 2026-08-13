@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
 import { maskPhone, opaqueCrmReference, sanitizeTimelineMetadata, sanitizeTimelineText } from './crm-privacy';
+
+const REFERENCE_SECRET = 'crm-test-only-identity-hash-secret';
 
 describe('Sofia CRM privacy', () => {
   it('masks Colombian phones without retaining the complete identity', () => {
@@ -49,12 +52,26 @@ describe('Sofia CRM privacy', () => {
   });
 
   it('converts technical source identities into stable opaque references', () => {
-    const first = opaqueCrmReference('task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');
-    const second = opaqueCrmReference('task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');
+    const first = opaqueCrmReference(REFERENCE_SECRET, 'task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');
+    const second = opaqueCrmReference(REFERENCE_SECRET, 'task:AUTHORIZED_OPERATOR', 'phone=+57 323 796 3047');
 
     expect(first).toBe(second);
     expect(first).toMatch(/^[a-f0-9]{64}$/);
     expect(first).not.toContain('3047');
+  });
+
+  it('uses keyed domain separation rather than an offline-enumerable plain digest', () => {
+    const value = 'phone=+57 323 796 3047';
+    const taskReference = opaqueCrmReference(REFERENCE_SECRET, 'task:AUTHORIZED_OPERATOR', value);
+    const noteReference = opaqueCrmReference(REFERENCE_SECRET, 'note:AUTHORIZED_OPERATOR', value);
+    const otherKeyReference = opaqueCrmReference('different-test-only-secret-value-32', 'task:AUTHORIZED_OPERATOR', value);
+    const enumerableLegacyDigest = createHash('sha256')
+      .update('task:AUTHORIZED_OPERATOR\0phone=+57 323 796 3047', 'utf8')
+      .digest('hex');
+
+    expect(taskReference).not.toBe(noteReference);
+    expect(taskReference).not.toBe(otherKeyReference);
+    expect(taskReference).not.toBe(enumerableLegacyDigest);
   });
 
   it('sanitizes phone and email values in timeline content and metadata', () => {

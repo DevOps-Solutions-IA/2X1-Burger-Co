@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
 const SENSITIVE_KEY = /(address|authorization|body|credential|email|message|payload|phone|raw|secret|token|whatsapp)/i;
 const PHONE_PATTERN = /(?:\+?57[\s-]?)?3(?:[\s-]?\d){9}/g;
@@ -42,8 +42,10 @@ export function sanitizeTimelineText(value: string): string {
     .slice(0, 1_000);
 }
 
-export function opaqueCrmReference(namespace: string, value: string): string {
-  return createHash('sha256')
+export function opaqueCrmReference(secret: string, namespace: string, value: string): string {
+  return createHmac('sha256', secret)
+    .update('SOFIA_CRM_OPAQUE_REFERENCE_V1', 'utf8')
+    .update('\0', 'utf8')
     .update(namespace.normalize('NFKC').trim(), 'utf8')
     .update('\0', 'utf8')
     .update(value.normalize('NFKC').trim(), 'utf8')

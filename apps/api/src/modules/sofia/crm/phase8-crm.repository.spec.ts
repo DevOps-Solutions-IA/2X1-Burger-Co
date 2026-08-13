@@ -5,10 +5,16 @@ import {
   CrmTaskStatus,
   CrmTaskType,
 } from '@prisma/client';
+import type { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { CrmPersistenceError, Phase8CrmRepository } from './phase8-crm.repository';
 
 describe('Phase8CrmRepository', () => {
+  const config = {
+    get: jest.fn((key: string) => key === 'CRM_IDENTITY_HASH_SECRET'
+      ? 'crm-test-only-identity-hash-secret'
+      : undefined),
+  } as unknown as ConfigService;
   const leadFindUnique = jest.fn();
   const leadFindUniqueOrThrow = jest.fn();
   const leadUpdateMany = jest.fn();
@@ -38,7 +44,7 @@ describe('Phase8CrmRepository', () => {
     crmLeadStageHistory: { findUnique: historyFindUnique },
     crmNote: { findUnique: noteFindUnique, create: noteCreate },
   } as unknown as PrismaService;
-  const repository = new Phase8CrmRepository(prisma);
+  const repository = new Phase8CrmRepository(prisma, config);
 
   const transition = {
     expectedVersion: 2,
@@ -70,6 +76,27 @@ describe('Phase8CrmRepository', () => {
     leadFindUniqueOrThrow.mockResolvedValue({
       id: 'lead-1', currentStageId: 'stage-target', status: CrmLeadStatus.ACTIVE, version: 3,
     });
+  });
+
+  it.each([undefined, 'short-secret'])('fails closed outside tests when the HMAC secret is %s', async (secret) => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const unavailableRepository = new Phase8CrmRepository(prisma, {
+      get: jest.fn().mockReturnValue(secret),
+    } as unknown as ConfigService);
+
+    try {
+      await expect(unavailableRepository.createTask({
+        customerId: 'customer-001',
+        source: 'AUTHORIZED_OPERATOR',
+        sourceReference: 'task-1',
+        type: CrmTaskType.TASK,
+        priority: CrmTaskPriority.MEDIUM,
+        title: 'Follow up',
+      })).rejects.toThrow('CRM identity hashing is not configured.');
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
   });
 
   it('updates the lead once and appends the matching immutable version event', async () => {
@@ -148,7 +175,7 @@ describe('Phase8CrmRepository', () => {
     });
     const taskRepository = new Phase8CrmRepository({
       crmTask: { findUnique: taskFindUnique },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, config);
 
     await expect(taskRepository.createTask({
       customerId: 'customer-001', source: 'AUTHORIZED_OPERATOR', sourceReference: 'task-1',
@@ -163,7 +190,7 @@ describe('Phase8CrmRepository', () => {
     const taskUpdateMany = jest.fn();
     const taskRepository = new Phase8CrmRepository({
       crmTask: { findUnique: jest.fn().mockResolvedValue(current), updateMany: taskUpdateMany },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, config);
 
     await expect(taskRepository.updateTask('task-1', {
       expectedVersion: 5,
@@ -182,7 +209,7 @@ describe('Phase8CrmRepository', () => {
         }),
         updateMany: taskUpdateMany,
       },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, config);
 
     await expect(taskRepository.updateTask('task-1', {
       expectedVersion: 5,
@@ -198,7 +225,7 @@ describe('Phase8CrmRepository', () => {
     const taskFindUnique = jest.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after);
     const taskRepository = new Phase8CrmRepository({
       crmTask: { findUnique: taskFindUnique, updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    } as unknown as PrismaService);
+    } as unknown as PrismaService, config);
 
     await expect(taskRepository.updateTask('task-1', {
       expectedVersion: 5,
