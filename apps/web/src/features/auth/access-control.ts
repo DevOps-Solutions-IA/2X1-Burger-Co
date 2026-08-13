@@ -56,6 +56,16 @@ export function hasAllowedRole(roles: string[] | undefined, allowedRoles?: reado
 
 const CRM_MUTATION_ROLES = ['admin', 'supervisor'] as const;
 
+const DEFAULT_ROUTE_BY_ROLE = [
+  { role: 'waiter', path: '/waiter' },
+  { role: 'delivery', path: '/delivery' },
+  { role: 'rider', path: '/delivery' },
+  { role: 'admin', path: '/dashboard' },
+  { role: 'supervisor', path: '/dashboard' },
+  { role: 'cashier', path: '/dashboard' },
+  { role: 'inventory', path: '/inventory' },
+] as const;
+
 export function canMutateCrm(roles: string[] | undefined) {
   return hasAllowedRole(roles, CRM_MUTATION_ROLES);
 }
@@ -81,13 +91,11 @@ export function resolveDefaultRoute(user: { roles?: string[]; permissions?: stri
     return '/login';
   }
 
-  if (user.roles?.includes('waiter') && hasPermission(user.permissions, 'orders.create')) {
-    return '/waiter';
-  }
+  const destination = DEFAULT_ROUTE_BY_ROLE.find(
+    ({ role, path }) =>
+      user.roles?.includes(role)
+      && canAccessRoute(path, user.permissions, user.roles),
+  );
 
-  if (user.roles?.includes('delivery') && hasPermission(user.permissions, 'delivery.read')) {
-    return '/delivery';
-  }
-
-  return '/dashboard';
+  return destination?.path ?? '/login';
 }

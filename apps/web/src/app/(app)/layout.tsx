@@ -14,6 +14,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const safePathname = pathname ?? '/dashboard';
   const canAccess = canAccessRoute(safePathname, user?.permissions, user?.roles);
+  const defaultRoute = resolveDefaultRoute(user);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -22,10 +23,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [loading, router, user]);
 
   useEffect(() => {
-    if (!loading && (user?.roles.includes('waiter') || user?.roles.includes('delivery'))) {
-      router.replace(resolveDefaultRoute(user));
+    if (
+      !loading
+      && user?.roles.some((role) => role === 'waiter' || role === 'delivery' || role === 'rider')
+    ) {
+      router.replace(defaultRoute);
     }
-  }, [loading, router, safePathname, user]);
+  }, [defaultRoute, loading, router, user]);
 
   if (loading || !user) {
     return (
@@ -50,7 +54,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </p>
             <div className="mt-6 flex justify-center">
               <Button asChild>
-                <Link href="/dashboard">Volver al dashboard</Link>
+                <Link href={defaultRoute}>Volver a mi inicio</Link>
               </Button>
             </div>
           </div>
