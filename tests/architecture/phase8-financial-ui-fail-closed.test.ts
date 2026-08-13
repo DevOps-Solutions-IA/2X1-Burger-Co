@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 
-function pageSource(name: 'cash' | 'reports') {
+function pageSource(name: 'cash' | 'reports' | 'inventory' | 'categories' | 'recipes') {
   return readFileSync(resolve(repositoryRoot, `apps/web/src/app/(app)/${name}/page.tsx`), 'utf8');
 }
 
@@ -20,6 +20,32 @@ test('cash financial evidence is gated by successful sources', () => {
   assert.match(cash, /data-testid="cash-use-expected"[\s\S]*?disabled=\{financialMetricsUnavailable\}/);
   assert.match(cash, /sales\.isError \? \(/);
   assert.match(cash, /sales\.isSuccess && sales\.data\.length === 0/);
+  assert.match(cash, /const closeChecklistAvailable = Boolean\(closeChecklist\.data\) && !closeChecklist\.error/);
+  assert.match(cash, /data-testid="cash-close-checklist-values"/);
+  assert.match(cash, /data-testid="cash-close-checklist-unavailable"/);
+  assert.match(cash, /closeChecklistAvailable \? \([\s\S]*?value=\{closeChecklist\.data\?\.activeOrdersCount \?\? 0\}[\s\S]*?cash-close-checklist-unavailable/);
+});
+
+test('inventory empty and success claims require authoritative query results', () => {
+  const inventory = pageSource('inventory');
+
+  assert.match(inventory, /reorderSuggestions\.isError \? 'error' : criticalAlerts\.length \? 'ready' : 'empty'/);
+  assert.match(inventory, /stockCounts\.isError \? 'error' : stockCounts\.data\?\.length \? 'ready' : 'empty'/);
+  assert.match(inventory, /movements\.isError \? 'error' : movements\.data\?\.length \? 'ready' : 'empty'/);
+  assert.match(inventory, /La fuente de reposición no está disponible; no asumimos que el inventario está en orden/);
+  assert.doesNotMatch(inventory, /\?\? 0\}<\/Badge>/);
+});
+
+test('team and catalog counters do not fabricate zero while their sources are unavailable', () => {
+  const team = readFileSync(resolve(repositoryRoot, 'apps/web/src/features/governance/team-workspace.tsx'), 'utf8');
+  const categories = pageSource('categories');
+  const recipes = pageSource('recipes');
+
+  assert.match(team, /const counts = useMemo\(\(\) => users\.data && !users\.isError \? \(\{/);
+  assert.match(team, /value=\{counts\?\.total\} unavailable=\{!counts\}/);
+  assert.match(categories, /label="Categorías sin verificar"/);
+  assert.match(recipes, /const catalogAvailable = Boolean\(products\.data\) && Boolean\(ingredients\.data\)/);
+  assert.match(recipes, /label="Recetas sin verificar"/);
 });
 
 test('reports renders detail only for validated summary data', () => {

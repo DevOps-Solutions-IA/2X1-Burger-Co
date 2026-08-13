@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -291,7 +290,7 @@ export default function InventoryPage() {
         title="Inventario"
         description="Existencias, movimientos, conteos y reposición con trazabilidad operacional."
         status={
-          stock.data ? (
+          stock.data && !stock.isError ? (
             <StatusBadge
               status={(stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount) > 0 ? 'ATTENTION' : 'AVAILABLE'}
               label={`${stock.data.metrics.lowStockCount + stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount} alertas`}
@@ -319,12 +318,12 @@ export default function InventoryPage() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <MetricSurface density="compact" label="Ítems con stock" value={stock.data ? formatNumber(stock.data.metrics.totalItems) : undefined} context="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data} />
-        <MetricSurface density="compact" label="Productos" value={stock.data ? formatNumber(stock.data.metrics.productsCount) : undefined} context="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} unavailable={!stock.data} />
-        <MetricSurface density="compact" label="Insumos" value={stock.data ? formatNumber(stock.data.metrics.ingredientsCount) : undefined} context="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data} />
-        <MetricSurface density="compact" label="Bajo stock" value={stock.data ? formatNumber(stock.data.metrics.lowStockCount) : undefined} context="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} unavailable={!stock.data} />
-        <MetricSurface density="compact" label="Críticos" value={stock.data ? formatNumber(stock.data.metrics.criticalStockCount) : undefined} context="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} unavailable={!stock.data} />
-        <MetricSurface density="compact" label="Ajustes hoy" value={stock.data ? formatNumber(stock.data.metrics.adjustmentsToday) : undefined} context="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} unavailable={!stock.data} />
+        <MetricSurface density="compact" label="Ítems con stock" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.totalItems) : undefined} context="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Productos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.productsCount) : undefined} context="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Insumos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.ingredientsCount) : undefined} context="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Bajo stock" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.lowStockCount) : undefined} context="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Críticos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.criticalStockCount) : undefined} context="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Ajustes hoy" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.adjustmentsToday) : undefined} context="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.7fr_0.3fr]">
@@ -400,7 +399,14 @@ export default function InventoryPage() {
         <Card>
           <h2 className="text-lg font-semibold lg:text-[1.12rem]">¡Atención! Stock crítico</h2>
           <div className="mt-4 space-y-2">
-            {criticalAlerts.length ? criticalAlerts.map((item) => (
+            <QueryState
+              status={reorderSuggestions.isLoading ? 'loading' : reorderSuggestions.isError ? 'error' : criticalAlerts.length ? 'ready' : 'empty'}
+              title={reorderSuggestions.isError ? 'No pudimos verificar el stock crítico' : 'Nada crítico hoy'}
+              description={reorderSuggestions.isError ? 'La fuente de reposición no está disponible; no asumimos que el inventario está en orden.' : 'No hay productos agotados ni en nivel crítico.'}
+              onRetry={reorderSuggestions.isError ? () => void reorderSuggestions.refetch() : undefined}
+              skeletonRows={2}
+            >
+            {criticalAlerts.map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
                 href={`/inventory?edit=${item.id}&itemType=${item.itemType ?? 'PRODUCT'}`}
@@ -422,7 +428,8 @@ export default function InventoryPage() {
                   </Badge>
                 </div>
               </Link>
-            )) : <EmptyState title="Nada crítico hoy" description="No hay productos agotados ni en nivel crítico. Todo en orden." />}
+            ))}
+            </QueryState>
           </div>
         </Card>
       </div>
@@ -554,7 +561,7 @@ export default function InventoryPage() {
                 <h2 className="text-lg font-semibold lg:text-[1.12rem]">Historial</h2>
                 <p className="mt-1 text-[13px] leading-6 text-stone-500">Conteos anteriores y sus resultados.</p>
               </div>
-              <Badge tone="default">{stockCounts.data?.length ?? 0}</Badge>
+              <Badge tone="default">{stockCounts.data && !stockCounts.isError ? stockCounts.data.length : 'Sin verificar'}</Badge>
             </div>
           </div>
           <div
@@ -563,15 +570,21 @@ export default function InventoryPage() {
             aria-label="Historial de conteos de inventario"
             tabIndex={0}
           >
-            {stockCounts.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
-            {!stockCounts.isLoading && stockCounts.data?.length ? stockCounts.data.map((session) => (
+            <QueryState
+              status={stockCounts.isLoading ? 'loading' : stockCounts.isError ? 'error' : stockCounts.data?.length ? 'ready' : 'empty'}
+              title={stockCounts.isError ? 'No pudimos verificar los conteos' : 'Sin conteos'}
+              description={stockCounts.isError ? 'El historial no está disponible; no lo presentamos como vacío.' : 'Cuando registres un conteo, lo vas a ver acá.'}
+              onRetry={stockCounts.isError ? () => void stockCounts.refetch() : undefined}
+            >
+            {stockCounts.data?.map((session) => (
               <div key={session.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 px-4 py-4">
                 <p className="font-medium text-ink">{translateScope(session.scope)}</p>
                 <p className="mt-1 text-[12px] text-stone-500">
                   {session.items.length} líneas · {formatDateTime(session.createdAt)}
                 </p>
               </div>
-            )) : <EmptyState title="Sin conteos" description="Cuando registres un conteo, lo vas a ver acá." />}
+            ))}
+            </QueryState>
           </div>
         </Card>
       </div>
@@ -583,7 +596,7 @@ export default function InventoryPage() {
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">Movimientos</h2>
               <p className="mt-1 text-[13px] leading-6 text-stone-500">Entradas, salidas y ajustes del día con trazabilidad de responsable y saldo.</p>
             </div>
-            <Badge tone="default">{movements.data?.length ?? 0}</Badge>
+            <Badge tone="default">{movements.data && !movements.isError ? movements.data.length : 'Sin verificar'}</Badge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
             <Input value={movementSearch} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Buscar movimiento" />
@@ -610,8 +623,14 @@ export default function InventoryPage() {
               <span className="text-right">Fecha</span>
             </div>
             <div className="divide-y divide-stone-100">
-              {movements.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="m-4 h-20 rounded-2xl" />) : null}
-              {!movements.isLoading && (movements.data ?? []).map((movement) => {
+              <QueryState
+                status={movements.isLoading ? 'loading' : movements.isError ? 'error' : movements.data?.length ? 'ready' : 'empty'}
+                title={movements.isError ? 'No pudimos verificar los movimientos' : 'Sin movimientos todavía'}
+                description={movements.isError ? 'La trazabilidad no está disponible; no la presentamos como vacía.' : 'Cuando haya entradas o salidas de stock, las vas a ver acá.'}
+                onRetry={movements.isError ? () => void movements.refetch() : undefined}
+                className="m-4"
+              >
+              {(movements.data ?? []).map((movement) => {
                 const movementTone = getMovementTone(movement.type);
                 return (
                 <div key={movement.id} className={`border-l-[3px] px-4 py-4 text-sm ${movementTone.border}`}>
@@ -650,11 +669,7 @@ export default function InventoryPage() {
                 </div>
                 );
               })}
-              {!movements.isLoading && !(movements.data ?? []).length ? (
-                <div className="p-6">
-                  <EmptyState title="Sin movimientos todavía" description="Cuando haya entradas o salidas de stock, las vas a ver acá." />
-                </div>
-              ) : null}
+              </QueryState>
             </div>
           </div>
         </Card>
@@ -666,7 +681,7 @@ export default function InventoryPage() {
                 <h2 className="text-lg font-semibold lg:text-[1.12rem]">Compra sugerida</h2>
                 <p className="mt-1 text-[13px] leading-6 text-stone-500">Basado en tu consumo real. Lo que necesitás reponer.</p>
               </div>
-              <Badge tone="default">{reorderSuggestions.data?.alerts?.length ?? 0}</Badge>
+              <Badge tone="default">{reorderSuggestions.data && !reorderSuggestions.isError ? reorderSuggestions.data.alerts.length : 'Sin verificar'}</Badge>
             </div>
           </div>
           <div
@@ -675,7 +690,13 @@ export default function InventoryPage() {
             aria-label="Compra sugerida de inventario"
             tabIndex={0}
           >
-            {reorderSuggestions.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
+            <QueryState
+              status={reorderSuggestions.isLoading ? 'loading' : reorderSuggestions.isError ? 'error' : reorderSuggestions.data?.alerts.length ? 'ready' : 'empty'}
+              title={reorderSuggestions.isError ? 'No pudimos calcular la compra sugerida' : 'Sin compras sugeridas'}
+              description={reorderSuggestions.isError ? 'La fuente de reposición no está disponible; no mostramos una lista vacía como reemplazo.' : 'No hay reposiciones sugeridas con la información verificada.'}
+              onRetry={reorderSuggestions.isError ? () => void reorderSuggestions.refetch() : undefined}
+              skeletonRows={4}
+            >
             {(reorderSuggestions.data?.alerts ?? []).map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
@@ -701,6 +722,7 @@ export default function InventoryPage() {
                 </div>
               </Link>
             ))}
+            </QueryState>
           </div>
         </Card>
       </div>

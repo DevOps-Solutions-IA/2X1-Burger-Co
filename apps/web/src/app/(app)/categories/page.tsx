@@ -115,7 +115,9 @@ export default function CategoriesPage() {
         eyebrow="Catálogo operativo"
         title="Categorías"
         description="Ordena la carta sin perder la relación histórica de productos, recetas e inventario."
-        status={<StatusBadge status="ACTIVE" label={`${categories.data?.length ?? 0} categorías`} />}
+        status={categories.data && !categories.isError
+          ? <StatusBadge status="ACTIVE" label={`${categories.data.length} categorías`} />
+          : <StatusBadge status="UNKNOWN" label="Categorías sin verificar" tone="neutral" />}
         actions={
           <Button
             type="button"

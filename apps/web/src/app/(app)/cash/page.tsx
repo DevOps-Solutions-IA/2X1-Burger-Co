@@ -294,6 +294,7 @@ export default function CashPage() {
     (Boolean(currentCash.data) && (cashDailySummary.isError || cashDailySummary.isLoading));
   const financialSummaryError = dailySummary.error ?? cashDailySummary.error;
   const financialSummaryAvailable = Boolean(dailySummary.data) && Boolean(cashDailySummary.data) && !financialSummaryError;
+  const closeChecklistAvailable = Boolean(closeChecklist.data) && !closeChecklist.error;
   const financialSummaryLoading =
     dailySummary.isLoading || currentCash.isLoading || (Boolean(currentCash.data) && cashDailySummary.isLoading);
   const latestClosedSession = history.data?.find((session) => session.status === 'CLOSED') ?? null;
@@ -749,11 +750,13 @@ export default function CashPage() {
                         Verificación automática antes de cerrar. Corrige lo bloqueante y confirma la lectura final.
                       </p>
                     </div>
-                    <Badge tone={closeChecklist.isLoading ? 'default' : closeChecklist.data?.canClose ? 'success' : 'warning'}>
-                      {closeChecklist.isLoading ? 'Analizando' : closeChecklist.data?.canClose ? 'Listo' : 'Revisar'}
+                    <Badge tone={!closeChecklistAvailable ? 'default' : closeChecklist.data?.canClose ? 'success' : 'warning'}>
+                      {closeChecklist.isLoading ? 'Analizando' : !closeChecklistAvailable ? 'Sin verificar' : closeChecklist.data?.canClose ? 'Listo' : 'Revisar'}
                     </Badge>
                   </div>
 
+                  {closeChecklistAvailable ? (
+                  <div data-testid="cash-close-checklist-values">
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <ChecklistChip
                       label="Comandas abiertas"
@@ -805,6 +808,18 @@ export default function CashPage() {
                       </div>
                     </div>
                   ) : null}
+                  </div>
+                  ) : (
+                    <div className="mt-4" data-testid="cash-close-checklist-unavailable">
+                      <QueryState
+                        status={closeChecklist.isLoading ? 'loading' : 'error'}
+                        title={closeChecklist.isLoading ? 'Verificando el cierre' : 'Checklist de cierre no disponible'}
+                        description={closeChecklist.isLoading ? undefined : 'No mostramos ceros ni aprobaciones hasta validar la evidencia de cierre.'}
+                        onRetry={closeChecklist.error ? () => void closeChecklist.refetch() : undefined}
+                        skeletonRows={2}
+                      />
+                    </div>
+                  )}
 
                   {closeChecklist.data?.warnings?.length ? (
                     <div className="mt-4 rounded-[1.15rem] border border-stone-200 bg-stone-50 px-3.5 py-3">

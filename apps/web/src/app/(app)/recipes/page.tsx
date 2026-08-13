@@ -126,6 +126,7 @@ export default function RecipesPage() {
 
   const preparedProducts = (products.data ?? []).filter((product) => product.kind === 'PREPARED');
   const catalogLoading = products.isLoading || ingredients.isLoading;
+  const catalogAvailable = Boolean(products.data) && Boolean(ingredients.data) && !products.isError && !ingredients.isError;
 
   return (
     <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="recipes-page">
@@ -133,7 +134,9 @@ export default function RecipesPage() {
         eyebrow="Producción gobernada"
         title="Recetas — El secreto de cada plato"
         description="Define el consumo exacto de insumos por producto preparado; esta composición gobierna disponibilidad e inventario."
-        status={<StatusBadge status="ACTIVE" label={`${preparedProducts.length} configurables`} />}
+        status={catalogAvailable
+          ? <StatusBadge status="ACTIVE" label={`${preparedProducts.length} configurables`} />
+          : <StatusBadge status="UNKNOWN" label="Recetas sin verificar" tone="neutral" />}
       />
 
       <ModuleTabs items={catalogTabs} label="Administración de catálogo" />

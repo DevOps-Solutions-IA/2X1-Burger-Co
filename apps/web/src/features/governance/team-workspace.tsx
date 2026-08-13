@@ -90,12 +90,12 @@ export function TeamWorkspace() {
     });
   }, [group, search, users.data]);
 
-  const counts = useMemo(() => ({
-    total: users.data?.length ?? 0,
-    active: users.data?.filter((item) => item.isActive).length ?? 0,
-    operational: users.data?.filter((item) => groupFor(item) !== 'system').length ?? 0,
-    inactive: users.data?.filter((item) => !item.isActive).length ?? 0,
-  }), [users.data]);
+  const counts = useMemo(() => users.data && !users.isError ? ({
+    total: users.data.length,
+    active: users.data.filter((item) => item.isActive).length,
+    operational: users.data.filter((item) => groupFor(item) !== 'system').length,
+    inactive: users.data.filter((item) => !item.isActive).length,
+  }) : null, [users.data, users.isError]);
 
   const selectedRole = roles.data?.find((role) => role.id === form.roleId) ?? null;
   const operationalRole = selectedRole?.name === 'waiter' || selectedRole?.name === 'delivery';
@@ -229,10 +229,10 @@ export function TeamWorkspace() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricSurface label="Integrantes" value={counts.total} icon={<UserRound className="h-4 w-4" />} density="compact" />
-        <MetricSurface label="Accesos activos" value={counts.active} icon={<UserCheck className="h-4 w-4" />} density="compact" />
-        <MetricSurface label="Equipo operativo" value={counts.operational} icon={<KeyRound className="h-4 w-4" />} density="compact" />
-        <MetricSurface label="Desactivados" value={counts.inactive} icon={<UserX className="h-4 w-4" />} density="compact" />
+        <MetricSurface label="Integrantes" value={counts?.total} unavailable={!counts} icon={<UserRound className="h-4 w-4" />} density="compact" />
+        <MetricSurface label="Accesos activos" value={counts?.active} unavailable={!counts} icon={<UserCheck className="h-4 w-4" />} density="compact" />
+        <MetricSurface label="Equipo operativo" value={counts?.operational} unavailable={!counts} icon={<KeyRound className="h-4 w-4" />} density="compact" />
+        <MetricSurface label="Desactivados" value={counts?.inactive} unavailable={!counts} icon={<UserX className="h-4 w-4" />} density="compact" />
       </div>
 
       <div className="overflow-x-auto border-b border-line" role="group" aria-label="Tipos de integrante">

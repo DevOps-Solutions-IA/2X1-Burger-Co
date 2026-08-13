@@ -26,6 +26,11 @@ test.describe('Phase 8 financial UI fails closed', () => {
       contentType: 'application/json',
       body: JSON.stringify({ message: 'sales unavailable' }),
     }));
+    await page.route('**/api/cash-register/close-checklist**', (route) => route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'close evidence unavailable' }),
+    }));
 
     await page.goto('/cash', { waitUntil: 'domcontentloaded' });
 
@@ -35,6 +40,10 @@ test.describe('Phase 8 financial UI fails closed', () => {
     await expect(page.getByTestId('cash-reconciliation-unavailable')).toBeVisible();
     await expect(page.getByTestId('cash-sales-error')).toBeVisible();
     await expect(page.getByText('Sin ventas registradas')).toHaveCount(0);
+    await expect(page.getByTestId('cash-close-checklist-unavailable')).toBeVisible();
+    await expect(page.getByTestId('cash-close-checklist-values')).toHaveCount(0);
+    await expect(page.getByText('Sin pendientes por cobrar.')).toHaveCount(0);
+    await expect(page.getByText('Los cobros cuadran con las ventas.')).toHaveCount(0);
   });
 
   test('reports distinguishes an unavailable source from an authoritative zero', async ({ page }) => {
