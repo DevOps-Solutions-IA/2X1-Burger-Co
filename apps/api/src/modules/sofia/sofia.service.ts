@@ -74,7 +74,23 @@ type InboxConversationRecord = {
   _count: {
     deliveryOrders: number;
     orderDrafts: number;
+    outboundMessages: number;
   };
+};
+
+type InboxScope = 'real' | 'internal_validation' | 'sandbox' | 'historical';
+
+type InboxAggregateSummary = {
+  scopes: Record<InboxScope, number>;
+  filters: {
+    humanRequired: number;
+    paymentSensitive: number;
+    unknownProduct: number;
+    blocked: number;
+    aiSuggestions: number;
+    pendingReview: number;
+  };
+  outboundSent: Record<InboxScope, number>;
 };
 
 const inboxConversationSelect = {
@@ -95,7 +111,7 @@ const inboxConversationSelect = {
   createdAt: true,
   updatedAt: true,
   messages: {
-    orderBy: { createdAt: 'asc' as const },
+    orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
     take: 24,
     select: {
       id: true,
@@ -111,7 +127,7 @@ const inboxConversationSelect = {
     },
   },
   outboundMessages: {
-    orderBy: { createdAt: 'asc' as const },
+    orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
     take: 24,
     select: {
       id: true,
@@ -128,6 +144,7 @@ const inboxConversationSelect = {
     select: {
       deliveryOrders: true,
       orderDrafts: true,
+      outboundMessages: true,
     },
   },
 } as const satisfies Prisma.WhatsappConversationSelect;
@@ -311,21 +328,29 @@ export class SofiaService {
     const deepSeekEnabled = this.configBoolean('DEEPSEEK_ENABLED');
     const aiMode = process.env.SOFIA_AI_MODE ?? this.configService.get<string>('SOFIA_AI_MODE') ?? 'rules';
 
-    const conversations = await this.prisma.whatsappConversation.findMany({
-      select: inboxConversationSelect,
-      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
-      take: 100,
-    });
+    const [conversations, aggregate] = await Promise.all([
+      this.prisma.whatsappConversation.findMany({
+        select: inboxConversationSelect,
+        orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+        take: 100,
+      }),
+      this.getInboxAggregateSummary(realOperationEnabled),
+    ]);
+
+    const sentCounts = await this.getVisibleOutboundSentCounts(conversations.map(({ id }) => id));
 
     const mapped = conversations.map((conversation) =>
-      this.toInboxConversation(conversation, { realOperationEnabled, realSendingEnabled, deepSeekEnabled, aiMode }),
+      this.toInboxConversation(
+        conversation,
+        { realOperationEnabled, realSendingEnabled, deepSeekEnabled, aiMode },
+        sentCounts.get(conversation.id) ?? 0,
+      ),
     );
 
     const real = mapped.filter((conversation) => conversation.scope === 'real');
     const internalValidation = mapped.filter((conversation) => conversation.scope === 'internal_validation');
     const sandbox = mapped.filter((conversation) => conversation.scope === 'sandbox');
     const historical = mapped.filter((conversation) => conversation.scope === 'historical');
-    const visibleForSummary = [...real, ...internalValidation];
 
     return {
       generatedAt: now.toISOString(),
@@ -337,42 +362,42 @@ export class SofiaService {
         historicalHiddenByDefault: true,
       },
       real: {
-        total: real.length,
+        total: aggregate.scopes.real,
         conversations: real,
       },
       internalValidation: {
-        total: internalValidation.length,
+        total: aggregate.scopes.internal_validation,
         conversations: internalValidation,
       },
       sandbox: {
-        total: sandbox.length,
+        total: aggregate.scopes.sandbox,
         hiddenByDefault: true,
         conversations: sandbox,
       },
       historical: {
-        total: historical.length,
+        total: aggregate.scopes.historical,
         hiddenByDefault: true,
         conversations: historical,
       },
       filters: {
-        allOperational: visibleForSummary.length,
-        humanRequired: visibleForSummary.filter((conversation) => conversation.signals.humanRequired).length,
-        paymentSensitive: visibleForSummary.filter((conversation) => conversation.signals.paymentSensitive).length,
-        unknownProduct: visibleForSummary.filter((conversation) => conversation.signals.unknownProduct).length,
-        blocked: visibleForSummary.filter((conversation) => conversation.signals.blocked).length,
-        aiSuggestions: visibleForSummary.filter((conversation) => conversation.signals.aiSuggestion).length,
+        allOperational: aggregate.scopes.real + aggregate.scopes.internal_validation,
+        humanRequired: aggregate.filters.humanRequired,
+        paymentSensitive: aggregate.filters.paymentSensitive,
+        unknownProduct: aggregate.filters.unknownProduct,
+        blocked: aggregate.filters.blocked,
+        aiSuggestions: aggregate.filters.aiSuggestions,
       },
       summary: {
-        totalConversations: mapped.length,
-        realConversations: real.length,
-        internalValidationConversations: internalValidation.length,
-        sandboxConversations: sandbox.length,
-        historicalConversations: historical.length,
-        pendingReview: visibleForSummary.filter((conversation) => conversation.signals.pendingReview).length,
-        outboundSent: real.reduce((sum, conversation) => sum + conversation.outboundSentCount, 0),
-        internalValidationOutboundSent: internalValidation.reduce((sum, conversation) => sum + conversation.outboundSentCount, 0),
-        sandboxOutboundSent: sandbox.reduce((sum, conversation) => sum + conversation.outboundSentCount, 0),
-        historicalOutboundSent: historical.reduce((sum, conversation) => sum + conversation.outboundSentCount, 0),
+        totalConversations: Object.values(aggregate.scopes).reduce((sum, count) => sum + count, 0),
+        realConversations: aggregate.scopes.real,
+        internalValidationConversations: aggregate.scopes.internal_validation,
+        sandboxConversations: aggregate.scopes.sandbox,
+        historicalConversations: aggregate.scopes.historical,
+        pendingReview: aggregate.filters.pendingReview,
+        outboundSent: aggregate.outboundSent.real,
+        internalValidationOutboundSent: aggregate.outboundSent.internal_validation,
+        sandboxOutboundSent: aggregate.outboundSent.sandbox,
+        historicalOutboundSent: aggregate.outboundSent.historical,
       },
       security: {
         realSendingEnabled: false,
@@ -394,10 +419,13 @@ export class SofiaService {
   }
 
   async getConversationInbox(id: string) {
-    const conversation = await this.prisma.whatsappConversation.findUnique({
-      where: { id },
-      select: inboxConversationSelect,
-    });
+    const [conversation, outboundSentCount] = await Promise.all([
+      this.prisma.whatsappConversation.findUnique({
+        where: { id },
+        select: inboxConversationSelect,
+      }),
+      this.prisma.whatsappOutboundMessage.count({ where: { conversationId: id, status: 'SENT' } }),
+    ]);
     if (!conversation) {
       throw new NotFoundException('No se encontró la conversación Sofía/WhatsApp.');
     }
@@ -405,12 +433,151 @@ export class SofiaService {
     const realSendingEnabled = this.configBoolean('WHATSAPP_QR_ALLOW_REAL_SEND') && false;
     const deepSeekEnabled = this.configBoolean('DEEPSEEK_ENABLED');
     const aiMode = process.env.SOFIA_AI_MODE ?? this.configService.get<string>('SOFIA_AI_MODE') ?? 'rules';
-    return this.toInboxConversation(conversation, {
-      realOperationEnabled: false,
-      realSendingEnabled,
-      deepSeekEnabled,
-      aiMode,
+    return this.toInboxConversation(
+      conversation,
+      {
+        realOperationEnabled: false,
+        realSendingEnabled,
+        deepSeekEnabled,
+        aiMode,
+      },
+      outboundSentCount,
+    );
+  }
+
+  private inboxScopeWhere(scope: InboxScope, realOperationEnabled: boolean): Prisma.WhatsappConversationWhereInput {
+    const notSandbox: Prisma.WhatsappConversationWhereInput = {
+      NOT: { OR: [{ source: SofiaOrderSource.MOCK_ADMIN }, { provider: 'mock' }, { mode: 'mock' }] },
+    };
+    if (scope === 'sandbox') {
+      return { OR: [{ source: SofiaOrderSource.MOCK_ADMIN }, { provider: 'mock' }, { mode: 'mock' }] };
+    }
+    if (scope === 'historical') {
+      return { AND: [notSandbox, { status: WhatsappConversationStatus.ARCHIVED }] };
+    }
+    if (scope === 'internal_validation') {
+      return {
+        AND: [
+          notSandbox,
+          { status: { not: WhatsappConversationStatus.ARCHIVED } },
+          ...(realOperationEnabled ? [{ source: SofiaOrderSource.SOFIA }] : []),
+        ],
+      };
+    }
+    return {
+      AND: [
+        notSandbox,
+        { status: { not: WhatsappConversationStatus.ARCHIVED } },
+        { source: { not: SofiaOrderSource.SOFIA } },
+      ],
+    };
+  }
+
+  private inboxTextContains(terms: string[]): Prisma.WhatsappConversationWhereInput {
+    const contains = (value: string) => ({ contains: value, mode: Prisma.QueryMode.insensitive });
+    return {
+      OR: terms.flatMap((term) => [
+        { customerName: contains(term) },
+        { lastMessagePreview: contains(term) },
+        { humanStatus: contains(term) },
+        { messages: { some: { OR: [{ body: contains(term) }, { transcript: contains(term) }, { status: contains(term) }, { errorMessage: contains(term) }] } } },
+        { outboundMessages: { some: { OR: [{ body: contains(term) }, { status: contains(term) }, { lastError: contains(term) }] } } },
+      ]),
+    };
+  }
+
+  private async getInboxAggregateSummary(realOperationEnabled: boolean): Promise<InboxAggregateSummary> {
+    const scopes: InboxScope[] = ['real', 'internal_validation', 'sandbox', 'historical'];
+    const scopeWhere = Object.fromEntries(
+      scopes.map((scope) => [scope, this.inboxScopeWhere(scope, realOperationEnabled)]),
+    ) as Record<InboxScope, Prisma.WhatsappConversationWhereInput>;
+    const operationalWhere: Prisma.WhatsappConversationWhereInput = {
+      OR: [scopeWhere.real, scopeWhere.internal_validation],
+    };
+    const aiSuggestionWhere: Prisma.WhatsappConversationWhereInput = {
+      outboundMessages: { some: { status: { in: ['SUGGESTED', 'APPROVAL_PENDING', 'DRAFT_ONLY'] } } },
+    };
+    const humanRequiredWhere: Prisma.WhatsappConversationWhereInput = {
+      OR: [
+        { status: { in: [WhatsappConversationStatus.HUMAN_REQUIRED, WhatsappConversationStatus.HUMAN_TAKEN] } },
+        { humanStatus: { contains: 'HUMAN', mode: Prisma.QueryMode.insensitive } },
+        this.inboxTextContains(['HUMAN_REQUIRED', 'HUMAN_REQUESTED', 'hablar con alguien', 'humano']),
+      ],
+    };
+    const paymentSensitiveWhere = this.inboxTextContains(['PAYMENT_SENSITIVE', 'nequi', 'comprobante', 'ya pag']);
+    const unknownProductWhere = this.inboxTextContains(['UNKNOWN_PRODUCT', 'sushi']);
+    const blockedWhere: Prisma.WhatsappConversationWhereInput = {
+      OR: [
+        this.inboxTextContains(['blocked', 'bloque']),
+        { messages: { some: { OR: [{ status: { in: ['BLOCKED', 'FAILED'] } }, { errorMessage: { in: ['BLOCKED', 'FAILED'] } }] } } },
+        { outboundMessages: { some: { OR: [{ status: { in: ['BLOCKED', 'FAILED'] } }, { lastError: { in: ['BLOCKED', 'FAILED'] } }] } } },
+        { outboundMessages: { some: { status: 'SENT' } } },
+      ],
+    };
+    const allowlistWhere = this.inboxTextContains(['ALLOWLIST_REQUIRED', 'allowlist']);
+    const pendingReviewWhere: Prisma.WhatsappConversationWhereInput = {
+      OR: [humanRequiredWhere, paymentSensitiveWhere, unknownProductWhere, blockedWhere, allowlistWhere],
+    };
+    const scopedSignal = (signal: Prisma.WhatsappConversationWhereInput): Prisma.WhatsappConversationWhereInput => ({
+      AND: [operationalWhere, signal],
     });
+
+    const [
+      real,
+      internalValidation,
+      sandbox,
+      historical,
+      humanRequired,
+      paymentSensitive,
+      unknownProduct,
+      blocked,
+      aiSuggestions,
+      pendingReview,
+      realSent,
+      internalValidationSent,
+      sandboxSent,
+      historicalSent,
+    ] = await Promise.all([
+      realOperationEnabled ? this.prisma.whatsappConversation.count({ where: scopeWhere.real }) : Promise.resolve(0),
+      this.prisma.whatsappConversation.count({ where: scopeWhere.internal_validation }),
+      this.prisma.whatsappConversation.count({ where: scopeWhere.sandbox }),
+      this.prisma.whatsappConversation.count({ where: scopeWhere.historical }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(humanRequiredWhere) }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(paymentSensitiveWhere) }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(unknownProductWhere) }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(blockedWhere) }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(aiSuggestionWhere) }),
+      this.prisma.whatsappConversation.count({ where: scopedSignal(pendingReviewWhere) }),
+      realOperationEnabled
+        ? this.prisma.whatsappOutboundMessage.count({ where: { status: 'SENT', conversation: { is: scopeWhere.real } } })
+        : Promise.resolve(0),
+      this.prisma.whatsappOutboundMessage.count({
+        where: { status: 'SENT', conversation: { is: scopeWhere.internal_validation } },
+      }),
+      this.prisma.whatsappOutboundMessage.count({ where: { status: 'SENT', conversation: { is: scopeWhere.sandbox } } }),
+      this.prisma.whatsappOutboundMessage.count({ where: { status: 'SENT', conversation: { is: scopeWhere.historical } } }),
+    ]);
+
+    return {
+      scopes: { real, internal_validation: internalValidation, sandbox, historical },
+      filters: { humanRequired, paymentSensitive, unknownProduct, blocked, aiSuggestions, pendingReview },
+      outboundSent: {
+        real: realSent,
+        internal_validation: internalValidationSent,
+        sandbox: sandboxSent,
+        historical: historicalSent,
+      },
+    };
+  }
+
+  private async getVisibleOutboundSentCounts(conversationIds: string[]) {
+    if (!conversationIds.length) return new Map<string, number>();
+    const rows = await this.prisma.whatsappOutboundMessage.groupBy({
+      by: ['conversationId'],
+      where: { conversationId: { in: conversationIds }, status: 'SENT' },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((row) => [row.conversationId, row._count._all]));
   }
 
   async findConversation(id: string) {
@@ -432,14 +599,17 @@ export class SofiaService {
       deepSeekEnabled: boolean;
       aiMode: string;
     },
+    outboundSentCount: number,
   ) {
+    const messages = [...conversation.messages].reverse();
+    const outboundMessages = [...conversation.outboundMessages].reverse();
     const textHaystack = [
       conversation.status,
       conversation.humanStatus,
       conversation.customerName ?? '',
       conversation.lastMessagePreview ?? '',
-      ...conversation.messages.map((message) => `${message.status} ${message.errorMessage ?? ''} ${message.body ?? ''} ${message.transcript ?? ''}`),
-      ...conversation.outboundMessages.map((outbound) => `${outbound.status} ${outbound.lastError ?? ''} ${outbound.body}`),
+      ...messages.map((message) => `${message.status} ${message.errorMessage ?? ''} ${message.body ?? ''} ${message.transcript ?? ''}`),
+      ...outboundMessages.map((outbound) => `${outbound.status} ${outbound.lastError ?? ''} ${outbound.body}`),
     ].join(' ');
     const lower = textHaystack.toLowerCase();
     const isSandbox =
@@ -456,16 +626,16 @@ export class SofiaService {
         : isInternalValidation
           ? 'internal_validation'
           : 'real';
-    const technicalReasonCodes = this.extractReasonCodes(conversation, lower);
+    const technicalReasonCodes = this.extractReasonCodes({ ...conversation, messages, outboundMessages }, lower);
     const operationalReasons = technicalReasonCodes.map((code) => ({
       code,
       label: this.reasonCodeLabel(code),
     }));
-    const signals = this.inboxSignals(conversation, lower, technicalReasonCodes);
+    const signals = this.inboxSignals({ ...conversation, outboundMessages }, lower, technicalReasonCodes);
     const lastText =
       conversation.lastMessagePreview ??
-      [...conversation.messages].reverse().find((message) => message.body || message.transcript)?.body ??
-      [...conversation.messages].reverse().find((message) => message.body || message.transcript)?.transcript ??
+      [...messages].reverse().find((message) => message.body || message.transcript)?.body ??
+      [...messages].reverse().find((message) => message.body || message.transcript)?.transcript ??
       null;
 
     return {
@@ -488,7 +658,7 @@ export class SofiaService {
       signals,
       operationalReasons,
       technicalReasonCodes,
-      messages: conversation.messages.map((message) => ({
+      messages: messages.map((message) => ({
         id: message.id,
         direction: message.direction,
         provider: message.provider,
@@ -498,7 +668,7 @@ export class SofiaService {
         confidence: message.confidence == null ? null : Number(message.confidence),
         createdAt: message.createdAt.toISOString(),
       })),
-      outboundMessages: conversation.outboundMessages.map((outbound) => ({
+      outboundMessages: outboundMessages.map((outbound) => ({
         id: outbound.id,
         bodyPreview: this.preview(outbound.body),
         hasMedia: Boolean(outbound.mediaUrl),
@@ -510,8 +680,8 @@ export class SofiaService {
         sent: outbound.status === 'SENT',
         realSendingEnabled: false,
       })),
-      outboxTotal: conversation.outboundMessages.length,
-      outboundSentCount: conversation.outboundMessages.filter((outbound) => outbound.status === 'SENT').length,
+      outboxTotal: conversation._count.outboundMessages,
+      outboundSentCount,
       relatedOperationCounts: {
         orderDrafts: conversation._count.orderDrafts,
         deliveryOrders: conversation._count.deliveryOrders,
