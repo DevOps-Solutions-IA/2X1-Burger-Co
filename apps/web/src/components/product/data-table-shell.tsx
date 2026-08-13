@@ -47,9 +47,9 @@ export function DataTableShell<Row>({
 
   return (
     <div className={cn('min-w-0 max-w-full overflow-hidden rounded-2xl border border-line bg-panel shadow-sm', className)}>
-      <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} tabIndex={0} className="w-full max-w-full overflow-x-auto text-sm">
-        <div role="rowgroup" className="hidden min-w-max border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted lg:block">
-          <div role="row" style={gridStyle} className="grid grid-cols-[var(--data-table-columns)]">
+      <div role="table" aria-label={caption} aria-rowcount={rows.length + 1} tabIndex={0} className="w-full min-w-0 max-w-full overflow-x-auto text-sm">
+        <div role="rowgroup" className="hidden border-b border-line bg-canvas/80 text-xs uppercase tracking-[0.08em] text-muted lg:block">
+          <div role="row" style={gridStyle} className="grid min-w-full grid-cols-[var(--data-table-columns)]">
             {columns.map((column) => (
               <div key={column.id} role="columnheader" className={cn('font-semibold', density === 'compact' ? 'px-3 py-2' : 'px-4 py-3', column.className)}>
                 {column.header}
@@ -67,7 +67,7 @@ export function DataTableShell<Row>({
               aria-rowindex={rowIndex + 2}
               style={gridStyle}
               className={cn(
-                'grid min-w-0 gap-3 transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55 lg:min-w-max lg:grid-cols-[var(--data-table-columns)] lg:gap-0',
+                'grid min-w-0 gap-3 transition-colors hover:bg-canvas/55 focus-within:bg-canvas/55 lg:min-w-full lg:grid-cols-[var(--data-table-columns)] lg:gap-0',
                 density === 'compact' ? 'p-3 lg:p-0' : 'p-4 lg:p-0',
               )}
             >

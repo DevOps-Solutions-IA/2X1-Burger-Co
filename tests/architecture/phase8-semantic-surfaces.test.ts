@@ -134,14 +134,15 @@ test('keeps governed recovery guidance readable on warning surfaces', () => {
   assert.match(recovery, /mt-1 text-sm leading-6 text-ink/);
 });
 
-test('keeps disabled actions readable and wide tables contained at tablet widths', () => {
+test('keeps disabled actions readable and wide tables inside their scroll region', () => {
   const button = source('components/ui/button.tsx');
   const table = source('components/product/data-table-shell.tsx');
 
   assert.match(button, /disabled:opacity-70/);
   assert.doesNotMatch(button, /disabled:opacity-50/);
-  assert.match(table, /lg:min-w-max lg:grid-cols/);
-  assert.doesNotMatch(table, /md:min-w-max md:grid-cols/);
+  assert.match(table, /w-full min-w-0 max-w-full overflow-x-auto/);
+  assert.match(table, /lg:min-w-full lg:grid-cols/);
+  assert.doesNotMatch(table, /min-w-max/);
 });
 
 test('requires explicit RBAC capabilities for customer evidence links', () => {
