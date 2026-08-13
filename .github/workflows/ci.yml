@@ -200,6 +200,7 @@ jobs:
             ../../apps/web/src/features/pos/pos-contrast.test.ts \
             ../../apps/web/src/features/waiter/catalog-window.test.ts \
             ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \
+            ../../tests/architecture/phase8-authoritative-kpi.test.ts \
             ../../tests/architecture/phase8-semantic-surfaces.test.ts \
             ../../tests/architecture/phase8-visible-polling.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
