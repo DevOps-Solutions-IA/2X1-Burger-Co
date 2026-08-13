@@ -66,3 +66,14 @@ test('canary deployment waits for bounded service health before smoke', () => {
   assert.match(deploy, /pnpm --dir "\$ROOT_DIR\/apps\/api" exec tsx "\$ROOT_DIR\/prisma\/seed\.ts"/);
   assert.doesNotMatch(deploy, /canary-migrate[^\n]*tsx/);
 });
+
+test('rollback canary rebuilds the exact recorded production source', () => {
+  const status = JSON.parse(readFileSync('.engineering/sofia-production/master-status.json', 'utf8'));
+  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+
+  assert.match(status.productionSha, /^[a-f0-9]{40}$/);
+  assert.ok(
+    workflow.includes(`build-artifacts.sh ${status.productionSha}`),
+    'rollback baseline must match the current production source SHA',
+  );
+});
