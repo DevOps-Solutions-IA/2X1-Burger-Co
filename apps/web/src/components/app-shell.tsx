@@ -110,10 +110,6 @@ const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavIt
 
 const saleCountersSchema = z.object({
   sales: z.object({
-    bestSellers: z.array(z.object({
-      productName: z.string(),
-      quantity: z.union([z.number(), z.string()]),
-    }).passthrough()),
     itemsSold: z.union([z.number(), z.string()]),
   }).passthrough(),
 }).passthrough();
@@ -425,40 +421,14 @@ function SaleCounters() {
     );
   }
 
-  const sellers = data?.sales.bestSellers ?? [];
   const itemsSold = Number(data.sales.itemsSold);
 
-  const targetProducts = [
-    { key: '2x1', label: '2X1', match: '2x1' },
-    { key: 'doble', label: 'Doble Carne', match: 'doble' },
-    { key: 'sencilla', label: 'Sencilla', match: 'sencilla' },
-    { key: 'maxi', label: 'Maxy Family', match: 'maxi' },
-  ];
-
-  const counters = targetProducts.map((tp) => {
-    const found = sellers.find((s) =>
-      (s.productName ?? '').toLowerCase().includes(tp.match),
-    );
-    return { label: tp.label, qty: found ? Number(found.quantity ?? 0) : 0 };
-  });
-
   return (
-    <>
-      <span
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-[12px] font-bold text-white shadow-sm"
-        data-testid="topbar-items-sold"
-      >
-        <span className="text-brand-400">{itemsSold}</span> unidades vendidas hoy
-      </span>
-      {counters.map((c) => (
-        <span
-          key={c.label}
-          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-brand-500/40 bg-brand-500/15 px-4 py-2 text-[12px] font-bold shadow-sm backdrop-blur-sm transition hover:border-brand-400 hover:bg-brand-500/25"
-        >
-          <span className="text-brand-300">{c.label}</span>
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-extrabold text-black">{c.qty}</span>
-        </span>
-      ))}
-    </>
+    <span
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-[12px] font-bold text-white shadow-sm"
+      data-testid="topbar-items-sold"
+    >
+      <span className="text-brand-400">{itemsSold}</span> unidades vendidas hoy
+    </span>
   );
 }
