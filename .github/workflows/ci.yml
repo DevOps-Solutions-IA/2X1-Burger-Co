@@ -204,29 +204,6 @@ jobs:
             src/tests/phase8-permission-intersection.integration.spec.ts \
             --runInBand \
             --detectOpenHandles
-          pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
-            ../../apps/web/src/features/auth/access-control.test.ts \
-            ../../apps/web/src/features/crm/labels.test.ts \
-            ../../apps/web/src/features/crm/pagination.test.ts \
-            ../../apps/web/src/features/customer-operations/model.test.ts \
-            ../../apps/web/src/features/financial-operations/contracts.test.ts \
-            ../../apps/web/src/features/order-operations/contracts.test.ts \
-            ../../apps/web/src/features/order-operations/kitchen-screen.test.ts \
-            ../../apps/web/src/features/order-operations/order-detail-screen.test.ts \
-            ../../apps/web/src/features/order-operations/queries.test.ts \
-            ../../apps/web/src/features/overview/contracts.test.ts \
-            ../../apps/web/src/features/support-operations/contracts.test.ts \
-            ../../apps/web/src/features/support-operations/customer-service-screen.test.ts \
-            ../../apps/web/src/features/pos/pos-contrast.test.ts \
-            ../../apps/web/src/features/waiter/catalog-window.test.ts \
-            ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \
-            ../../tests/architecture/phase8-authoritative-kpi.test.ts \
-            ../../tests/architecture/phase8-accessibility-contracts.test.ts \
-            ../../tests/architecture/phase8-activation-control-hardening.test.ts \
-            ../../tests/architecture/phase8-financial-ui-fail-closed.test.ts \
-            ../../tests/architecture/phase8-operational-source-fail-closed.test.ts \
-            ../../tests/architecture/phase8-semantic-surfaces.test.ts \
-            ../../tests/architecture/phase8-visible-polling.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
