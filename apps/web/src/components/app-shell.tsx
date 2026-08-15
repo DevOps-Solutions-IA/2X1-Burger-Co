@@ -41,7 +41,7 @@ const navSections = [
       { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
       { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
       { href: '/sofia', label: 'Sofía', icon: Bot, permission: 'orders.read' },
-      { href: '/sofia/customers', label: 'Clientes Sofía', icon: ContactRound, permission: 'orders.read' },
+      { href: '/sofia/crm', label: 'Clientes Sofía', icon: ContactRound, permission: 'orders.read' },
       { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
       { href: '/reports', label: 'Reportes e histórico', icon: ReceiptText, permission: 'reports.read' },
     ],

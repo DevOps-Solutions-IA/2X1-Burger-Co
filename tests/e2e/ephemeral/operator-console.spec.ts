@@ -43,10 +43,9 @@ test('operator console handles authentication, safe navigation and logout', asyn
     ['/deliveries', 'deliveries-queue-list'],
     ['/inventory', 'inventory-page'],
     ['/users', 'users-page'],
-    ['/sofia', 'sofia-admin-page'],
-    ['/sofia/conversations', 'sofia-whatsapp-conversations-page'],
-    ['/sofia/whatsapp-qr', 'sofia-whatsapp-qr-page'],
-    ['/sofia/customers', 'sofia-customers-page'],
+    ['/sofia', 'sofia-clean-slate'],
+    ['/sofia/whatsapp-qr', 'sofia-whatsapp-clean-slate'],
+    ['/sofia/crm', 'sofia-crm-clean-slate'],
   ] as const;
 
   for (const [route, testId] of routes) {
@@ -58,18 +57,14 @@ test('operator console handles authentication, safe navigation and logout', asyn
   }
 
   await page.goto('/sofia');
-  await expect(page.getByTestId('sofia-main-real-data-hero')).toBeVisible();
-  await expect(page.locator('body')).toContainText(/Envío real:\s*bloqueado/i);
-  await expect(page.locator('body')).toContainText(/Producción\s*Bloqueada/i);
+  await expect(page.getByTestId('sofia-clean-slate')).toContainText('Nueva interfaz en construcción');
   await page.goto('/sofia/whatsapp-qr');
-  await expect(page.locator('body')).toContainText(/Deshabilitado|DISABLED/i);
-  await expect(page.locator('body')).not.toContainText('QR real de WhatsApp disponible para escanear');
+  await expect(page.getByTestId('sofia-whatsapp-clean-slate')).toContainText('Nueva interfaz en construcción');
   await expectAccessiblePage(page);
 
   await page.goto('/sofia/customers');
-  await expect(page.getByTestId('sofia-customers-page')).toBeVisible();
-  await expect(page.locator('body')).toContainText('Esta superficie es de consulta');
-  await expect(page.locator('body')).toContainText('No crea campañas, mensajes, pedidos, pagos ni cambios operativos');
+  await expect(page).toHaveURL(/\/sofia\/crm$/);
+  await expect(page.getByTestId('sofia-crm-clean-slate')).toContainText('Nueva interfaz en construcción');
   await expectAccessiblePage(page);
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();

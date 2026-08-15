@@ -84,6 +84,7 @@ jobs:
             infra/release/release-safety.test.mjs \
             infra/release/restore-validation.test.mjs \
             infra/release/rollback-drill.test.mjs \
+            infra/release/sofia-crm-clean-slate.test.mjs \
             infra/release/sofia-production-safety.test.mjs \
             infra/release/staging-deploy-security.test.mjs \
             infra/recovery/reconciliation.test.mjs \
