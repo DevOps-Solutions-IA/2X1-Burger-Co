@@ -609,6 +609,236 @@ export type SofiaCrmCustomerSummary = z.infer<typeof sofiaCrmCustomerSummarySche
 export type SofiaCrmCustomerDetail = z.infer<typeof sofiaCrmCustomerDetailSchema>;
 export type SofiaCrmCustomerConsent = z.infer<typeof sofiaCrmCustomerConsentSchema>;
 export type SofiaCrmCustomerInteraction = z.infer<typeof sofiaCrmCustomerInteractionSchema>;
+export const sofiaGovernanceStatusSchema = z.object({
+  globalPaused: z.boolean(),
+  killSwitchActive: z.boolean(),
+  qrRealAllowed: z.boolean(),
+  deepSeekRealAllowed: z.boolean(),
+  autoSafeProductionAllowed: z.boolean(),
+  secretRotationStatus: z.string(),
+  phase: z.string(),
+});
+
+export const sofiaGovernanceMetricsSchema = z.object({
+  generatedAt: z.string(),
+  autoSafe: z.record(z.string(), z.unknown()),
+  conversations: z.record(z.string(), z.unknown()),
+  memory: z.record(z.string(), z.unknown()),
+  prompt: z.record(z.string(), z.unknown()).nullable(),
+  catalog: z.record(z.string(), z.unknown()),
+  safetyBlocks: z.number(),
+  humanRequired: z.number(),
+});
+
+export const sofiaSecurityStatusSchema = z.object({
+  generatedAt: z.string(),
+  secretsVisible: z.literal(false),
+  sanitized: z.literal(true),
+  secretRotationStatus: z.string(),
+}).catchall(z.unknown());
+
+export const sofiaRuntimeSafetySchema = z.object({
+  generatedAt: z.string(),
+  noSecrets: z.literal(true),
+  noPii: z.literal(true),
+  state: z.object({
+    policy: z.string(),
+    declared: z.object({
+      realSendingEnabled: z.boolean(),
+      autoReplyEnabled: z.boolean(),
+      autoSafeEnabled: z.boolean(),
+      productionEnabled: z.boolean(),
+    }),
+    effective: z.object({
+      realSendingEnabled: z.literal(false),
+      autoReplyEnabled: z.literal(false),
+      autoSafeEnabled: z.literal(false),
+      productionEnabled: z.literal(false),
+      whatsappCanMarkPaid: z.literal(false),
+    }),
+    globalPaused: z.boolean(),
+    killSwitchActive: z.boolean(),
+    automationBlocked: z.boolean(),
+    precedence: z.array(z.string()),
+  }),
+  counters: z.object({
+    messages_received_total: z.number(),
+    messages_blocked_total: z.number(),
+    send_attempts_total: z.number(),
+    send_blocked_total: z.number(),
+    duplicate_events_total: z.number(),
+    payment_sensitive_total: z.number(),
+    human_escalations_total: z.number(),
+    auto_reply_attempts_total: z.number(),
+    auto_safe_attempts_total: z.number(),
+    timeout_total: z.number(),
+    allowlist_denied_total: z.number(),
+  }),
+});
+
+export const sofiaGovernanceActionResponseSchema = z.object({
+  status: z.literal('PASS'),
+  message: z.string(),
+}).catchall(z.unknown());
+
+const sofiaPaymentIntentStatusSchema = z.enum([
+  'CREATED',
+  'PENDING',
+  'PAID',
+  'FAILED',
+  'EXPIRED',
+  'CANCELLED',
+  'UNKNOWN_RESULT',
+]);
+
+export const sofiaAdminPaymentIntentSchema = z.object({
+  id: z.string(),
+  status: sofiaPaymentIntentStatusSchema,
+  provider: z.string(),
+  amount: z.union([z.number(), z.string()]),
+  currency: z.string(),
+  attemptNumber: z.number().optional(),
+  checkoutId: z.string().nullable().optional(),
+  providerPaymentId: z.string().nullable().optional(),
+  providerReference: z.string().nullable().optional(),
+  failureCode: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  version: z.number().optional(),
+  checkout: z.record(z.string(), z.unknown()).nullable().optional(),
+  links: z.array(z.record(z.string(), z.unknown())).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}).catchall(z.unknown());
+
+function sofiaAdminListSchema<T extends z.ZodTypeAny>(itemSchema: T) {
+  return z.object({
+    items: z.array(itemSchema),
+    page: z.number(),
+    limit: z.number(),
+    total: z.number(),
+  });
+}
+
+export const sofiaAdminPaymentIntentsSchema = sofiaAdminListSchema(sofiaAdminPaymentIntentSchema);
+
+export const sofiaAdminPaymentLinkSchema = z.object({
+  id: z.string(),
+  paymentIntentId: z.string().optional(),
+  status: z.string(),
+  expiresAt: z.string().nullable().optional(),
+  openedAt: z.string().nullable().optional(),
+  revokedAt: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  paymentIntent: z.record(z.string(), z.unknown()).nullable().optional(),
+}).catchall(z.unknown());
+
+export const sofiaAdminPaymentLinksSchema = sofiaAdminListSchema(sofiaAdminPaymentLinkSchema);
+
+export const sofiaAdminPaymentTransitionSchema = z.object({
+  id: z.string(),
+  paymentIntentId: z.string().optional(),
+  fromStatus: z.string().nullable().optional(),
+  toStatus: z.string(),
+  reasonCode: z.string().nullable().optional(),
+  actorId: z.string().nullable().optional(),
+  webhookEventId: z.string().nullable().optional(),
+  createdAt: z.string(),
+}).catchall(z.unknown());
+
+export const sofiaAdminPaymentTransitionsSchema = sofiaAdminListSchema(sofiaAdminPaymentTransitionSchema);
+
+export const sofiaAdminPaymentWebhookSchema = z.object({
+  id: z.string(),
+  paymentIntentId: z.string().optional(),
+  provider: z.string().optional(),
+  eventType: z.string().optional(),
+  amount: z.union([z.number(), z.string()]).nullable().optional(),
+  currency: z.string().nullable().optional(),
+  signatureValid: z.boolean().optional(),
+  processedStatus: z.string(),
+  processingAttempts: z.number().optional(),
+  resultCode: z.string().nullable().optional(),
+  lastErrorCode: z.string().nullable().optional(),
+  retryable: z.boolean().optional(),
+  paymentTransition: z.record(z.string(), z.unknown()).nullable().optional(),
+  receivedAt: z.string(),
+  processedAt: z.string().nullable().optional(),
+}).catchall(z.unknown());
+
+export const sofiaAdminPaymentWebhooksSchema = sofiaAdminListSchema(sofiaAdminPaymentWebhookSchema);
+
+const sofiaCustomerServiceCaseStatusSchema = z.enum([
+  'OPEN',
+  'HUMAN_REQUIRED',
+  'HUMAN_TAKEN',
+  'RESOLVED',
+  'CLOSED',
+]);
+
+export const sofiaCustomerServiceCaseSummarySchema = z.object({
+  id: z.string(),
+  status: sofiaCustomerServiceCaseStatusSchema,
+  category: z.string(),
+  source: z.string(),
+  sanitizedSummary: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
+  customer: z.object({ id: z.string(), displayName: z.string().nullable(), status: z.string() }).nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+  orderCheckoutId: z.string().nullable().optional(),
+  orderTicketId: z.string().nullable().optional(),
+  paymentIntentId: z.string().nullable().optional(),
+  deliveryIssueId: z.string().nullable().optional(),
+  assignedActorId: z.string().nullable().optional(),
+  assignedActor: z.object({ id: z.string(), fullName: z.string().nullable(), accessName: z.string().nullable() }).nullable().optional(),
+  resolutionActorId: z.string().nullable().optional(),
+  resolutionCode: z.string().nullable().optional(),
+  version: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  resolvedAt: z.string().nullable().optional(),
+  closedAt: z.string().nullable().optional(),
+}).catchall(z.unknown());
+
+export const sofiaCustomerServiceCasesSchema = sofiaAdminListSchema(sofiaCustomerServiceCaseSummarySchema);
+
+export const sofiaCustomerServiceCaseEventSchema = z.object({
+  id: z.string(),
+  version: z.number(),
+  action: z.string(),
+  fromStatus: z.string().nullable().optional(),
+  toStatus: z.string(),
+  actorId: z.string().nullable().optional(),
+  reasonCode: z.string().nullable().optional(),
+  createdAt: z.string(),
+}).catchall(z.unknown());
+
+export const sofiaCustomerServiceCaseDetailSchema = sofiaCustomerServiceCaseSummarySchema.extend({
+  orderCheckout: z.record(z.string(), z.unknown()).nullable().optional(),
+  orderTicket: z.record(z.string(), z.unknown()).nullable().optional(),
+  paymentIntent: z.record(z.string(), z.unknown()).nullable().optional(),
+  deliveryIssue: z.record(z.string(), z.unknown()).nullable().optional(),
+  events: z.array(sofiaCustomerServiceCaseEventSchema),
+});
+
+export const sofiaCustomerServiceTransitionResultSchema = z.object({
+  state: z.enum(['CREATED', 'UPDATED', 'DETERMINISTIC_REPLAY']),
+  serviceCase: sofiaCustomerServiceCaseSummarySchema,
+});
+
+export type SofiaGovernanceStatus = z.infer<typeof sofiaGovernanceStatusSchema>;
+export type SofiaGovernanceMetrics = z.infer<typeof sofiaGovernanceMetricsSchema>;
+export type SofiaSecurityStatus = z.infer<typeof sofiaSecurityStatusSchema>;
+export type SofiaRuntimeSafety = z.infer<typeof sofiaRuntimeSafetySchema>;
+export type SofiaAdminPaymentIntent = z.infer<typeof sofiaAdminPaymentIntentSchema>;
+export type SofiaAdminPaymentLink = z.infer<typeof sofiaAdminPaymentLinkSchema>;
+export type SofiaAdminPaymentTransition = z.infer<typeof sofiaAdminPaymentTransitionSchema>;
+export type SofiaAdminPaymentWebhook = z.infer<typeof sofiaAdminPaymentWebhookSchema>;
+export type SofiaCustomerServiceCaseSummary = z.infer<typeof sofiaCustomerServiceCaseSummarySchema>;
+export type SofiaCustomerServiceCaseDetail = z.infer<typeof sofiaCustomerServiceCaseDetailSchema>;
+export type SofiaCustomerServiceCaseEvent = z.infer<typeof sofiaCustomerServiceCaseEventSchema>;
+export type SofiaCustomerServiceTransitionResult = z.infer<typeof sofiaCustomerServiceTransitionResultSchema>;
 export type SofiaDashboardSummary = z.infer<typeof sofiaDashboardSummarySchema>;
 export type SofiaReadiness = z.infer<typeof sofiaReadinessSchema>;
 export type SofiaGovernanceEvents = z.infer<typeof sofiaGovernanceEventsSchema>;

@@ -42,7 +42,8 @@ export const SOFIA_OPERATOR_SECTIONS: SofiaWorkspaceSection[] = [
     href: '/sofia/commands',
     status: 'pending_phase',
     pendingPhase: 'Fase E — SecureCommand',
-    description: 'Ejecución gobernada de comandos sensibles vía SecureCommand.',
+    description:
+      'La cola de aprobación, auditoría e idempotencia de SecureCommand ya existe como servicios de backend, pero aún no tiene ningún endpoint HTTP expuesto.',
   },
   {
     key: 'orders',
@@ -50,15 +51,15 @@ export const SOFIA_OPERATOR_SECTIONS: SofiaWorkspaceSection[] = [
     href: '/sofia/orders',
     status: 'pending_phase',
     pendingPhase: 'Fase H — Checkout y pedidos',
-    description: 'Pedidos generados desde conversaciones, con orquestación canónica de backend.',
+    description:
+      'El backend de pedidos existe, pero ningún endpoint filtra por conversación de SOFIA todavía — no hay forma de mostrar "el pedido de esta conversación" sin esa correlación.',
   },
   {
     key: 'payments',
     label: 'Pagos',
     href: '/sofia/payments',
-    status: 'pending_phase',
-    pendingPhase: 'Fase I — Pagos',
-    description: 'Estado financiero autoritativo, incluyendo resultados desconocidos y revisión.',
+    status: 'active',
+    description: 'Estado financiero autoritativo, incluyendo resultados desconocidos y revisión. Solo lectura: SOFIA nunca marca ni crea pagos reales.',
   },
   {
     key: 'delivery',
@@ -66,15 +67,15 @@ export const SOFIA_OPERATOR_SECTIONS: SofiaWorkspaceSection[] = [
     href: '/sofia/delivery',
     status: 'pending_phase',
     pendingPhase: 'Fase J — Domicilios y notificaciones',
-    description: 'Estado canónico de entrega y notificaciones asociadas.',
+    description:
+      'El servicio de workflow de domicilios existe en el backend, pero sin ningún controller HTTP expuesto todavía — no hay endpoint que consultar.',
   },
   {
     key: 'customer-service',
     label: 'Servicio al cliente',
     href: '/sofia/customer-service',
-    status: 'pending_phase',
-    pendingPhase: 'Fase K — Servicio al cliente',
-    description: 'Casos de servicio al cliente y autoridad de recuperación gobernada.',
+    status: 'active',
+    description: 'Casos de servicio al cliente reales, con máquina de estados y transición operada por el humano.',
   },
   {
     key: 'runtime',
@@ -169,9 +170,8 @@ export const SOFIA_CUSTOMER_360_SECTIONS: SofiaCustomer360Section[] = [
   {
     key: 'cases',
     label: 'Casos',
-    status: 'pending_phase',
-    pendingPhase: 'Fase K — Servicio al cliente',
-    description: 'Casos de servicio al cliente vinculados a este cliente.',
+    status: 'active',
+    description: 'Casos de servicio al cliente reales vinculados a este cliente (filtrado por customerId).',
   },
   {
     key: 'notes',

@@ -31,17 +31,17 @@ export function QrStatusCard({ status }: { status: SofiaQrStatus }) {
           </div>
         )}
 
-        <p className="mt-3.5 rounded-[0.9rem] bg-sofia-50 px-3 py-2.5 text-[12px] font-medium text-sofia-800">{status.operatorMessage}</p>
+        <p className="mt-3.5 rounded-[0.9rem] bg-brand-50 px-3 py-2.5 text-[12px] font-medium text-brand-900">{status.operatorMessage}</p>
       </div>
 
-      <div className="flex flex-col items-center justify-center rounded-[1.1rem] border border-dashed border-sofia-200 bg-sofia-50/40 p-5">
+      <div className="flex flex-col items-center justify-center rounded-[1.1rem] border border-dashed border-brand-200 bg-brand-50/40 p-5">
         {status.qrImageDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- data URL generado en runtime; next/image no aporta optimización sobre un data: URI ya renderizado.
           <img src={status.qrImageDataUrl} alt="Código QR de vinculación WhatsApp" className="h-48 w-48 rounded-[0.9rem] bg-white p-2 shadow-sm" data-testid="sofia-qr-image" />
         ) : (
           <>
-            <QrCode className="h-10 w-10 text-sofia-300" aria-hidden="true" />
-            <p className="mt-2.5 text-[12.5px] font-medium text-stone-500">Sin QR disponible en este momento.</p>
+            <QrCode className="h-10 w-10 text-brand-300" aria-hidden="true" />
+            <p className="mt-2.5 text-[12.5px] font-medium text-stone-600">Sin QR disponible en este momento.</p>
           </>
         )}
       </div>

@@ -55,6 +55,7 @@ test('SOFIA workspace component family matches the expected active set', () => {
     path.join('workspace', 'Customer360Tabs.tsx'),
     path.join('workspace', 'MetricTile.tsx'),
     path.join('workspace', 'OperatorWorkspaceFrame.tsx'),
+    path.join('workspace', 'PaginationBar.tsx'),
     path.join('workspace', 'PendingPhasePage.tsx'),
     path.join('workspace', 'PhaseBoundaryNotice.tsx'),
     path.join('workspace', 'QueryStateBoundary.tsx'),
@@ -80,12 +81,25 @@ test('SOFIA contracts, query layer, PII guards, and frontend auth remain availab
   assert.equal(existsSync(web('features', 'auth', 'access-control.ts')), true);
 });
 
-test('no productive mutations are wired into Phase A operator/CRM routes', () => {
-  // Fase A es de solo lectura: pausar/tomar/liberar conversaciones y conectar
-  // el QR real son mutaciones productivas que llegan en fases posteriores.
-  // Se revisa recursivamente todo el árbol de features/components de SOFIA,
-  // no solo las páginas, para que un useMutation en un componente hijo
-  // (ej. un panel importado por conversations/page.tsx) tampoco pase.
+test('no forbidden business mutations are wired into SOFIA operator/CRM routes', () => {
+  // SOFIA nunca debe crear pagos/pedidos reales, marcar pagos como PAID, ni
+  // mover stock/caja/checkout/POS/domicilios (regla dura de CLAUDE.md). Se
+  // revisa recursivamente todo el árbol de app/features/components de SOFIA
+  // en busca de rutas HTTP que toquen esos dominios prohibidos, sin importar
+  // si aparecen dentro de un useMutation o de cualquier otra llamada.
+  // Cada patrón exige que el segmento prohibido viva DENTRO de un literal de
+  // string completo (misma comilla de apertura y cierre), permitiendo
+  // cualquier prefijo de ruta antes (ej. '/admin/checkout/confirm' también
+  // debe detectarse) sin disparar falsos positivos sobre comentarios/prosa.
+  const forbiddenPathPatterns = [
+    /(['"`])[a-z0-9\-/]*\/(checkout|orders?)\/[a-z0-9\-/]*\1/i,
+    /(['"`])[a-z0-9\-/]*\/(pos|cash-sessions?|caja)\/[a-z0-9\-/]*\1/i,
+    /(['"`])[a-z0-9\-/]*mark-?(as-)?paid[a-z0-9\-/]*\1/i,
+    /(['"`])[a-z0-9\-/]*\/(send-real|real-send)[a-z0-9\-/]*\1/i,
+    /(['"`])[a-z0-9\-/]*whatsapp[a-z0-9\-/]*\/send[a-z0-9\-/]*\1/i,
+    /(['"`])[a-z0-9\-/]*payment[a-z0-9\-/]*\/(capture|confirm)[a-z0-9\-/]*\1/i,
+    /createRealPayment|createRealOrder/i,
+  ];
   const dirsToScan = [
     web('app', '(app)', 'sofia'),
     web('features', 'sofia'),
@@ -94,8 +108,53 @@ test('no productive mutations are wired into Phase A operator/CRM routes', () =>
   for (const dir of dirsToScan) {
     for (const file of listFilesRecursive(dir)) {
       if (!/\.(ts|tsx)$/.test(file)) continue;
-      const source = readFileSync(path.join(dir, file), 'utf8');
-      assert.doesNotMatch(source, /useMutation/, `${path.relative(root, path.join(dir, file))} no debe usar useMutation en Fase A`);
+      const filePath = path.join(dir, file);
+      const source = readFileSync(filePath, 'utf8');
+      for (const pattern of forbiddenPathPatterns) {
+        assert.doesNotMatch(
+          source,
+          pattern,
+          `${path.relative(root, filePath)} referencia una ruta prohibida (checkout/orders/pos/caja/mark-paid) — SOFIA nunca debe originar estas mutaciones`,
+        );
+      }
+    }
+  }
+});
+
+test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed allowlist', () => {
+  // Toda mutación fuera de esta lista requiere revisión explícita. Las
+  // cuatro acciones de gobernanza (pausar/reanudar SOFIA, activar/desactivar
+  // kill-switch) comparten un único useMutation privado (useSofiaGovernanceAction);
+  // la transición de casos de servicio al cliente tiene el suyo propio.
+  // Ninguna crea pedidos/pagos reales ni mueve stock/caja/checkout/POS/domicilios.
+  const queries = read('features', 'sofia', 'queries.ts');
+  const useMutationCount = (queries.match(/\buseMutation\(/g) ?? []).length;
+  assert.equal(useMutationCount, 2, 'queries.ts debe declarar useMutation exactamente 2 veces: gobernanza y transición de casos');
+  assert.match(queries, /function useSofiaGovernanceAction\(/);
+  assert.match(queries, /export function useSofiaCustomerServiceTransition\(/);
+  for (const hook of ['useSofiaPauseGlobal', 'useSofiaResumeGlobal', 'useSofiaActivateKillSwitch', 'useSofiaDeactivateKillSwitch']) {
+    const start = queries.indexOf(`export function ${hook}(`);
+    assert.notEqual(start, -1, `falta el hook ${hook}`);
+    const body = queries.slice(start, start + 200);
+    assert.match(body, /useSofiaGovernanceAction\(/, `${hook} debe delegar en useSofiaGovernanceAction, no declarar su propio useMutation`);
+  }
+
+  const dirsToScan = [
+    web('app', '(app)', 'sofia'),
+    web('features', 'sofia'),
+    web('components', 'sofia'),
+  ];
+  for (const dir of dirsToScan) {
+    for (const file of listFilesRecursive(dir)) {
+      if (!/\.(ts|tsx)$/.test(file)) continue;
+      const filePath = path.join(dir, file);
+      if (filePath === web('features', 'sofia', 'queries.ts')) continue;
+      const source = readFileSync(filePath, 'utf8');
+      assert.doesNotMatch(
+        source,
+        /\buseMutation\(/,
+        `${path.relative(root, filePath)} no debe declarar useMutation directamente — usar un hook revisado de queries.ts`,
+      );
     }
   }
 });

@@ -15,7 +15,7 @@ export function AuditEventsTimeline({ events }: { events: SofiaGovernanceEvents 
             <div key={`${event.type}-${event.createdAt}-${index}`} className="flex items-start justify-between gap-3 rounded-[0.9rem] bg-stone-50 px-3 py-2.5">
               <div className="min-w-0">
                 <p className="text-[12.5px] font-semibold text-ink">{humanizeCrmCode(event.type)}</p>
-                <p className="mt-0.5 text-[11.5px] font-medium text-stone-500">{event.detail}</p>
+                <p className="mt-0.5 text-[11.5px] font-medium text-stone-600">{event.detail}</p>
               </div>
               <span className="shrink-0 text-[10.5px] font-medium text-stone-600">{new Date(event.createdAt).toLocaleString('es-CO')}</span>
             </div>

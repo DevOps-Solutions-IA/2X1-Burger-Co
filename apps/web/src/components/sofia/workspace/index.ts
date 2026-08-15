@@ -15,3 +15,4 @@ export { PhaseBoundaryNotice } from './PhaseBoundaryNotice';
 export { PendingPhasePage } from './PendingPhasePage';
 export { MetricTile } from './MetricTile';
 export { QueryStateBoundary } from './QueryStateBoundary';
+export { PaginationBar } from './PaginationBar';

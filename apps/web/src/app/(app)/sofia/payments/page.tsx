@@ -1,15 +1,20 @@
-import { PendingPhasePage } from '@/components/sofia/workspace';
+import { OperatorWorkspaceFrame, StatusBadge, WorkspaceHeader } from '@/components/sofia/workspace';
+import { PaymentsView } from '@/features/sofia/payments/PaymentsView';
 
 export default function SofiaPaymentsPage() {
   return (
-    <PendingPhasePage
-      eyebrow="Pagos"
-      title="Pagos"
-      description="Estado financiero autoritativo, incluyendo resultados desconocidos y revisión."
-      pendingPhase="Fase I — Pagos"
-      noticeTitle="Pagos disponibles en una fase posterior"
-      noticeDescription="La orquestación de pagos, incluyendo el estado UNKNOWN_RESULT y revisión financiera, se conecta en la Fase I del programa."
-      data-testid="sofia-payments-page"
-    />
+    <OperatorWorkspaceFrame>
+      <div className="space-y-4" data-testid="sofia-payments-page">
+        <WorkspaceHeader
+          eyebrow="Pagos"
+          title="Estado financiero de pagos"
+          description="Observabilidad de solo lectura sobre intentos, enlaces, transiciones y webhooks de pago, incluyendo resultados desconocidos que requieren revisión financiera humana."
+          statusBadges={<StatusBadge tone="read_only" label="Solo lectura" />}
+          data-testid="sofia-payments-hero"
+        />
+
+        <PaymentsView />
+      </div>
+    </OperatorWorkspaceFrame>
   );
 }

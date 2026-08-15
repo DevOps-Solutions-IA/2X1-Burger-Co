@@ -22,7 +22,7 @@ export function ConsentsPanel({ customer }: { customer: SofiaCrmCustomerDetail }
                 </p>
                 <StatusBadge tone={consent.status === 'GRANTED' ? 'success' : 'blocked'} label={consent.status === 'GRANTED' ? 'Otorgado' : 'Revocado'} withDot={false} />
               </div>
-              <p className="mt-1 text-[10.5px] font-medium text-stone-500">
+              <p className="mt-1 text-[10.5px] font-medium text-stone-600">
                 Fuente: {consent.source} · Versión {consent.version} ·{' '}
                 {consent.grantedAt ? `Otorgado ${new Date(consent.grantedAt).toLocaleDateString('es-CO')}` : ''}
                 {consent.revokedAt ? ` · Revocado ${new Date(consent.revokedAt).toLocaleDateString('es-CO')}` : ''}

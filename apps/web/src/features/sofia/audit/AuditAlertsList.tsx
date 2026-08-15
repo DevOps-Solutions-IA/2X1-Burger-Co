@@ -23,7 +23,7 @@ export function AuditAlertsList({ alerts }: { alerts: SofiaAlerts }) {
                 <p className="text-[12.5px] font-semibold text-ink">{alert.title}</p>
                 <StatusBadge tone={toneFromAlertSeverity(alert.severity)} label={alert.severity} />
               </div>
-              <p className="mt-1 text-[11.5px] font-medium text-stone-500">{alert.message}</p>
+              <p className="mt-1 text-[11.5px] font-medium text-stone-600">{alert.message}</p>
               <p className="mt-1 text-[10.5px] font-medium text-stone-600">
                 {alert.status} · {new Date(alert.createdAt).toLocaleString('es-CO')}
               </p>

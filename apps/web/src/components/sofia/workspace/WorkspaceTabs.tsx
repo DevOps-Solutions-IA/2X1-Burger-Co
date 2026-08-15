@@ -33,8 +33,8 @@ export function WorkspaceTabs({
             className={cn(
               'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
               isActive
-                ? 'border-sofia-600 bg-sofia-600 text-white shadow-sm'
-                : 'border-stone-200 bg-white text-stone-600 hover:border-sofia-200 hover:text-sofia-700',
+                ? 'border-brand-500 bg-brand-500 text-ink shadow-soft'
+                : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200 hover:text-brand-700',
             )}
             data-testid={`sofia-workspace-tab-${section.key}`}
           >
@@ -43,7 +43,7 @@ export function WorkspaceTabs({
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none',
-                  isActive ? 'bg-white text-sofia-700' : 'bg-stone-100 text-stone-700',
+                  isActive ? 'bg-ink text-white' : 'bg-stone-100 text-stone-700',
                 )}
               >
                 Próxima fase

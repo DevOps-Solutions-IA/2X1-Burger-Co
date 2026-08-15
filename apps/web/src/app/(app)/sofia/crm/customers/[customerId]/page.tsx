@@ -9,6 +9,7 @@ import { IdentityPanel } from '@/features/sofia/crm/customer-360/IdentityPanel';
 import { TagsPanel } from '@/features/sofia/crm/customer-360/TagsPanel';
 import { ConsentsPanel } from '@/features/sofia/crm/customer-360/ConsentsPanel';
 import { ActivityTimeline } from '@/features/sofia/crm/customer-360/ActivityTimeline';
+import { CasesPanel } from '@/features/sofia/crm/customer-360/CasesPanel';
 import { SOFIA_CUSTOMER_360_SECTIONS, type SofiaCustomer360SectionKey } from '@/features/sofia/workspace/architecture';
 import { Customer360Tabs, PhaseBoundaryNotice, QueryStateBoundary, WorkspaceHeader } from '@/components/sofia/workspace';
 import { customerDisplayName } from '@/features/sofia/crm-display';
@@ -21,8 +22,8 @@ export default function SofiaCustomer360Page() {
 
   return (
     <div className="space-y-4" data-testid="sofia-customer360-page">
-      <Link href="/sofia/crm" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-sofia-700 hover:text-sofia-900" data-testid="sofia-customer360-back">
-        <ArrowLeft className="h-3.5 w-3.5" />
+      <Link href="/sofia/crm" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-brand-700 hover:text-brand-900" data-testid="sofia-customer360-back">
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
         Volver a clientes
       </Link>
 
@@ -45,7 +46,8 @@ export default function SofiaCustomer360Page() {
             {activeTab === 'tags' && <TagsPanel customer={data} />}
             {activeTab === 'consents' && <ConsentsPanel customer={data} />}
             {activeTab === 'activity' && <ActivityTimeline customerId={customerId} />}
-            {(['conversations', 'orders', 'payments', 'deliveries', 'cases', 'notes'] as const).map(
+            {activeTab === 'cases' && <CasesPanel customerId={customerId} />}
+            {(['conversations', 'orders', 'payments', 'deliveries', 'notes'] as const).map(
               (key) =>
                 activeTab === key && (
                   <PhaseBoundaryNotice

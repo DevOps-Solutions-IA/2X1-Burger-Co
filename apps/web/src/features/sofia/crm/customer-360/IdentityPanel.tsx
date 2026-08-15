@@ -19,14 +19,14 @@ export function IdentityPanel({ customer }: { customer: SofiaCrmCustomerDetail }
           <div key={identity.id} className="flex items-center justify-between rounded-[0.9rem] bg-stone-50 px-3 py-2">
             <div>
               <p className="text-[12px] font-semibold text-ink">{identity.valueMasked}</p>
-              <p className="text-[10.5px] font-medium text-stone-500">{identity.type}{identity.isPrimary ? ' · Primaria' : ''}</p>
+              <p className="text-[10.5px] font-medium text-stone-600">{identity.type}{identity.isPrimary ? ' · Primaria' : ''}</p>
             </div>
             <StatusBadge tone={identity.verifiedAt ? 'success' : 'pending'} label={identity.verifiedAt ? 'Verificada' : 'Sin verificar'} withDot={false} />
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-[11.5px] font-medium text-stone-500">
+      <div className="grid grid-cols-2 gap-2 text-[11.5px] font-medium text-stone-600">
         <p>Registrado: {new Date(customer.createdAt).toLocaleDateString('es-CO')}</p>
         <p>Actualizado: {new Date(customer.updatedAt).toLocaleDateString('es-CO')}</p>
       </div>

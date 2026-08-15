@@ -7,8 +7,8 @@ export function OverviewAiPanel({ ai }: { ai: SofiaDashboardSummary['ai'] }) {
   return (
     <Card data-testid="sofia-overview-ai-panel">
       <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-[0.65rem] bg-sofia-100 text-sofia-700">
-          <Brain className="h-4 w-4" />
+        <span className="flex h-8 w-8 items-center justify-center rounded-[0.65rem] bg-brand-100 text-brand-700">
+          <Brain className="h-4 w-4" aria-hidden="true" />
         </span>
         <div>
           <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Inteligencia artificial</p>

@@ -39,7 +39,7 @@ export function ActivityTimeline({ customerId }: { customerId: string }) {
                       <p className="text-[12px] font-semibold text-ink">{interaction.kind}</p>
                       <StatusBadge tone={DIRECTION_TONE[interaction.direction]} label={interaction.direction} withDot={false} />
                     </div>
-                    <p className="mt-1 text-[11.5px] font-medium text-stone-500">{interaction.summary}</p>
+                    <p className="mt-1 text-[11.5px] font-medium text-stone-600">{interaction.summary}</p>
                     <p className="mt-1 text-[10.5px] font-medium text-stone-600">
                       {interaction.channel} · {new Date(interaction.occurredAt).toLocaleString('es-CO')}
                     </p>
@@ -52,7 +52,7 @@ export function ActivityTimeline({ customerId }: { customerId: string }) {
                   <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
                     Anterior
                   </Button>
-                  <span className="text-[11.5px] font-medium text-stone-500">
+                  <span className="text-[11.5px] font-medium text-stone-600">
                     Página {result.pagination.page} de {result.pagination.pages}
                   </span>
                   <Button variant="secondary" size="sm" disabled={page >= result.pagination.pages} onClick={() => setPage((current) => current + 1)}>

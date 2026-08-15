@@ -9,8 +9,8 @@ export function OverviewWhatsappPanel({ whatsappQr }: { whatsappQr: SofiaDashboa
     <Card data-testid="sofia-overview-whatsapp-panel">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-[0.65rem] bg-sofia-100 text-sofia-700">
-            <Radio className="h-4 w-4" />
+          <span className="flex h-8 w-8 items-center justify-center rounded-[0.65rem] bg-brand-100 text-brand-700">
+            <Radio className="h-4 w-4" aria-hidden="true" />
           </span>
           <div>
             <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">WhatsApp</p>
@@ -43,11 +43,11 @@ export function OverviewWhatsappPanel({ whatsappQr }: { whatsappQr: SofiaDashboa
 
       <Link
         href="/sofia/whatsapp-qr"
-        className="mt-3.5 inline-flex items-center gap-1.5 text-[12px] font-semibold text-sofia-700 hover:text-sofia-900"
+        className="mt-3.5 inline-flex items-center gap-1.5 text-[12px] font-semibold text-brand-700 hover:text-brand-900"
         data-testid="sofia-overview-whatsapp-link"
       >
         Ver vinculación
-        <ArrowUpRight className="h-3.5 w-3.5" />
+        <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
       </Link>
     </Card>
   );

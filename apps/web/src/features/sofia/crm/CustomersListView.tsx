@@ -30,7 +30,7 @@ export function CustomersListView() {
   return (
     <div className="space-y-3" data-testid="sofia-crm-customers-view">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
         <Input
           value={inputValue}
           onChange={(event) => setInputValue(event.target.value)}
@@ -57,12 +57,12 @@ export function CustomersListView() {
                   <Link
                     key={customer.id}
                     href={`/sofia/crm/customers/${encodeURIComponent(customer.id)}`}
-                    className="group flex items-center justify-between gap-3 rounded-[1.15rem] border border-stone-200 bg-white p-3.5 transition-colors hover:border-sofia-200"
+                    className="group flex items-center justify-between gap-3 rounded-[1.15rem] border border-stone-200 bg-white p-3.5 transition-colors hover:border-brand-200"
                     data-testid={`sofia-crm-customer-row-${customer.id}`}
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[13.5px] font-semibold text-ink">{customerDisplayName(customer.displayName)}</p>
-                      <p className="mt-0.5 text-[11.5px] font-medium text-stone-500">
+                      <p className="mt-0.5 text-[11.5px] font-medium text-stone-600">
                         {customer.identities.find((identity) => identity.isPrimary)?.valueMasked ?? 'Sin identidad primaria'}
                       </p>
                       {customer.tags.length > 0 && (
@@ -75,7 +75,7 @@ export function CustomersListView() {
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <StatusBadge tone={customer.status === 'ACTIVE' ? 'success' : 'read_only'} label={customer.status === 'ACTIVE' ? 'Activo' : 'Archivado'} withDot={false} />
-                      <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-sofia-600" />
+                      <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-brand-600" aria-hidden="true" />
                     </div>
                   </Link>
                 ))}
@@ -86,7 +86,7 @@ export function CustomersListView() {
                   <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
                     Anterior
                   </Button>
-                  <span className="text-[12px] font-medium text-stone-500">
+                  <span className="text-[12px] font-medium text-stone-600">
                     Página {result.pagination.page} de {result.pagination.pages} · {result.pagination.total} clientes
                   </span>
                   <Button variant="secondary" size="sm" disabled={page >= result.pagination.pages} onClick={() => setPage((current) => current + 1)}>

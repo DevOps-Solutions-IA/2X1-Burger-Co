@@ -57,7 +57,7 @@ export function ConversationDetailPanel({
                 key={message.id}
                 className={cn(
                   'rounded-[0.9rem] border p-2.5 text-[12px]',
-                  message.direction === 'INBOUND' ? 'border-sky-200 bg-sky-50' : message.direction === 'SYSTEM' ? 'border-stone-200 bg-stone-50' : 'border-sofia-200 bg-white',
+                  message.direction === 'INBOUND' ? 'border-sky-200 bg-sky-50' : message.direction === 'SYSTEM' ? 'border-stone-200 bg-stone-50' : 'border-brand-200 bg-white',
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -65,11 +65,11 @@ export function ConversationDetailPanel({
                   <span className="text-[10.5px] font-medium text-stone-600">{new Date(message.createdAt).toLocaleString('es-CO')}</span>
                 </div>
                 <p className="mt-1.5 font-medium text-stone-700">{message.bodyPreview ?? 'Sin vista previa'}</p>
-                {message.aiIntent && <p className="mt-1 text-[10.5px] font-medium text-sofia-600">Intención: {message.aiIntent}</p>}
+                {message.aiIntent && <p className="mt-1 text-[10.5px] font-medium text-brand-700">Intención: {message.aiIntent}</p>}
               </div>
             ))
           ) : (
-            <p className="text-[12px] font-medium text-stone-500">Sin mensajes registrados.</p>
+            <p className="text-[12px] font-medium text-stone-600">Sin mensajes registrados.</p>
           )}
         </div>
       </div>
@@ -94,7 +94,7 @@ export function ConversationDetailPanel({
               </div>
             ))
           ) : (
-            <p className="text-[12px] font-medium text-stone-500">Sin mensajes salientes registrados.</p>
+            <p className="text-[12px] font-medium text-stone-600">Sin mensajes salientes registrados.</p>
           )}
         </div>
       </div>
@@ -112,7 +112,7 @@ export function ConversationDetailPanel({
 
       {conversation.technicalReasonCodes.length > 0 && (
         <details className="rounded-[0.9rem] border border-stone-200 bg-stone-50 p-3">
-          <summary className="cursor-pointer text-[11px] font-semibold text-stone-500">Detalle técnico</summary>
+          <summary className="cursor-pointer text-[11px] font-semibold text-stone-600">Detalle técnico</summary>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {conversation.technicalReasonCodes.map((code) => (
               <span key={code} className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-mono text-stone-600">

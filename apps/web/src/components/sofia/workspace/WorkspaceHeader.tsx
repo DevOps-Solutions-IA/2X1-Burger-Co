@@ -1,6 +1,19 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Marca de identidad del módulo SOFIA. Único uso legítimo del acento violeta
+ * `sofia-*` en el workspace: un chip puntual, nunca el fondo dominante de la
+ * página (el resto del sistema usa fondo claro con acento ámbar `brand-*`).
+ */
+function SofiaModuleTag() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-sofia-200 bg-sofia-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-sofia-700">
+      SOFIA
+    </span>
+  );
+}
+
 export function WorkspaceHeader({
   eyebrow,
   title,
@@ -21,29 +34,23 @@ export function WorkspaceHeader({
   return (
     <header
       className={cn(
-        'relative overflow-hidden rounded-[1.5rem] border border-sofia-200/60 bg-gradient-to-br from-sofia-950 via-sofia-900 to-sofia-800 px-5 py-4.5 text-white md:px-6 md:py-5',
+        'flex flex-col gap-3 rounded-[1.45rem] border border-stone-200/90 bg-white p-4.5 shadow-soft md:p-5 lg:flex-row lg:items-end lg:justify-between',
         className,
       )}
       data-testid={testId}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -right-10 -top-14 h-40 w-40 rounded-full opacity-25 blur-3xl"
-        style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.6) 0%, transparent 70%)' }}
-      />
-      <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-sofia-100">
-            {eyebrow}
-          </span>
-          <h1 className="mt-2 text-xl font-bold leading-tight tracking-tight text-white md:text-2xl">{title}</h1>
-          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-sofia-100/85">{description}</p>
+      <div className="min-w-0 max-w-3xl">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-900">{eyebrow}</p>
+          <SofiaModuleTag />
         </div>
-        <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
-          {statusBadges && <div className="flex flex-wrap gap-1.5">{statusBadges}</div>}
-          {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-        </div>
+        <h1 className="mt-2 text-[1.66rem] font-bold tracking-tight text-ink lg:text-[1.86rem]">{title}</h1>
+        <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-5.5 text-stone-600 lg:text-[13.5px] lg:leading-6">
+          {description}
+        </p>
+        {statusBadges && <div className="mt-3 flex flex-wrap gap-1.5">{statusBadges}</div>}
       </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2.5">{actions}</div>}
     </header>
   );
 }

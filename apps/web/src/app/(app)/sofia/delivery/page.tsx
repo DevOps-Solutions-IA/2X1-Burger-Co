@@ -7,8 +7,8 @@ export default function SofiaDeliveryPage() {
       title="Domicilios"
       description="Estado canónico de entrega y notificaciones asociadas."
       pendingPhase="Fase J — Domicilios y notificaciones"
-      noticeTitle="Domicilios disponibles en una fase posterior"
-      noticeDescription="El estado canónico de entrega y las notificaciones asociadas se conectan en la Fase J del programa."
+      noticeTitle="Este panel no tiene ningún endpoint que consultar todavía"
+      noticeDescription="El servicio de workflow de domicilios de SOFIA (delivery-workflow.service.ts) ya existe en el backend, pero al igual que Comandos, no tiene ningún controller HTTP expuesto. No hay endpoint que este panel pueda consultar hasta que se construya en la Fase J."
       data-testid="sofia-delivery-page"
     />
   );

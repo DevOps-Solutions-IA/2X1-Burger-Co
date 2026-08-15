@@ -5,9 +5,9 @@ import { WorkspaceHeader } from './WorkspaceHeader';
 
 /**
  * Página completa para una sección del workspace operativo cuya capacidad
- * todavía no está conectada a datos reales. Usada por las secciones que
- * pertenecen a fases posteriores del programa (Comandos, Pedidos, Pagos,
- * Domicilios, Servicio al cliente).
+ * todavía no está conectada a datos reales. Usada por las secciones sin
+ * endpoint HTTP o correlación de backend disponible (Comandos, Pedidos,
+ * Domicilios).
  */
 export function PendingPhasePage({
   eyebrow,

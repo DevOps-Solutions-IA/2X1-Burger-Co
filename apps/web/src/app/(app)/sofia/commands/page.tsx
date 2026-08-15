@@ -7,8 +7,8 @@ export default function SofiaCommandsPage() {
       title="Comandos"
       description="Ejecución gobernada de comandos sensibles vía SecureCommand."
       pendingPhase="Fase E — SecureCommand"
-      noticeTitle="Comandos disponibles en una fase posterior"
-      noticeDescription="El flujo de aprobación, ejecución y evidencia de SecureCommand se conecta en la Fase E del programa."
+      noticeTitle="Este panel no tiene ningún endpoint que consultar todavía"
+      noticeDescription="La lógica de aprobación, auditoría e idempotencia de SecureCommand ya existe en el backend (command-approval.service.ts, command-audit.service.ts, command-idempotency.service.ts), pero el módulo no tiene ningún @Controller HTTP registrado — cero endpoints expuestos. No hay nada que este panel pueda consultar hasta que se construya ese controller en la Fase E."
       data-testid="sofia-commands-page"
     />
   );

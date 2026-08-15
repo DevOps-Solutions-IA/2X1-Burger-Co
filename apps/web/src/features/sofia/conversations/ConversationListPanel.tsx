@@ -44,14 +44,14 @@ function ConversationRow({
       onClick={onSelect}
       className={cn(
         'w-full rounded-[1.1rem] border p-3 text-left transition-all',
-        isSelected ? 'border-sofia-300 bg-sofia-50 shadow-sm ring-1 ring-sofia-100' : 'border-stone-200 bg-white hover:border-sofia-200',
+        isSelected ? 'border-brand-300 bg-brand-50 shadow-sm ring-1 ring-brand-100' : 'border-stone-200 bg-white hover:border-brand-200',
       )}
       data-testid={`sofia-conversation-row-${conversation.id}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-ink">{maskedPhoneOrLabel(conversation.phoneMasked, conversation.customerLabel)}</p>
-          <p className="truncate text-[11px] font-medium text-stone-500">{conversation.lastMessagePreview ?? 'Sin mensajes'}</p>
+          <p className="truncate text-[11px] font-medium text-stone-600">{conversation.lastMessagePreview ?? 'Sin mensajes'}</p>
         </div>
         <StatusBadge tone={SCOPE_TONE[conversation.scope]} label={SCOPE_LABEL[conversation.scope]} withDot={false} />
       </div>
@@ -98,7 +98,7 @@ export function ConversationListPanel({
             onClick={() => setFilter(key)}
             className={cn(
               'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
-              filter === key ? 'border-sofia-600 bg-sofia-600 text-white' : 'border-stone-200 bg-white text-stone-600 hover:border-sofia-200',
+              filter === key ? 'border-brand-500 bg-brand-500 text-ink' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200',
             )}
           >
             {label(inbox)}

@@ -7,6 +7,8 @@ import { OverviewSecurityPanel } from '@/features/sofia/overview/OverviewSecurit
 import { OverviewWhatsappPanel } from '@/features/sofia/overview/OverviewWhatsappPanel';
 import { OverviewAiPanel } from '@/features/sofia/overview/OverviewAiPanel';
 import { OverviewSafetyGuardPanel } from '@/features/sofia/overview/OverviewSafetyGuardPanel';
+import { OverviewGovernancePanel } from '@/features/sofia/overview/OverviewGovernancePanel';
+import { Button } from '@/components/ui/button';
 import {
   MetricTile,
   OperatorWorkspaceFrame,
@@ -45,21 +47,19 @@ export default function SofiaOverviewPage() {
               }
               actions={
                 <>
-                  <Link
-                    href={data.routes.conversationsUrl}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Conversaciones
-                  </Link>
-                  {data.routes.whatsappQrUrl && (
-                    <Link
-                      href={data.routes.whatsappQrUrl}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
-                    >
-                      <ShieldAlert className="h-3.5 w-3.5" />
-                      WhatsApp QR
+                  <Button variant="secondary" size="sm" asChild>
+                    <Link href={data.routes.conversationsUrl}>
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                      Conversaciones
                     </Link>
+                  </Button>
+                  {data.routes.whatsappQrUrl && (
+                    <Button variant="secondary" size="sm" asChild>
+                      <Link href={data.routes.whatsappQrUrl}>
+                        <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                        WhatsApp QR
+                      </Link>
+                    </Button>
                   )}
                 </>
               }
@@ -101,26 +101,28 @@ export default function SofiaOverviewPage() {
 
             <OverviewSafetyGuardPanel safetyGuard={data.safetyGuard} />
 
+            <OverviewGovernancePanel />
+
             <section className="grid gap-3 sm:grid-cols-2" data-testid="sofia-overview-quicklinks">
               <Link
                 href={data.routes.deliveriesUrl}
-                className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-sofia-200"
+                className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-brand-200"
               >
                 <span className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-stone-400" />
+                  <Truck className="h-4 w-4 text-stone-400" aria-hidden="true" />
                   Ver domicilios
                 </span>
-                <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-sofia-600" />
+                <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-brand-600" aria-hidden="true" />
               </Link>
               <Link
                 href={data.routes.posUrl}
-                className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-sofia-200"
+                className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-brand-200"
               >
                 <span className="flex items-center gap-2">
-                  <Store className="h-4 w-4 text-stone-400" />
+                  <Store className="h-4 w-4 text-stone-400" aria-hidden="true" />
                   Ver punto de venta
                 </span>
-                <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-sofia-600" />
+                <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-brand-600" aria-hidden="true" />
               </Link>
             </section>
           </div>

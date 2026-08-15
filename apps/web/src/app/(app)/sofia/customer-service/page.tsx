@@ -1,15 +1,17 @@
-import { PendingPhasePage } from '@/components/sofia/workspace';
+import { CasesListView } from '@/features/sofia/customer-service/CasesListView';
+import { OperatorWorkspaceFrame, WorkspaceHeader } from '@/components/sofia/workspace';
 
 export default function SofiaCustomerServicePage() {
   return (
-    <PendingPhasePage
-      eyebrow="Servicio al cliente"
-      title="Servicio al cliente"
-      description="Casos de servicio al cliente y autoridad de recuperación gobernada."
-      pendingPhase="Fase K — Servicio al cliente"
-      noticeTitle="Servicio al cliente disponible en una fase posterior"
-      noticeDescription="Los casos de servicio al cliente y la autoridad de recuperación gobernada se conectan en la Fase K del programa."
-      data-testid="sofia-customer-service-page"
-    />
+    <OperatorWorkspaceFrame>
+      <div className="space-y-4" data-testid="sofia-customer-service-page">
+        <WorkspaceHeader
+          eyebrow="Servicio al cliente"
+          title="Casos de servicio al cliente"
+          description="Casos reales con máquina de estados lineal y transición operada por el humano desde el panel admin."
+        />
+        <CasesListView />
+      </div>
+    </OperatorWorkspaceFrame>
   );
 }

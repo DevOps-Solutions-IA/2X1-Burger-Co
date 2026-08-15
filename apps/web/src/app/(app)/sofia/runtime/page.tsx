@@ -59,14 +59,14 @@ export default function SofiaRuntimePage() {
 
             <Link
               href="/sofia/whatsapp-qr"
-              className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-sofia-200"
+              className="group flex items-center justify-between rounded-[1.15rem] border border-stone-200 bg-white p-3.5 text-[13px] font-semibold text-stone-700 transition-colors hover:border-brand-200"
               data-testid="sofia-runtime-whatsapp-link"
             >
               <span className="flex items-center gap-2">
-                <Radio className="h-4 w-4 text-stone-400" />
+                <Radio className="h-4 w-4 text-stone-400" aria-hidden="true" />
                 Ver vinculación de WhatsApp
               </span>
-              <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-sofia-600" />
+              <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-brand-600" aria-hidden="true" />
             </Link>
           </div>
         )}
