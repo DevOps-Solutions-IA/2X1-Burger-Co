@@ -14,15 +14,13 @@ test('mobile login and dashboard do not overflow horizontally', async ({ page })
   await expectAccessiblePage(page);
 
   await page.goto('/sofia/customers');
-  await expect(page.getByTestId('sofia-customers-page')).toBeVisible({ timeout: 20_000 });
+  await expect(page).toHaveURL(/\/sofia\/crm$/);
+  await expect(page.getByTestId('sofia-crm-clean-slate')).toBeVisible({ timeout: 20_000 });
   const crmDimensions = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
   }));
   expect(crmDimensions.scrollWidth).toBeLessThanOrEqual(crmDimensions.width + 1);
-  const searchButton = page.getByRole('button', { name: 'Buscar' });
-  await expect(searchButton).toBeEnabled();
-  await expect(searchButton).toHaveCSS('opacity', '1');
   await expectAccessiblePage(page);
   expect(browserErrors).toEqual([]);
 });

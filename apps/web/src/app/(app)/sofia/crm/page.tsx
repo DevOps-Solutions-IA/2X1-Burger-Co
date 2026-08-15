@@ -1,10 +1,10 @@
 import { SofiaCleanSlatePlaceholder } from '@/components/sofia/SofiaCleanSlatePlaceholder';
 
-export default function SofiaCleanSlatePage() {
+export default function SofiaCrmCleanSlatePage() {
   return (
     <SofiaCleanSlatePlaceholder
-      testId="sofia-clean-slate"
-      title="Sofía"
+      testId="sofia-crm-clean-slate"
+      title="CRM"
       description="Nueva interfaz en construcción."
     />
   );
