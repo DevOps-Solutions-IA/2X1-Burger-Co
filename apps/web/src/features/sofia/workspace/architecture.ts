@@ -112,16 +112,6 @@ export type SofiaCustomer360Section = {
   description: string;
 };
 
-export const SOFIA_CRM_SECTIONS: SofiaWorkspaceSection[] = [
-  {
-    key: 'customers',
-    label: 'Clientes',
-    href: '/sofia/crm',
-    status: 'active',
-    description: 'Directorio de clientes con búsqueda, paginación e identidades enmascaradas.',
-  },
-];
-
 /** Pestañas de Customer 360, aggregando lo que el contrato actual expone y lo que aún no. */
 export const SOFIA_CUSTOMER_360_SECTIONS: SofiaCustomer360Section[] = [
   {

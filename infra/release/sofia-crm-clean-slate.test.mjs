@@ -83,8 +83,19 @@ test('SOFIA contracts, query layer, PII guards, and frontend auth remain availab
 test('no productive mutations are wired into Phase A operator/CRM routes', () => {
   // Fase A es de solo lectura: pausar/tomar/liberar conversaciones y conectar
   // el QR real son mutaciones productivas que llegan en fases posteriores.
-  const conversations = read('app', '(app)', 'sofia', 'conversations', 'page.tsx');
-  const whatsappQr = read('app', '(app)', 'sofia', 'whatsapp-qr', 'page.tsx');
-  assert.doesNotMatch(conversations, /useMutation/);
-  assert.doesNotMatch(whatsappQr, /useMutation/);
+  // Se revisa recursivamente todo el árbol de features/components de SOFIA,
+  // no solo las páginas, para que un useMutation en un componente hijo
+  // (ej. un panel importado por conversations/page.tsx) tampoco pase.
+  const dirsToScan = [
+    web('app', '(app)', 'sofia'),
+    web('features', 'sofia'),
+    web('components', 'sofia'),
+  ];
+  for (const dir of dirsToScan) {
+    for (const file of listFilesRecursive(dir)) {
+      if (!/\.(ts|tsx)$/.test(file)) continue;
+      const source = readFileSync(path.join(dir, file), 'utf8');
+      assert.doesNotMatch(source, /useMutation/, `${path.relative(root, path.join(dir, file))} no debe usar useMutation en Fase A`);
+    }
+  }
 });
