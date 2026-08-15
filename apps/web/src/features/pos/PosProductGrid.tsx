@@ -47,7 +47,7 @@ export function PosProductGrid({
                 {isLowStock ? <Badge tone="danger">Stock bajo</Badge> : null}
                 {outOfStock ? <Badge tone="danger">Sin stock</Badge> : null}
               </div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-600">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">
                 {product.category.name}
               </p>
             </div>
@@ -59,14 +59,14 @@ export function PosProductGrid({
 
             <div className="mt-3 flex items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">Precio</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">Precio</p>
                 <p className="numeric-tabular mt-1 text-[1.15rem] font-bold leading-none text-ink">
                   {formatCurrency(product.salePrice)}
                 </p>
               </div>
               {product.kind === 'DIRECT_STOCK' ? (
                 <div className="text-right">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">Stock</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-400">Stock</p>
                   <p className={`numeric-tabular mt-1 text-[13px] font-bold leading-none ${outOfStock ? 'text-danger' : isLowStock ? 'text-amber-600' : 'text-ink'}`}>
                     {formatNumber(product.currentStock)}
                   </p>

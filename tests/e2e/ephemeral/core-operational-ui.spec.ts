@@ -44,8 +44,8 @@ test('core operational API effects are visible and actionable in the real UI', a
   await expect(delivery).toHaveCount(1);
   await delivery.click();
   await expect(page.getByTestId('deliveries-receipt-version')).toContainText(/versión 2/i);
-  await expect(page.getByTestId('deliveries-detail')).toContainText(/Ubicación logística recibida/i);
-  await expect(page.getByRole('link', { name: 'Abrir mapa' })).toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/search\//);
+  await expect(page.getByTestId('deliveries-detail')).toContainText(/Ubicacion\s*Confirmada/i);
+  await expect(page.getByRole('link', { name: 'Mapa' })).toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/search\//);
   const receiptResponse = page.waitForResponse((response) =>
     response.url().includes('/delivery-receipt') && response.status() === 200,
   );

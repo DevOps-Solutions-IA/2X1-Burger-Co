@@ -1,7 +1,6 @@
 'use client';
 
 import Image from 'next/image';
-import { useId } from 'react';
 import { LoaderCircle, QrCode, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +12,6 @@ import { formatCurrency } from '@/lib/format';
 import { formatReceiptNumber } from '@/lib/receipt-number';
 import type { ThermalReceiptData } from '@/lib/thermal-receipt';
 import type { WhatsappSessionStatus } from './pos.types';
-import { useAccessibleModal } from '@/components/use-accessible-modal';
 
 type WhatsappSessionMeta = {
   tone: 'danger' | 'success' | 'warning' | 'info';
@@ -48,25 +46,20 @@ export function PosWhatsappReceiptModal({
   onSendReceipt: (payload: { saleId: string; phone: string; closeModal: boolean }) => void;
   onClose: () => void;
 }) {
-  const titleId = useId();
-  const { panelRef, handleKeyDown } = useAccessibleModal<HTMLDivElement>(true, onClose);
-
   return (
     <div
-      data-modal-root
       className="fixed inset-0 z-50 bg-stone-950/38 backdrop-blur-[1px]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enviar comprobante por WhatsApp"
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
       onClick={onClose}
     >
       <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
         <div
-          ref={panelRef}
           className="hide-scrollbar flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto rounded-t-[1.65rem] border border-stone-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:rounded-[1.7rem]"
           onClick={(event) => event.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          tabIndex={-1}
-          onKeyDown={handleKeyDown}
+          role="document"
         >
           <div className="sticky top-0 z-10 border-b border-stone-100 bg-white/96 px-4 py-3.5 backdrop-blur sm:px-5">
             <div className="mb-2 flex justify-center sm:hidden">
@@ -75,7 +68,7 @@ export function PosWhatsappReceiptModal({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Enviar comprobante</p>
-                <h2 id={titleId} className="mt-1 text-[1rem] font-semibold text-ink">WhatsApp interno · {formatReceiptNumber(lastReceipt.saleNumber)}</h2>
+                <h2 className="mt-1 text-[1rem] font-semibold text-ink">WhatsApp interno · {formatReceiptNumber(lastReceipt.saleNumber)}</h2>
                 <p className="mt-1 text-[12px] text-stone-500">
                   El sistema envía el PDF desde la sesión vinculada del WhatsApp del negocio.
                 </p>
@@ -83,7 +76,7 @@ export function PosWhatsappReceiptModal({
               <button
                 type="button"
                 aria-label="Cerrar envío por WhatsApp"
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-ink"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-ink"
                 onClick={onClose}
               >
                 <X className="h-4.5 w-4.5" />

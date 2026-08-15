@@ -2,424 +2,545 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Bell,
-  Bot,
+  Brain,
   CheckCircle2,
-  CirclePause,
-  MessagesSquare,
+  Database,
+  Lock,
+  MessageCircle,
   Pause,
   Play,
   Radio,
   ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  MetricSurface,
-  ModuleTabs,
-  PageHeader,
-  QueryState,
-  ReadinessSurface,
-  StatusBadge,
-  Timeline,
-  type TimelineItem,
-} from '@/components/product';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { apiFetchSchema } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
-import {
-  canAccessRoute,
-  canPerformAction,
-  canReadSofiaAlerts,
-  canReadSofiaGovernance,
-} from '@/features/auth/access-control';
-import { useAuth } from '@/features/auth/auth-provider';
-import {
-  sofiaAlertAckResponseSchema,
-  sofiaAlertsSchema,
-  sofiaGovernanceEventsSchema,
-  sofiaGovernancePauseResponseSchema,
-  sofiaReadinessSchema,
-} from '@/features/sofia/contracts';
+import { Button } from '@/components/ui/button';
+import { sofiaAlertAckResponseSchema, sofiaGovernancePauseResponseSchema } from '@/features/sofia/contracts';
 import {
   sofiaQueryKeys,
+  useSofiaAlerts,
   useSofiaDashboardSummary,
+  useSofiaGovernanceEvents,
+  useSofiaReadiness,
 } from '@/features/sofia/queries';
-import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
+import {
+  SofiaCommandCard,
+  SofiaPageHero,
+  SofiaPageShell,
+  SofiaTechnicalDetailsAccordion,
+  SofiaLiveStatusDot,
+  SofiaReadinessGauge,
+  SofiaLiveSignalCard,
+  SofiaBlockerChecklist,
+  SofiaScopeComparison,
+  SofiaActionMatrixCard,
+  SofiaReadinessGrid,
+  SofiaTimeline,
+  humanizeSecurityStatus,
+  humanizeCheckStatus,
+  humanizeEventStatus,
+  humanizeEventType,
+  humanizeReasonCode,
+  humanizeSofiaMode,
+} from '@/components/sofia';
+import type { SofiaOperatorTone, ReadinessItem, TimelineEvent } from '@/components/sofia';
 
-function readable(value: string) {
-  return value.replaceAll('_', ' ').toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
-}
+const READINESS_GROUP: Record<string, ReadinessItem['group']> = {
+  prompt_active: 'core',
+  catalog_active: 'core',
+  memory_active: 'core',
+  safetyguard_active: 'core',
+  kill_switch: 'core',
+  secret_rotation: 'security',
+  qr_gateway_architecture: 'whatsapp',
+  qr_receive_only: 'whatsapp',
+  qr_gateway_real_send: 'whatsapp',
+  qr_gateway_real: 'whatsapp',
+  whatsapp_real: 'whatsapp',
+  whatsapp_no_paid: 'whatsapp',
+  auto_safe_sandbox: 'ai',
+  deepseek_real: 'ai',
+  maxi_family_protected: 'operations',
+  checkout_cash_stock_regression: 'operations',
+};
 
 function formatDate(value: string | null) {
-  return value ? formatDateTime(value) : 'Sin lectura disponible';
+  if (!value) return 'No disponible';
+  return new Date(value).toLocaleString('es-CO', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+function boolText(value: boolean) {
+  return value ? 'Sí' : 'No';
+}
+
+function blockedLabel(value: boolean) {
+  return value ? 'Bloqueada' : 'No bloqueada';
 }
 
 export default function SofiaMainDashboardPage() {
   const [showFullChecklist, setShowFullChecklist] = useState(false);
-  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const canReadGovernance = canReadSofiaGovernance(user?.permissions);
-  const canReadAlerts = canReadSofiaAlerts(user?.permissions, user?.roles);
-  const canOpenActivationControl = canAccessRoute('/activation-control', user?.permissions, user?.roles);
-  const summary = useSofiaDashboardSummary();
-  const readiness = useQuery({
-    queryKey: sofiaQueryKeys.readiness,
-    queryFn: () => apiFetchSchema('/admin/sofia/readiness', sofiaReadinessSchema),
-    enabled: canReadGovernance,
-    refetchInterval: canReadGovernance ? visiblePolling(POLLING_INTERVAL.operational) : false,
-  });
-  const events = useQuery({
-    queryKey: sofiaQueryKeys.governanceEvents,
-    queryFn: () => apiFetchSchema('/admin/sofia/governance/events', sofiaGovernanceEventsSchema),
-    enabled: canReadGovernance,
-    refetchInterval: canReadGovernance ? visiblePolling(POLLING_INTERVAL.operational) : false,
-  });
-  const alerts = useQuery({
-    queryKey: sofiaQueryKeys.alerts,
-    queryFn: () => apiFetchSchema('/admin/sofia/alerts', sofiaAlertsSchema),
-    enabled: canReadAlerts,
-    refetchInterval: canReadAlerts ? visiblePolling(POLLING_INTERVAL.operational) : false,
-  });
-  const canGovern = canPerformAction(user?.permissions, 'settings.update', user?.roles, ['admin', 'supervisor']);
 
-  const invalidateOperationalQueries = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.dashboardSummary }),
-      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.governanceEvents }),
-    ]);
+  const summary = useSofiaDashboardSummary();
+  const readiness = useSofiaReadiness();
+  const events = useSofiaGovernanceEvents();
+  const alerts = useSofiaAlerts();
+
+  const invalidateOperationalQueries = () => {
+    queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.dashboardSummary });
+    queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.governanceEvents });
   };
 
   const pauseSofia = useMutation({
-    mutationFn: () => {
-      if (!canGovern) throw new Error('No tienes permiso para pausar Sofia.');
-      return apiFetchSchema('/admin/sofia/governance/pause', sofiaGovernancePauseResponseSchema, {
+    mutationFn: () =>
+      apiFetchSchema('/admin/sofia/governance/pause', sofiaGovernancePauseResponseSchema, {
         method: 'POST',
-        body: JSON.stringify({ reason: 'Pausa manual desde Centro de Gobierno Sofia' }),
-      });
-    },
+        body: JSON.stringify({ reason: 'Pausa manual desde Centro de Mando' }),
+      }),
     scope: { id: 'sofia-governance-write' },
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       toast.success(result.message);
-      await invalidateOperationalQueries();
+      invalidateOperationalQueries();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo pausar Sofia'),
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo pausar Sofía'),
   });
 
   const resumeSofia = useMutation({
-    mutationFn: () => {
-      if (!canGovern) throw new Error('No tienes permiso para reanudar Sofia.');
-      return apiFetchSchema('/admin/sofia/governance/resume', sofiaGovernancePauseResponseSchema, { method: 'POST' });
-    },
+    mutationFn: () =>
+      apiFetchSchema('/admin/sofia/governance/resume', sofiaGovernancePauseResponseSchema, { method: 'POST' }),
     scope: { id: 'sofia-governance-write' },
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       toast.success(result.message);
-      await invalidateOperationalQueries();
+      invalidateOperationalQueries();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reanudar Sofia'),
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reanudar Sofía'),
   });
 
   const ackAlert = useMutation({
-    mutationFn: (id: string) => {
-      if (!canGovern) throw new Error('No tienes permiso para reconocer alertas de Sofia.');
-      return apiFetchSchema(`/admin/sofia/alerts/${id}/ack`, sofiaAlertAckResponseSchema, { method: 'POST' });
-    },
+    mutationFn: (id: string) =>
+      apiFetchSchema(`/admin/sofia/alerts/${id}/ack`, sofiaAlertAckResponseSchema, { method: 'POST' }),
     scope: { id: 'sofia-governance-write' },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success('Alerta reconocida');
-      await queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.alerts });
+      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.alerts });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'No se pudo reconocer la alerta'),
   });
 
   const data = summary.data;
-  const summaryStatus = summary.isPending ? 'loading' : summary.isError || !data ? 'error' : 'ready';
 
-  const timelineItems: TimelineItem[] =
-    events.data?.map((event, index) => ({
-      id: `${event.createdAt}-${event.type}-${index}`,
-      title: readable(event.type),
-      timestamp: formatDate(event.createdAt),
-      description: event.detail,
-      metadata: <StatusBadge status={event.status} label={readable(event.status)} />,
-      tone: event.status.includes('BLOCK') || event.status.includes('FAIL') ? 'danger' : event.status.includes('WARN') ? 'warning' : 'info',
-    })) ?? [];
+  if (summary.isLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center" data-testid="sofia-admin-page">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-sofia-200 border-t-sofia-600" />
+          <p className="mt-4 text-sm font-bold text-stone-500">Cargando datos reales del backend...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (summary.isError || !data) {
+    return (
+      <div
+        className="flex min-h-[50vh] flex-col items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-10 text-center"
+        data-testid="sofia-admin-page"
+      >
+        <AlertTriangle className="h-10 w-10 text-red-500" />
+        <p className="mt-4 text-base font-extrabold text-red-800">No se pudo cargar el resumen real de Sofía</p>
+        <p className="mt-2 max-w-md text-sm font-medium text-red-600">POS, Domicilios, Caja, Stock y Checkout no se ven afectados.</p>
+      </div>
+    );
+  }
+
+  const deepSeekLabel = data.ai.dryRunEnabled
+    ? data.ai.externalProviderEnabled
+      ? 'DeepSeek dry-run'
+      : 'DeepSeek dry-run · proveedor externo OFF'
+    : data.ai.deepSeekEnabled
+      ? 'DeepSeek sin dry-run'
+      : 'IA no disponible';
+  const qrStatusLabel = data.whatsappQr.connected
+    ? 'Conectado'
+    : data.whatsappQr.qrAvailable
+      ? 'QR listo'
+      : data.whatsappQr.status
+        ? humanizeEventStatus(data.whatsappQr.status)
+        : 'No disponible';
+
+  const passedCount = readiness.data ? readiness.data.checklist.filter((i) => i.status === 'PASS').length : data.security.passedChecks.length;
+  const totalChecks = readiness.data
+    ? readiness.data.checklist.length
+    : data.security.passedChecks.length + data.security.blockedChecks.length + data.security.pendingChecks.length;
+
+  const blockerItems = [
+    ...data.security.blockedChecks.map((label) => ({ label, tone: 'blocked' as const })),
+    ...data.security.pendingChecks.map((label) => ({ label, tone: 'pending' as const })),
+  ];
+
+  const readinessItems: ReadinessItem[] = (readiness.data?.checklist ?? []).map((item) => ({
+    key: item.key,
+    label: item.label,
+    status: item.status,
+    reason: item.reason,
+    evidence: item.evidence,
+    group: READINESS_GROUP[item.key] ?? 'operations',
+  }));
+
+  const timelineEvents: TimelineEvent[] = (events.data ?? []).map((event) => {
+    const viaEventStatus = humanizeEventStatus(event.status);
+    const viaEventType = humanizeEventType(event.status);
+    const viaReasonCode = humanizeReasonCode(event.status);
+    const status =
+      viaEventStatus !== event.status ? viaEventStatus : viaEventType !== event.status ? viaEventType : viaReasonCode;
+    const detail =
+      event.type === 'AUTO_SAFE_DECISION'
+        ? event.detail.split(', ').map((code) => humanizeReasonCode(code.trim())).join(' · ')
+        : event.type === 'COMMERCIAL_RULE'
+          ? event.detail.split(': ').map((part) => humanizeReasonCode(part.trim())).join(': ')
+          : event.detail;
+    return {
+      type: humanizeEventType(event.type),
+      status,
+      detail,
+      createdAt: event.createdAt,
+    };
+  });
+
+  const whatsappTone: SofiaOperatorTone = data.whatsappQr.connected ? 'safe' : data.whatsappQr.qrAvailable ? 'pending' : 'off';
+  const aiTone: SofiaOperatorTone = data.ai.dryRunEnabled ? 'dryRun' : data.ai.deepSeekEnabled ? 'pending' : 'off';
+  const safetyHasEvidence = data.safetyGuard.real.totalDecisions > 0;
+  const safetyTone: SofiaOperatorTone = !safetyHasEvidence
+    ? 'off'
+    : data.safetyGuard.real.blockedCount > 0
+      ? 'blocked'
+      : 'safe';
+  const productionTone: SofiaOperatorTone = data.general.productionBlocked ? 'blocked' : 'pending';
 
   return (
-    <div className="space-y-6" data-testid="sofia-admin-page">
-      <div data-testid="sofia-main-real-data-hero">
-        <PageHeader
-          eyebrow="Inteligencia conversacional supervisada"
-          title="Centro de Gobierno Sofia"
-          description="Lectura operacional, alertas y control humano. El lenguaje puede ser flexible; la ejecución permanece gobernada por el dominio."
-          status={
-            data ? (
-              <StatusBadge
-                status={data.general.sofiaMode}
-                label={data.general.globalPaused ? 'Sofia pausada' : `Modo ${readable(data.general.sofiaMode)}`}
-                tone={data.general.globalPaused ? 'warning' : 'info'}
-              />
-            ) : undefined
-          }
-          actions={
-            <>
-              <Button asChild variant="secondary">
-                <Link href="/conversations"><MessagesSquare className="h-4 w-4" aria-hidden="true" /> Conversaciones</Link>
-              </Button>
-              {canOpenActivationControl ? <Button asChild variant="secondary">
-                <Link href="/activation-control"><Radio className="h-4 w-4" aria-hidden="true" /> Control de activacion</Link>
-              </Button> : null}
-            </>
-          }
-        />
-      </div>
-
-      <ModuleTabs
-        label="Navegacion del modulo Sofia"
-        items={[
-          { id: 'operations', label: 'Operacion', href: '/sofia', active: true, icon: <Bot className="h-4 w-4" /> },
-          { id: 'conversations', label: 'Conversaciones', href: '/conversations', icon: <MessagesSquare className="h-4 w-4" /> },
-          { id: 'customers', label: 'Clientes', href: '/customers' },
-          { id: 'activation', label: 'Activacion', href: '/activation-control', icon: <ShieldCheck className="h-4 w-4" /> },
-        ].filter((item) => canAccessRoute(item.href, user?.permissions, user?.roles))}
+    <SofiaPageShell data-testid="sofia-admin-page">
+      <SofiaPageHero
+        eyebrow="Sofía"
+        title="Centro de Gobierno Sofía"
+        description="IA supervisada para conversación, seguridad y readiness operativo."
+        statusChips={
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-extrabold text-white">
+              <SofiaLiveStatusDot tone={summary.isError ? 'blocked' : 'safe'} size="sm" />
+              {summary.isFetching ? 'Actualizando…' : 'Live'} · {formatDate(data.generatedAt)}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <Link
+              href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'}
+              className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-xs font-extrabold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            >
+              <Radio className="h-3.5 w-3.5" />
+              QR
+            </Link>
+            <Link
+              href={data.routes.conversationsUrl}
+              className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-xs font-extrabold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Conversaciones
+            </Link>
+          </>
+        }
+        data-testid="sofia-main-real-data-hero"
       />
 
-      <QueryState
-        status={summaryStatus}
-        title={summary.isError ? 'No pudimos cargar el estado real de Sofia' : 'Cargando estado operacional'}
-        description={summary.isError ? 'POS, domicilios, caja, stock y checkout no se alteran. No mostramos datos estimados como reemplazo.' : undefined}
-        onRetry={summary.isError ? () => void summary.refetch() : undefined}
-        className="min-h-60"
+      <section
+        className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+        data-testid="sofia-main-control-bar"
       >
-        {data ? (
-          <>
-            <section
-              className="rounded-2xl border border-line bg-panel p-4 shadow-sm sm:p-5"
-              data-testid="sofia-main-control-bar"
-              aria-labelledby="sofia-control-title"
+        <div className="flex items-center gap-3">
+          <SofiaLiveStatusDot tone={data.general.automationBlocked ? 'blocked' : 'safe'} />
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.14em] text-stone-600">Control operativo</p>
+            <p className="text-base font-extrabold text-stone-900">
+              Sofía {humanizeSofiaMode(data.general.sofiaMode)}
+            </p>
+            <p className="text-xs font-semibold text-stone-500">
+              Kill switch: {data.general.killSwitchActive ? 'ACTIVO' : 'inactivo'} · Envío real: bloqueado
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {data.general.sofiaMode === 'paused' ? (
+            <Button
+              size="sm"
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => resumeSofia.mutate()}
+              disabled={resumeSofia.isPending}
+              data-testid="sofia-main-resume"
             >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-canvas text-brand-800">
-                    {data.general.globalPaused ? <CirclePause className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
-                  </span>
-                  <div>
-                    <h2 id="sofia-control-title" className="font-heading text-lg font-semibold text-ink">Control operacional</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted">
-                      Kill switch {data.general.killSwitchActive ? 'activo' : 'inactivo'} · envio real {data.general.realSendingEnabled ? 'habilitado' : 'bloqueado'} · auto reply {data.general.autoReplyEnabled ? 'habilitado' : 'bloqueado'}.
-                    </p>
-                    <p className="mt-1 text-xs tabular-nums text-muted">Ultima lectura: {formatDate(data.generatedAt)}</p>
+              <Play className="mr-2 h-4 w-4" />
+              Reanudar análisis supervisado
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="bg-red-50 text-red-700 ring-red-200 hover:bg-red-100"
+              onClick={() => {
+                if (window.confirm('¿Pausar Sofía globalmente? Deja de generar sugerencias y análisis hasta reanudar.')) {
+                  pauseSofia.mutate();
+                }
+              }}
+              disabled={pauseSofia.isPending}
+              data-testid="sofia-main-pause"
+            >
+              <Pause className="mr-2 h-4 w-4" />
+              Pausar Sofía
+            </Button>
+          )}
+        </div>
+      </section>
+
+      {alerts.isLoading && <SectionSkeleton rows={2} data-testid="sofia-main-alerts-skeleton" />}
+      {alerts.isError && (
+        <DegradedSection
+          label="Alertas operativas no disponibles"
+          detail="El resto del panel sigue operativo."
+          data-testid="sofia-main-alerts-degraded"
+        />
+      )}
+      {alerts.data && alerts.data.some((alert) => alert.status === 'OPEN') && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4" data-testid="sofia-main-alerts">
+          <p className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-amber-700">
+            <Bell className="h-3.5 w-3.5" />
+            Alertas operativas
+          </p>
+          <div className="grid gap-2">
+            {alerts.data
+              .filter((alert) => alert.status === 'OPEN')
+              .map((alert) => (
+                <div
+                  key={alert.id}
+                  className="flex items-start justify-between gap-3 rounded-xl border border-amber-100 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-extrabold text-stone-900">{alert.title}</p>
+                    <p className="text-xs font-semibold text-stone-500">{alert.message}</p>
                   </div>
-                </div>
-                {data.general.globalPaused ? (
                   <Button
-                    type="button"
-                    onClick={() => resumeSofia.mutate()}
-                    disabled={!canGovern || resumeSofia.isPending}
-                    title={!canGovern ? 'Requiere settings.update' : undefined}
-                    data-testid="sofia-main-resume"
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={() => ackAlert.mutate(alert.id)}
+                    disabled={ackAlert.isPending}
+                    data-testid={`sofia-alert-ack-${alert.id}`}
                   >
-                    <Play className="h-4 w-4" aria-hidden="true" />
-                    {resumeSofia.isPending ? 'Reanudando...' : 'Reanudar analisis'}
+                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                    Reconocer
                   </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      if (window.confirm('Pausar Sofia globalmente? No se generaran sugerencias hasta reanudar.')) pauseSofia.mutate();
-                    }}
-                    disabled={!canGovern || pauseSofia.isPending}
-                    title={!canGovern ? 'Requiere settings.update' : undefined}
-                    data-testid="sofia-main-pause"
-                  >
-                    <Pause className="h-4 w-4" aria-hidden="true" />
-                    {pauseSofia.isPending ? 'Pausando...' : 'Pausar Sofia'}
-                  </Button>
-                )}
-              </div>
-            </section>
-
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-live-signals">
-              <MetricSurface
-                label="WhatsApp inbound"
-                value={data.whatsappQr.inboundToday.toLocaleString('es-CO')}
-                context={`${data.whatsappQr.connected ? 'Conectado' : readable(data.whatsappQr.status)} · ${data.general.receiveOnly ? 'solo recepcion' : readable(data.whatsappQr.mode)}`}
-                icon={<Radio className="h-5 w-5" />}
-                status={<StatusBadge status={data.whatsappQr.connected ? 'ACTIVE' : data.whatsappQr.status} />}
-              />
-              <MetricSurface
-                label="Conversaciones reales"
-                value={data.conversations.realConversations.toLocaleString('es-CO')}
-                context={`${data.conversations.pendingReview} pendientes de revision`}
-                icon={<MessagesSquare className="h-5 w-5" />}
-              />
-              <MetricSurface
-                label="Decisiones SafetyGuard"
-                value={data.safetyGuard.real.totalDecisions.toLocaleString('es-CO')}
-                context={`${data.safetyGuard.real.blockedCount} bloqueadas · ${data.safetyGuard.real.humanRequiredCount} humanas`}
-                icon={<ShieldCheck className="h-5 w-5" />}
-              />
-              <MetricSurface
-                label="Automatizacion"
-                value={data.general.automationBlocked ? 'Bloqueada' : 'Requiere revision'}
-                context={`Envio real ${data.general.realSendingEnabled ? 'habilitado' : 'bloqueado'} · auto reply ${data.general.autoReplyEnabled ? 'habilitado' : 'bloqueado'} · Auto Safe ${data.general.autoSafeEnabled ? 'habilitado' : 'bloqueado'}`}
-                icon={<CirclePause className="h-5 w-5" />}
-                status={<StatusBadge status={data.general.automationBlocked ? 'BLOCKED' : 'WARNING'} label={data.general.automationBlocked ? 'Fail-closed' : 'Revisar'} tone={data.general.automationBlocked ? 'danger' : 'warning'} />}
-              />
-            </section>
-
-            {canReadAlerts || canReadGovernance ? <section className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]" data-testid="sofia-main-alerts">
-              {canReadAlerts ? <Card className="min-w-0">
-                <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
-                  <div>
-                    <h2 className="font-heading text-lg font-semibold text-ink">Alertas operativas</h2>
-                    <p className="mt-1 text-sm text-muted">Solo evidencia real entregada por el backend.</p>
-                  </div>
-                  <Bell className="h-5 w-5 text-muted" aria-hidden="true" />
                 </div>
-                <div className="pt-4">
-                  <QueryState
-                    status={alerts.isPending ? 'loading' : alerts.isError ? 'error' : alerts.data?.some((alert) => alert.status === 'OPEN') ? 'ready' : 'empty'}
-                    title={alerts.isError ? 'Alertas no disponibles' : 'Sin alertas abiertas'}
-                    description={alerts.isError ? 'El panel conserva el resto de capacidades en modo seguro.' : 'No hay alertas operativas abiertas en esta lectura.'}
-                    onRetry={alerts.isError ? () => void alerts.refetch() : undefined}
-                    skeletonRows={2}
-                  >
-                    <div className="space-y-3">
-                      {alerts.data?.filter((alert) => alert.status === 'OPEN').map((alert) => (
-                        <article key={alert.id} className="rounded-xl border border-line bg-canvas p-3">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="font-semibold text-ink">{alert.title}</h3>
-                                <StatusBadge status={alert.severity} tone={alert.severity === 'CRITICAL' ? 'danger' : alert.severity === 'WARNING' ? 'warning' : 'info'} />
-                              </div>
-                              <p className="mt-1 text-sm leading-6 text-muted">{alert.message}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => ackAlert.mutate(alert.id)}
-                              disabled={!canGovern || ackAlert.isPending}
-                              title={!canGovern ? 'Requiere settings.update' : undefined}
-                              data-testid={`sofia-alert-ack-${alert.id}`}
-                            >
-                              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Reconocer
-                            </Button>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </QueryState>
-                </div>
-              </Card> : null}
+              ))}
+          </div>
+        </section>
+      )}
 
-              {canReadGovernance ? <Card>
-                <h2 className="font-heading text-lg font-semibold text-ink">Readiness supervisado</h2>
-                <p className="mt-1 text-sm leading-6 text-muted">La activacion de canal sigue separada de este workspace.</p>
-                <div className="mt-4">
-                  <QueryState
-                    status={readiness.isPending ? 'loading' : readiness.isError || !readiness.data ? 'error' : 'ready'}
-                    title="Readiness no disponible"
-                    onRetry={readiness.isError ? () => void readiness.refetch() : undefined}
-                    skeletonRows={3}
-                  >
-                    {readiness.data ? (
-                      <ReadinessSurface
-                        title={`${readiness.data.checklist.filter((item) => item.status === 'PASS').length}/${readiness.data.checklist.length} controles en PASS`}
-                        description={readiness.data.nextRequiredAction}
-                        state={readiness.data.status === 'PASS' ? 'ready' : readiness.data.status === 'WARNING' ? 'degraded' : 'blocked'}
-                        details={`${readiness.data.blockers.length} bloqueadores · ${readiness.data.warnings.length} advertencias`}
-                      />
-                    ) : null}
-                  </QueryState>
-                </div>
-                {readiness.data ? (
-                  <div className="mt-4" data-testid="sofia-main-production-path">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setShowFullChecklist((current) => !current)}
-                      data-testid="sofia-main-readiness-toggle"
-                    >
-                      {showFullChecklist ? 'Ocultar controles' : 'Ver controles completos'}
-                    </Button>
-                    {showFullChecklist ? (
-                      <ul className="mt-3 space-y-2" data-testid="sofia-main-readiness-grid">
-                        {readiness.data.checklist.map((item) => (
-                          <li key={item.key} className="rounded-xl border border-line bg-canvas p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-ink">{item.label}</p>
-                                <p className="mt-1 text-xs leading-5 text-muted">{item.reason}</p>
-                              </div>
-                              <StatusBadge status={item.status} />
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ) : null}
-              </Card> : null}
-            </section> : (
-              <QueryState
-                status="permission_denied"
-                title="Gobierno de Sofia restringido"
-                description="La lectura operacional permanece disponible. Readiness, alertas y eventos requieren settings.read."
-                data-testid="sofia-governance-restricted"
-              />
-            )}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-live-signals">
+        <SofiaLiveSignalCard
+          icon={Radio}
+          title="WhatsApp QR"
+          tone={whatsappTone}
+          statusLabel={qrStatusLabel}
+          chips={['Receive-only', data.whatsappQr.adapterReal ? 'Adapter real' : 'Adapter pendiente']}
+          lastReading={`Inbound: ${formatDate(data.whatsappQr.lastInboundAt)}`}
+          suggestedAction={data.whatsappQr.connected ? 'Monitorear' : 'Revisar QR Gateway'}
+          data-testid="sofia-signal-whatsapp"
+        />
+        <SofiaLiveSignalCard
+          icon={Brain}
+          title="IA"
+          tone={aiTone}
+          statusLabel={deepSeekLabel}
+          chips={[`Fallback: ${data.ai.fallbackProvider}`]}
+          lastReading={`Lectura: ${formatDate(data.ai.lastAiCheckAt)}`}
+          suggestedAction="No responde al cliente"
+          data-testid="sofia-signal-ai"
+        />
+        <SofiaLiveSignalCard
+          icon={ShieldCheck}
+          title="SafetyGuard"
+          tone={safetyTone}
+          statusLabel={
+            safetyHasEvidence
+              ? `${data.safetyGuard.real.blockedCount} bloqueos reales`
+              : 'Sin decisiones: estado no comprobado'
+          }
+          chips={[`${data.safetyGuard.real.totalDecisions} decisiones`, `${data.safetyGuard.real.paymentSensitiveCount} pago sensible`]}
+          lastReading={`Última decisión: ${formatDate(data.safetyGuard.real.lastDecisionAt)}`}
+          suggestedAction={safetyHasEvidence ? 'Monitorear' : 'Esperar evidencia runtime'}
+          data-testid="sofia-signal-safetyguard"
+        />
+        <SofiaLiveSignalCard
+          icon={Lock}
+          title="Producción"
+          tone={productionTone}
+          statusLabel={blockedLabel(data.general.productionBlocked)}
+          chips={[`Allowlist: ${humanizeSecurityStatus(data.security.allowlistFinalStatus)}`, `Readiness: ${humanizeCheckStatus(data.security.productionReadinessStatus)}`]}
+          suggestedAction="Cerrar allowlist final"
+          data-testid="sofia-signal-production"
+        />
+      </section>
 
-            <section className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]" data-testid="sofia-main-activity-timeline">
-              {canReadGovernance ? <Card>
-                <div className="border-b border-line pb-4">
-                  <h2 className="font-heading text-lg font-semibold text-ink">Actividad de gobierno</h2>
-                  <p className="mt-1 text-sm text-muted">Eventos sanitizados; no contiene razonamiento oculto ni payloads de proveedor.</p>
-                </div>
-                <div className="pt-5">
-                  <QueryState
-                    status={events.isPending ? 'loading' : events.isError ? 'error' : timelineItems.length ? 'ready' : 'empty'}
-                    title={events.isError ? 'Actividad no disponible' : 'Sin actividad reciente'}
-                    onRetry={events.isError ? () => void events.refetch() : undefined}
-                    skeletonRows={4}
-                  >
-                    <Timeline items={timelineItems} label="Actividad reciente de Sofia" density="compact" />
-                  </QueryState>
-                </div>
-              </Card> : null}
+      <SofiaScopeComparison
+        data-testid="sofia-main-scope-comparison"
+        note="Validación interna no cuenta como operación real."
+        rows={[
+          { label: 'Conversaciones', real: data.conversations.realConversations, internal: data.conversations.sandboxConversations + data.conversations.internalValidationConversations },
+          { label: 'Inbound hoy', real: data.whatsappQr.inboundToday, internal: data.internalValidation.qrGatewayValidationInboundToday },
+          { label: 'Decisiones de seguridad', real: data.safetyGuard.real.totalDecisions, internal: data.safetyGuard.sandbox.totalDecisions },
+        ]}
+      />
 
-              <Card data-testid="sofia-main-action-blocked">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-signal-danger" aria-hidden="true" />
-                  <h2 className="font-heading text-lg font-semibold text-ink">Acciones bloqueadas</h2>
-                </div>
-                <ul className="mt-4 space-y-2 text-sm leading-6 text-muted">
-                  {['Enviar WhatsApp real', 'Activar auto reply', 'Marcar un pago como PAID', 'Crear pedidos desde una sugerencia', 'Modificar caja, stock o precios'].map((item) => (
-                    <li key={item} className="flex gap-2"><span aria-hidden="true">•</span><span>{item}</span></li>
-                  ))}
-                </ul>
-                {canOpenActivationControl ? <Button asChild className="mt-5 w-full" variant="secondary">
-                  <Link href="/activation-control">Ver controles de activacion</Link>
-                </Button> : null}
-              </Card>
-            </section>
+      <section className="grid items-start gap-4 sm:grid-cols-2" data-testid="sofia-main-pending-and-actions">
+        <SofiaActionMatrixCard tone="allowed" items={['Revisar sugerencias', 'Validar inbound', 'Monitorear SafetyGuard', 'Documentar pendientes']} data-testid="sofia-main-action-allowed" />
+        <SofiaActionMatrixCard tone="blocked" items={['Enviar WhatsApp real', 'Auto reply', 'Marcar PAID', 'Mover pedidos desde Sofía']} data-testid="sofia-main-action-blocked" />
+      </section>
 
-            <section className="sr-only" data-testid="sofia-main-scope-comparison">
-              Conversaciones reales {data.conversations.realConversations}; validacion interna {data.conversations.internalValidationConversations}.
-            </section>
-            <section className="sr-only" data-testid="sofia-main-action-allowed">Revision, monitoreo y gobierno humano permitidos.</section>
-            <section className="sr-only" data-testid="sofia-main-navigation">Navegacion canonica disponible.</section>
-            <section className="sr-only" data-testid="sofia-main-readiness-gauge">Readiness gobernado disponible.</section>
-            <section className="sr-only" data-testid="sofia-main-technical-details">Sin secretos, PII ni QR raw.</section>
-          </>
-        ) : null}
-      </QueryState>
+      {events.isLoading ? (
+        <SectionSkeleton rows={4} data-testid="sofia-main-timeline-skeleton" />
+      ) : events.isError ? (
+        <DegradedSection
+          label="Actividad reciente no disponible"
+          detail="Los eventos de auditoría no cargaron; reintento automático cada 30 s."
+          data-testid="sofia-main-timeline-degraded"
+        />
+      ) : (
+        <SofiaTimeline
+          events={timelineEvents}
+          emptyMessage="Sin actividad real reciente. Última actividad corresponde a validación interna."
+          data-testid="sofia-main-activity-timeline"
+        />
+      )}
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-main-navigation">
+        <SofiaCommandCard href={data.routes.whatsappQrUrl ?? '/sofia/whatsapp-qr'} label="WhatsApp QR" description="Estado Baileys receive-only" icon={Radio} />
+        <SofiaCommandCard href={data.routes.conversationsUrl} label="Conversaciones" description="Inbox supervisado" icon={MessageCircle} />
+        <SofiaCommandCard href={data.routes.posUrl} label="POS" description="Operación real separada" icon={Database} />
+      </section>
+
+      <SofiaTechnicalDetailsAccordion
+        title="Camino a producción"
+        description="Informativo, no es un panel de activación. Producción real sigue bloqueada aquí y a nivel de servidor."
+        data-testid="sofia-main-production-path"
+      >
+        <div className="grid gap-4">
+          <SofiaReadinessGauge
+            passed={passedCount}
+            total={totalChecks}
+            subtitle={readiness.data?.nextRequiredAction}
+            topBlockers={data.security.blockedChecks}
+            data-testid="sofia-main-readiness-gauge"
+          />
+          <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-[11px] font-black uppercase tracking-[0.16em] text-red-600">Bloqueadores hacia producción</p>
+            <SofiaBlockerChecklist items={blockerItems} />
+          </div>
+          {readinessItems.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowFullChecklist((v) => !v)}
+                className="text-xs font-extrabold text-sofia-700 underline underline-offset-2 hover:text-sofia-900"
+                data-testid="sofia-main-readiness-toggle"
+              >
+                {showFullChecklist ? 'Ocultar checklist completo' : `Ver checklist completo (${totalChecks})`}
+              </button>
+              {showFullChecklist && (
+                <SofiaReadinessGrid
+                  className="mt-3"
+                  items={readinessItems}
+                  overallStatus={readiness.data?.status ?? 'BLOCKED'}
+                  overallLabel="Checklist de readiness — historia 10"
+                  data-testid="sofia-main-readiness-grid"
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </SofiaTechnicalDetailsAccordion>
+
+      <SofiaTechnicalDetailsAccordion
+        title="Detalle técnico"
+        description="Fuente backend, políticas de datos y checks sin PII."
+        data-testid="sofia-main-technical-details"
+      >
+        <div className="grid gap-3 text-xs font-semibold text-stone-600 md:grid-cols-2">
+          <Row label="Endpoint principal" value="/admin/sofia/dashboard/summary" />
+          <Row label="Generado" value={formatDate(data.generatedAt)} />
+          <Row label="Sin secretos" value={boolText(data.dataPolicy.noSecrets)} />
+          <Row label="Sin PII" value={boolText(data.dataPolicy.noPii)} />
+          <Row label="Sin QR raw" value={boolText(data.dataPolicy.noQrRaw)} />
+          <Row label="Sandbox separado" value={boolText(data.dataPolicy.sandboxSeparated)} />
+          <Row label="Pausa global" value={data.general.globalPaused ? 'ACTIVA' : 'inactiva'} />
+          <Row label="Kill switch" value={data.general.killSwitchActive ? 'ACTIVO' : 'inactivo'} />
+          <Row label="Automatización bloqueada" value={boolText(data.general.automationBlocked)} />
+          <Row label="Proveedor IA externo" value={data.ai.externalProviderEnabled ? 'habilitado' : 'OFF'} />
+          <Row label="QR status raw" value={data.whatsappQr.status} />
+          <Row label="QR available" value={boolText(data.whatsappQr.qrAvailable)} />
+          <Row label="Last AI check" value={formatDate(data.ai.lastAiCheckAt)} />
+          <Row label="Real operation reason" value={data.dataPolicy.realOperationReason} />
+        </div>
+      </SofiaTechnicalDetailsAccordion>
+    </SofiaPageShell>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-xl bg-stone-50 px-3 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+      <span className="text-stone-500">{label}</span>
+      <span className="break-words font-extrabold text-stone-900 sm:max-w-[60%] sm:text-right">{value || 'No disponible'}</span>
+    </div>
+  );
+}
+
+function SectionSkeleton({ rows, 'data-testid': testId }: { rows: number; 'data-testid'?: string }) {
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm" data-testid={testId} aria-busy="true">
+      <div className="grid gap-2.5">
+        {Array.from({ length: rows }).map((_, index) => (
+          <div key={index} className="h-9 animate-pulse rounded-xl bg-stone-100" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DegradedSection({
+  label,
+  detail,
+  'data-testid': testId,
+}: {
+  label: string;
+  detail: string;
+  'data-testid'?: string;
+}) {
+  return (
+    <div
+      className="flex items-start gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-4"
+      data-testid={testId}
+      role="status"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-stone-400" />
+      <div>
+        <p className="text-sm font-extrabold text-stone-700">{label}</p>
+        <p className="text-xs font-semibold text-stone-500">{detail}</p>
+      </div>
     </div>
   );
 }

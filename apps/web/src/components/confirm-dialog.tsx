@@ -1,9 +1,8 @@
 'use client';
 
-import { useId } from 'react';
+import { useEffect } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccessibleModal } from '@/components/use-accessible-modal';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -26,28 +25,32 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const titleId = useId();
-  const messageId = useId();
-  const { panelRef, handleKeyDown } = useAccessibleModal<HTMLDivElement>(open, onCancel);
+  useEffect(() => {
+    if (open) {
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onCancel();
+      };
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+        document.body.style.overflow = '';
+      };
+    }
+  }, [open, onCancel]);
 
   if (!open) return null;
 
   return (
     <div
-      data-modal-root
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      aria-labelledby="confirm-dialog-title"
+      aria-describedby="confirm-dialog-message"
+      role="dialog"
+      aria-modal="true"
     >
-      <button type="button" aria-label={cancelLabel} className="absolute inset-0 bg-stone-950/40 backdrop-blur-[1px]" onClick={onCancel} />
-      <div
-        ref={panelRef}
-        className="relative w-full max-w-md rounded-[1.35rem] border border-stone-200 bg-white shadow-2xl outline-none"
-        aria-labelledby={titleId}
-        aria-describedby={messageId}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        onKeyDown={handleKeyDown}
-      >
+      <div className="absolute inset-0 bg-stone-950/40 backdrop-blur-[1px]" onClick={onCancel} />
+      <div className="relative w-full max-w-md rounded-[1.35rem] border border-stone-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-stone-100 px-5 py-4">
           <div className="flex items-start gap-3">
             {destructive ? (
@@ -56,13 +59,13 @@ export function ConfirmDialog({
               </div>
             ) : null}
             <div>
-              <h2 id={titleId} className="text-base font-semibold text-stone-900">{title}</h2>
+              <h2 id="confirm-dialog-title" className="text-base font-semibold text-stone-900">{title}</h2>
             </div>
           </div>
           <button
             type="button"
             aria-label="Cerrar"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-stone-300 hover:text-stone-800"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 transition hover:border-stone-300 hover:text-stone-700"
             onClick={onCancel}
           >
             <X className="h-4 w-4" />
@@ -70,7 +73,7 @@ export function ConfirmDialog({
         </div>
 
         <div className="px-5 py-4">
-          <p id={messageId} className="text-sm leading-6 text-stone-600">{message}</p>
+          <p id="confirm-dialog-message" className="text-sm leading-6 text-stone-600">{message}</p>
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-stone-100 px-5 py-4">

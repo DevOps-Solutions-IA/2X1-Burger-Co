@@ -37,21 +37,21 @@ test('operator console handles authentication, safe navigation and logout', asyn
   await login(page);
 
   const routes = [
-    ['/dashboard', '/dashboard', 'dashboard-page'],
-    ['/cash', '/cash', 'cash-page'],
-    ['/pos', '/pos', 'pos-page'],
-    ['/deliveries', '/deliveries', 'deliveries-queue-list'],
-    ['/inventory', '/inventory', 'inventory-page'],
-    ['/users', '/team', 'team-page'],
-    ['/sofia', '/sofia', 'sofia-admin-page'],
-    ['/sofia/conversations', '/conversations', 'conversations-page'],
-    ['/sofia/whatsapp-qr', '/activation-control', 'activation-control-page'],
-    ['/sofia/customers', '/customers', 'customers-page'],
+    ['/dashboard', 'dashboard-page'],
+    ['/cash', 'cash-page'],
+    ['/pos', 'pos-page'],
+    ['/deliveries', 'deliveries-queue-list'],
+    ['/inventory', 'inventory-page'],
+    ['/users', 'users-page'],
+    ['/sofia', 'sofia-admin-page'],
+    ['/sofia/conversations', 'sofia-whatsapp-conversations-page'],
+    ['/sofia/whatsapp-qr', 'sofia-whatsapp-qr-page'],
+    ['/sofia/customers', 'sofia-customers-page'],
   ] as const;
 
-  for (const [route, expectedRoute, testId] of routes) {
+  for (const [route, testId] of routes) {
     await page.goto(route, { waitUntil: 'domcontentloaded' });
-    await expect(page).toHaveURL(new RegExp(`${expectedRoute.replaceAll('/', '\\/')}/?$`));
+    await expect(page).toHaveURL(new RegExp(route.replaceAll('/', '\\/')));
     if (testId) await expect(page.getByTestId(testId)).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('body')).not.toContainText('Application error');
     await expectAccessiblePage(page);
@@ -59,18 +59,17 @@ test('operator console handles authentication, safe navigation and logout', asyn
 
   await page.goto('/sofia');
   await expect(page.getByTestId('sofia-main-real-data-hero')).toBeVisible();
-  await expect(page.locator('body')).toContainText(/env[ií]o real bloqueado/i);
-  await expect(page.locator('body')).toContainText(/auto reply bloqueado/i);
+  await expect(page.locator('body')).toContainText(/Envío real:\s*bloqueado/i);
+  await expect(page.locator('body')).toContainText(/Producción\s*Bloqueada/i);
   await page.goto('/sofia/whatsapp-qr');
-  await expect(page).toHaveURL(/\/activation-control\/?$/);
   await expect(page.locator('body')).toContainText(/Deshabilitado|DISABLED/i);
   await expect(page.locator('body')).not.toContainText('QR real de WhatsApp disponible para escanear');
   await expectAccessiblePage(page);
 
   await page.goto('/sofia/customers');
-  await expect(page).toHaveURL(/\/customers\/?$/);
-  await expect(page.getByTestId('customers-page')).toBeVisible();
-  await expect(page.locator('body')).toContainText('Identidades enmascaradas y timeline sanitizado');
+  await expect(page.getByTestId('sofia-customers-page')).toBeVisible();
+  await expect(page.locator('body')).toContainText('Esta superficie es de consulta');
+  await expect(page.locator('body')).toContainText('No crea campañas, mensajes, pedidos, pagos ni cambios operativos');
   await expectAccessiblePage(page);
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
