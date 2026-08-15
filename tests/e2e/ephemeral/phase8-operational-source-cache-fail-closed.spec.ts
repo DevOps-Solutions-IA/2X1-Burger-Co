@@ -38,8 +38,8 @@ test.describe('Phase 8 operational sources fail closed', () => {
   });
 
   test('orders and kitchen expose unavailable authority instead of connected status', async ({ page }) => {
-    await page.route('**/api/orders/operations/list**', (route) => route.fulfill(unavailable));
-    await page.route('**/api/orders/kitchen/queue**', (route) => route.fulfill(unavailable));
+    await page.route('**/api/orders/operations/list', (route) => route.fulfill(unavailable));
+    await page.route('**/api/orders/kitchen/queue', (route) => route.fulfill(unavailable));
 
     await page.goto('/orders', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Datos sin verificar')).toBeVisible();

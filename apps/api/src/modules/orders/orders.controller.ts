@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -82,12 +82,26 @@ export class OrdersController {
   @Get('operations/list')
   @Roles('admin', 'cashier', 'supervisor')
   listOperational(@Query() query: ListOperationalOrdersDto) {
+    this.assertOperationalSearchIsNotInUrl(query);
+    return this.ordersService.listOperational(query);
+  }
+
+  @Post('operations/list')
+  @Roles('admin', 'cashier', 'supervisor')
+  searchOperational(@Body() query: ListOperationalOrdersDto) {
     return this.ordersService.listOperational(query);
   }
 
   @Get('kitchen/queue')
   @Roles('admin', 'cashier', 'supervisor')
   listKitchenQueue(@Query() query: ListOperationalOrdersDto) {
+    this.assertOperationalSearchIsNotInUrl(query);
+    return this.ordersService.listKitchenQueue(query);
+  }
+
+  @Post('kitchen/queue')
+  @Roles('admin', 'cashier', 'supervisor')
+  searchKitchenQueue(@Body() query: ListOperationalOrdersDto) {
     return this.ordersService.listKitchenQueue(query);
   }
 
@@ -121,6 +135,12 @@ export class OrdersController {
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
   getDeliveryReceiptHistory(@Param('id') id: string) {
     return this.ordersService.getDeliveryReceiptHistory(id);
+  }
+
+  private assertOperationalSearchIsNotInUrl(query: ListOperationalOrdersDto) {
+    if (query.q?.trim()) {
+      throw new BadRequestException({ code: 'OPERATIONAL_SEARCH_REQUIRES_BODY' });
+    }
   }
 
   @Get(':id')

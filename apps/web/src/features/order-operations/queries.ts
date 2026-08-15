@@ -30,13 +30,15 @@ export const orderOperationsKeys = {
   detail: (id: string) => ['order-operations', 'detail', id] as const,
 };
 
-function toSearchParams(filters: OperationalOrderFilters) {
-  const params = new URLSearchParams({ page: String(filters.page), limit: String(filters.limit) });
-  if (filters.q?.trim()) params.set('q', filters.q.trim());
-  if (filters.status) params.set('status', filters.status);
-  if (filters.type) params.set('type', filters.type);
-  if (filters.activeOnly) params.set('activeOnly', 'true');
-  return params.toString();
+export function operationalSearchBody(filters: OperationalOrderFilters) {
+  return {
+    page: filters.page,
+    limit: filters.limit,
+    ...(filters.q?.trim() ? { q: filters.q.trim() } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.activeOnly ? { activeOnly: 'true' } : {}),
+  };
 }
 
 export function useOperationalOrders(filters: OperationalOrderFilters) {
@@ -44,8 +46,9 @@ export function useOperationalOrders(filters: OperationalOrderFilters) {
     queryKey: orderOperationsKeys.list(filters),
     queryFn: () =>
       apiFetchSchema(
-        `/orders/operations/list?${toSearchParams(filters)}`,
+        '/orders/operations/list',
         operationalOrdersPageSchema,
+        { method: 'POST', body: JSON.stringify(operationalSearchBody(filters)) },
       ),
     refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
   });
@@ -54,8 +57,10 @@ export function useOperationalOrders(filters: OperationalOrderFilters) {
 export function useKitchenQueue(filters: OperationalOrderFilters) {
   return useQuery({
     queryKey: orderOperationsKeys.kitchen(filters),
-    queryFn: () =>
-      apiFetchSchema(`/orders/kitchen/queue?${toSearchParams(filters)}`, kitchenQueuePageSchema),
+    queryFn: () => apiFetchSchema('/orders/kitchen/queue', kitchenQueuePageSchema, {
+      method: 'POST',
+      body: JSON.stringify(operationalSearchBody(filters)),
+    }),
     refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
   });
 }

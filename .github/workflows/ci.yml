@@ -185,6 +185,7 @@ jobs:
             src/modules/customer-service/customer-service.controller.spec.ts \
             src/modules/order-checkout/admin-payment-read.service.spec.ts \
             src/modules/order-checkout/order-checkout.architecture.spec.ts \
+            src/modules/orders/orders.controller.spec.ts \
             src/modules/orders/orders.phase8-operations.spec.ts \
             src/modules/orders/orders.phase8-kitchen-authority.integration.spec.ts \
             src/modules/search/global-search.service.spec.ts \
@@ -212,6 +213,7 @@ jobs:
             ../../apps/web/src/features/order-operations/contracts.test.ts \
             ../../apps/web/src/features/order-operations/kitchen-screen.test.ts \
             ../../apps/web/src/features/order-operations/order-detail-screen.test.ts \
+            ../../apps/web/src/features/order-operations/queries.test.ts \
             ../../apps/web/src/features/overview/contracts.test.ts \
             ../../apps/web/src/features/support-operations/contracts.test.ts \
             ../../apps/web/src/features/support-operations/customer-service-screen.test.ts \
