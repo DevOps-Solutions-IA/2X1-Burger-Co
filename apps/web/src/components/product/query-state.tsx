@@ -15,6 +15,7 @@ export interface QueryStateProps {
   action?: ReactNode;
   skeletonRows?: number;
   className?: string;
+  'data-testid'?: string;
 }
 
 export function QueryState({
@@ -26,12 +27,13 @@ export function QueryState({
   action,
   skeletonRows = 5,
   className,
+  'data-testid': dataTestId,
 }: QueryStateProps) {
   if (status === 'ready') return <>{children}</>;
 
   if (status === 'loading') {
     return (
-      <div className={cn('space-y-3 rounded-2xl border border-line bg-panel p-4', className)} role="status" aria-live="polite" aria-busy="true" aria-label={title ?? 'Cargando información'}>
+      <div className={cn('space-y-3 rounded-2xl border border-line bg-panel p-4', className)} role="status" aria-live="polite" aria-busy="true" aria-label={title ?? 'Cargando información'} data-testid={dataTestId}>
         {Array.from({ length: skeletonRows }, (_, index) => (
           <Skeleton key={index} className="h-14 w-full rounded-xl bg-line/45" />
         ))}
@@ -59,6 +61,7 @@ export function QueryState({
       className={cn('rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center', className)}
       role={isError ? 'alert' : 'status'}
       aria-live={isError ? 'assertive' : 'polite'}
+      data-testid={dataTestId}
     >
       <Icon className={cn('mx-auto h-7 w-7', isError ? 'text-signal-danger' : 'text-muted')} aria-hidden="true" />
       <h2 className="mt-3 font-heading text-base font-semibold text-ink">{title ?? fallbackTitle}</h2>

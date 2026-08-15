@@ -322,10 +322,12 @@ node - "$MANIFEST_FILE" "$MISMATCH_MANIFEST" <<'NODE'
 const fs = require('node:fs');
 const [source, output] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
-manifest.migrationInventory.pop();
-manifest.schemaMigrationCount = manifest.migrationInventory.length;
-manifest.migrationCount = manifest.schemaMigrationCount;
-manifest.schemaVersion = manifest.migrationInventory.at(-1).name;
+// Keep the migration count intact but corrupt the required final identity. A
+// removed Phase 8 migration is authorized as a forward-compatible suffix.
+const final = manifest.migrationInventory.at(-1);
+if (!final) throw new Error('release manifest has no migration inventory');
+final.name = `${final.name}_mismatch`;
+manifest.schemaVersion = final.name;
 fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
 NODE
 "${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" \

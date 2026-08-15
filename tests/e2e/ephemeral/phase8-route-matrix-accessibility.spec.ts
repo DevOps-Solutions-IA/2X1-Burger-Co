@@ -58,6 +58,8 @@ const ADMIN_ROUTES = [
 
 const READ_ONLY_POST_PATHS = new Set([
   '/api/admin/sofia/crm/customers/search',
+  '/api/orders/operations/list',
+  '/api/orders/kitchen/queue',
 ]);
 
 const INVENTORY_ROUTES = [
