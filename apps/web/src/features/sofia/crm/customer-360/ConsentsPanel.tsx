@@ -9,7 +9,7 @@ const CHANNEL_LABEL: Record<string, string> = { WHATSAPP: 'WhatsApp', SMS: 'SMS'
 export function ConsentsPanel({ customer }: { customer: SofiaCrmCustomerDetail }) {
   return (
     <Card data-testid="sofia-customer360-consents">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Consentimientos</p>
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Consentimientos</p>
       <h2 className="text-[15px] font-semibold text-ink">Consentimientos de contacto</h2>
 
       {customer.consents.length > 0 ? (

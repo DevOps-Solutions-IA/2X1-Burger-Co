@@ -33,7 +33,7 @@ export function MetricTile({
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">{label}</span>
+        <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">{label}</span>
         {Icon && (
           <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-[0.65rem]', TONE_ICON_CLASS[tone])}>
             <Icon className="h-3.5 w-3.5" />

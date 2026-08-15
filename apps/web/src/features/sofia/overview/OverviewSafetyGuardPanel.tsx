@@ -44,7 +44,7 @@ export function OverviewSafetyGuardPanel({ safetyGuard }: { safetyGuard: SofiaDa
           <Gauge className="h-4 w-4" />
         </span>
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">SafetyGuard</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">SafetyGuard</p>
           <h3 className="text-[14px] font-semibold text-ink">Decisiones por alcance</h3>
         </div>
       </div>

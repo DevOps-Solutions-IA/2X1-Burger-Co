@@ -21,7 +21,7 @@ export function OverviewSecurityPanel({ security }: { security: SofiaDashboardSu
           <ShieldCheck className="h-4 w-4" />
         </span>
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Seguridad operativa</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Seguridad operativa</p>
           <h3 className="text-[14px] font-semibold text-ink">Readiness de producción</h3>
         </div>
       </div>

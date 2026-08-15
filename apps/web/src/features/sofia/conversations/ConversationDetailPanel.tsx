@@ -29,7 +29,7 @@ export function ConversationDetailPanel({
     <Card className="space-y-4 p-4" data-testid={testId}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">
             {maskedPhoneOrLabel(conversation.phoneMasked, conversation.customerLabel)}
           </p>
           <h2 className="text-[15px] font-semibold text-ink">{conversation.recommendedAction}</h2>
@@ -49,7 +49,7 @@ export function ConversationDetailPanel({
       )}
 
       <div>
-        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-400">Mensajes</p>
+        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">Mensajes</p>
         <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
           {conversation.messages.length > 0 ? (
             conversation.messages.map((message) => (
@@ -62,7 +62,7 @@ export function ConversationDetailPanel({
               >
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge tone="read_only" label={message.direction} withDot={false} />
-                  <span className="text-[10.5px] font-medium text-stone-400">{new Date(message.createdAt).toLocaleString('es-CO')}</span>
+                  <span className="text-[10.5px] font-medium text-stone-600">{new Date(message.createdAt).toLocaleString('es-CO')}</span>
                 </div>
                 <p className="mt-1.5 font-medium text-stone-700">{message.bodyPreview ?? 'Sin vista previa'}</p>
                 {message.aiIntent && <p className="mt-1 text-[10.5px] font-medium text-sofia-600">Intención: {message.aiIntent}</p>}
@@ -77,7 +77,7 @@ export function ConversationDetailPanel({
       <div>
         <div className="mb-1.5 flex items-center gap-1.5">
           <Ban className="h-3.5 w-3.5 text-red-500" />
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-stone-400">
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">
             Outbox — envío real bloqueado ({conversation.outboundSentCount}/{conversation.outboxTotal} enviados)
           </p>
         </div>
@@ -87,7 +87,7 @@ export function ConversationDetailPanel({
               <div key={outbound.id} className="rounded-[0.9rem] border border-stone-200 bg-white p-2.5 text-[12px]">
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge tone={outbound.sent ? 'failed' : 'blocked'} label={outbound.status} />
-                  <span className="text-[10.5px] font-medium text-stone-400">Intentos: {outbound.attempts}</span>
+                  <span className="text-[10.5px] font-medium text-stone-600">Intentos: {outbound.attempts}</span>
                 </div>
                 <p className="mt-1.5 font-medium text-stone-700">{outbound.bodyPreview ?? 'Sin vista previa'}</p>
                 {outbound.lastError && <p className="mt-1 text-[10.5px] font-medium text-red-600">{outbound.lastError}</p>}

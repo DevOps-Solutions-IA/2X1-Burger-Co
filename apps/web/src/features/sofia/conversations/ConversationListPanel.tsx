@@ -86,7 +86,7 @@ export function ConversationListPanel({
   return (
     <Card className="space-y-3 p-4" data-testid={testId}>
       <div>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Bandeja</p>
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Bandeja</p>
         <h2 className="text-[15px] font-semibold text-ink">Conversaciones</h2>
       </div>
 

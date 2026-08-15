@@ -13,7 +13,7 @@ export function OverviewWhatsappPanel({ whatsappQr }: { whatsappQr: SofiaDashboa
             <Radio className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">WhatsApp</p>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">WhatsApp</p>
             <h3 className="text-[14px] font-semibold text-ink">Vinculación QR</h3>
           </div>
         </div>

@@ -7,7 +7,7 @@ export function QrStatusCard({ status }: { status: SofiaQrStatus }) {
   return (
     <Card className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]" data-testid="sofia-qr-status-card">
       <div>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Estado</p>
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Estado</p>
         <div className="mt-1.5 flex items-center gap-2">
           <h2 className="text-[16px] font-semibold text-ink">{status.status}</h2>
           <StatusBadge tone={status.connected ? 'success' : status.qrAvailable ? 'pending' : 'read_only'} label={status.connected ? 'Conectado' : status.qrAvailable ? 'QR listo' : 'Sin conexión'} />

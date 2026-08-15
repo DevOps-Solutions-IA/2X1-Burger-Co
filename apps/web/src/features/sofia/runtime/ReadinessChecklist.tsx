@@ -9,7 +9,7 @@ export function ReadinessChecklist({ readiness }: { readiness: SofiaReadiness })
     <Card className="space-y-3" data-testid="sofia-readiness-checklist">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Preparación para preproducción</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Preparación para preproducción</p>
           <h2 className="text-[15px] font-semibold text-ink">
             {passCount} de {readiness.checklist.length} validaciones completadas
           </h2>

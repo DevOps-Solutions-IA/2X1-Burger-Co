@@ -8,7 +8,7 @@ export function IdentityPanel({ customer }: { customer: SofiaCrmCustomerDetail }
     <Card className="space-y-3" data-testid="sofia-customer360-identity">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Identidad</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Identidad</p>
           <h2 className="text-[15px] font-semibold text-ink">{customerDisplayName(customer.displayName)}</h2>
         </div>
         <StatusBadge tone={customer.status === 'ACTIVE' ? 'success' : 'read_only'} label={customer.status === 'ACTIVE' ? 'Activo' : 'Archivado'} />

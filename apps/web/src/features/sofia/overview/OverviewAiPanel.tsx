@@ -11,7 +11,7 @@ export function OverviewAiPanel({ ai }: { ai: SofiaDashboardSummary['ai'] }) {
           <Brain className="h-4 w-4" />
         </span>
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Inteligencia artificial</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Inteligencia artificial</p>
           <h3 className="text-[14px] font-semibold text-ink">{ai.aiProvider}</h3>
         </div>
       </div>

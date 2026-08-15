@@ -6,7 +6,7 @@ import { humanizeCrmCode } from '@/features/sofia/crm-display';
 export function AuditEventsTimeline({ events }: { events: SofiaGovernanceEvents }) {
   return (
     <Card data-testid="sofia-audit-events">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Gobernanza</p>
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Gobernanza</p>
       <h2 className="text-[15px] font-semibold text-ink">Últimos eventos</h2>
 
       {events.length > 0 ? (
@@ -17,7 +17,7 @@ export function AuditEventsTimeline({ events }: { events: SofiaGovernanceEvents 
                 <p className="text-[12.5px] font-semibold text-ink">{humanizeCrmCode(event.type)}</p>
                 <p className="mt-0.5 text-[11.5px] font-medium text-stone-500">{event.detail}</p>
               </div>
-              <span className="shrink-0 text-[10.5px] font-medium text-stone-400">{new Date(event.createdAt).toLocaleString('es-CO')}</span>
+              <span className="shrink-0 text-[10.5px] font-medium text-stone-600">{new Date(event.createdAt).toLocaleString('es-CO')}</span>
             </div>
           ))}
         </div>

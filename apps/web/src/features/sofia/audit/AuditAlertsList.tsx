@@ -10,7 +10,7 @@ export function AuditAlertsList({ alerts }: { alerts: SofiaAlerts }) {
     <Card data-testid="sofia-audit-alerts">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Alertas</p>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Alertas</p>
           <h2 className="text-[15px] font-semibold text-ink">{openAlerts.length} abiertas</h2>
         </div>
       </div>
@@ -24,7 +24,7 @@ export function AuditAlertsList({ alerts }: { alerts: SofiaAlerts }) {
                 <StatusBadge tone={toneFromAlertSeverity(alert.severity)} label={alert.severity} />
               </div>
               <p className="mt-1 text-[11.5px] font-medium text-stone-500">{alert.message}</p>
-              <p className="mt-1 text-[10.5px] font-medium text-stone-400">
+              <p className="mt-1 text-[10.5px] font-medium text-stone-600">
                 {alert.status} · {new Date(alert.createdAt).toLocaleString('es-CO')}
               </p>
             </div>

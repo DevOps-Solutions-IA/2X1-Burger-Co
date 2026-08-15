@@ -17,7 +17,7 @@ export function ActivityTimeline({ customerId }: { customerId: string }) {
 
   return (
     <Card data-testid="sofia-customer360-activity">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Actividad</p>
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Actividad</p>
       <h2 className="text-[15px] font-semibold text-ink">Línea de tiempo</h2>
 
       <QueryStateBoundary
@@ -40,7 +40,7 @@ export function ActivityTimeline({ customerId }: { customerId: string }) {
                       <StatusBadge tone={DIRECTION_TONE[interaction.direction]} label={interaction.direction} withDot={false} />
                     </div>
                     <p className="mt-1 text-[11.5px] font-medium text-stone-500">{interaction.summary}</p>
-                    <p className="mt-1 text-[10.5px] font-medium text-stone-400">
+                    <p className="mt-1 text-[10.5px] font-medium text-stone-600">
                       {interaction.channel} · {new Date(interaction.occurredAt).toLocaleString('es-CO')}
                     </p>
                   </div>

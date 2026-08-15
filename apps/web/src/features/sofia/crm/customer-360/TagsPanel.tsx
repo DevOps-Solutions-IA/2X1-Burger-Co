@@ -6,7 +6,7 @@ import type { SofiaCrmCustomerDetail } from '@/features/sofia/contracts';
 export function TagsPanel({ customer }: { customer: SofiaCrmCustomerDetail }) {
   return (
     <Card data-testid="sofia-customer360-tags">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-400">Tags</p>
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Tags</p>
       <h2 className="text-[15px] font-semibold text-ink">Etiquetas asignadas</h2>
 
       {customer.tags.length > 0 ? (

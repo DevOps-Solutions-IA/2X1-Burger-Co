@@ -43,7 +43,7 @@ export function WorkspaceTabs({
               <span
                 className={cn(
                   'rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none',
-                  isActive ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-500',
+                  isActive ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-700',
                 )}
               >
                 Próxima fase
