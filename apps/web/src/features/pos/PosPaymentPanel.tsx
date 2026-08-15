@@ -39,16 +39,20 @@ export function PosPaymentPanel({
           const isCashPayment = paymentMethod?.code === 'cash';
           const receivedAmount = parseReceivedAmount(payment.receivedAmount);
           const changeAmount = Math.max(receivedAmount - parsePaymentAmount(payment.amount), 0);
+          const methodId = `pos-payment-method-${index}`;
+          const amountId = `pos-payment-amount-${index}`;
+          const receivedId = `pos-payment-received-${index}`;
 
           return (
             <div key={index} className="rounded-2xl border border-stone-200 bg-white p-3.5">
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
                 <div>
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                  <label htmlFor={methodId} className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">
                     {index === 0 ? 'Método de pago' : `Pago ${index + 1}`}
-                  </p>
+                  </label>
                   <Select
-                    className="h-10 rounded-xl border-stone-200 bg-stone-50"
+                    id={methodId}
+                    className="h-11 rounded-xl border-stone-200 bg-stone-50"
                     value={payment.paymentMethodId}
                     onChange={(event) => onPaymentMethodChange(index, event.target.value)}
                   >
@@ -59,13 +63,14 @@ export function PosPaymentPanel({
                   </Select>
                 </div>
                 <div>
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                  <label htmlFor={amountId} className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">
                     {isCashPayment ? 'Aplicado' : 'Monto'}
-                  </p>
+                  </label>
                   <input
+                    id={amountId}
                     type="text"
                     inputMode="numeric"
-                    className="h-10 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[14px] font-semibold tabular-nums text-ink focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
+                    className="h-11 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[14px] font-semibold tabular-nums text-ink focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
                     value={payment.amount}
                     onChange={(event) => onPaymentAmountChange(index, sanitizeCurrencyInput(event.target.value))}
                   />
@@ -74,17 +79,18 @@ export function PosPaymentPanel({
               {isCashPayment ? (
                 <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr]">
                   <div>
-                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">Recibido</p>
+                    <label htmlFor={receivedId} className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">Recibido</label>
                     <input
+                      id={receivedId}
                       type="text"
                       inputMode="numeric"
-                      className="h-10 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[14px] font-semibold tabular-nums text-ink focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
+                      className="h-11 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 text-right text-[14px] font-semibold tabular-nums text-ink focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100/50"
                       value={payment.receivedAmount}
                       onChange={(event) => onReceivedAmountChange(index, sanitizeCurrencyInput(event.target.value))}
                     />
                   </div>
                   <div className="rounded-xl bg-stone-50 px-3 py-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">Cambio</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-600">Cambio</p>
                     <p className="mt-1.5 text-right text-[15px] font-bold tabular-nums text-ink">
                       {receivedAmount > 0 ? formatCurrency(changeAmount) : formatCurrency(0)}
                     </p>
@@ -94,7 +100,7 @@ export function PosPaymentPanel({
               {payments.length > 1 ? (
                 <button
                   type="button"
-                  className="mt-3 text-[12px] font-medium text-stone-400 transition hover:text-danger"
+                  className="mt-3 min-h-11 text-xs font-medium text-stone-600 transition hover:text-danger"
                   onClick={() => onRemovePayment(index)}
                 >
                   Quitar este pago

@@ -431,6 +431,53 @@ enum CustomerCampaignDeliveryStatus {
   CANCELLED
 }
 
+enum CrmLeadSource {
+  WHATSAPP
+  POS
+  DELIVERY
+  CUSTOMER_SERVICE
+  AUTHORIZED_OPERATOR
+}
+
+enum CrmLeadStatus {
+  NEW
+  QUALIFIED
+  ACTIVE
+  WON
+  LOST
+  ARCHIVED
+}
+
+enum CrmPipelineStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum CrmPipelineStageOutcome {
+  OPEN
+  WON
+  LOST
+}
+
+enum CrmTaskType {
+  TASK
+  FOLLOW_UP
+}
+
+enum CrmTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CrmTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 model User {
   id                                 String                       @id @default(cuid())
   email                              String                       @unique
@@ -481,6 +528,11 @@ model User {
   assignedCustomerServiceCases       CustomerServiceCase[]        @relation("CustomerServiceCaseAssignedActor")
   resolvedCustomerServiceCases       CustomerServiceCase[]        @relation("CustomerServiceCaseResolutionActor")
   customerServiceCaseEvents          CustomerServiceCaseEvent[]   @relation("CustomerServiceCaseEventActor")
+  createdCrmPipelines                CrmPipeline[]                @relation("CrmPipelineCreatedBy")
+  ownedCrmLeads                      CrmLead[]                    @relation("CrmLeadOwner")
+  crmLeadStageEvents                 CrmLeadStageHistory[]        @relation("CrmLeadStageHistoryActor")
+  assignedCrmTasks                   CrmTask[]                    @relation("CrmTaskAssignedTo")
+  authoredCrmNotes                   CrmNote[]                    @relation("CrmNoteAuthor")
 
   @@map("users")
 }
@@ -1471,6 +1523,9 @@ model Customer {
   deliveryCustomer      DeliveryCustomer?
   notificationIntents   NotificationIntent[]
   customerServiceCases  CustomerServiceCase[]
+  crmLeads              CrmLead[]
+  crmTasks              CrmTask[]
+  crmNotes              CrmNote[]
 
   @@index([displayNameNormalized])
   @@index([status, updatedAt])
@@ -1623,6 +1678,163 @@ model CustomerCampaignDelivery {
   @@index([customerId, status])
   @@index([identityId])
   @@map("crm_customer_campaign_deliveries")
+}
+
+model CrmPipeline {
+  id             String             @id @default(cuid())
+  name           String
+  nameNormalized String             @unique @map("name_normalized")
+  description    String?
+  status         CrmPipelineStatus  @default(ACTIVE)
+  createdById    String?            @map("created_by_id")
+  version        Int                @default(0)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  createdBy      User?              @relation("CrmPipelineCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stages         CrmPipelineStage[]
+  leads          CrmLead[]
+
+  @@index([status, updatedAt])
+  @@index([createdById, createdAt])
+  @@map("crm_pipelines")
+}
+
+model CrmPipelineStage {
+  id             String                  @id @default(cuid())
+  pipelineId     String                  @map("pipeline_id")
+  name           String
+  nameNormalized String                  @map("name_normalized")
+  position       Int
+  outcome        CrmPipelineStageOutcome @default(OPEN)
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  pipeline       CrmPipeline             @relation(fields: [pipelineId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  currentLeads   CrmLead[]               @relation("CrmLeadCurrentStage")
+  enteredHistory CrmLeadStageHistory[]   @relation("CrmLeadStageHistoryToStage")
+  exitedHistory  CrmLeadStageHistory[]   @relation("CrmLeadStageHistoryFromStage")
+
+  @@unique([pipelineId, position])
+  @@unique([pipelineId, nameNormalized])
+  @@unique([id, pipelineId])
+  @@index([pipelineId, outcome, position])
+  @@map("crm_pipeline_stages")
+}
+
+model CrmLead {
+  id              String                @id @default(cuid())
+  customerId      String                @map("customer_id")
+  pipelineId      String                @map("pipeline_id")
+  currentStageId  String                @map("current_stage_id")
+  source          CrmLeadSource
+  sourceReference String                @map("source_reference")
+  title           String
+  status          CrmLeadStatus         @default(NEW)
+  ownerId         String?               @map("owner_id")
+  version         Int                   @default(0)
+  qualifiedAt     DateTime?             @map("qualified_at")
+  wonAt           DateTime?             @map("won_at")
+  lostAt          DateTime?             @map("lost_at")
+  archivedAt      DateTime?             @map("archived_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  customer        Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  pipeline        CrmPipeline           @relation(fields: [pipelineId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  currentStage    CrmPipelineStage      @relation("CrmLeadCurrentStage", fields: [currentStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  owner           User?                 @relation("CrmLeadOwner", fields: [ownerId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stageHistory    CrmLeadStageHistory[]
+  tasks           CrmTask[]
+  notes           CrmNote[]
+
+  @@unique([source, sourceReference])
+  @@unique([id, customerId])
+  @@unique([id, pipelineId])
+  @@index([pipelineId, currentStageId, status])
+  @@index([customerId, updatedAt])
+  @@index([ownerId, status, updatedAt])
+  @@map("crm_leads")
+}
+
+model CrmLeadStageHistory {
+  id                String            @id @default(cuid())
+  leadId            String            @map("lead_id")
+  pipelineId        String            @map("pipeline_id")
+  version           Int
+  idempotencyKey    String            @map("idempotency_key")
+  fromStageId       String?           @map("from_stage_id")
+  toStageId         String            @map("to_stage_id")
+  fromStatus        CrmLeadStatus?    @map("from_status")
+  toStatus          CrmLeadStatus     @map("to_status")
+  actorId           String?           @map("actor_id")
+  reasonCode        String            @map("reason_code")
+  sanitizedMetadata Json?             @map("sanitized_metadata")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  lead              CrmLead           @relation(fields: [leadId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  fromStage         CrmPipelineStage? @relation("CrmLeadStageHistoryFromStage", fields: [fromStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  toStage           CrmPipelineStage  @relation("CrmLeadStageHistoryToStage", fields: [toStageId, pipelineId], references: [id, pipelineId], onDelete: Restrict, onUpdate: NoAction)
+  actor             User?             @relation("CrmLeadStageHistoryActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([leadId, version])
+  @@unique([leadId, idempotencyKey])
+  @@index([leadId, createdAt])
+  @@index([toStageId, createdAt])
+  @@map("crm_lead_stage_history")
+}
+
+model CrmTask {
+  id                    String               @id @default(cuid())
+  customerId            String               @map("customer_id")
+  leadId                String?              @map("lead_id")
+  customerServiceCaseId String?              @map("customer_service_case_id")
+  source                String
+  sourceReference       String               @map("source_reference")
+  type                  CrmTaskType
+  status                CrmTaskStatus        @default(OPEN)
+  priority              CrmTaskPriority      @default(MEDIUM)
+  title                 String
+  sanitizedDescription  String?              @map("sanitized_description")
+  assignedToId          String?              @map("assigned_to_id")
+  dueAt                 DateTime?            @map("due_at")
+  completedAt           DateTime?            @map("completed_at")
+  cancelledAt           DateTime?            @map("cancelled_at")
+  version               Int                  @default(0)
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  customer              Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  lead                  CrmLead?             @relation(fields: [leadId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  assignedTo            User?                @relation("CrmTaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([source, sourceReference])
+  @@index([status, dueAt])
+  @@index([assignedToId, status, dueAt])
+  @@index([customerId, createdAt])
+  @@index([leadId, status])
+  @@index([customerServiceCaseId, status])
+  @@map("crm_tasks")
+}
+
+model CrmNote {
+  id                    String               @id @default(cuid())
+  customerId            String               @map("customer_id")
+  leadId                String?              @map("lead_id")
+  customerServiceCaseId String?              @map("customer_service_case_id")
+  source                String
+  sourceReference       String               @map("source_reference")
+  body                  String
+  contentHash           String               @map("content_hash")
+  authorId              String?              @map("author_id")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  customer              Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  lead                  CrmLead?             @relation(fields: [leadId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  customerServiceCase   CustomerServiceCase? @relation(fields: [customerServiceCaseId, customerId], references: [id, customerId], onDelete: Restrict, onUpdate: NoAction)
+  author                User?                @relation("CrmNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([source, sourceReference])
+  @@index([customerId, createdAt])
+  @@index([leadId, createdAt])
+  @@index([customerServiceCaseId, createdAt])
+  @@index([authorId, createdAt])
+  @@map("crm_notes")
 }
 
 model SofiaConversationMemory {
@@ -2277,8 +2489,11 @@ model CustomerServiceCase {
   assignedActor     User?                       @relation("CustomerServiceCaseAssignedActor", fields: [assignedActorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   resolutionActor   User?                       @relation("CustomerServiceCaseResolutionActor", fields: [resolutionActorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   events            CustomerServiceCaseEvent[]
+  crmTasks          CrmTask[]
+  crmNotes          CrmNote[]
 
   @@unique([source, sourceReference])
+  @@unique([id, customerId])
   @@index([status, createdAt])
   @@index([category, status])
   @@index([customerId, createdAt])

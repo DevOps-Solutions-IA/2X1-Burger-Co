@@ -4,8 +4,21 @@ import React, { useId } from 'react';
 
 type FieldControlAriaProps = {
   'aria-describedby'?: string;
-  'aria-invalid'?: boolean;
+  'aria-invalid'?: React.AriaAttributes['aria-invalid'];
+  'aria-required'?: React.AriaAttributes['aria-required'];
+  required?: boolean;
 };
+
+function mergeDescriptionIds(current: string | undefined, fieldDescription: string | undefined) {
+  return Array.from(
+    new Set(
+      `${current ?? ''} ${fieldDescription ?? ''}`
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean),
+    ),
+  ).join(' ') || undefined;
+}
 
 export function Field({
   label,
@@ -23,10 +36,15 @@ export function Field({
   const errorId = useId();
   const hintId = useId();
 
-  const childWithAria = React.isValidElement(children)
-    ? React.cloneElement(children as React.ReactElement<FieldControlAriaProps>, {
-        'aria-describedby': error ? errorId : hint ? hintId : undefined,
-        'aria-invalid': error ? true : undefined,
+  const childWithAria = React.isValidElement<FieldControlAriaProps>(children)
+    ? React.cloneElement(children, {
+        'aria-describedby': mergeDescriptionIds(
+          children.props['aria-describedby'],
+          error ? errorId : hint ? hintId : undefined,
+        ),
+        'aria-invalid': error ? true : children.props['aria-invalid'],
+        'aria-required': required ? true : children.props['aria-required'],
+        required: required ? true : children.props.required,
       })
     : children;
 

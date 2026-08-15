@@ -59,6 +59,8 @@ jobs:
         run: pnpm exec prisma migrate deploy --schema prisma/schema.prisma
       - name: Phase 6 representative legacy migration 36 to 37
         run: bash infra/testing/phase6-legacy-migration.sh
+      - name: Phase 8 representative legacy migration 37 to 38
+        run: bash infra/testing/phase8-legacy-migration.sh
       - name: API lint with visible debt and web zero-warning gate
         run: |
           pnpm --filter @inventory-fastfood/api lint
@@ -84,6 +86,7 @@ jobs:
             infra/release/rollback-drill.test.mjs \
             infra/release/sofia-production-safety.test.mjs \
             infra/release/staging-deploy-security.test.mjs \
+            infra/recovery/reconciliation.test.mjs \
             infra/release/web-healthcheck.test.mjs \
             infra/schema/migration-expectation.test.mjs
       - name: WhatsApp timeout lifecycle
@@ -175,6 +178,55 @@ jobs:
             src/tests/phase7-observability.contract.spec.ts \
             --runInBand \
             --detectOpenHandles
+      - name: Phase 8 product, CRM and receive-only suites
+        run: |
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            src/common/guards/phase8-permission-boundaries.spec.ts \
+            src/modules/customer-service/customer-service.controller.spec.ts \
+            src/modules/order-checkout/admin-payment-read.service.spec.ts \
+            src/modules/order-checkout/order-checkout.architecture.spec.ts \
+            src/modules/orders/orders.controller.spec.ts \
+            src/modules/orders/orders.phase8-operations.spec.ts \
+            src/modules/orders/orders.phase8-kitchen-authority.integration.spec.ts \
+            src/modules/search/global-search.service.spec.ts \
+            src/modules/settings/settings.service.spec.ts \
+            src/modules/sofia/crm/crm-advisory-lock.spec.ts \
+            src/modules/sofia/crm/crm-hash-secrets.spec.ts \
+            src/modules/sofia/crm/crm-privacy.spec.ts \
+            src/modules/sofia/crm/phase8-crm.architecture.spec.ts \
+            src/modules/sofia/crm/phase8-crm.repository.spec.ts \
+            src/modules/sofia/crm/phase8-crm.timeline-security.spec.ts \
+            src/modules/sofia/crm/sofia-crm.service.spec.ts \
+            src/modules/sofia/governance/sofia-governance.receive-only.spec.ts \
+            src/modules/sofia/sofia-inbox-bounds.spec.ts \
+            src/modules/sofia/whatsapp/qr-gateway/sofia-whatsapp-qr-gateway.service.spec.ts \
+            src/tests/phase8-crm-concurrency.integration.spec.ts \
+            src/tests/phase8-permission-intersection.integration.spec.ts \
+            --runInBand \
+            --detectOpenHandles
+          pnpm --filter @inventory-fastfood/api exec tsx --tsconfig ../../apps/web/tsconfig.json --test \
+            ../../apps/web/src/features/auth/access-control.test.ts \
+            ../../apps/web/src/features/crm/labels.test.ts \
+            ../../apps/web/src/features/crm/pagination.test.ts \
+            ../../apps/web/src/features/customer-operations/model.test.ts \
+            ../../apps/web/src/features/financial-operations/contracts.test.ts \
+            ../../apps/web/src/features/order-operations/contracts.test.ts \
+            ../../apps/web/src/features/order-operations/kitchen-screen.test.ts \
+            ../../apps/web/src/features/order-operations/order-detail-screen.test.ts \
+            ../../apps/web/src/features/order-operations/queries.test.ts \
+            ../../apps/web/src/features/overview/contracts.test.ts \
+            ../../apps/web/src/features/support-operations/contracts.test.ts \
+            ../../apps/web/src/features/support-operations/customer-service-screen.test.ts \
+            ../../apps/web/src/features/pos/pos-contrast.test.ts \
+            ../../apps/web/src/features/waiter/catalog-window.test.ts \
+            ../../apps/web/src/features/waiter/waiter-performance-contract.test.ts \
+            ../../tests/architecture/phase8-authoritative-kpi.test.ts \
+            ../../tests/architecture/phase8-accessibility-contracts.test.ts \
+            ../../tests/architecture/phase8-activation-control-hardening.test.ts \
+            ../../tests/architecture/phase8-financial-ui-fail-closed.test.ts \
+            ../../tests/architecture/phase8-operational-source-fail-closed.test.ts \
+            ../../tests/architecture/phase8-semantic-surfaces.test.ts \
+            ../../tests/architecture/phase8-visible-polling.test.ts
       - name: Phase 6 PostgreSQL persistence concurrency
         run: |
           TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
@@ -348,7 +400,7 @@ jobs:
           trap cleanup EXIT
           RELEASE_REPRODUCIBILITY_SECRET="$(openssl rand -hex 32)"
           export RELEASE_REPRODUCIBILITY_SECRET
-          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh 064a2706c099c75b6a4cd68eb916b037cd6dc302)"
+          BASELINE_OUTPUT="$(RELEASE_TAG_SUFFIX=-baseline ./infra/release/build-artifacts.sh dc748b03b52c83f34882edc64de859cc9ab50645)"
           BASELINE_RECORD="${BASELINE_OUTPUT##*$'\n'}"
           test -f "$BASELINE_RECORD"
           CANDIDATE_RECORD="$(find "${{ runner.temp }}/release-artifacts" -name artifact-record.json -type f -print -quit)"

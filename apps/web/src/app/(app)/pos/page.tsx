@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, matchesSearch } from '@/lib/format';
+import { visiblePolling } from '@/lib/query-policy';
 import {
   buildWhatsAppUrl,
   printThermalReceipt,
@@ -26,6 +27,8 @@ import { PosPageHeader } from '@/features/pos/PosPageHeader';
 import { PosPaymentPanel } from '@/features/pos/PosPaymentPanel';
 import { PosProductBrowser } from '@/features/pos/PosProductBrowser';
 import { usePosCheckoutOrchestrator } from '@/features/pos/hooks/usePosCheckoutOrchestrator';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 import {
   buildPriceInput,
   createPaymentRow,
@@ -79,6 +82,10 @@ type OperationalReport = {
 };
 
 export default function PosPage() {
+  const { user } = useAuth();
+  const canCreateOrder = canPerformAction(user?.permissions, 'orders.create', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canUpdateOrder = canPerformAction(user?.permissions, 'orders.update', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canCheckoutOrder = canPerformAction(user?.permissions, 'orders.checkout', user?.roles, ['admin', 'cashier', 'supervisor']);
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -155,12 +162,14 @@ export default function PosPage() {
   const tables = useQuery({
     queryKey: ['tables'],
     queryFn: () => apiFetch<DiningTable[]>('/tables'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const activeOrders = useQuery({
     queryKey: ['orders-active'],
     queryFn: () => apiFetch<ActiveOrder[]>('/orders?activeOnly=true'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const orderFromUrl = useQuery({
     queryKey: ['orders', orderIdFromUrl],
@@ -602,7 +611,23 @@ export default function PosPage() {
       });
   }, [tables.data, selectedTableId, activeOrderId, activeOrders.data]);
 
+  const operationalSourcesReady =
+    currentCash.isSuccess &&
+    products.isSuccess &&
+    paymentMethods.isSuccess &&
+    (orderType !== 'DINE_IN' || tables.isSuccess);
+  const operationalSourcesUnavailable =
+    currentCash.isError ||
+    products.isError ||
+    paymentMethods.isError ||
+    (orderType === 'DINE_IN' && tables.isError);
+
   const orderIssues = [
+    !operationalSourcesReady
+      ? operationalSourcesUnavailable
+        ? 'No se puede guardar ni cobrar mientras una fuente operativa requerida esté sin verificar.'
+        : 'Espera a que caja, catálogo, pagos y mesas requeridas terminen de cargar.'
+      : null,
     !currentCash.data ? 'Abre una sesión de caja antes de trabajar con comandas.' : null,
     !cart.length ? 'Agrega al menos un producto a la comanda.' : null,
     orderType === 'DINE_IN' && !selectedTableId ? 'Selecciona una mesa para la comanda.' : null,
@@ -1079,6 +1104,13 @@ export default function PosPage() {
 
   const saveOrder = useMutation({
     mutationFn: async () => {
+      if (activeOrderId ? !canUpdateOrder : !canCreateOrder) {
+        throw new Error('No tienes permiso para guardar esta comanda.');
+      }
+      if (!operationalSourcesReady) {
+        throw new Error('No se puede guardar la comanda sin verificar las fuentes operativas requeridas.');
+      }
+
       if (orderType === 'DELIVERY' && !deliveryCanCheckout) {
         throw new Error('Calcula un domicilio válido antes de guardar.');
       }
@@ -1158,13 +1190,15 @@ export default function PosPage() {
   });
 
   const cancelOrder = useMutation({
-    mutationFn: () =>
-      activeOrderId
+    mutationFn: () => {
+      if (!canUpdateOrder) return Promise.reject(new Error('No tienes permiso para cancelar comandas.'));
+      return activeOrderId
         ? apiFetch(`/orders/${activeOrderId}`, {
             method: 'PATCH',
             body: JSON.stringify({ status: 'CANCELLED' }),
           })
-        : Promise.reject(new Error('No hay comanda activa')),
+        : Promise.reject(new Error('No hay comanda activa'));
+    },
     onSuccess: async () => {
       toast.success('Comanda cancelada');
       resetWorkspace();
@@ -1209,19 +1243,38 @@ export default function PosPage() {
         }}
       />
 
+      {!canCreateOrder && !canUpdateOrder && !canCheckoutOrder ? (
+        <StatusBanner
+          tone="info"
+          title="Modo consulta"
+          description="Puedes revisar productos y comandas, pero no abrir, modificar, cancelar ni cobrar pedidos."
+        />
+      ) : null}
+
       <PosOperationalMetrics
         isCashOpen={Boolean(currentCash.data)}
         activeOrdersCount={operational.data?.operations?.activeOrdersCount ?? activeOrders.data?.length ?? 0}
         occupiedTablesCount={operational.data?.operations?.occupiedTablesCount ?? 0}
         saleTotal={saleTotal}
         hasActiveOrder={Boolean(activeOrderId)}
+        activeOrdersUnavailable={(activeOrders.isLoading && !activeOrders.data) || activeOrders.isError}
+        occupiedTablesUnavailable={(operational.isLoading && !operational.data) || operational.isError}
+        cashUnavailable={(currentCash.isLoading && !currentCash.data) || currentCash.isError}
       />
 
-      {!currentCash.data ? (
+      {currentCash.isSuccess && !currentCash.data ? (
         <StatusBanner
           tone="warning"
           title="La caja está cerrada — No se puede vender"
           description="Abre caja antes de registrar ventas o comandas."
+        />
+      ) : null}
+
+      {currentCash.isError ? (
+        <StatusBanner
+          tone="danger"
+          title="No pudimos verificar el estado de caja"
+          description="El cobro permanece bloqueado hasta recuperar la sesión real de caja."
         />
       ) : null}
 
@@ -1233,23 +1286,27 @@ export default function PosPage() {
             categories={categories}
             filteredProducts={filteredProducts}
             isLoading={products.isLoading}
+            isError={products.isError}
             onSearchChange={setSearch}
             onCategoryFilterChange={setCategoryFilter}
             onAddToCart={addToCart}
+            onRetry={() => void products.refetch()}
           />
 
           <PosActiveOrdersPanel
             orders={activeOrders.data}
             isLoading={activeOrders.isLoading}
+            isError={activeOrders.isError}
             activeOrderId={activeOrderId}
             onSelectOrder={hydrateWorkspaceFromOrder}
+            onRetry={() => void activeOrders.refetch()}
           />
         </div>
 
-          <Card className="flex min-w-0 flex-col xl:sticky xl:top-24 xl:self-start">
+        <Card className="flex min-w-0 flex-col xl:sticky xl:top-24 xl:self-start">
           <div className="flex items-center justify-between gap-4">
             <div>
-                <h2 className="text-lg font-semibold lg:text-[1.12rem]">
+              <h2 className="font-heading text-lg font-semibold text-ink lg:text-[1.12rem]">
                 {activeOrderId ? 'Editar pedido' : 'Nuevo pedido'}
               </h2>
             </div>
@@ -1397,11 +1454,23 @@ export default function PosPage() {
             savePending={saveOrder.isPending}
             cancelPending={cancelOrder.isPending}
             checkoutPending={checkoutOrder.isPending}
+            canWrite={activeOrderId ? canUpdateOrder : canCreateOrder}
+            canCheckout={canCheckoutOrder}
             orderTotal={baseSaleTotal}
             onResetWorkspace={() => resetWorkspace()}
             onSaveOrder={() => saveOrder.mutate()}
             onCancelOrder={() => cancelOrder.mutate()}
-            onCheckoutOrder={() => checkoutOrder.mutate()}
+            onCheckoutOrder={() => {
+              if (!canCheckoutOrder) {
+                toast.error('No tienes permiso para cobrar esta comanda.');
+                return;
+              }
+              if (!operationalSourcesReady) {
+                toast.error('No se puede cobrar sin verificar las fuentes operativas requeridas.');
+                return;
+              }
+              checkoutOrder.mutate();
+            }}
           />
         </Card>
       </div>

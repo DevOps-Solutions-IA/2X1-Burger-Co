@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -50,6 +51,8 @@ import { ReopenOrderTicketDto } from './dto/reopen-order-ticket.dto';
 import { SyncWaiterOrderDto } from './dto/sync-waiter-order.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
+import type { KitchenTransitionDto } from './dto/kitchen-transition.dto';
+import type { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
@@ -61,6 +64,12 @@ const ACTIVE_ORDER_STATUSES: OrderTicketStatus[] = [
   OrderTicketStatus.SERVED,
   OrderTicketStatus.PAYMENT_PENDING,
 ];
+
+const KITCHEN_MANAGED_STATUSES = new Set<OrderTicketStatus>([
+  OrderTicketStatus.OPEN,
+  OrderTicketStatus.IN_PREPARATION,
+  OrderTicketStatus.SERVED,
+]);
 
 const orderInclude = {
   table: true,
@@ -136,6 +145,30 @@ const orderInclude = {
             },
           },
         },
+      },
+    },
+  },
+  orderCheckout: {
+    select: {
+      id: true,
+      status: true,
+      paymentPreference: true,
+      total: true,
+      currency: true,
+      paymentIntents: {
+        select: {
+          id: true,
+          attemptNumber: true,
+          provider: true,
+          amount: true,
+          currency: true,
+          status: true,
+          failureCode: true,
+          completedAt: true,
+          updatedAt: true,
+        },
+        orderBy: { attemptNumber: 'desc' },
+        take: 10,
       },
     },
   },
@@ -708,6 +741,233 @@ export class OrdersService {
       include: orderInclude,
       orderBy: { openedAt: 'desc' },
     });
+  }
+
+  async listOperational(query: ListOperationalOrdersDto) {
+    const where = this.operationalOrderWhere(query);
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.orderTicket.count({ where }),
+      this.prisma.orderTicket.findMany({
+        where,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          status: true,
+          type: true,
+          customerName: true,
+          customerPhone: true,
+          subtotal: true,
+          deliveryFee: true,
+          deliveryWorkflowStatus: true,
+          deliveryStatusUpdatedAt: true,
+          openedAt: true,
+          updatedAt: true,
+          assignedWaiter: { select: { id: true, fullName: true, accessName: true } },
+          assignedRider: { select: { id: true, fullName: true } },
+          orderCheckout: {
+            select: {
+              id: true,
+              status: true,
+              paymentPreference: true,
+              paymentIntents: {
+                select: { id: true, status: true, provider: true },
+                orderBy: { attemptNumber: 'desc' },
+                take: 1,
+              },
+            },
+          },
+          _count: { select: { items: true, customerServiceCases: true } },
+        },
+        orderBy: [{ openedAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return { items, page: query.page, limit: query.limit, total };
+  }
+
+  async listKitchenQueue(query: ListOperationalOrdersDto) {
+    const where: Prisma.OrderTicketWhereInput = {
+      ...this.operationalOrderWhere(query),
+      status: query.status ?? { in: [OrderTicketStatus.OPEN, OrderTicketStatus.IN_PREPARATION] },
+    };
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.orderTicket.count({ where }),
+      this.prisma.orderTicket.findMany({
+        where,
+        select: {
+          id: true,
+          number: true,
+          revision: true,
+          status: true,
+          type: true,
+          customerName: true,
+          notes: true,
+          openedAt: true,
+          updatedAt: true,
+          items: {
+            select: {
+              id: true,
+              productId: true,
+              quantity: true,
+              notes: true,
+              modifiersSnapshot: true,
+              product: { select: { name: true, code: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+          orderCheckout: {
+            select: {
+              id: true,
+              status: true,
+              paymentPreference: true,
+              paymentIntents: {
+                select: { id: true, status: true, provider: true },
+                orderBy: { attemptNumber: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+        orderBy: [{ openedAt: 'asc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return { items, page: query.page, limit: query.limit, total };
+  }
+
+  async transitionKitchen(id: string, dto: KitchenTransitionDto, actor: AuthUser) {
+    if (!this.isPrivilegedOrderOperator(actor) || !actor.permissions.includes('orders.update')) {
+      throw new ForbiddenException({ code: 'KITCHEN_TRANSITION_FORBIDDEN' });
+    }
+
+    const order = await this.prisma.orderTicket.findUnique({
+      where: { id },
+      select: { id: true, status: true, revision: true },
+    });
+    if (!order) throw new NotFoundException({ code: 'ORDER_TICKET_NOT_FOUND' });
+    if (order.revision !== dto.expectedRevision) {
+      throw new ConflictException({ code: 'STALE_ORDER_REVISION' });
+    }
+    const expectedStatus = dto.action === 'START_PREPARATION'
+      ? OrderTicketStatus.OPEN
+      : OrderTicketStatus.IN_PREPARATION;
+    const nextStatus = dto.action === 'START_PREPARATION'
+      ? OrderTicketStatus.IN_PREPARATION
+      : OrderTicketStatus.SERVED;
+    if (order.status !== expectedStatus) {
+      throw new ConflictException({ code: 'KITCHEN_TRANSITION_BLOCKED' });
+    }
+    this.assertKitchenTransitionPolicy(order.status, nextStatus);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.orderTicket.updateMany({
+        where: {
+          id,
+          revision: dto.expectedRevision,
+          status: expectedStatus,
+        },
+        data: {
+          status: nextStatus,
+          servedAt: nextStatus === OrderTicketStatus.SERVED ? new Date() : undefined,
+          revision: { increment: 1 },
+        },
+      });
+
+      if (!result.count) {
+        throw new ConflictException({ code: 'STALE_ORDER_REVISION' });
+      }
+
+      const transitioned = await tx.orderTicket.findUniqueOrThrow({
+        where: { id },
+        include: orderInclude,
+      });
+
+      await this.auditService.log({
+        userId: actor.sub,
+        action: 'KITCHEN_TRANSITION',
+        module: 'orders',
+        entity: 'order_ticket',
+        entityId: id,
+        oldValues: { status: order.status, revision: order.revision },
+        newValues: {
+          status: transitioned.status,
+          revision: transitioned.revision,
+          action: dto.action,
+        },
+      }, tx);
+
+      return transitioned;
+    });
+
+    this.realtimeService.publishOrderUpdated({
+      entityId: updated.id,
+      orderType: updated.type,
+      status: updated.status,
+      actorId: actor.sub,
+    });
+    this.realtimeService.publishOperationalRefresh('orders');
+    return updated;
+  }
+
+  private assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+    currentStatus: OrderTicketStatus,
+    requestedStatus: OrderTicketStatus | undefined,
+  ) {
+    if (
+      requestedStatus === undefined ||
+      requestedStatus === currentStatus ||
+      !KITCHEN_MANAGED_STATUSES.has(requestedStatus)
+    ) {
+      return;
+    }
+
+    throw new ConflictException({
+      code: 'KITCHEN_TRANSITION_REQUIRES_GOVERNED_ENDPOINT',
+    });
+  }
+
+  private assertKitchenTransitionPolicy(
+    currentStatus: OrderTicketStatus,
+    requestedStatus: OrderTicketStatus,
+  ) {
+    if (currentStatus === requestedStatus) {
+      return;
+    }
+
+    const allowed =
+      (currentStatus === OrderTicketStatus.OPEN &&
+        requestedStatus === OrderTicketStatus.IN_PREPARATION) ||
+      (currentStatus === OrderTicketStatus.IN_PREPARATION &&
+        requestedStatus === OrderTicketStatus.SERVED);
+    if (!allowed) {
+      throw new ConflictException({ code: 'KITCHEN_TRANSITION_BLOCKED' });
+    }
+  }
+
+  private operationalOrderWhere(query: ListOperationalOrdersDto): Prisma.OrderTicketWhereInput {
+    const activeStatuses = { in: ACTIVE_ORDER_STATUSES };
+    const search = query.q?.trim();
+    return {
+      ...(query.status
+        ? { status: query.status }
+        : query.activeOnly === 'true'
+          ? { status: activeStatuses }
+          : {}),
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.deliveryWorkflowStatus ? { deliveryWorkflowStatus: query.deliveryWorkflowStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { number: { contains: search, mode: 'insensitive' } },
+              { customerName: { contains: search, mode: 'insensitive' } },
+              { customerPhone: { contains: search } },
+            ],
+          }
+        : {}),
+    };
   }
 
   private assertDeliveryOrder(order: {
@@ -1588,6 +1848,11 @@ export class OrdersService {
       throw new BadRequestException('Las comandas cerradas no se pueden modificar.');
     }
 
+    this.assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+      current.status,
+      dto.status as OrderTicketStatus | undefined,
+    );
+
     const access = this.assertWaiterOrderWriteAccess(current, actor);
     const requestedType = dto.type as OrderTicketType | undefined;
     if (
@@ -2139,13 +2404,16 @@ export class OrdersService {
           ) {
             throw new BadRequestException('Las comandas cerradas no se pueden modificar.');
           }
-
           const access = this.assertWaiterOrderWriteAccess(current, actor, {
             allowClaim: dto.takeOwnership === true,
           });
           const table = await this.resolveTableForOrder(tx, dto.tableId, OrderTicketType.DINE_IN, current.id);
           await this.tablesService.assertWaiterCanOperateTable(actor, table?.id, tx);
           const nextStatus = (dto.status as OrderTicketStatus | undefined) ?? current.status;
+          this.assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
+            current.status,
+            dto.status as OrderTicketStatus | undefined,
+          );
 
           const result = await tx.orderTicket.updateMany({
             where: {
@@ -2211,6 +2479,14 @@ export class OrdersService {
 
         const table = await this.resolveTableForOrder(tx, dto.tableId, OrderTicketType.DINE_IN);
         await this.tablesService.assertWaiterCanOperateTable(actor, table?.id, tx);
+        if (
+          dto.status === OrderTicketStatus.IN_PREPARATION ||
+          dto.status === OrderTicketStatus.SERVED
+        ) {
+          throw new ConflictException({
+            code: 'KITCHEN_TRANSITION_REQUIRES_GOVERNED_ENDPOINT',
+          });
+        }
         const order = await tx.orderTicket.create({
           data: {
             number: await this.generateOrderNumber(tx, OrderTicketType.DINE_IN),

@@ -102,7 +102,7 @@ export function PosOrderMetadataPanel({
           </Field>
         </div>
         <div className="min-w-0 rounded-[1.25rem] border border-stone-200 bg-white px-4 py-3.5" data-testid="pos-quick-notes-panel">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-600">
             Accesos directos
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -115,7 +115,7 @@ export function PosOrderMetadataPanel({
                 <button
                   key={snippet}
                   type="button"
-                  className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition ${isActive ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200 hover:text-brand-700'}`}
+                  className={`min-h-11 rounded-full border px-3 py-2 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${isActive ? 'border-brand-300 bg-brand-50 text-brand-900' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-300 hover:text-brand-900'}`}
                   onClick={() => onOrderNotesChange((current) => toggleNoteSnippet(current, snippet))}
                 >
                   {snippet}

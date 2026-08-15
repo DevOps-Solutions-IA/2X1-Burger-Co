@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type {
@@ -10,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import QRCode from 'qrcode';
+import type { AuthUser } from '../../../../common/types/auth-user.type';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AuditService } from '../../../audit/audit.service';
 import { SofiaWhatsappService } from '../../sofia-whatsapp.service';
@@ -63,9 +71,16 @@ type RealSocketState = {
   lastErrorCode: string | null;
   lastConnectionUpdateAt: string | null;
   phoneNumber: string | null;
+  verifiedBinding: VerifiedQrBinding | null;
   deviceName: string | null;
   bootstrapPromise: Promise<void> | null;
   loggedOutCode: number | null;
+};
+
+type VerifiedQrBinding = {
+  providerAccountId: string;
+  businessIdentity: string;
+  sessionOwner: string;
 };
 
 @Injectable()
@@ -90,6 +105,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     lastErrorCode: null,
     lastConnectionUpdateAt: null,
     phoneNumber: null,
+    verifiedBinding: null,
     deviceName: null,
     bootstrapPromise: null,
     loggedOutCode: null,
@@ -222,7 +238,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async connect(actorId: string) {
+  async connect(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = false;
     const runtimeGate = await this.getQrRuntimeGate();
     if (!runtimeGate.allowed) {
@@ -330,7 +348,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async disconnect(actorId: string) {
+  async disconnect(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
@@ -355,7 +375,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return this.getStatus();
   }
 
-  async logout(actorId: string) {
+  async logout(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    const actorId = actor.sub;
     this.intentionalShutdown = true;
     const now = new Date();
     const state = await this.getSessionState();
@@ -396,6 +418,16 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return this.getStatus();
   }
 
+  private assertSessionMutationAccess(actor: AuthUser) {
+    const hasAllowedRole = Array.isArray(actor?.roles)
+      && actor.roles.some((role) => role === 'admin' || role === 'supervisor');
+    const hasCapability = Array.isArray(actor?.permissions)
+      && actor.permissions.includes('settings.update');
+    if (!actor?.sub || !hasAllowedRole || !hasCapability) {
+      throw new ForbiddenException({ code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' });
+    }
+  }
+
   async testInbound(input: {
     phone: string;
     text?: string;
@@ -405,7 +437,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     mediaUrl?: string;
     mediaMimeType?: string;
     transcript?: string;
-  }) {
+  }, actor: AuthUser) {
+    this.assertTestMutationAccess(actor);
     if (!input.phone) throw new BadRequestException('phone es requerido para inbound QR.');
 
     const externalMessageId =
@@ -500,7 +533,11 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     };
   }
 
-  async testSend(input: { to?: string; phone?: string; body?: string; text?: string }) {
+  async testSend(
+    input: { to?: string; phone?: string; body?: string; text?: string },
+    actor: AuthUser,
+  ) {
+    this.assertTestMutationAccess(actor);
     const to = input.to ?? input.phone ?? '';
     const body = input.body ?? input.text ?? '';
     if (!to || !body)
@@ -508,7 +545,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         'phone/text o to/body son requeridos para validar bloqueo de envío QR.',
       );
 
-    await this.audit('SOFIA_QR_REAL_SEND_BLOCKED', 'system', {
+    await this.audit('SOFIA_QR_REAL_SEND_BLOCKED', actor.sub, {
       reason: 'BLOCKED_REAL_SEND_DISABLED',
     });
 
@@ -518,6 +555,13 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       sent: false,
       realSendingEnabled: false,
     };
+  }
+
+  private assertTestMutationAccess(actor: AuthUser) {
+    this.assertSessionMutationAccess(actor);
+    if (this.configService.get<string>('NODE_ENV') !== 'test') {
+      throw new NotFoundException({ code: 'SOFIA_TEST_ONLY_ROUTE_UNAVAILABLE' });
+    }
   }
 
   /* ================================================================ */
@@ -647,17 +691,28 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     /* Connected */
     if (update.connection === 'open') {
-      const rawJid = this.real.socket?.user?.id ?? null;
-      const phoneNumber = typeof rawJid === 'string' ? rawJid.replace(/:\d+$/, '') : null;
+      const runtimeGate = await this.getQrRuntimeGate();
+      if (!runtimeGate.allowed) {
+        await this.rejectConnectedSocket(socket, runtimeGate.reason);
+        return;
+      }
+
+      const binding = this.connectedAccountBinding(socket, fencingToken);
+      if (!binding.ok) {
+        await this.rejectConnectedSocket(socket, binding.reason);
+        return;
+      }
+
       this.real.connectionStatus = 'CONNECTED';
       this.real.qrString = null;
       this.real.qrImageDataUrl = null;
-      this.real.phoneNumber = phoneNumber;
+      this.real.phoneNumber = binding.value.providerAccountId;
+      this.real.verifiedBinding = binding.value;
       this.real.lastError = null;
       this.real.lastErrorCode = null;
       this.reconnectAttempts = 0;
       this.logger.log(
-        `WhatsApp QR Gateway CONNECTED${phoneNumber ? ` (${this.maskPhone(phoneNumber)})` : ''}`,
+        `WhatsApp QR Gateway CONNECTED (${this.maskPhone(binding.value.providerAccountId)})`,
       );
     }
 
@@ -694,14 +749,32 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   ) {
     if (!payload?.messages?.length) return;
 
+    const runtimeGate = await this.getQrRuntimeGate();
+    if (!runtimeGate.allowed) {
+      await this.audit('SOFIA_QR_INBOUND_BLOCKED', 'system', {
+        reason: runtimeGate.reason,
+        valuesSanitized: true,
+      });
+      this.real.connectionStatus = 'FAILED';
+      this.real.lastErrorCode = runtimeGate.reason;
+      await this.teardownRealSocket(false);
+      await this.releaseSessionOwnership();
+      return;
+    }
+
     for (const msg of payload.messages) {
+      const binding = this.real.verifiedBinding;
+      if (!binding) {
+        await this.rejectUnverifiedInbound(socket);
+        return;
+      }
       const key = msg?.key ?? {};
       /* Ignore outbound from this device */
       if (key.fromMe) continue;
 
-      const remoteJid: string = key?.remoteJid ?? '';
-      if (!remoteJid.endsWith('@s.whatsapp.net') || remoteJid === 'status@broadcast') continue;
-      const phone = remoteJid.replace(/@s\.whatsapp\.net$/, '').replace(/:\d+$/, '');
+      const remoteJid = key?.remoteJid ?? '';
+      if (remoteJid === 'status@broadcast') continue;
+      const phone = this.phoneFromMessageAddress(remoteJid, key.remoteJidAlt);
 
       if (!phone) continue;
 
@@ -735,9 +808,9 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       /* Build inbound payload matching existing format */
       const rawPayload = {
         provider: 'qr_gateway',
-        providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
-        businessIdentity: this.real.phoneNumber ?? '',
-        sessionOwner: this.safeSessionName(),
+        providerAccountId: binding.providerAccountId,
+        businessIdentity: binding.businessIdentity,
+        sessionOwner: binding.sessionOwner,
         externalMessageId: key?.id ?? `real-${Date.now()}`,
         providerEventId: `wa-${key?.id ?? Date.now()}`,
         providerMessageId: String(key?.id ?? ''),
@@ -787,21 +860,26 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     socket: WASocket,
     fencingToken: number,
   ) {
+    const binding = this.real.verifiedBinding;
+    if (!binding) {
+      await this.rejectUnverifiedInbound(socket);
+      return;
+    }
     for (const item of updates) {
       const messageId = item.key.id;
       const remoteJid = item.key.remoteJid ?? '';
       const status = this.normalizedDeliveryStatus(item.update.status);
-      if (!messageId || !remoteJid.endsWith('@s.whatsapp.net') || !status) continue;
-      const recipient = remoteJid.replace(/@s\.whatsapp\.net$/, '').replace(/:\d+$/, '');
+      const recipient = this.phoneFromMessageAddress(remoteJid, item.key.remoteJidAlt);
+      if (!messageId || !recipient || !status) continue;
       try {
         await this.runFencedOwnerEffect(socket, fencingToken, () =>
           this.sofiaWhatsappService.processInboundWebhook(
             'qr_gateway',
             {
               provider: 'qr_gateway',
-              providerAccountId: this.real.phoneNumber ?? this.safeSessionName(),
-              businessIdentity: this.real.phoneNumber ?? '',
-              sessionOwner: this.safeSessionName(),
+              providerAccountId: binding.providerAccountId,
+              businessIdentity: binding.businessIdentity,
+              sessionOwner: binding.sessionOwner,
               providerEventId: `wa-status-${messageId}-${status}`,
               providerMessageId: messageId,
               recipient,
@@ -1035,6 +1113,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   private async teardownRealSocket(resetPhone: boolean) {
     const socket = this.real.socket;
     this.real.socket = null;
+    this.real.verifiedBinding = null;
 
     if (!socket) return;
 
@@ -1139,6 +1218,28 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
       return { allowed: false, reason: 'QR_GATEWAY_DISABLED' as const };
     }
+    if (this.configService.get<boolean>('WHATSAPP_QR_ALLOW_RECEIVE') !== true) {
+      return { allowed: false, reason: 'QR_RECEIVE_DISABLED' as const };
+    }
+    if (this.configService.get<boolean>('WHATSAPP_QR_SANDBOX_ONLY') !== false) {
+      return { allowed: false, reason: 'QR_SANDBOX_ONLY' as const };
+    }
+    if (this.configService.get<string>('WHATSAPP_MODE') !== 'receive_only') {
+      return { allowed: false, reason: 'QR_RECEIVE_ONLY_MODE_REQUIRED' as const };
+    }
+    if (this.configService.get<string>('WHATSAPP_PROVIDER') !== 'qr_gateway') {
+      return { allowed: false, reason: 'QR_PROVIDER_NOT_SELECTED' as const };
+    }
+    if (this.configService.get<boolean>('WHATSAPP_QR_ALLOW_REAL_SEND') === true) {
+      return { allowed: false, reason: 'QR_REAL_SEND_MUST_REMAIN_DISABLED' as const };
+    }
+    if (
+      this.configService.get<boolean>('SOFIA_AUTO_REPLY_ENABLED') === true ||
+      this.configService.get<boolean>('SOFIA_AUTO_SAFE_ENABLED') === true ||
+      this.configService.get<boolean>('SOFIA_WHATSAPP_OUTBOUND_HANDLER_ENABLED') === true
+    ) {
+      return { allowed: false, reason: 'QR_AUTOMATION_MUST_REMAIN_DISABLED' as const };
+    }
 
     const settings = await this.prisma.setting.findMany({
       where: { key: { in: Object.values(QR_RUNTIME_GATE_SETTING_KEYS) } },
@@ -1164,6 +1265,134 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     }
 
     return { allowed: true, reason: 'QR_GOVERNANCE_APPROVED' as const };
+  }
+
+  private connectedPhoneNumber(socket: WASocket): string | null {
+    const user = socket.user;
+    return this.phoneFromPnJid(user?.phoneNumber ?? '') ?? this.phoneFromPnJid(user?.id ?? '');
+  }
+
+  private connectedAccountBinding(
+    socket: WASocket,
+    fencingToken: number,
+  ):
+    | { ok: true; value: VerifiedQrBinding }
+    | { ok: false; reason: string } {
+    const providerAccountId = this.connectedPhoneNumber(socket);
+    if (!providerAccountId) {
+      return { ok: false, reason: 'WHATSAPP_CONNECTED_ACCOUNT_IDENTITY_MISSING' };
+    }
+    const businessIdentity = this.connectedBusinessIdentity(socket);
+    if (!businessIdentity) {
+      return { ok: false, reason: 'WHATSAPP_BUSINESS_IDENTITY_EVIDENCE_MISSING' };
+    }
+    const sessionOwner = this.connectedSessionOwner(fencingToken);
+    if (!sessionOwner) {
+      return { ok: false, reason: 'WHATSAPP_SESSION_OWNER_EVIDENCE_MISSING' };
+    }
+    const expectedAccount = this.expectedPhoneIdentity('WHATSAPP_EXPECTED_ACCOUNT_ID');
+    const expectedBusiness = this.expectedBusinessIdentity();
+    const expectedSessionOwner = this.configService
+      .get<string>('WHATSAPP_EXPECTED_SESSION_OWNER')
+      ?.trim();
+
+    if (!expectedAccount || !expectedBusiness || !expectedSessionOwner) {
+      return { ok: false, reason: 'WHATSAPP_EXPECTED_BINDING_INCOMPLETE' };
+    }
+    if (
+      expectedAccount !== providerAccountId ||
+      expectedBusiness !== businessIdentity ||
+      expectedSessionOwner !== sessionOwner
+    ) {
+      return { ok: false, reason: 'WHATSAPP_PROVIDER_ACCOUNT_MISMATCH' };
+    }
+    return {
+      ok: true,
+      value: { providerAccountId, businessIdentity, sessionOwner },
+    };
+  }
+
+  private connectedBusinessIdentity(socket: WASocket): string | null {
+    const user = socket.user;
+    return this.lidIdentity(user?.lid ?? '') ?? this.lidIdentity(user?.id ?? '');
+  }
+
+  private expectedBusinessIdentity(): string | null {
+    return this.lidIdentity(
+      this.configService.get<string>('WHATSAPP_EXPECTED_BUSINESS_IDENTITY')?.trim() ?? '',
+    );
+  }
+
+  private connectedSessionOwner(fencingToken: number): string | null {
+    const lease = this.activeLease;
+    if (
+      !lease ||
+      lease.sessionName !== this.safeSessionName() ||
+      lease.ownerHash !== this.ownership.ownerHash ||
+      lease.fencingToken !== fencingToken ||
+      !Number.isFinite(Date.parse(lease.leaseExpiresAt)) ||
+      Date.parse(lease.leaseExpiresAt) <= Date.now()
+    ) {
+      return null;
+    }
+    return lease.sessionName;
+  }
+
+  private expectedPhoneIdentity(key: string): string | null {
+    const value = this.configService.get<string>(key)?.trim();
+    if (!value) return null;
+    const plainPhone = value.match(/^\+?(\d{6,20})$/)?.[1] ?? null;
+    return this.phoneFromPnJid(value) ?? plainPhone;
+  }
+
+  private phoneFromMessageAddress(primary: string, alternate?: string | null): string | null {
+    const primaryPhone = this.phoneFromPnJid(primary);
+    if (primaryPhone) return primaryPhone;
+    if (!/^\d{6,20}(?::\d+)?@lid$/i.test(primary.trim())) return null;
+    return this.phoneFromPnJid(alternate ?? '');
+  }
+
+  private phoneFromPnJid(value: string): string | null {
+    const match = value.trim().match(/^(\d{6,20})(?::\d+)?@s\.whatsapp\.net$/i);
+    return match?.[1] ?? null;
+  }
+
+  private lidIdentity(value: string): string | null {
+    const match = value.trim().match(/^(\d{6,20})(?::\d+)?@lid$/i);
+    return match ? `${match[1]}@lid` : null;
+  }
+
+  private async rejectUnverifiedInbound(_socket: WASocket): Promise<void> {
+    await this.audit('SOFIA_QR_INBOUND_BLOCKED', 'system', {
+      reason: 'WHATSAPP_VERIFIED_BINDING_MISSING',
+      valuesSanitized: true,
+    });
+    this.real.connectionStatus = 'FAILED';
+    this.real.lastErrorCode = 'WHATSAPP_VERIFIED_BINDING_MISSING';
+    await this.teardownRealSocket(false);
+    await this.releaseSessionOwnership();
+  }
+
+  private async rejectConnectedSocket(socket: WASocket, reason: string): Promise<void> {
+    this.real.connectionStatus = 'FAILED';
+    this.real.qrString = null;
+    this.real.qrImageDataUrl = null;
+    this.real.phoneNumber = null;
+    this.real.verifiedBinding = null;
+    this.real.lastError = 'La identidad de la cuenta WhatsApp no cumple el binding autorizado.';
+    this.real.lastErrorCode = reason;
+    await this.audit('SOFIA_QR_CONNECTED_BINDING_REJECTED', 'system', {
+      reason,
+      valuesSanitized: true,
+    });
+    try {
+      await socket.logout();
+    } catch {
+      // Local credential cleanup still prevents reuse of a rejected binding.
+    }
+    await this.clearAuthDir();
+    await this.teardownRealSocket(false);
+    await this.releaseSessionOwnership();
   }
 
   private safePersistedStatus(status?: SofiaWhatsappQrConnectionStatus): SofiaWhatsappQrConnectionStatus {

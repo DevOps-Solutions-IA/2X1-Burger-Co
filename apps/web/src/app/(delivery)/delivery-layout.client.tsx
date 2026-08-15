@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -14,8 +14,10 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
   const pathname = usePathname();
   const { user, loading, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuDialogRef = useRef<HTMLDivElement>(null);
   const safePathname = pathname ?? '/delivery';
-  const canAccess = canAccessRoute(safePathname, user?.permissions);
+  const canAccess = canAccessRoute(safePathname, user?.permissions, user?.roles);
   const shiftStartedLabel = user?.lastLoginAt
     ? new Date(user.lastLoginAt).toLocaleTimeString('es-CO', {
         hour: 'numeric',
@@ -36,9 +38,37 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const returnFocus = previousFocus ?? menuButtonRef.current;
+    const firstAction = menuDialogRef.current?.querySelector<HTMLButtonElement>('button');
+    firstAction?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        return;
+      }
+      if (event.key === 'Tab') {
+        const actions = Array.from(menuDialogRef.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? []);
+        const first = actions[0];
+        const last = actions.at(-1);
+        if (!first || !last) {
+          return;
+        }
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      returnFocus?.focus();
     };
   }, [menuOpen]);
 
@@ -48,9 +78,9 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
 
   if (loading || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
+      <div className="flex min-h-dvh items-center justify-center bg-surface">
         <div className="rounded-[1.75rem] border border-stone-200 bg-white px-6 py-5 text-center shadow-soft">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-brand-600">Domicilios</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-brand-900">Domicilios</p>
           <p className="mt-2 text-[15px] font-semibold text-ink">Cargando sesión...</p>
         </div>
       </div>
@@ -59,9 +89,9 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
 
   if (!canAccess) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-surface px-4 py-6">
+      <div className="flex min-h-dvh items-center justify-center bg-surface px-4 py-6">
         <div className="w-full max-w-xl rounded-[2rem] border border-stone-200 bg-white p-8 text-center shadow-soft">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-brand-600">Acceso restringido</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-brand-900">Acceso restringido</p>
           <h1 className="mt-3 text-[1.9rem] font-bold text-ink">No tienes permisos para reparto</h1>
           <p className="mt-3 text-[13px] leading-6 text-stone-600">
             Esta superficie está reservada para domiciliarios o supervisores con permisos de delivery.
@@ -77,9 +107,15 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
   }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-dvh bg-surface">
+      <a
+        href="#delivery-main"
+        className="sr-only z-[60] rounded-xl bg-ink px-4 py-3 text-sm font-bold text-white focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+      >
+        Ir a las entregas
+      </a>
       <div
-        className="mx-auto flex min-h-screen w-full max-w-[1180px] flex-col px-2.5 py-2.5 sm:px-4 lg:px-5"
+        className="mx-auto flex min-h-dvh w-full max-w-[1180px] flex-col px-2.5 py-2.5 sm:px-4 lg:px-5"
         style={{
           paddingTop: 'max(0.65rem, env(safe-area-inset-top))',
           paddingBottom: 'max(0.65rem, env(safe-area-inset-bottom))',
@@ -126,10 +162,13 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
               </div>
 
               <button
+                ref={menuButtonRef}
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-[0.95rem] border border-stone-200 bg-white text-ink shadow-[0_8px_18px_rgba(15,23,42,0.06)] transition hover:border-brand-300 hover:bg-brand-50 lg:hidden"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-[0.95rem] border border-stone-200 bg-white text-ink shadow-[0_8px_18px_rgba(15,23,42,0.06)] transition hover:border-brand-300 hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-100 lg:hidden"
                 onClick={() => setMenuOpen((current) => !current)}
                 aria-label={menuOpen ? 'Cerrar menú de domiciliarios' : 'Abrir menú de domiciliarios'}
+                aria-expanded={menuOpen}
+                aria-controls="delivery-session-menu"
               >
                 {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
@@ -140,6 +179,11 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
         {menuOpen ? (
           <div className="fixed inset-0 z-50 bg-stone-950/28 backdrop-blur-[1px] lg:hidden" onClick={() => setMenuOpen(false)}>
             <div
+              ref={menuDialogRef}
+              id="delivery-session-menu"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Sesión de domiciliario"
               className="absolute inset-x-3 top-20 rounded-[1.7rem] border border-stone-200 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.18)]"
               onClick={(event) => event.stopPropagation()}
             >
@@ -159,7 +203,7 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
               <div className="mt-4 grid gap-2">
                 <Button
                   variant="secondary"
-                  className="justify-center rounded-2xl"
+                  className="min-h-11 justify-center rounded-2xl"
                   onClick={async () => {
                     setMenuOpen(false);
                     await logout();
@@ -174,7 +218,7 @@ export default function DeliveryLayoutClient({ children }: { children: React.Rea
           </div>
         ) : null}
 
-        <main className="overflow-hidden rounded-[1.45rem] border border-stone-200 bg-white shadow-soft sm:rounded-[1.8rem]">
+        <main id="delivery-main" tabIndex={-1} className="overflow-hidden rounded-[1.45rem] border border-stone-200 bg-white shadow-soft outline-none sm:rounded-[1.8rem]">
           {children}
         </main>
       </div>

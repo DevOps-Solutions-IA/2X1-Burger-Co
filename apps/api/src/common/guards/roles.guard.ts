@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import type { AuthUser } from '../types/auth-user.type';
 import { AuditService } from '../../modules/audit/audit.service';
 import { AuditContextService } from '../../modules/audit/audit-context.service';
@@ -24,8 +25,12 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const requiredPermissions = this.reflector.getAllAndMerge<string[]>(PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]) ?? [];
 
-    if (!requiredRoles || requiredRoles.length === 0) {
+    if ((!requiredRoles || requiredRoles.length === 0) && requiredPermissions.length === 0) {
       return true;
     }
 
@@ -36,9 +41,11 @@ export class RolesGuard implements CanActivate {
     this.auditContext.setActor(request.user);
     const userRoles = request.user?.roles ?? [];
     const userPermissions = request.user?.permissions ?? [];
-    const allowed = requiredRoles.some(
+    const roleAllowed = !requiredRoles?.length || requiredRoles.some(
       (role) => userRoles.includes(role) || userPermissions.includes(role),
     );
+    const permissionsAllowed = requiredPermissions.every((permission) => userPermissions.includes(permission));
+    const allowed = roleAllowed && permissionsAllowed;
 
     if (!allowed) {
       await this.auditService.log({
@@ -51,6 +58,7 @@ export class RolesGuard implements CanActivate {
         reasonCode: 'RBAC_DENIED',
         metadata: {
           requiredRoles,
+          requiredPermissions,
           effectiveRoles: userRoles,
           permissionCount: userPermissions.length,
         },

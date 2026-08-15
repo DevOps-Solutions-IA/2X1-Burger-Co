@@ -26,12 +26,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body className="bg-surface font-sans text-ink antialiased">
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[9999] focus:rounded-2xl focus:bg-brand-500 focus:px-5 focus:py-3 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-soft focus:outline-none"
-        >
-          Saltar al contenido principal
-        </a>
         <Providers>{children}</Providers>
       </body>
     </html>

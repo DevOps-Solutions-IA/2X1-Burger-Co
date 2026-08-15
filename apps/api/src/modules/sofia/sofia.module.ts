@@ -16,6 +16,7 @@ import { SofiaAutoSafeModule } from './auto-safe/sofia-auto-safe.module';
 import { SofiaBackupsService } from './backups/sofia-backups.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
 import { SofiaCrmController } from './crm/sofia-crm.controller';
+import { Phase8CrmRepository } from './crm/phase8-crm.repository';
 import { SofiaCrmService } from './crm/sofia-crm.service';
 import { CommercialCheckoutService } from './commercial/commercial-checkout.service';
 import { CommercialIntentEngine } from './commercial/commercial-intent.engine';
@@ -126,6 +127,7 @@ const TEST_ONLY_CONTROLLERS = process.env.NODE_ENV === 'test'
     SofiaHardeningService,
     SofiaRuntimeSafetyService,
     SofiaTestOnlyGuard,
+    Phase8CrmRepository,
     SofiaCrmService,
     CommercialIntentEngine,
     CommercialPolicyService,

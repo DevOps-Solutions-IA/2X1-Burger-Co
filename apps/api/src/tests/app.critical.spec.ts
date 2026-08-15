@@ -730,13 +730,13 @@ describe('Critical business flows', () => {
       .expect(201);
 
     const patchResponse = await request(app.getHttpServer())
-      .patch(`/orders/${createResponse.body.id}`)
-      .set('Authorization', `Bearer ${waiterToken}`)
+      .post(`/orders/${createResponse.body.id}/kitchen-transition`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        status: 'IN_PREPARATION',
+        action: 'START_PREPARATION',
         expectedRevision: createResponse.body.revision,
       })
-      .expect(200);
+      .expect(201);
 
     expect(patchResponse.body.revision).toBe(createResponse.body.revision + 1);
 
@@ -845,6 +845,15 @@ describe('Critical business flows', () => {
 
     expect(claim.body.assignedWaiterId).toBe(secondaryWaiter.body.user.sub);
 
+    const kitchenStarted = await request(app.getHttpServer())
+      .post(`/orders/${claim.body.id}/kitchen-transition`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        action: 'START_PREPARATION',
+        expectedRevision: claim.body.revision,
+      })
+      .expect(201);
+
     const claimedSync = await request(app.getHttpServer())
       .post('/orders/waiter-sync')
       .set('Authorization', `Bearer ${secondaryWaiter.body.accessToken}`)
@@ -852,7 +861,7 @@ describe('Critical business flows', () => {
         orderId: claim.body.id,
         tableId: tableTwo.id,
         status: 'IN_PREPARATION',
-        expectedRevision: claim.body.revision,
+        expectedRevision: kitchenStarted.body.revision,
         clientMutationId: 'waiter-sync-owner-3',
         items: [{ productId: burger.id, quantity: 2 }],
       })

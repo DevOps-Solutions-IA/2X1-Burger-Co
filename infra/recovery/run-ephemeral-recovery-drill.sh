@@ -93,6 +93,7 @@ SOURCE_DB="inventory_recovery_source_${DB_MARKER}_test"
 RESTORE_DB="inventory_recovery_restore_${DB_MARKER}_test"
 DB_USER="e2e_${DB_MARKER:0:12}"
 DB_PASSWORD="recovery-only-${RUN_ID}-db"
+CRM_INTEGRITY_SECRET="$(openssl rand -hex 32)"
 
 cat >"$STATUS_FILE" <<EOF
 {"status":"PENDING","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","checksumVerified":false,"restoreVerified":false}
@@ -156,8 +157,15 @@ EPHEMERAL_TEST_MODE=true EPHEMERAL_TEST_RUN_ID="$RUN_ID" ADMIN_EMAIL=admin.e2e@i
   pnpm --dir apps/api exec tsx "$ROOT_DIR/infra/testing/ephemeral-fixtures.ts" >"$EVIDENCE_DIR/source-fixtures.log" 2>&1
 
 "${compose[@]}" exec -T source-db psql -U "$DB_USER" -d "$SOURCE_DB" -At <infra/recovery/reconciliation.sql >"$EVIDENCE_DIR/source-reconciliation.json"
+"${compose[@]}" exec -T source-db psql -U "$DB_USER" -d "$SOURCE_DB" -At <infra/recovery/crm-integrity-payload.sql \
+  | RECOVERY_CRM_INTEGRITY_SECRET="$CRM_INTEGRITY_SECRET" node infra/recovery/crm-integrity-fingerprint.mjs \
+  >"$EVIDENCE_DIR/source-crm-integrity.json"
+jq --slurpfile integrity "$EVIDENCE_DIR/source-crm-integrity.json" \
+  '.logicalChecksums.crmIntegrity = $integrity[0]' \
+  "$EVIDENCE_DIR/source-reconciliation.json" >"$EVIDENCE_DIR/source-reconciliation.next.json"
+mv "$EVIDENCE_DIR/source-reconciliation.next.json" "$EVIDENCE_DIR/source-reconciliation.json"
 jq -e --argjson expected "$EXPECTED_MIGRATION_COUNT" \
-  '.schema.appliedMigrations == $expected and .schema.failedMigrations == 0 and .counts.users > 0 and .counts.sales > 0 and .counts.orders > 0' \
+  '.schema.appliedMigrations == $expected and .schema.failedMigrations == 0 and .counts.users > 0 and .counts.sales > 0 and .counts.orders > 0 and .counts.crmPipelines > 0 and .counts.crmPipelineStages > 0 and .counts.crmLeads > 0 and .counts.crmLeadStageHistory > 0 and .counts.crmTasks > 0 and .counts.crmNotes > 0' \
   "$EVIDENCE_DIR/source-reconciliation.json" >/dev/null
 
 BACKUP_START_MS="$(date +%s%3N)"
@@ -207,16 +215,18 @@ chmod 600 "$RESTORED_BACKUP"
 [[ "$(sha256sum "$RESTORED_BACKUP" | cut -d' ' -f1)" == "$PLAIN_SHA" ]]
 "${compose[@]}" exec -T restore-db pg_restore -U "$DB_USER" -d "$RESTORE_DB" --exit-on-error --no-owner --no-privileges <"$RESTORED_BACKUP" >"$EVIDENCE_DIR/restore.log" 2>&1
 "${compose[@]}" exec -T restore-db psql -U "$DB_USER" -d "$RESTORE_DB" -At <infra/recovery/reconciliation.sql >"$EVIDENCE_DIR/restore-reconciliation.json"
+"${compose[@]}" exec -T restore-db psql -U "$DB_USER" -d "$RESTORE_DB" -At <infra/recovery/crm-integrity-payload.sql \
+  | RECOVERY_CRM_INTEGRITY_SECRET="$CRM_INTEGRITY_SECRET" node infra/recovery/crm-integrity-fingerprint.mjs \
+  >"$EVIDENCE_DIR/restore-crm-integrity.json"
+jq --slurpfile integrity "$EVIDENCE_DIR/restore-crm-integrity.json" \
+  '.logicalChecksums.crmIntegrity = $integrity[0]' \
+  "$EVIDENCE_DIR/restore-reconciliation.json" >"$EVIDENCE_DIR/restore-reconciliation.next.json"
+mv "$EVIDENCE_DIR/restore-reconciliation.next.json" "$EVIDENCE_DIR/restore-reconciliation.json"
 
-node - "$EVIDENCE_DIR/source-reconciliation.json" "$EVIDENCE_DIR/restore-reconciliation.json" "$EVIDENCE_DIR/reconciliation-result.json" <<'NODE'
-const fs = require('node:fs');
-const [sourcePath, restorePath, output] = process.argv.slice(2);
-const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-const restored = JSON.parse(fs.readFileSync(restorePath, 'utf8'));
-const equal = JSON.stringify(source) === JSON.stringify(restored);
-fs.writeFileSync(output, `${JSON.stringify({ status: equal ? 'PASS' : 'FAIL', equal, source, restored }, null, 2)}\n`);
-if (!equal) process.exitCode = 1;
-NODE
+node infra/recovery/reconciliation.mjs \
+  "$EVIDENCE_DIR/source-reconciliation.json" \
+  "$EVIDENCE_DIR/restore-reconciliation.json" \
+  "$EVIDENCE_DIR/reconciliation-result.json"
 
 cat >"$STATUS_FILE" <<EOF
 {"status":"PASS","createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","checksumVerified":true,"restoreVerified":true}
@@ -312,10 +322,12 @@ node - "$MANIFEST_FILE" "$MISMATCH_MANIFEST" <<'NODE'
 const fs = require('node:fs');
 const [source, output] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
-manifest.migrationInventory.pop();
-manifest.schemaMigrationCount = manifest.migrationInventory.length;
-manifest.migrationCount = manifest.schemaMigrationCount;
-manifest.schemaVersion = manifest.migrationInventory.at(-1).name;
+// Keep the migration count intact but corrupt the required final identity. A
+// removed Phase 8 migration is authorized as a forward-compatible suffix.
+const final = manifest.migrationInventory.at(-1);
+if (!final) throw new Error('release manifest has no migration inventory');
+final.name = `${final.name}_mismatch`;
+manifest.schemaVersion = final.name;
 fs.writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
 NODE
 "${compose[@]}" run --no-deps -d --name "$MISMATCH_CONTAINER" \

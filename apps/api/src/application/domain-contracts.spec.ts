@@ -100,7 +100,15 @@ describe('Phase 1 authoritative domain contracts', () => {
     const second = await adapter.resolve(command);
     expect(first.customerId).toBe(second.customerId);
     expect(first.phoneMasked).toBe('***0000');
-    expect(crm.resolveOrCreateByPhone).toHaveBeenNthCalledWith(1, { phone: command.phone, displayName: 'Ana' }, actor.actorId);
+    expect(crm.resolveOrCreateByPhone).toHaveBeenNthCalledWith(
+      1,
+      { phone: command.phone, displayName: 'Ana' },
+      expect.objectContaining({
+        kind: 'TRUSTED_CRM_CUSTOMER_RESOLUTION',
+        actorId: actor.actorId,
+        source: 'SOFIA_DOMAIN_ADAPTER',
+      }),
+    );
   });
 
   it('blocks order creation and produces only a blocked audit decision', async () => {

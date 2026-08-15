@@ -8,11 +8,10 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { MetricSurface, PageHeader, QueryState } from '@/components/product';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
@@ -20,6 +19,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { getOperationalOrderDisplayCode } from '@/lib/order-display';
+import { visiblePolling } from '@/lib/query-policy';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type TableStatus = 'FREE' | 'OCCUPIED' | 'RESERVED' | 'PAYMENT_PENDING' | 'OUT_OF_SERVICE';
 
@@ -131,6 +133,7 @@ const defaultGroupEditForm = {
 };
 
 export default function TablesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [form, setForm] = useState<TableForm>(defaultForm);
@@ -138,11 +141,17 @@ export default function TablesPage() {
   const [groupEditForm, setGroupEditForm] = useState(defaultGroupEditForm);
   const [groupEditTableIds, setGroupEditTableIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const canCreate = canPerformAction(user?.permissions, 'tables.create', user?.roles, ['admin', 'supervisor']);
+  const canUpdate = canPerformAction(user?.permissions, 'tables.update', user?.roles, ['admin', 'supervisor']);
+  const canDelete = canPerformAction(user?.permissions, 'tables.update', user?.roles, ['admin', 'supervisor']);
+  const canManage = canCreate || canUpdate;
+  const canCreateOrder = canPerformAction(user?.permissions, 'orders.create', user?.roles, ['admin', 'cashier', 'supervisor']);
 
   const tables = useQuery({
     queryKey: ['tables'],
     queryFn: () => apiFetch<DiningTable[]>('/tables'),
-    refetchInterval: 4000,
+    refetchInterval: visiblePolling(4_000),
+    refetchIntervalInBackground: false,
   });
   const tableGroups = useQuery({
     queryKey: ['table-groups'],
@@ -166,6 +175,7 @@ export default function TablesPage() {
       unavailable: data.filter((table) => !table.isActive || table.status === 'OUT_OF_SERVICE').length,
     };
   }, [tables.data]);
+  const metricsAvailable = tables.isSuccess && Boolean(tables.data);
 
   const selectedTable = useMemo(
     () => (tables.data ?? []).find((table) => table.id === selectedTableId) ?? null,
@@ -178,8 +188,9 @@ export default function TablesPage() {
   }, [tables.data]);
 
   const upsertTable = useMutation({
-    mutationFn: () =>
-      apiFetch(selectedTable ? `/tables/${selectedTable.id}` : '/tables', {
+    mutationFn: () => {
+      if (selectedTable ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar mesas.');
+      return apiFetch(selectedTable ? `/tables/${selectedTable.id}` : '/tables', {
         method: selectedTable ? 'PATCH' : 'POST',
         body: JSON.stringify({
           label: form.label,
@@ -190,7 +201,8 @@ export default function TablesPage() {
           notes: form.notes,
           isActive: true,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success(selectedTable ? 'Mesa actualizada correctamente' : 'Mesa creada correctamente');
       setSelectedTableId(null);
@@ -280,6 +292,7 @@ export default function TablesPage() {
 
   const deleteSelectedTable = useMutation({
     mutationFn: async () => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar mesas.');
       if (!selectedTable) {
         throw new Error('Selecciona una mesa para eliminar.');
       }
@@ -307,6 +320,7 @@ export default function TablesPage() {
 
   const deleteSelectedGroup = useMutation({
     mutationFn: async () => {
+      if (!canDelete) throw new Error('No tienes permiso para eliminar grupos.');
       if (!selectedGroup) {
         throw new Error('Selecciona un grupo para eliminar.');
       }
@@ -334,15 +348,17 @@ export default function TablesPage() {
   });
 
   const createGroup = useMutation({
-    mutationFn: () =>
-      apiFetch<TableGroup>('/table-groups', {
+    mutationFn: () => {
+      if (!canCreate) throw new Error('No tienes permiso para crear grupos de mesas.');
+      return apiFetch<TableGroup>('/table-groups', {
         method: 'POST',
         body: JSON.stringify({
           name: groupForm.name,
           area: groupForm.area || undefined,
           description: groupForm.description || undefined,
         }),
-      }),
+      });
+    },
     onSuccess: async (group) => {
       toast.success('Grupo de mesas creado correctamente');
       setGroupForm((current) => ({ ...current, name: '', area: '', description: '' }));
@@ -354,15 +370,17 @@ export default function TablesPage() {
   });
 
   const assignWaiterToGroup = useMutation({
-    mutationFn: () =>
-      apiFetch('/waiter-assignments', {
+    mutationFn: () => {
+      if (!canUpdate) throw new Error('No tienes permiso para asignar responsables.');
+      return apiFetch('/waiter-assignments', {
         method: 'POST',
         body: JSON.stringify({
           waiterId: groupForm.waiterId,
           scope: 'GROUP',
           tableGroupId: selectedGroup?.id,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Mesero asignado al grupo');
       setGroupForm((current) => ({ ...current, waiterId: '' }));
@@ -374,6 +392,7 @@ export default function TablesPage() {
 
   const updateSelectedGroup = useMutation({
     mutationFn: async () => {
+      if (!canUpdate) throw new Error('No tienes permiso para modificar grupos.');
       if (!selectedGroup) {
         throw new Error('Selecciona un grupo para editar.');
       }
@@ -444,15 +463,17 @@ export default function TablesPage() {
   });
 
   const assignTableDirectly = useMutation({
-    mutationFn: ({ tableId, waiterId }: { tableId: string; waiterId: string }) =>
-      apiFetch('/waiter-assignments', {
+    mutationFn: ({ tableId, waiterId }: { tableId: string; waiterId: string }) => {
+      if (!canUpdate) throw new Error('No tienes permiso para asignar mesas.');
+      return apiFetch('/waiter-assignments', {
         method: 'POST',
         body: JSON.stringify({
           waiterId,
           scope: 'TABLE',
           tableId,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Asignación directa actualizada');
       await invalidateTableAssignmentData();
@@ -462,21 +483,25 @@ export default function TablesPage() {
   });
 
   return (
-    <div className="space-y-6 p-6 lg:p-8" data-testid="tables-page">
-      <SectionTitle
-        eyebrow="Operacion"
-        title="Mesas"
-        description="Gestiona mesas, estado y servicio en tiempo real."
-        status={<Badge tone="info">{metrics.occupied} con servicio</Badge>}
-        actions={
-          <Button type="button" variant="secondary" size="sm" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }}>
+    <div className="space-y-6" data-testid="tables-page">
+      <PageHeader
+        eyebrow="Operación de salón"
+        title="Mesas y servicio"
+        description="Gestiona disponibilidad, comandas y responsables sin perder el estado real del salón."
+        status={tables.data && !tables.isError
+          ? <Badge tone="info">{metrics.occupied} con servicio</Badge>
+          : <Badge tone="warning">{tables.data ? 'Salón desactualizado' : 'Salón sin verificar'}</Badge>}
+        actions={canCreate ? (
+          <Button type="button" variant="secondary" onClick={() => { setSelectedTableId(null); setForm(defaultForm); }} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Nueva mesa
           </Button>
-        }
+        ) : undefined}
       />
 
-      {!tables.isLoading && !metrics.total ? (
+      {!canManage ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar el salón, pero no crear mesas, editar grupos ni cambiar responsables." /> : null}
+
+      {tables.isSuccess && !metrics.total ? (
         <StatusBanner
           tone="info"
           title="Todavía no hay mesas configuradas"
@@ -484,36 +509,46 @@ export default function TablesPage() {
         />
       ) : null}
 
+      {tableGroups.isError || users.isError || waiterAssignments.isError ? (
+        <div className="space-y-3" role="alert">
+          <StatusBanner
+            tone="warning"
+            title="Parte de la configuración del salón no está disponible"
+            description="Las mesas siguen visibles, pero grupos o responsables podrían estar incompletos. No asumimos valores vacíos como datos reales."
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void Promise.all([tableGroups.refetch(), users.refetch(), waiterAssignments.refetch()])}
+          >
+            Reintentar configuración
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="Total" value={formatNumber(metrics.total)} icon={<Armchair className="h-5 w-5" />} />
-        <MetricCard compact label="Disponibles" value={formatNumber(metrics.free)} accent="success" icon={<CheckCircle2 className="h-5 w-5" />} />
-        <MetricCard compact label="Ocupadas" value={formatNumber(metrics.occupied)} accent="brand" icon={<CircleDashed className="h-5 w-5" />} />
-        <MetricCard compact label="Fuera de servicio" value={formatNumber(metrics.unavailable)} accent="danger" icon={<ShieldAlert className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Total" value={metricsAvailable ? formatNumber(metrics.total) : undefined} unavailable={!metricsAvailable} icon={<Armchair className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Disponibles" value={metricsAvailable ? formatNumber(metrics.free) : undefined} unavailable={!metricsAvailable} icon={<CheckCircle2 className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Ocupadas" value={metricsAvailable ? formatNumber(metrics.occupied) : undefined} unavailable={!metricsAvailable} icon={<CircleDashed className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Fuera de servicio" value={metricsAvailable ? formatNumber(metrics.unavailable) : undefined} unavailable={!metricsAvailable} icon={<ShieldAlert className="h-5 w-5" />} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <Card className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-4 px-5 pt-5">
             <h2 className="text-[15px] font-extrabold text-ink">Mesas</h2>
-            <Badge tone="neutral">{metrics.total} configuradas</Badge>
+            {tables.data ? <Badge tone="neutral">{metrics.total} configuradas</Badge> : null}
           </div>
 
+          <QueryState
+            status={tables.isError ? 'error' : tables.isLoading ? 'loading' : orderedTables.length ? 'ready' : 'empty'}
+            title={tables.isError ? 'No pudimos cargar el salón' : 'No hay mesas todavía'}
+            description={tables.isError ? 'Reintenta antes de operar: no mostramos un salón vacío como reemplazo.' : 'Cuando configures mesas, aparecerán aquí listas para operar.'}
+            onRetry={tables.isError ? () => void tables.refetch() : undefined}
+            className="m-4"
+            skeletonRows={4}
+          >
           <div className="mt-3 grid gap-3 px-4 pb-4 md:grid-cols-2">
-            {tables.isLoading
-              ? Array.from({ length: 4 }).map((_, index) => (
-                  <Skeleton key={index} className="h-52 rounded-[1.5rem]" />
-                ))
-              : null}
-
-            {!tables.isLoading && !tables.data?.length ? (
-              <div className="md:col-span-2">
-                <EmptyState
-                  title="No hay mesas todavía"
-                  description="Cuando tengas mesas configuradas, las vas a ver acá listas para operar."
-                />
-              </div>
-            ) : null}
-
             {orderedTables.map((table) => {
               const activeOrder = table.orderTickets[0] ?? null;
               const visual = getTableVisual(table.status, table.isActive);
@@ -535,34 +570,34 @@ export default function TablesPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-[1rem] font-semibold leading-tight text-ink">{table.label}</p>
-                          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-600">
+                          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-stone-600">
                             <MapPinned className="h-3.5 w-3.5" />
                             <span className="truncate">{table.group?.name ?? table.area ?? 'Sin zona'}</span>
                           </span>
                         </div>
                         {compactNote ? (
-                          <p className="mt-1 line-clamp-1 text-[11px] leading-4 text-stone-500">{compactNote}</p>
+                          <p className="mt-1 line-clamp-1 text-[12px] leading-4 text-stone-600">{compactNote}</p>
                         ) : null}
                       </div>
-                      <Badge tone={visual.tone} className="mt-0.5 shrink-0 self-start px-2.5 py-1 text-[10px]">
+                      <Badge tone={visual.tone} className="mt-0.5 shrink-0 self-start px-2.5 py-1 text-[12px]">
                         {visual.label}
                       </Badge>
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-2.5">
                       <div className="rounded-[1.05rem] border border-stone-200 bg-stone-50 px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 text-stone-500">
+                        <div className="flex items-center gap-1.5 text-stone-600">
                           <Users className="h-4 w-4" />
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">Capacidad</span>
+                          <span className="text-[12px] font-semibold uppercase tracking-[0.12em]">Capacidad</span>
                         </div>
                         <p className="mt-1 text-[12px] font-semibold leading-4.5 text-ink">
                           {formatNumber(table.capacity)} personas
                         </p>
                       </div>
                       <div className="rounded-[1.05rem] border border-stone-200 bg-stone-50 px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 text-stone-500">
+                        <div className="flex items-center gap-1.5 text-stone-600">
                           <ReceiptText className="h-4 w-4" />
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">Comanda</span>
+                          <span className="text-[12px] font-semibold uppercase tracking-[0.12em]">Comanda</span>
                         </div>
                         <p className="mt-1 truncate text-[12px] font-semibold leading-4.5 text-ink">
                           {activeOrder ? getOperationalOrderDisplayCode(activeOrder.type) : 'Sin abrir'}
@@ -582,10 +617,10 @@ export default function TablesPage() {
                                 {getOrderTypeLabel(activeOrder.type)}
                               </span>
                             </div>
-                            <p className="mt-0.5 line-clamp-1 text-[11px] leading-4 text-stone-500">
+                            <p className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-stone-600">
                               {activeOrder.customerName ?? 'Cliente sin nombre'} · {translateOrderStatus(activeOrder.status)}
                             </p>
-                            <p className="mt-0.5 line-clamp-1 text-[11px] leading-4 text-stone-500">
+                            <p className="mt-0.5 line-clamp-1 text-[12px] leading-4 text-stone-600">
                               Mesero: {waiterName ?? 'Sin asignar'}
                             </p>
                           </div>
@@ -593,13 +628,13 @@ export default function TablesPage() {
                         </div>
                         <div className="mt-2 flex-1 space-y-1.5">
                           {previewItems.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/80 bg-white px-2.5 py-1.5 text-[11px]">
+                            <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-white/80 bg-white px-2.5 py-1.5 text-[12px]">
                               <span className="truncate text-stone-700">{item.product.name}</span>
                               <span className="shrink-0 font-semibold text-ink">x{formatNumber(item.quantity)}</span>
                             </div>
                           ))}
                           {remainingItems ? (
-                            <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-stone-400">
+                            <p className="text-[12px] font-medium uppercase tracking-[0.12em] text-stone-600">
                               + {remainingItems} ítems más en la comanda
                             </p>
                           ) : null}
@@ -607,31 +642,31 @@ export default function TablesPage() {
                         <p className="numeric-tabular mt-2 whitespace-nowrap text-right text-[12px] font-semibold text-ink">{formatCurrency(activeOrder.subtotal)}</p>
                       </div>
                     ) : (
-                      <div className="mt-3 rounded-[1.1rem] border border-dashed border-stone-200 bg-stone-50/60 p-3 text-sm text-stone-500">
+                      <div className="mt-3 rounded-[1.1rem] border border-dashed border-stone-200 bg-stone-50/60 p-3 text-sm text-stone-600">
                         <div className="flex items-center gap-2.5 text-left">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-stone-400 shadow-sm">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-stone-600 shadow-sm">
                             <UtensilsCrossed className="h-4.5 w-4.5" />
                           </div>
                           <div>
                             <p className="text-[12px] font-semibold text-stone-700">Sin comanda activa</p>
-                            <p className="mt-0.5 text-[11px] leading-4 text-stone-500">Lista para abrir servicio.</p>
+                            <p className="mt-0.5 text-[12px] leading-4 text-stone-600">Lista para abrir servicio.</p>
                           </div>
                         </div>
                       </div>
                     )}
 
                     <div className="mt-3 grid grid-cols-2 gap-2.5">
-                      <Button type="button" variant="secondary" size="sm" onClick={() => startEdit(table)} className="w-full">
+                      <Button type="button" variant="secondary" onClick={() => startEdit(table)} className="w-full" disabled={!canUpdate}>
                         Editar
                       </Button>
-                      {table.isActive && table.status !== 'OUT_OF_SERVICE' ? (
-                        <Button asChild type="button" size="sm" className="w-full">
+                      {canCreateOrder && table.isActive && table.status !== 'OUT_OF_SERVICE' ? (
+                        <Button asChild type="button" className="w-full">
                           <Link href={`/pos?tableId=${table.id}`}>
                             {activeOrder ? 'Retomar comanda' : 'Abrir comanda'}
                           </Link>
                         </Button>
                       ) : (
-                        <Button type="button" size="sm" className="w-full" disabled>
+                        <Button type="button" className="w-full" disabled>
                           {activeOrder ? 'Retomar comanda' : 'Abrir comanda'}
                         </Button>
                       )}
@@ -641,6 +676,7 @@ export default function TablesPage() {
               );
             })}
           </div>
+          </QueryState>
         </Card>
 
         <Card className="xl:sticky xl:top-24">
@@ -698,7 +734,7 @@ export default function TablesPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={!form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
+              disabled={(selectedTable ? !canUpdate : !canCreate) || tables.isError || !form.label.trim() || Number(form.capacity) <= 0 || upsertTable.isPending}
             >
               {upsertTable.isPending ? 'Guardando mesa...' : selectedTable ? 'Guardar cambios de la mesa' : 'Crear mesa'}
             </Button>
@@ -707,7 +743,7 @@ export default function TablesPage() {
                 type="button"
                 variant="secondary"
                 className="w-full border-red-200 text-red-700 hover:bg-red-50"
-                disabled={deleteSelectedTable.isPending}
+                disabled={!canDelete || deleteSelectedTable.isPending}
                 onClick={() => deleteSelectedTable.mutate()}
                 data-testid="table-delete-button"
               >
@@ -764,7 +800,7 @@ export default function TablesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-[15px] font-bold text-ink">{group.name}</p>
-                        <p className="mt-1 truncate text-[12px] text-stone-500">{group.area ?? 'Sin área'}</p>
+                        <p className="mt-1 truncate text-[12px] text-stone-600">{group.area ?? 'Sin área'}</p>
                       </div>
                       <Badge tone={assignedWaiter ? 'success' : 'warning'}>
                         {assignedWaiter ? 'Asignado' : 'Sin asignar'}
@@ -772,15 +808,15 @@ export default function TablesPage() {
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                       <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">Mesas</p>
+                        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Mesas</p>
                         <p className="mt-0.5 font-semibold text-ink">{group.tables.length}</p>
                       </div>
                       <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">Responsable</p>
+                        <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-stone-600">Responsable</p>
                         <p className="mt-0.5 truncate font-semibold text-ink">{assignedWaiter?.fullName ?? 'Sin asignar'}</p>
                       </div>
                     </div>
-                    <p className="mt-3 line-clamp-2 text-[12px] leading-5 text-stone-500">
+                    <p className="mt-3 line-clamp-2 text-[12px] leading-5 text-stone-600">
                       {group.tables.map((table) => table.label).join(', ') || 'Aún no tiene mesas.'}
                     </p>
                   </button>
@@ -825,7 +861,7 @@ export default function TablesPage() {
                   className="min-h-20"
                 />
               </Field>
-              <Button type="submit" className="w-full" disabled={!groupForm.name.trim() || createGroup.isPending}>
+              <Button type="submit" className="w-full" disabled={!canCreate || !groupForm.name.trim() || createGroup.isPending}>
                 {createGroup.isPending ? 'Creando grupo...' : 'Crear grupo de mesas'}
               </Button>
             </form>
@@ -857,7 +893,7 @@ export default function TablesPage() {
                 type="button"
                 variant="secondary"
                 className="w-full"
-                disabled={!selectedGroup || !groupForm.waiterId || assignWaiterToGroup.isPending}
+                disabled={!canUpdate || !selectedGroup || !groupForm.waiterId || assignWaiterToGroup.isPending}
                 onClick={() => assignWaiterToGroup.mutate()}
               >
                 {assignWaiterToGroup.isPending ? 'Asignando...' : 'Asignar mesero'}
@@ -951,7 +987,7 @@ export default function TablesPage() {
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block font-semibold text-ink">{table.label}</span>
-                            <span className="block text-[12px] text-stone-500">
+                            <span className="block text-[12px] text-stone-600">
                               {table.area ?? 'Sin área'}
                               {directAssignment ? ` · Asignación directa: ${directAssignment.waiter.fullName}` : ''}
                             </span>
@@ -978,7 +1014,7 @@ export default function TablesPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={!groupEditForm.name.trim() || updateSelectedGroup.isPending}
+                  disabled={!canUpdate || !groupEditForm.name.trim() || updateSelectedGroup.isPending}
                 >
                   {updateSelectedGroup.isPending ? 'Guardando cambios...' : 'Guardar cambios del grupo'}
                 </Button>
@@ -986,7 +1022,7 @@ export default function TablesPage() {
                   type="button"
                   variant="secondary"
                   className="w-full border-red-200 text-red-700 hover:bg-red-50"
-                  disabled={deleteSelectedGroup.isPending}
+                  disabled={!canDelete || deleteSelectedGroup.isPending}
                   onClick={() => deleteSelectedGroup.mutate()}
                   data-testid="table-group-delete-button"
                 >
@@ -1012,7 +1048,7 @@ export default function TablesPage() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-ink">{table.label}</p>
-                            <p className="mt-0.5 truncate text-[12px] text-stone-500">
+                            <p className="mt-0.5 truncate text-[12px] text-stone-600">
                               {directAssignment ? `Directa: ${directAssignment.waiter.fullName}` : 'Sigue responsable del grupo'}
                             </p>
                           </div>
@@ -1020,6 +1056,7 @@ export default function TablesPage() {
                         </div>
                         <Select
                           className="mt-2"
+                          aria-label={`Asignación directa para ${table.label}`}
                           value={directAssignment?.waiterId ?? ''}
                           onChange={(event) => {
                             if (event.target.value) {
@@ -1064,14 +1101,14 @@ function getOrderTypeLabel(type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'COUNTER'
 function getOrderTypeVisual(type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY' | 'COUNTER') {
   switch (type) {
     case 'DINE_IN':
-      return 'inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-sky-700';
+      return 'inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-sky-800';
     case 'DELIVERY':
-      return 'inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700';
+      return 'inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-violet-800';
     case 'TAKEAWAY':
-      return 'inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-700';
+      return 'inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-emerald-800';
     case 'COUNTER':
     default:
-      return 'inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800';
+      return 'inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-800';
   }
 }
 

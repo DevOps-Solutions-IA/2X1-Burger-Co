@@ -20,7 +20,13 @@ WITH summary AS (
       'settings', (SELECT COUNT(*) FROM settings),
       'whatsappConversations', (SELECT COUNT(*) FROM whatsapp_conversations),
       'whatsappInbound', (SELECT COUNT(*) FROM whatsapp_inbound_events),
-      'whatsappOutbound', (SELECT COUNT(*) FROM whatsapp_outbound_messages)
+      'whatsappOutbound', (SELECT COUNT(*) FROM whatsapp_outbound_messages),
+      'crmPipelines', (SELECT COUNT(*) FROM crm_pipelines),
+      'crmPipelineStages', (SELECT COUNT(*) FROM crm_pipeline_stages),
+      'crmLeads', (SELECT COUNT(*) FROM crm_leads),
+      'crmLeadStageHistory', (SELECT COUNT(*) FROM crm_lead_stage_history),
+      'crmTasks', (SELECT COUNT(*) FROM crm_tasks),
+      'crmNotes', (SELECT COUNT(*) FROM crm_notes)
     ),
     'financial', jsonb_build_object(
       'salesSubtotal', (SELECT COALESCE(SUM(subtotal), 0)::text FROM sales),

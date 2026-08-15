@@ -1,0 +1,35 @@
+{
+  "phase": 8,
+  "status": "IMPLEMENTED_PENDING_PR_CI_AND_CONTROLLED_RELEASE",
+  "baseSha": "8baf7fd5bcc4a1ac8f7086cf1c022e5f8e3709e3",
+  "pullRequest": 23,
+  "authenticatedRouteAudit": "PASS",
+  "migration": {
+    "created": 1,
+    "frontier": 38,
+    "freshDatabase": "PASS",
+    "legacy37To38": "PASS",
+    "productionApplied": false
+  },
+  "quality": {
+    "localCiMirror": "PASS",
+    "artifactReproducibility": "PASS",
+    "playwright": "49/49 PASS",
+    "recovery": "PASS",
+    "remoteCi": "PENDING"
+  },
+  "safety": {
+    "productionModified": false,
+    "realBold": false,
+    "outboundWhatsapp": false,
+    "autoReply": false,
+    "unexpectedSideEffects": 0
+  },
+  "ownerGates": [
+    "physical WhatsApp account binding and receive-only canary",
+    "controlled production migration 37 to 38 and backend release",
+    "outbound WhatsApp activation",
+    "auto reply activation",
+    "real Bold activation"
+  ]
+}

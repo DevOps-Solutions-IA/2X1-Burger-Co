@@ -5,8 +5,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        surface: '#F8F8F8',
-        ink: '#0B0B0B',
+        surface: '#F4F1EA',
+        canvas: '#F4F1EA',
+        panel: '#FFFEFB',
+        ink: '#171713',
+        muted: '#706D63',
+        line: '#DED9CC',
         brand: {
           50: '#FFF3D6',
           100: '#FFE8B0',
@@ -16,11 +20,18 @@ const config: Config = {
           500: '#FF9F1C',
           600: '#F58A07',
           700: '#D97706',
-          800: '#B86B12',
+          800: '#9A5407',
           900: '#8A4F0C',
         },
         accent: '#0B0B0B',
         danger: '#b42318',
+        signal: {
+          success: '#247247',
+          warning: '#854405',
+          danger: '#B42318',
+          info: '#23638A',
+          neutral: '#68655D',
+        },
         sofia: {
           50: '#F5F3FF',
           100: '#EDE9FE',

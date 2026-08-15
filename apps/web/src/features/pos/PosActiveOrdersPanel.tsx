@@ -2,8 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
-import { Skeleton } from '@/components/ui/skeleton';
+import { QueryState } from '@/components/product';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { getOperationalOrderDisplayCode } from '@/lib/order-display';
 import { getOrderTypeVisual, orderStatusLabels } from './pos.helpers';
@@ -38,13 +37,17 @@ function sofiaPaymentSummary(order: ActiveOrder) {
 export function PosActiveOrdersPanel({
   orders,
   isLoading,
+  isError,
   activeOrderId,
   onSelectOrder,
+  onRetry,
 }: {
   orders: ActiveOrder[] | undefined;
   isLoading: boolean;
+  isError: boolean;
   activeOrderId: string | null;
   onSelectOrder: (order: ActiveOrder) => void;
+  onRetry: () => void;
 }) {
   return (
     <Card data-testid="pos-open-orders">
@@ -57,26 +60,19 @@ export function PosActiveOrdersPanel({
               : 'Retoma o cobra una comanda sin perder el contexto del POS.'}
           </p>
         </div>
-        <Badge tone="default">{orders?.length ?? 0}</Badge>
+        {!isLoading && !isError && orders ? <Badge tone="default">{orders.length}</Badge> : null}
       </div>
 
-      <div className="hide-scrollbar mt-6 max-h-[54rem] overflow-y-auto pr-1">
-        <div className="grid gap-3 lg:grid-cols-2">
-          {isLoading
-            ? Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={index} className="h-32 rounded-[1.5rem]" />
-              ))
-            : null}
-
-          {!isLoading && !orders?.length ? (
-            <div className="lg:col-span-2">
-              <EmptyState
-                title="No hay pedidos abiertos ahora."
-                description="Aquí aparecerán para retomarlas o cobrarlas."
-              />
-            </div>
-          ) : null}
-
+      <QueryState
+        status={isError ? 'error' : isLoading ? 'loading' : orders?.length ? 'ready' : 'empty'}
+        title={isError ? 'No pudimos cargar las comandas' : 'No hay pedidos abiertos ahora'}
+        description={isError ? 'Reintenta antes de asumir que no existen pedidos pendientes.' : 'Aquí aparecerán para retomarlas o cobrarlas.'}
+        onRetry={isError ? onRetry : undefined}
+        className="mt-6"
+        skeletonRows={4}
+      >
+        <div className="hide-scrollbar max-h-[54rem] overflow-y-auto pr-1" role="region" aria-label="Pedidos abiertos" tabIndex={0}>
+          <div className="grid gap-3 lg:grid-cols-2">
           {orders?.map((order) => (
             (() => {
               const waiterName = order.waiterNameSnapshot ?? order.assignedWaiter?.fullName ?? null;
@@ -90,10 +86,10 @@ export function PosActiveOrdersPanel({
               className={`flex min-h-[9.5rem] min-w-0 flex-col rounded-[1.5rem] border p-4 text-left transition ${
                 activeOrderId === order.id
                   ? isSofiaOrder
-                    ? 'border-violet-400 bg-violet-50 shadow-[0_8px_24px_rgba(124,58,237,0.12)]'
+                    ? 'border-brand-700 bg-brand-50 shadow-soft'
                     : 'border-brand-400 bg-brand-50 shadow-[0_8px_24px_rgba(255,159,28,0.12)]'
                   : isSofiaOrder
-                    ? 'border-violet-200 bg-violet-50/50 hover:border-violet-300 hover:shadow-[0_8px_24px_rgba(124,58,237,0.10)]'
+                    ? 'border-line bg-canvas hover:border-brand-700 hover:shadow-soft'
                     : 'border-stone-200 bg-white hover:border-brand-300 hover:shadow-soft'
               }`}
               onClick={() => onSelectOrder(order)}
@@ -105,7 +101,7 @@ export function PosActiveOrdersPanel({
                     <p className="truncate text-[15px] font-bold text-ink">{getOperationalOrderDisplayCode(order.type)}</p>
                     {isSofiaOrder ? (
                       <span
-                        className="rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-violet-800"
+                        className="rounded-full border border-line bg-panel px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-brand-800"
                         data-testid="pos-sofia-order-chip"
                       >
                         Sofía
@@ -128,7 +124,7 @@ export function PosActiveOrdersPanel({
                     </p>
                   ) : null}
                   {isSofiaOrder ? (
-                    <p className="mt-1 truncate text-[11px] font-semibold text-violet-700" data-testid="pos-sofia-order-origin">
+                    <p className="mt-1 truncate text-[11px] font-semibold text-brand-800" data-testid="pos-sofia-order-origin">
                       Origen: Sofía · {sofiaPaymentSummary(order)}
                       {order.whatsappDeliveryOrder?.orderReference ? ` · ${order.whatsappDeliveryOrder.orderReference}` : ''}
                     </p>
@@ -140,7 +136,7 @@ export function PosActiveOrdersPanel({
                     : orderStatusLabels[order.status as OrderStatus] ?? order.status}
                 </Badge>
               </div>
-              <div className="mt-auto grid gap-2 pt-4 text-[12px] text-stone-500 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="mt-auto grid gap-2 pt-4 text-[12px] text-stone-600 sm:grid-cols-[1fr_auto] sm:items-end">
                 <span className="min-w-0 truncate">{formatDateTime(order.updatedAt)}</span>
                 <span className="numeric-tabular text-[15px] font-bold text-ink">{formatCurrency(order.subtotal)}</span>
               </div>
@@ -148,8 +144,9 @@ export function PosActiveOrdersPanel({
               );
             })()
           ))}
+          </div>
         </div>
-      </div>
+      </QueryState>
     </Card>
   );
 }

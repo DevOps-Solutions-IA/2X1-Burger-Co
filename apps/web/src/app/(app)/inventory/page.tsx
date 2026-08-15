@@ -9,18 +9,18 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { Textarea } from '@/components/ui/textarea';
+import { FilterBar, MetricSurface, PageHeader, QueryState, StatusBadge } from '@/components/product';
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 type StockStatus = 'NORMAL' | 'LOW' | 'CRITICAL' | 'OUT_OF_STOCK';
 type InventoryItemType = 'PRODUCT' | 'INGREDIENT';
@@ -131,6 +131,7 @@ const quickAdjustments = [
 ];
 
 export default function InventoryPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const today = new Date().toISOString().slice(0, 10);
@@ -150,6 +151,7 @@ export default function InventoryPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ movementType: string; label: string } | null>(null);
   const editItemId = searchParams?.get('edit') ?? null;
   const editItemType = searchParams?.get('itemType') as InventoryItemType | null;
+  const canAdjust = canPerformAction(user?.permissions, 'inventory.adjust', user?.roles, ['admin', 'inventory']);
 
   const stock = useQuery({
     queryKey: ['inventory-stock'],
@@ -205,8 +207,9 @@ export default function InventoryPage() {
   const isAdjustmentQuantityValid = !Number.isNaN(adjustmentQuantityNum) && adjustmentQuantityNum > 0;
 
   const createAdjustment = useMutation<unknown, Error, string>({
-    mutationFn: (movementTypeValue = 'ADJUSTMENT') =>
-      apiFetch('/inventory/adjustments', {
+    mutationFn: (movementTypeValue = 'ADJUSTMENT') => {
+      if (!canAdjust) throw new Error('No tienes permiso para ajustar inventario.');
+      return apiFetch('/inventory/adjustments', {
         method: 'POST',
         body: JSON.stringify({
           ...(adjustmentItemType === 'PRODUCT' ? { productId: adjustmentItemId } : { ingredientId: adjustmentItemId }),
@@ -215,7 +218,8 @@ export default function InventoryPage() {
           notes: adjustmentNotes || undefined,
           movementType: movementTypeValue,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Inventario actualizado');
       setAdjustmentQuantity('');
@@ -226,8 +230,9 @@ export default function InventoryPage() {
   });
 
   const registerStockCount = useMutation({
-    mutationFn: () =>
-      apiFetch('/inventory/stock-counts', {
+    mutationFn: () => {
+      if (!canAdjust) throw new Error('No tienes permiso para registrar conteos.');
+      return apiFetch('/inventory/stock-counts', {
         method: 'POST',
         body: JSON.stringify({
           scope,
@@ -239,7 +244,8 @@ export default function InventoryPage() {
             reason: 'Conteo',
           })),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Conteo guardado y diferencias aplicadas');
       setCountNotes('');
@@ -286,17 +292,23 @@ export default function InventoryPage() {
   }, [editItemId, editItemType, stock.data?.items]);
 
   return (
-    <div className="space-y-6 p-6 lg:p-8" data-testid="inventory-page">
-      <SectionTitle
-        eyebrow="Inventario"
-        title="Inventario — Lo que entra y sale"
-        description="Controlá stock, movimientos y ajustes sin salir del ritmo."
+    <div className="space-y-6" data-testid="inventory-page">
+      <PageHeader
+        eyebrow="Control operativo"
+        title="Inventario"
+        description="Existencias, movimientos, conteos y reposición con trazabilidad operacional."
         status={
-          <Badge tone={(stock.data?.metrics.criticalStockCount ?? 0) + (stock.data?.metrics.outOfStockCount ?? 0) > 0 ? 'warning' : 'success'}>
-            {(stock.data?.metrics.lowStockCount ?? 0) + (stock.data?.metrics.criticalStockCount ?? 0) + (stock.data?.metrics.outOfStockCount ?? 0)} alertas
-          </Badge>
+          stock.data && !stock.isError ? (
+            <StatusBadge
+              status={(stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount) > 0 ? 'ATTENTION' : 'AVAILABLE'}
+              label={`${stock.data.metrics.lowStockCount + stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount} alertas`}
+              tone={(stock.data.metrics.criticalStockCount + stock.data.metrics.outOfStockCount) > 0 ? 'warning' : 'success'}
+            />
+          ) : <StatusBadge status="UNKNOWN" label="Estado sin verificar" />
         }
       />
+
+      {!canAdjust ? <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar existencias, alertas e historial, pero no ajustar stock ni aplicar conteos." /> : null}
 
       {criticalAlerts.length ? (
         <StatusBanner
@@ -311,16 +323,17 @@ export default function InventoryPage() {
           tone="danger"
           title="No pudimos cargar toda la operación de inventario"
           description={pageError instanceof Error ? pageError.message : 'Recarga la página e intenta de nuevo.'}
+          action={<Button type="button" variant="secondary" onClick={() => { void Promise.all([stock.refetch(), movements.refetch(), reorderSuggestions.refetch(), stockCountPreview.refetch(), stockCounts.refetch()]); }}>Reintentar consultas</Button>}
         />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <MetricCard compact label="Ítems con stock" value={formatNumber(stock.data?.metrics.totalItems ?? 0)} hint="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} />
-        <MetricCard compact label="Productos" value={formatNumber(stock.data?.metrics.productsCount ?? 0)} hint="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Insumos" value={formatNumber(stock.data?.metrics.ingredientsCount ?? 0)} hint="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} accent="brand" />
-        <MetricCard compact label="Bajo stock" value={formatNumber(stock.data?.metrics.lowStockCount ?? 0)} hint="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} accent="brand" />
-        <MetricCard compact label="Críticos" value={formatNumber(stock.data?.metrics.criticalStockCount ?? 0)} hint="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} accent="danger" />
-        <MetricCard compact label="Ajustes hoy" value={formatNumber(stock.data?.metrics.adjustmentsToday ?? 0)} hint="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} accent="ink" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <MetricSurface density="compact" label="Ítems con stock" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.totalItems) : undefined} context="Productos e insumos activos" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Productos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.productsCount) : undefined} context="Venta directa con inventario" icon={<PackagePlus className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Insumos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.ingredientsCount) : undefined} context="Materia prima y consumibles" icon={<Boxes className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Bajo stock" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.lowStockCount) : undefined} context="Aún operables" icon={<TriangleAlert className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Críticos" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.criticalStockCount) : undefined} context="Riesgo inmediato" icon={<ShieldAlert className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
+        <MetricSurface density="compact" label="Ajustes hoy" value={stock.data && !stock.isError ? formatNumber(stock.data.metrics.adjustmentsToday) : undefined} context="Movimientos manuales" icon={<ClipboardCheck className="h-5 w-5" />} unavailable={!stock.data || stock.isError} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.7fr_0.3fr]">
@@ -378,7 +391,7 @@ export default function InventoryPage() {
                 <Button
                   key={quick.label}
                   variant="secondary"
-                  disabled={!adjustmentItemId || createAdjustment.isPending}
+                  disabled={!canAdjust || !adjustmentItemId || createAdjustment.isPending}
                   onClick={() => {
                     setConfirmDialog({ movementType: quick.movementType, label: quick.label });
                   }}
@@ -387,7 +400,7 @@ export default function InventoryPage() {
                 </Button>
               ))}
             </div>
-            <Button disabled={!adjustmentItemId || !isAdjustmentQuantityValid || createAdjustment.isPending} onClick={() => createAdjustment.mutate('ADJUSTMENT')}>
+            <Button disabled={!canAdjust || !adjustmentItemId || !isAdjustmentQuantityValid || createAdjustment.isPending} onClick={() => createAdjustment.mutate('ADJUSTMENT')}>
               Aplicar ajuste
             </Button>
           </div>
@@ -396,7 +409,14 @@ export default function InventoryPage() {
         <Card>
           <h2 className="text-lg font-semibold lg:text-[1.12rem]">¡Atención! Stock crítico</h2>
           <div className="mt-4 space-y-2">
-            {criticalAlerts.length ? criticalAlerts.map((item) => (
+            <QueryState
+              status={reorderSuggestions.isLoading ? 'loading' : reorderSuggestions.isError ? 'error' : criticalAlerts.length ? 'ready' : 'empty'}
+              title={reorderSuggestions.isError ? 'No pudimos verificar el stock crítico' : 'Nada crítico hoy'}
+              description={reorderSuggestions.isError ? 'La fuente de reposición no está disponible; no asumimos que el inventario está en orden.' : 'No hay productos agotados ni en nivel crítico.'}
+              onRetry={reorderSuggestions.isError ? () => void reorderSuggestions.refetch() : undefined}
+              skeletonRows={2}
+            >
+            {criticalAlerts.map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
                 href={`/inventory?edit=${item.id}&itemType=${item.itemType ?? 'PRODUCT'}`}
@@ -418,31 +438,30 @@ export default function InventoryPage() {
                   </Badge>
                 </div>
               </Link>
-            )) : <EmptyState title="Nada crítico hoy" description="No hay productos agotados ni en nivel crítico. Todo en orden." />}
+            ))}
+            </QueryState>
           </div>
         </Card>
       </div>
 
       <Card>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold lg:text-[1.12rem]">Resumen de stock</h2>
-            <p className="mt-1 text-[13px] leading-6 text-stone-500">Click en cualquier ítem para ir directo a ajustarlo.</p>
+            <p className="mt-1 text-[13px] leading-6 text-muted">Filtra existencias por nombre, tipo y condición operacional.</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ítem" />
-            <Select aria-label="Filtrar resumen por tipo de ítem" value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
-              <option value="ALL">Todos</option>
-              <option value="PRODUCT">Productos</option>
-              <option value="INGREDIENT">Insumos</option>
-            </Select>
-            <Select aria-label="Filtrar resumen por estado de stock" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
-              <option value="ALL">Todos los estados</option>
-              <option value="LOW">Bajo</option>
-              <option value="CRITICAL">Crítico</option>
-              <option value="OUT_OF_STOCK">Agotado</option>
-            </Select>
-          </div>
+          <FilterBar
+            activeCount={Number(Boolean(search.trim())) + Number(itemType !== 'ALL') + Number(status !== 'ALL')}
+            search={<Input aria-label="Buscar existencias" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, código o categoría" />}
+            filters={<>
+              <Select aria-label="Filtrar resumen por tipo de ítem" value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)}>
+                <option value="ALL">Todos los tipos</option><option value="PRODUCT">Productos</option><option value="INGREDIENT">Insumos</option>
+              </Select>
+              <Select aria-label="Filtrar resumen por estado de stock" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+                <option value="ALL">Todos los estados</option><option value="LOW">Bajo</option><option value="CRITICAL">Crítico</option><option value="OUT_OF_STOCK">Agotado</option>
+              </Select>
+            </>}
+          />
         </div>
         <div className="mt-5 overflow-hidden rounded-[1.35rem] border border-stone-200">
           <div className="hidden border-b border-stone-200 bg-stone-50 px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.16em] text-stone-500 md:grid md:grid-cols-[1.2fr_0.8fr_0.6fr_0.6fr_0.6fr] md:gap-3">
@@ -458,11 +477,13 @@ export default function InventoryPage() {
             aria-label="Resumen de existencias"
             tabIndex={0}
           >
-            {stock.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="m-3 h-16 rounded-2xl" />) : null}
-            {!stock.isLoading && !filteredItems.length ? (
-              <EmptyState title="Nada con ese filtro" description="Probá con otra búsqueda o ajustá los filtros." />
-            ) : null}
-            {!stock.isLoading && filteredItems.length ? filteredItems.map((item) => (
+            <QueryState
+              status={stock.isLoading ? 'loading' : stock.isError ? 'error' : filteredItems.length ? 'ready' : 'empty'}
+              title={stock.isError ? 'No se pudo consultar el inventario' : 'No hay existencias para estos filtros'}
+              onRetry={stock.isError ? () => void stock.refetch() : undefined}
+              className="m-3"
+            >
+            {filteredItems.map((item) => (
               <div key={item.id} className="border-b border-stone-100 px-4 py-4 text-sm">
                 {/* Mobile: card layout */}
                 <div className="md:hidden space-y-2">
@@ -491,7 +512,8 @@ export default function InventoryPage() {
                   <div className="text-right"><Badge tone={item.status === 'OUT_OF_STOCK' ? 'danger' : item.status === 'CRITICAL' ? 'warning' : 'neutral'}>{translateStockStatus(item.status)}</Badge></div>
                 </div>
               </div>
-            )) : null}
+            ))}
+            </QueryState>
           </div>
         </div>
       </Card>
@@ -536,7 +558,7 @@ export default function InventoryPage() {
             ))}
           </div>
           <div className="mt-4 flex justify-end">
-            <Button disabled={registerStockCount.isPending || !(stockCountPreview.data?.items ?? []).length} onClick={() => registerStockCount.mutate()}>
+            <Button disabled={!canAdjust || registerStockCount.isPending || !(stockCountPreview.data?.items ?? []).length} onClick={() => registerStockCount.mutate()}>
               {registerStockCount.isPending ? 'Aplicando...' : 'Guardar conteo'}
             </Button>
           </div>
@@ -549,7 +571,7 @@ export default function InventoryPage() {
                 <h2 className="text-lg font-semibold lg:text-[1.12rem]">Historial</h2>
                 <p className="mt-1 text-[13px] leading-6 text-stone-500">Conteos anteriores y sus resultados.</p>
               </div>
-              <Badge tone="default">{stockCounts.data?.length ?? 0}</Badge>
+              <Badge tone="default">{stockCounts.data && !stockCounts.isError ? stockCounts.data.length : 'Sin verificar'}</Badge>
             </div>
           </div>
           <div
@@ -558,15 +580,21 @@ export default function InventoryPage() {
             aria-label="Historial de conteos de inventario"
             tabIndex={0}
           >
-            {stockCounts.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
-            {!stockCounts.isLoading && stockCounts.data?.length ? stockCounts.data.map((session) => (
+            <QueryState
+              status={stockCounts.isLoading ? 'loading' : stockCounts.isError ? 'error' : stockCounts.data?.length ? 'ready' : 'empty'}
+              title={stockCounts.isError ? 'No pudimos verificar los conteos' : 'Sin conteos'}
+              description={stockCounts.isError ? 'El historial no está disponible; no lo presentamos como vacío.' : 'Cuando registres un conteo, lo vas a ver acá.'}
+              onRetry={stockCounts.isError ? () => void stockCounts.refetch() : undefined}
+            >
+            {stockCounts.data?.map((session) => (
               <div key={session.id} className="rounded-[1.35rem] border border-stone-200 bg-stone-50 px-4 py-4">
                 <p className="font-medium text-ink">{translateScope(session.scope)}</p>
                 <p className="mt-1 text-[12px] text-stone-500">
                   {session.items.length} líneas · {formatDateTime(session.createdAt)}
                 </p>
               </div>
-            )) : <EmptyState title="Sin conteos" description="Cuando registres un conteo, lo vas a ver acá." />}
+            ))}
+            </QueryState>
           </div>
         </Card>
       </div>
@@ -578,7 +606,7 @@ export default function InventoryPage() {
               <h2 className="text-lg font-semibold lg:text-[1.12rem]">Movimientos</h2>
               <p className="mt-1 text-[13px] leading-6 text-stone-500">Entradas, salidas y ajustes del día con trazabilidad de responsable y saldo.</p>
             </div>
-            <Badge tone="default">{movements.data?.length ?? 0}</Badge>
+            <Badge tone="default">{movements.data && !movements.isError ? movements.data.length : 'Sin verificar'}</Badge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
             <Input value={movementSearch} onChange={(event) => setMovementSearch(event.target.value)} placeholder="Buscar movimiento" />
@@ -605,8 +633,14 @@ export default function InventoryPage() {
               <span className="text-right">Fecha</span>
             </div>
             <div className="divide-y divide-stone-100">
-              {movements.isLoading ? Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="m-4 h-20 rounded-2xl" />) : null}
-              {!movements.isLoading && (movements.data ?? []).map((movement) => {
+              <QueryState
+                status={movements.isLoading ? 'loading' : movements.isError ? 'error' : movements.data?.length ? 'ready' : 'empty'}
+                title={movements.isError ? 'No pudimos verificar los movimientos' : 'Sin movimientos todavía'}
+                description={movements.isError ? 'La trazabilidad no está disponible; no la presentamos como vacía.' : 'Cuando haya entradas o salidas de stock, las vas a ver acá.'}
+                onRetry={movements.isError ? () => void movements.refetch() : undefined}
+                className="m-4"
+              >
+              {(movements.data ?? []).map((movement) => {
                 const movementTone = getMovementTone(movement.type);
                 return (
                 <div key={movement.id} className={`border-l-[3px] px-4 py-4 text-sm ${movementTone.border}`}>
@@ -645,11 +679,7 @@ export default function InventoryPage() {
                 </div>
                 );
               })}
-              {!movements.isLoading && !(movements.data ?? []).length ? (
-                <div className="p-6">
-                  <EmptyState title="Sin movimientos todavía" description="Cuando haya entradas o salidas de stock, las vas a ver acá." />
-                </div>
-              ) : null}
+              </QueryState>
             </div>
           </div>
         </Card>
@@ -661,7 +691,7 @@ export default function InventoryPage() {
                 <h2 className="text-lg font-semibold lg:text-[1.12rem]">Compra sugerida</h2>
                 <p className="mt-1 text-[13px] leading-6 text-stone-500">Basado en tu consumo real. Lo que necesitás reponer.</p>
               </div>
-              <Badge tone="default">{reorderSuggestions.data?.alerts?.length ?? 0}</Badge>
+              <Badge tone="default">{reorderSuggestions.data && !reorderSuggestions.isError ? reorderSuggestions.data.alerts.length : 'Sin verificar'}</Badge>
             </div>
           </div>
           <div
@@ -670,7 +700,13 @@ export default function InventoryPage() {
             aria-label="Compra sugerida de inventario"
             tabIndex={0}
           >
-            {reorderSuggestions.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />) : null}
+            <QueryState
+              status={reorderSuggestions.isLoading ? 'loading' : reorderSuggestions.isError ? 'error' : reorderSuggestions.data?.alerts.length ? 'ready' : 'empty'}
+              title={reorderSuggestions.isError ? 'No pudimos calcular la compra sugerida' : 'Sin compras sugeridas'}
+              description={reorderSuggestions.isError ? 'La fuente de reposición no está disponible; no mostramos una lista vacía como reemplazo.' : 'No hay reposiciones sugeridas con la información verificada.'}
+              onRetry={reorderSuggestions.isError ? () => void reorderSuggestions.refetch() : undefined}
+              skeletonRows={4}
+            >
             {(reorderSuggestions.data?.alerts ?? []).map((item) => (
               <Link
                 key={`${item.itemType}-${item.id}`}
@@ -696,6 +732,7 @@ export default function InventoryPage() {
                 </div>
               </Link>
             ))}
+            </QueryState>
           </div>
         </Card>
       </div>

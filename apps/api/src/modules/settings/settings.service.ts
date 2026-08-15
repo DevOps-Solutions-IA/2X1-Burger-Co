@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { type Prisma as PrismaNamespace } from '@prisma/client';
@@ -8,6 +8,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 const BUSINESS_TIMEZONE = 'America/Bogota';
 const BACKUP_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}\.dump$/;
+const INTERNAL_SETTING_KEYS = ['SOFIA_CRM_HASH_GENERATION_FENCE'] as const;
 
 @Injectable()
 export class SettingsService {
@@ -18,6 +19,7 @@ export class SettingsService {
 
   findAll() {
     return this.prisma.setting.findMany({
+      where: { key: { notIn: [...INTERNAL_SETTING_KEYS] } },
       orderBy: [{ category: 'asc' }, { key: 'asc' }],
     });
   }
@@ -64,6 +66,11 @@ export class SettingsService {
   }
 
   async update(dto: UpdateSettingsDto, actorId: string) {
+    if (dto.items.some(({ key }) => INTERNAL_SETTING_KEYS.includes(
+      key as (typeof INTERNAL_SETTING_KEYS)[number],
+    ))) {
+      throw new ForbiddenException('SETTING_KEY_RESERVED');
+    }
     const operations = dto.items.map((item) =>
       {
         const normalizedValue =

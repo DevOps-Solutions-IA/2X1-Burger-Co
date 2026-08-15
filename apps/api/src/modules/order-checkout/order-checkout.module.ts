@@ -12,11 +12,14 @@ import { PaymentPublicReferenceService } from './payment-public-reference.servic
 import { PaymentWebhookRecoveryWorker } from './payment-webhook-recovery.worker';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
+import { AdminPaymentReadController } from './admin-payment-read.controller';
+import { AdminPaymentReadService } from './admin-payment-read.service';
 
 @Module({
   imports: [OrdersModule],
-  controllers: [CanonicalPublicPaymentsController, CanonicalPaymentWebhooksController],
+  controllers: [CanonicalPublicPaymentsController, CanonicalPaymentWebhooksController, AdminPaymentReadController],
   providers: [
+    AdminPaymentReadService,
     PrismaOrderCheckoutRepository,
     CheckoutPolicyService,
     Phase5RuntimeGate,

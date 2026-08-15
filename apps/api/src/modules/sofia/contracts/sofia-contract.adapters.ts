@@ -10,6 +10,7 @@ import type {
 } from '../../../application/contracts/sofia-domain-contracts';
 import { AuditService } from '../../audit/audit.service';
 import { SofiaCrmService } from '../crm/sofia-crm.service';
+import { TrustedCrmCustomerResolutionCapability } from '../crm/crm-customer-resolution.capability';
 import { SofiaPaymentLinkService } from '../sofia-payment-link.service';
 import { SofiaService } from '../sofia.service';
 
@@ -95,7 +96,10 @@ export class BlockedSofiaOrderCreationAdapter implements OrderCreationService {
 export class SofiaCustomerResolutionAdapter implements CustomerResolutionService {
   constructor(private readonly crm: SofiaCrmService) {}
   async resolve(input: Parameters<CustomerResolutionService['resolve']>[0]) {
-    const result = await this.crm.resolveOrCreateByPhone({ phone: input.phone, displayName: input.displayName }, input.actor.actorId);
+    const result = await this.crm.resolveOrCreateByPhone(
+      { phone: input.phone, displayName: input.displayName },
+      TrustedCrmCustomerResolutionCapability.issue(input.actor.actorId, 'SOFIA_DOMAIN_ADAPTER'),
+    );
     return {
       customerId: result.id,
       displayName: result.displayName,

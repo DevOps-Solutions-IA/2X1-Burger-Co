@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import type { AuthUser } from '../../common/types/auth-user.type';
@@ -16,10 +17,13 @@ import { SyncWaiterOrderDto } from './dto/sync-waiter-order.dto';
 import { UpdateOperationalAlertDto } from './dto/update-operational-alert.dto';
 import { UpdateDeliveryWorkflowDto } from './dto/update-delivery-workflow.dto';
 import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
+import { KitchenTransitionDto } from './dto/kitchen-transition.dto';
+import { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('orders.read')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
@@ -43,6 +47,7 @@ export class OrdersController {
 
   @Post('delivery-location-inbox/:id/resolve')
   @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('delivery.update')
   resolveDeliveryLocationInbox(
     @Param('id') id: string,
     @Body() dto: ResolveDeliveryLocationInboxDto,
@@ -59,6 +64,7 @@ export class OrdersController {
 
   @Patch('operational-alerts/:id')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('orders.update')
   updateOperationalAlert(
     @Param('id') id: string,
     @Body() dto: UpdateOperationalAlertDto,
@@ -71,6 +77,43 @@ export class OrdersController {
   @Roles('admin', 'cashier', 'supervisor')
   findAll(@Query('status') status?: string, @Query('activeOnly') activeOnly?: string) {
     return this.ordersService.findAll(status, activeOnly === 'true');
+  }
+
+  @Get('operations/list')
+  @Roles('admin', 'cashier', 'supervisor')
+  listOperational(@Query() query: ListOperationalOrdersDto) {
+    this.assertOperationalSearchIsNotInUrl(query);
+    return this.ordersService.listOperational(query);
+  }
+
+  @Post('operations/list')
+  @Roles('admin', 'cashier', 'supervisor')
+  searchOperational(@Body() query: ListOperationalOrdersDto) {
+    return this.ordersService.listOperational(query);
+  }
+
+  @Get('kitchen/queue')
+  @Roles('admin', 'cashier', 'supervisor')
+  listKitchenQueue(@Query() query: ListOperationalOrdersDto) {
+    this.assertOperationalSearchIsNotInUrl(query);
+    return this.ordersService.listKitchenQueue(query);
+  }
+
+  @Post('kitchen/queue')
+  @Roles('admin', 'cashier', 'supervisor')
+  searchKitchenQueue(@Body() query: ListOperationalOrdersDto) {
+    return this.ordersService.listKitchenQueue(query);
+  }
+
+  @Post(':id/kitchen-transition')
+  @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('orders.update')
+  transitionKitchen(
+    @Param('id') id: string,
+    @Body() dto: KitchenTransitionDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.ordersService.transitionKitchen(id, dto, actor);
   }
 
   @Get(':id/delivery-receipt')
@@ -94,6 +137,12 @@ export class OrdersController {
     return this.ordersService.getDeliveryReceiptHistory(id);
   }
 
+  private assertOperationalSearchIsNotInUrl(query: ListOperationalOrdersDto) {
+    if (query.q?.trim()) {
+      throw new BadRequestException({ code: 'OPERATIONAL_SEARCH_REQUIRES_BODY' });
+    }
+  }
+
   @Get(':id')
   @Roles('admin', 'cashier', 'supervisor')
   findOne(@Param('id') id: string) {
@@ -102,12 +151,14 @@ export class OrdersController {
 
   @Post()
   @Roles('admin', 'cashier', 'supervisor', 'waiter')
+  @Permissions('orders.create')
   create(@Body() dto: CreateOrderTicketDto, @CurrentUser() actor: AuthUser) {
     return this.ordersService.create(dto, actor);
   }
 
   @Patch(':id')
   @Roles('admin', 'cashier', 'supervisor', 'waiter')
+  @Permissions('orders.update')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateOrderTicketDto,
@@ -118,6 +169,7 @@ export class OrdersController {
 
   @Put(':id/items')
   @Roles('admin', 'cashier', 'supervisor', 'waiter')
+  @Permissions('orders.update')
   replaceItems(
     @Param('id') id: string,
     @Body() dto: ReplaceOrderTicketItemsDto,
@@ -128,18 +180,21 @@ export class OrdersController {
 
   @Post('waiter-sync')
   @Roles('admin', 'cashier', 'supervisor', 'waiter')
+  @Permissions('orders.create')
   syncWaiterOrder(@Body() dto: SyncWaiterOrderDto, @CurrentUser() actor: AuthUser) {
     return this.ordersService.syncWaiterOrder(dto, actor);
   }
 
   @Post(':id/claim')
   @Roles('admin', 'cashier', 'supervisor', 'waiter')
+  @Permissions('orders.update')
   claim(@Param('id') id: string, @Body() dto: ClaimOrderTicketDto, @CurrentUser() actor: AuthUser) {
     return this.ordersService.claim(id, dto, actor);
   }
 
   @Post(':id/claim-delivery')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  @Permissions('delivery.update')
   claimDelivery(
     @Param('id') id: string,
     @Body() dto: ClaimOrderTicketDto,
@@ -150,6 +205,7 @@ export class OrdersController {
 
   @Post(':id/assign-rider')
   @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('delivery.assign')
   assignRider(
     @Param('id') id: string,
     @Body() dto: AssignDeliveryRiderDto,
@@ -160,6 +216,7 @@ export class OrdersController {
 
   @Post(':id/assign-delivery')
   @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('delivery.assign')
   assignDelivery(
     @Param('id') id: string,
     @Body() dto: AssignDeliveryRiderDto,
@@ -170,6 +227,7 @@ export class OrdersController {
 
   @Post(':id/delivery-workflow')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  @Permissions('delivery.update')
   updateDeliveryWorkflow(
     @Param('id') id: string,
     @Body() dto: UpdateDeliveryWorkflowDto,
@@ -180,6 +238,7 @@ export class OrdersController {
 
   @Patch(':id/delivery-status')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
+  @Permissions('delivery.update')
   patchDeliveryStatus(
     @Param('id') id: string,
     @Body() dto: UpdateDeliveryWorkflowDto,
@@ -190,6 +249,7 @@ export class OrdersController {
 
   @Post(':id/checkout')
   @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('orders.checkout')
   checkout(
     @Param('id') id: string,
     @Body() dto: CheckoutOrderTicketDto,
@@ -200,6 +260,7 @@ export class OrdersController {
 
   @Post(':id/reopen')
   @Roles('admin', 'cashier', 'supervisor')
+  @Permissions('orders.update')
   reopen(
     @Param('id') id: string,
     @Body() dto: ReopenOrderTicketDto,
@@ -238,6 +299,7 @@ export class OrdersController {
 
   @Post('customers/find-or-create')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('orders.create')
   findOrCreateCustomer(
     @Body() dto: { fullName?: string; phone?: string; defaultAddress?: string },
   ) {
@@ -246,6 +308,7 @@ export class OrdersController {
 
   @Post('delivery-customers')
   @Roles('admin', 'cashier', 'supervisor', 'waiter', 'delivery')
+  @Permissions('delivery.update')
   upsertDeliveryCustomer(
     @Body() dto: { phone: string; fullName?: string; address?: string },
   ) {

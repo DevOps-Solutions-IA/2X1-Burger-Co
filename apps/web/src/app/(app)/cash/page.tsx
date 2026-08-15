@@ -11,17 +11,15 @@ import {
   ScrollText,
   ShieldAlert,
   Wallet,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DetailDialog, MetricSurface, PageHeader, QueryState } from '@/components/product';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { MetricCard } from '@/components/ui/metric-card';
-import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
@@ -29,6 +27,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetch, apiFetchBlob } from '@/lib/api';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format';
 import { formatReceiptNumber } from '@/lib/receipt-number';
+import { useAuth } from '@/features/auth/auth-provider';
+import { canPerformAction } from '@/features/auth/access-control';
 
 const denominations = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
 const manualMovementOptions = [
@@ -224,6 +224,7 @@ type CloseCashResponse = {
 };
 
 export default function CashPage() {
+  const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [openingAmount, setOpeningAmount] = useState('50000');
@@ -243,6 +244,11 @@ export default function CashPage() {
   const [convertOrderType, setConvertOrderType] = useState<'COUNTER' | 'DINE_IN' | 'DELIVERY'>('DINE_IN');
   const [convertTableId, setConvertTableId] = useState('');
   const [convertReason, setConvertReason] = useState('');
+  const canOpenCash = canPerformAction(user?.permissions, 'cash.open', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canCloseCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canReopenCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'supervisor']);
+  const canRecordManualCash = canPerformAction(user?.permissions, 'cash.close', user?.roles, ['admin', 'cashier', 'supervisor']);
+  const canRecoverSale = canPerformAction(user?.permissions, 'sales.create', user?.roles, ['admin', 'cashier', 'supervisor']);
 
   const currentCash = useQuery({
     queryKey: ['cash-current'],
@@ -290,6 +296,15 @@ export default function CashPage() {
     enabled: Boolean(currentCash.data),
   });
   const difference = closingAmount - expectedAmount;
+  const financialMetricsUnavailable =
+    dailySummary.isError ||
+    dailySummary.isLoading ||
+    (Boolean(currentCash.data) && (cashDailySummary.isError || cashDailySummary.isLoading));
+  const financialSummaryError = dailySummary.error ?? cashDailySummary.error;
+  const financialSummaryAvailable = Boolean(dailySummary.data) && Boolean(cashDailySummary.data) && !financialSummaryError;
+  const closeChecklistAvailable = Boolean(closeChecklist.data) && !closeChecklist.error;
+  const financialSummaryLoading =
+    dailySummary.isLoading || currentCash.isLoading || (Boolean(currentCash.data) && cashDailySummary.isLoading);
   const latestClosedSession = history.data?.find((session) => session.status === 'CLOSED') ?? null;
   const enterpriseMethodLabels = cashDailySummary.data?.methodLabels ?? {};
   const salesByMethod = cashDailySummary.data?.salesByMethod ?? {};
@@ -324,19 +339,20 @@ export default function CashPage() {
   // Solo la sesión de caja bloquea la operación completa.
   // Resúmenes y bitácoras degradan localmente para no tumbar la jornada.
   const pageError = currentCash.error;
-  const dailySummaryError = dailySummary.error;
   const operationalLogError = operationalLog.error;
 
   const openCash = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/open', {
+    mutationFn: () => {
+      if (!canOpenCash) throw new Error('No tienes permiso para abrir caja.');
+      return apiFetch('/cash-register/open', {
         method: 'POST',
         body: JSON.stringify({
           openingAmount: Number(openingAmount),
           notes: openingNotes || undefined,
           openingBreakdown: serializeBreakdown(openingBreakdown),
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Caja abierta y lista para operar');
       setOpeningNotes('');
@@ -347,15 +363,17 @@ export default function CashPage() {
   });
 
   const closeCash = useMutation({
-    mutationFn: () =>
-      apiFetch<CloseCashResponse>('/cash-register/close', {
+    mutationFn: () => {
+      if (!canCloseCash) throw new Error('No tienes permiso para cerrar caja.');
+      return apiFetch<CloseCashResponse>('/cash-register/close', {
         method: 'POST',
         body: JSON.stringify({
           actualAmount: closingAmount,
           notes: closingNotes || undefined,
           closingBreakdown: serializeBreakdown(closingBreakdown),
         }),
-      }),
+      });
+    },
     onSuccess: async (response) => {
       const whatsappNotification = response?.notifications?.whatsapp;
       if (whatsappNotification?.success) {
@@ -382,14 +400,16 @@ export default function CashPage() {
   });
 
   const reopenCash = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/reopen', {
+    mutationFn: () => {
+      if (!canReopenCash) throw new Error('No tienes permiso para reabrir caja.');
+      return apiFetch('/cash-register/reopen', {
         method: 'POST',
         body: JSON.stringify({
           sessionId: latestClosedSession?.id,
           reason: reopenReason,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Caja reabierta de forma controlada');
       setReopenReason('');
@@ -399,8 +419,9 @@ export default function CashPage() {
   });
 
   const createManualMovement = useMutation({
-    mutationFn: () =>
-      apiFetch('/cash-register/movements/manual', {
+    mutationFn: () => {
+      if (!canRecordManualCash) throw new Error('No tienes permiso para registrar movimientos manuales.');
+      return apiFetch('/cash-register/movements/manual', {
         method: 'POST',
         body: JSON.stringify({
           type: manualType,
@@ -408,7 +429,8 @@ export default function CashPage() {
           classification: manualClassification,
           description: manualDescription || undefined,
         }),
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success('Movimiento manual registrado');
       setManualAmount('');
@@ -420,6 +442,7 @@ export default function CashPage() {
 
   const convertSaleToOrder = useMutation({
     mutationFn: () => {
+      if (!canRecoverSale) throw new Error('No tienes permiso para recuperar ventas.');
       if (!selectedSale) {
         throw new Error('Selecciona primero una venta.');
       }
@@ -460,6 +483,7 @@ export default function CashPage() {
 
   const reopenConvertedOrder = useMutation({
     mutationFn: () => {
+      if (!canRecoverSale) throw new Error('No tienes permiso para reabrir comandas convertidas.');
       if (!selectedSale?.conversion) {
         throw new Error('Esta venta no tiene una comanda vinculada.');
       }
@@ -507,7 +531,7 @@ export default function CashPage() {
   };
 
   const openingAmountNum = Number(openingAmount);
-  const canOpen = openingAmountNum > 0 && !openCash.isPending;
+  const canOpen = canOpenCash && openingAmountNum > 0 && !openCash.isPending;
   const canClose =
     closingAmount >= 0 &&
     confirmedClosingAmount === closingAmount &&
@@ -515,21 +539,21 @@ export default function CashPage() {
     closingConfirmationText.trim().toUpperCase() === 'CERRAR' &&
     closeChecklist.data?.canClose === true &&
     !closeChecklist.isLoading &&
-    !closeCash.isPending;
-  const canReopen = Boolean(reopenReason.trim()) && !reopenCash.isPending;
-  const canManualMove = Number(manualAmount) > 0 && !createManualMovement.isPending;
+    !closeCash.isPending && canCloseCash;
+  const canReopen = canReopenCash && Boolean(reopenReason.trim()) && !reopenCash.isPending;
+  const canManualMove = canRecordManualCash && Number(manualAmount) > 0 && !createManualMovement.isPending;
   const canConvertSelectedSale =
     Boolean(selectedSale) &&
     selectedSale?.status !== 'CANCELLED' &&
     !selectedSale?.conversion &&
     convertReason.trim().length >= 8 &&
     (convertOrderType !== 'DINE_IN' || Boolean(convertTableId)) &&
-    !convertSaleToOrder.isPending;
+    !convertSaleToOrder.isPending && canRecoverSale;
   const canReopenSelectedOrder =
     Boolean(selectedSale?.conversion) &&
     selectedSale?.conversion?.orderTicket.status === 'PAID' &&
     convertReason.trim().length >= 8 &&
-    !reopenConvertedOrder.isPending;
+    !reopenConvertedOrder.isPending && canRecoverSale;
 
   useEffect(() => {
     setConfirmedClosingAmount(null);
@@ -541,17 +565,23 @@ export default function CashPage() {
   }, [currentCash.data?.id]);
 
   return (
-    <div data-testid="cash-page" className="space-y-6 p-6 lg:p-8">
-      <SectionTitle
-        eyebrow="Caja"
-        title="Caja — Jornada en vivo"
-        description="Apertura, arqueo, cierre y cada movimiento de dinero del día."
+    <div data-testid="cash-page" className="space-y-6">
+      <PageHeader
+        eyebrow="Control financiero operativo"
+        title="Caja en vivo"
+        description="Apertura, arqueo, cierre y trazabilidad del dinero de la jornada."
         status={
-          <Badge tone={currentCash.data ? 'success' : 'warning'}>
-            {currentCash.data ? 'Caja abierta' : 'Caja cerrada'}
-          </Badge>
+          currentCash.data || currentCash.isSuccess ? (
+            <Badge tone={currentCash.data ? 'success' : 'warning'}>
+              {currentCash.data ? 'Caja abierta' : 'Caja cerrada'}
+            </Badge>
+          ) : undefined
         }
       />
+
+      {!canOpenCash && !canCloseCash && !canRecordManualCash && !canRecoverSale ? (
+        <QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar caja y ventas, pero no abrir, cerrar, registrar movimientos ni recuperar comandas." />
+      ) : null}
 
       {activeOrdersCount > 0 ? (
         <StatusBanner
@@ -562,20 +592,23 @@ export default function CashPage() {
       ) : null}
 
       {pageError ? (
-        <div data-testid="cash-global-error">
+        <div data-testid="cash-global-error" className="space-y-3" role="alert">
           <StatusBanner
             tone="danger"
             title="No pudimos cargar toda la operación de caja"
             description={pageError instanceof Error ? pageError.message : 'Recarga la página e intenta de nuevo.'}
           />
+          <Button type="button" variant="secondary" onClick={() => void currentCash.refetch()}>
+            Reintentar estado de caja
+          </Button>
         </div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="Total recaudado" value={formatCurrency(totalRevenue)} hint="Efectivo + recaudo digital" icon={<CircleDollarSign className="h-5 w-5" />} />
-        <MetricCard compact label="Caja física esperada" value={formatCurrency(expectedAmount)} hint="Solo efectivo del cajón" icon={<Wallet className="h-5 w-5" />} accent="success" />
-        <MetricCard compact label="Efectivo contado" value={formatCurrency(closingAmount)} hint="Conteo físico por denominación" icon={<ShieldAlert className="h-5 w-5" />} accent="ink" />
-        <MetricCard compact label="Diferencia efectivo" value={formatCurrency(difference)} hint="Contado vs caja física esperada" icon={<ShieldAlert className="h-5 w-5" />} accent={difference === 0 ? 'success' : 'danger'} />
+        <MetricSurface density="compact" label="Total recaudado" value={formatCurrency(totalRevenue)} context="Efectivo + recaudo digital" unavailable={financialMetricsUnavailable} icon={<CircleDollarSign className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Caja física esperada" value={formatCurrency(expectedAmount)} context="Solo efectivo del cajón" unavailable={financialMetricsUnavailable} icon={<Wallet className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Efectivo contado" value={formatCurrency(closingAmount)} context="Conteo físico por denominación" icon={<ShieldAlert className="h-5 w-5" />} />
+        <MetricSurface density="compact" label="Diferencia efectivo" value={formatCurrency(difference)} context="Contado vs caja física esperada" unavailable={financialMetricsUnavailable} icon={<ShieldAlert className="h-5 w-5" />} />
       </div>
 
       <div className="grid items-start gap-6 md:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
@@ -590,6 +623,15 @@ export default function CashPage() {
                 <Skeleton className="h-11 w-32 rounded-2xl" />
               </div>
             </Card>
+          ) : currentCash.isError ? (
+            <div data-testid="cash-current-status">
+              <QueryState
+                status="error"
+                title="No es seguro operar la caja"
+                description="No pudimos verificar si existe una sesión abierta. Reintenta antes de abrir, cerrar o registrar movimientos."
+                onRetry={() => void currentCash.refetch()}
+              />
+            </div>
           ) : !currentCash.data ? (
             <Card data-testid="cash-current-status" className="h-full overflow-hidden">
               <div className="space-y-5">
@@ -639,7 +681,7 @@ export default function CashPage() {
           ) : (
             <>
               <Card data-testid="cash-current-status" className="min-h-[220px] overflow-hidden">
-                <div className="rounded-[1.55rem] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-brand-50/60 p-4">
+                <div className="rounded-[1.55rem] border border-emerald-100 bg-emerald-50/60 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold lg:text-[1.12rem]">Caja operativa</h2>
@@ -652,8 +694,11 @@ export default function CashPage() {
 
                 <div className="mt-5 rounded-[1.35rem] border border-white/80 bg-white/85 p-4 shadow-sm">
                   <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">Caja física esperada</p>
-                  <p className="numeric-tabular mt-2 text-[2rem] font-black leading-none tracking-tight text-ink">
-                    {formatCurrency(expectedAmount)}
+                  <p
+                    className="numeric-tabular mt-2 text-[2rem] font-black leading-none tracking-tight text-ink"
+                    data-testid="cash-expected-amount"
+                  >
+                    {financialMetricsUnavailable ? 'No disponible' : formatCurrency(expectedAmount)}
                   </p>
                   <p className="mt-2 text-[13px] leading-6 text-stone-600">
                     Solo efectivo físico: dinero inicial + ventas en efectivo - egresos en efectivo.
@@ -683,22 +728,35 @@ export default function CashPage() {
                   <Button
                     data-testid="cash-use-expected"
                     variant="secondary"
+                    disabled={financialMetricsUnavailable}
                     onClick={() => setClosingBreakdown(createBreakdownStateFromAmount(expectedAmount))}
                   >
                     Usar valor esperado
                   </Button>
                 </div>
 
-                <div className={`mt-4 rounded-[1.45rem] border px-4 py-4 ${difference === 0 ? 'border-emerald-100 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Resultado del arqueo</p>
-                      <p className="mt-1.5 numeric-tabular text-[1.35rem] font-bold leading-none">{formatCurrency(difference)}</p>
-                    </div>
-                    <Badge tone={difference === 0 ? 'success' : 'warning'}>{difference === 0 ? 'Cuadrado' : 'Revisar'}</Badge>
+                {financialMetricsUnavailable ? (
+                  <div
+                    className="mt-4 rounded-[1.45rem] border border-amber-200 bg-amber-50 px-4 py-4 text-amber-900"
+                    data-testid="cash-reconciliation-unavailable"
+                    role="status"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Resultado del arqueo</p>
+                    <p className="mt-1.5 text-sm font-semibold">Comparación no disponible</p>
+                    <p className="mt-2 text-[13px] leading-6">No calculamos diferencias hasta verificar la caja física esperada.</p>
                   </div>
-                  <p className="mt-2 text-[13px] leading-6">{difference === 0 ? 'Cuadre exacto entre efectivo contado y caja esperada.' : 'Revisa pagos, gastos y movimientos manuales antes de cerrar.'}</p>
-                </div>
+                ) : (
+                  <div className={`mt-4 rounded-[1.45rem] border px-4 py-4 ${difference === 0 ? 'border-emerald-100 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Resultado del arqueo</p>
+                        <p className="mt-1.5 numeric-tabular text-[1.35rem] font-bold leading-none">{formatCurrency(difference)}</p>
+                      </div>
+                      <Badge tone={difference === 0 ? 'success' : 'warning'}>{difference === 0 ? 'Cuadrado' : 'Revisar'}</Badge>
+                    </div>
+                    <p className="mt-2 text-[13px] leading-6">{difference === 0 ? 'Cuadre exacto entre efectivo contado y caja esperada.' : 'Revisa pagos, gastos y movimientos manuales antes de cerrar.'}</p>
+                  </div>
+                )}
 
                 {closeChecklist.error ? (
                   <div className="mt-4 rounded-[1.2rem] border border-danger/20 bg-danger/5 px-4 py-3 text-[13px] leading-6 text-danger">
@@ -714,11 +772,13 @@ export default function CashPage() {
                         Verificación automática antes de cerrar. Corrige lo bloqueante y confirma la lectura final.
                       </p>
                     </div>
-                    <Badge tone={closeChecklist.isLoading ? 'default' : closeChecklist.data?.canClose ? 'success' : 'warning'}>
-                      {closeChecklist.isLoading ? 'Analizando' : closeChecklist.data?.canClose ? 'Listo' : 'Revisar'}
+                    <Badge tone={!closeChecklistAvailable ? 'default' : closeChecklist.data?.canClose ? 'success' : 'warning'}>
+                      {closeChecklist.isLoading ? 'Analizando' : !closeChecklistAvailable ? 'Sin verificar' : closeChecklist.data?.canClose ? 'Listo' : 'Revisar'}
                     </Badge>
                   </div>
 
+                  {closeChecklistAvailable ? (
+                  <div data-testid="cash-close-checklist-values">
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <ChecklistChip
                       label="Comandas abiertas"
@@ -770,6 +830,18 @@ export default function CashPage() {
                       </div>
                     </div>
                   ) : null}
+                  </div>
+                  ) : (
+                    <div className="mt-4" data-testid="cash-close-checklist-unavailable">
+                      <QueryState
+                        status={closeChecklist.isLoading ? 'loading' : 'error'}
+                        title={closeChecklist.isLoading ? 'Verificando el cierre' : 'Checklist de cierre no disponible'}
+                        description={closeChecklist.isLoading ? undefined : 'No mostramos ceros ni aprobaciones hasta validar la evidencia de cierre.'}
+                        onRetry={closeChecklist.error ? () => void closeChecklist.refetch() : undefined}
+                        skeletonRows={2}
+                      />
+                    </div>
+                  )}
 
                   {closeChecklist.data?.warnings?.length ? (
                     <div className="mt-4 rounded-[1.15rem] border border-stone-200 bg-stone-50 px-3.5 py-3">
@@ -886,10 +958,19 @@ export default function CashPage() {
               aria-label="Historial de jornadas de caja"
               tabIndex={0}
             >
-              {history.isLoading ? Array.from({ length: 5 }).map((_, index) => (
+              {history.isError ? (
+                <div className="p-6">
+                  <QueryState
+                    status="error"
+                    title="Historial de caja no disponible"
+                    description="No interpretamos el fallo financiero como un historial vacío."
+                    onRetry={() => void history.refetch()}
+                  />
+                </div>
+              ) : history.isLoading ? Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="px-5 py-4"><Skeleton className="h-16 rounded-2xl" /></div>
               )) : null}
-              {!history.isLoading && history.data?.length ? history.data.map((session) => (
+              {!history.isError && !history.isLoading && history.data?.length ? history.data.map((session) => (
                 <div key={session.id} className="grid gap-4 px-5 py-4 md:grid-cols-[0.95fr_0.7fr_0.7fr_0.7fr]">
                   <div>
                     <p className="font-medium text-ink">{formatDate(session.openedAt)}</p>
@@ -908,7 +989,7 @@ export default function CashPage() {
                     <p className="mt-1 font-medium text-ink">{formatCurrency(session.difference)}</p>
                   </div>
                 </div>
-              )) : <div className="p-6"><EmptyState title="Tu historial de caja va a aparecer acá." description="Aquí aparecerá el histórico de caja." /></div>}
+              )) : !history.isError && !history.isLoading ? <div className="p-6"><EmptyState title="Tu historial de caja va a aparecer acá." description="Aquí aparecerá el histórico de caja." /></div> : null}
             </div>
           </Card>
         </div>
@@ -922,42 +1003,52 @@ export default function CashPage() {
               </div>
               <Badge tone="default">{paymentBreakdown.length} medios</Badge>
             </div>
-            {dailySummaryError ? (
+            {financialSummaryError ? (
               <div data-testid="cash-daily-summary-error" className="mt-4">
                 <StatusBanner
                   tone="warning"
                   title="Resumen del día no disponible"
                   description={
-                    dailySummaryError instanceof Error
-                      ? dailySummaryError.message
+                    financialSummaryError instanceof Error
+                      ? financialSummaryError.message
                       : 'La caja sigue operable; vuelve a intentar cargar el resumen en unos segundos.'
                   }
                 />
               </div>
             ) : null}
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <SummaryItem label="Caja física esperada" value={formatCurrency(expectedAmount)} tone="success" />
-              <SummaryItem label="Recaudo digital" value={formatCurrency(digitalRevenue)} tone="brand" />
-              <SummaryItem label="Total recaudado" value={formatCurrency(totalRevenue)} tone="success" />
-              <SummaryItem label="Resultado operativo" value={formatCurrency(operationalResult)} tone="ink" emphasis />
-              <SummaryItem label="Ventas efectivo" value={formatCurrency(cashRevenue)} />
-              <SummaryItem label="Egresos efectivo" value={formatCurrency(cashExpenses + cashPurchases)} tone="warning" />
-              <SummaryItem label="Egresos digitales" value={formatCurrency(digitalExpenses + digitalPurchases)} tone="warning" />
-              <SummaryItem label="Total egresos" value={formatCurrency(totalExpenses)} tone="danger" />
-            </div>
-            <div
-              className="hide-scrollbar list-scroll-5-compact mt-5 space-y-2.5 pr-1"
-              role="region"
-              aria-label="Desglose por medio de pago"
-              tabIndex={0}
-            >
-              {paymentBreakdown.length ? paymentBreakdown.map((item) => (
-                <div key={item.paymentMethod} className={`flex items-center justify-between gap-4 rounded-[1.15rem] border px-4 py-3 ${getPaymentMethodClass(item, rankedPaymentMethods)}`}>
-                  <span className="min-w-0 truncate text-[13px] font-semibold">{translatePaymentMethod(item.paymentMethod)}</span>
-                  <span className="numeric-tabular shrink-0 text-[13px] font-bold">{formatCurrency(item.total)}</span>
+            {financialSummaryAvailable ? (
+              <div data-testid="cash-daily-summary-values">
+                <div className="mt-5 grid gap-3 md:grid-cols-2">
+                  <SummaryItem label="Caja física esperada" value={formatCurrency(expectedAmount)} tone="success" />
+                  <SummaryItem label="Recaudo digital" value={formatCurrency(digitalRevenue)} tone="brand" />
+                  <SummaryItem label="Total recaudado" value={formatCurrency(totalRevenue)} tone="success" />
+                  <SummaryItem label="Resultado operativo" value={formatCurrency(operationalResult)} tone="ink" emphasis />
+                  <SummaryItem label="Ventas efectivo" value={formatCurrency(cashRevenue)} />
+                  <SummaryItem label="Egresos efectivo" value={formatCurrency(cashExpenses + cashPurchases)} tone="warning" />
+                  <SummaryItem label="Egresos digitales" value={formatCurrency(digitalExpenses + digitalPurchases)} tone="warning" />
+                  <SummaryItem label="Total egresos" value={formatCurrency(totalExpenses)} tone="danger" />
                 </div>
-              )) : <EmptyState title="El recaudo aparecerá cuando empiecen las ventas." description="Aquí verás la distribución por medio de pago." />}
-            </div>
+                <div
+                  className="hide-scrollbar list-scroll-5-compact mt-5 space-y-2.5 pr-1"
+                  role="region"
+                  aria-label="Desglose por medio de pago"
+                  tabIndex={0}
+                >
+                  {paymentBreakdown.length ? paymentBreakdown.map((item) => (
+                    <div key={item.paymentMethod} className={`flex items-center justify-between gap-4 rounded-[1.15rem] border px-4 py-3 ${getPaymentMethodClass(item, rankedPaymentMethods)}`}>
+                      <span className="min-w-0 truncate text-[13px] font-semibold">{translatePaymentMethod(item.paymentMethod)}</span>
+                      <span className="numeric-tabular shrink-0 text-[13px] font-bold">{formatCurrency(item.total)}</span>
+                    </div>
+                  )) : <EmptyState title="El recaudo aparecerá cuando empiecen las ventas." description="Aquí verás la distribución por medio de pago." />}
+                </div>
+              </div>
+            ) : financialSummaryError ? null : financialSummaryLoading ? (
+              <p className="mt-5 text-sm text-muted" role="status">Verificando fuentes financieras…</p>
+            ) : (
+              <p className="mt-5 text-sm text-muted" role="status" data-testid="cash-daily-summary-unavailable">
+                El desglose financiero no está disponible sin una sesión de caja activa verificada.
+              </p>
+            )}
           </Card>
 
           <Card className="min-h-[220px]">
@@ -1013,7 +1104,7 @@ export default function CashPage() {
                       Revisa lo vendido, abre el comprobante y consulta su trazabilidad.
                     </p>
                   </div>
-                  <Badge tone="default">{sales.data?.length ?? 0} ventas</Badge>
+                  <Badge tone="default">{sales.isError ? 'No disponible' : `${sales.data?.length ?? 0} ventas`}</Badge>
                 </div>
               </div>
               <div
@@ -1073,7 +1164,7 @@ export default function CashPage() {
                               variant="secondary"
                               title="Ver detalle de la venta"
                               aria-label="Ver detalle de la venta"
-                              className="h-9 w-9 min-w-0 rounded-full p-0"
+                              className="h-11 w-11 min-w-0 rounded-full p-0"
                               onClick={() => setSelectedSale(sale)}
                             >
                               <Eye className="h-4.5 w-4.5" />
@@ -1083,7 +1174,7 @@ export default function CashPage() {
                               variant="secondary"
                               title="Abrir comprobante"
                               aria-label="Abrir comprobante"
-                              className="h-9 w-9 min-w-0 rounded-full p-0"
+                              className="h-11 w-11 min-w-0 rounded-full p-0"
                               onClick={() => openReceiptPdf(sale.id)}
                             >
                               <FileDown className="h-4.5 w-4.5" />
@@ -1102,7 +1193,7 @@ export default function CashPage() {
                                     ? 'Reabrir comanda convertida'
                                     : 'Abrir comanda convertida'
                                 }
-                                className="h-9 min-w-0 rounded-full px-3 text-[11px]"
+                                className="min-h-11 min-w-0 rounded-full px-3 text-[11px]"
                                 onClick={() =>
                                   sale.conversion?.orderTicket.status === 'PAID'
                                     ? setSelectedSale(sale)
@@ -1118,7 +1209,7 @@ export default function CashPage() {
                                 variant="secondary"
                                 title="Recuperar como comanda"
                                 aria-label="Recuperar como comanda"
-                                className="h-9 min-w-0 rounded-full px-3 text-[11px]"
+                                className="min-h-11 min-w-0 rounded-full px-3 text-[11px]"
                                 onClick={() => setSelectedSale(sale)}
                               >
                                 Recuperar
@@ -1129,7 +1220,17 @@ export default function CashPage() {
                       </div>
                     ))
                   : null}
-                {!sales.isLoading && !sales.data?.length ? (
+                {sales.isError ? (
+                  <div className="p-6" data-testid="cash-sales-error">
+                    <QueryState
+                      status="error"
+                      title="Ventas no disponibles"
+                      description="No mostramos una jornada vacía cuando la fuente de ventas no responde."
+                      onRetry={() => void sales.refetch()}
+                    />
+                  </div>
+                ) : null}
+                {sales.isSuccess && sales.data.length === 0 ? (
                   <div className="p-6">
                     <EmptyState
                       title="Sin ventas registradas"
@@ -1191,34 +1292,26 @@ export default function CashPage() {
       </div>
 
       {selectedSale ? (
-        <div className="fixed inset-0 z-50 bg-stone-950/38 backdrop-blur-[1px]" onClick={() => setSelectedSale(null)}>
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-            <div
-              className="hide-scrollbar flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto rounded-t-[1.65rem] border border-stone-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.2)] sm:rounded-[1.7rem]"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="sticky top-0 z-10 border-b border-stone-100 bg-white/96 px-4 py-3.5 backdrop-blur sm:px-5">
-                <div className="mb-2 flex justify-center sm:hidden">
-                  <span className="h-1.5 w-14 rounded-full bg-stone-200" />
-                </div>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">Venta cerrada</p>
-                    <h2 className="mt-1 text-[1rem] font-semibold text-ink">{formatReceiptNumber(selectedSale.number)}</h2>
-                    <p className="mt-1 text-[12px] text-stone-500">{formatDateTime(selectedSale.soldAt)}</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Cerrar detalle de venta"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-ink"
-                    onClick={() => setSelectedSale(null)}
-                  >
-                    <X className="h-4.5 w-4.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-4 p-4 sm:p-5">
+        <DetailDialog
+          open
+          onClose={() => setSelectedSale(null)}
+          title={formatReceiptNumber(selectedSale.number)}
+          description={`Venta cerrada · ${formatDateTime(selectedSale.soldAt)}`}
+          mode="dialog"
+          closeLabel="Cerrar detalle de venta"
+          footer={(
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Button type="button" variant="secondary" onClick={() => openReceiptPdf(selectedSale.id)}>
+                <FileDown className="h-4 w-4" aria-hidden="true" />
+                Abrir comprobante
+              </Button>
+              <Button type="button" variant="secondary" className="w-full" onClick={() => setSelectedSale(null)}>
+                Cerrar
+              </Button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
                 <Card className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1366,22 +1459,8 @@ export default function CashPage() {
                     El transporte legado fue retirado. El comprobante permanece disponible para consulta e impresión.
                   </p>
                 </div>
-              </div>
-
-              <div className="sticky bottom-0 z-10 border-t border-stone-200 bg-white/97 px-4 py-3.5 backdrop-blur sm:px-5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Button type="button" variant="secondary" className="h-11 rounded-2xl" onClick={() => openReceiptPdf(selectedSale.id)}>
-                    <FileDown className="mr-1.5 h-4 w-4" />
-                    Abrir comprobante
-                  </Button>
-                  <Button type="button" variant="secondary" className="h-11 w-full rounded-2xl" onClick={() => setSelectedSale(null)}>
-                    Cerrar
-                  </Button>
-                </div>
-              </div>
-            </div>
           </div>
-        </div>
+        </DetailDialog>
       ) : null}
     </div>
   );
@@ -1397,7 +1476,7 @@ function DenominationGrid({
   title: string;
 }) {
   return (
-    <div className="rounded-[1.5rem] border border-stone-200 bg-gradient-to-br from-stone-50 via-white to-brand-50/30 p-4">
+    <div className="rounded-[1.5rem] border border-line bg-canvas p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-bold text-stone-700">{title}</p>
         <p className="numeric-tabular text-base font-black text-ink">{formatCurrency(sumBreakdown(breakdown))}</p>

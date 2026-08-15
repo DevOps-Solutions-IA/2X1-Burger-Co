@@ -178,8 +178,9 @@ INSERT INTO whatsapp_inbound_events (
 );
 SQL
 
-DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema prisma/schema.prisma >/dev/null
-[[ "$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')" == 37 ]]
+# Keep this Phase 6 rehearsal pinned to its own migration frontier even when
+# later additive phases exist in the repository.
+deploy_frontier 37
 
 psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
