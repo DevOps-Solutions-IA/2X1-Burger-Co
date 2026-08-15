@@ -44,7 +44,7 @@
       "body-parser": "2.3.0",
       "defu": "6.1.7",
       "effect": "3.22.0",
-      "nanoid": "3.3.17",
+      "nanoid": "3.3.18",
       "postcss": "8.5.23",
       "protobufjs": "7.6.5",
       "qs": "6.15.3",
