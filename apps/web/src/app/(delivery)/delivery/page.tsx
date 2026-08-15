@@ -11,12 +11,11 @@ import { SectionTitle } from '@/components/ui/section-title';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBanner } from '@/components/ui/status-banner';
 import { useAuth } from '@/features/auth/auth-provider';
-import { canPerformAction } from '@/features/auth/access-control';
 import { apiFetch, subscribeOperationalStream } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { CacheStorage, TTL } from '@/lib/cache-storage';
 import { buildWhatsAppUrl } from '@/lib/thermal-receipt';
-import { Bike, CheckCircle2, Clock3, MapPinned, MessageCircle, Navigation, PackageCheck, RefreshCw, TriangleAlert, UserRound } from 'lucide-react';
+import { Bike, CheckCircle2, Clock3, MapPinned, MessageCircle, Navigation, PackageCheck, TriangleAlert, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 type DeliveryWorkflowStatus = 'PENDING_ASSIGNMENT' | 'ASSIGNED' | 'IN_TRANSIT' | 'DELIVERED' | 'ISSUE';
@@ -175,12 +174,6 @@ export default function DeliveryPanelPage() {
   const previousOrdersRef = useRef<Map<string, DeliveryOrder>>(new Map());
   const hasSeenLiveDataRef = useRef(false);
   const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'closed'>('connecting');
-  const canUpdateDelivery = canPerformAction(
-    user?.permissions,
-    'delivery.update',
-    user?.roles,
-    ['admin', 'supervisor', 'cashier', 'delivery'],
-  );
 
   const initialDeliveries = useMemo(() => {
     if (typeof window === 'undefined' || !user?.sub) {
@@ -195,7 +188,7 @@ export default function DeliveryPanelPage() {
     queryFn: () => apiFetch<DeliveryOrder[]>('/orders/delivery-active'),
     initialData: initialDeliveries,
     refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 3_000,
@@ -212,7 +205,7 @@ export default function DeliveryPanelPage() {
     queryFn: () => apiFetch<OperationalAlert[]>('/orders/operational-alerts?module=deliveries'),
     initialData: initialAlerts,
     refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 3_000,
@@ -229,13 +222,11 @@ export default function DeliveryPanelPage() {
       workflowStatus: DeliveryWorkflowStatus;
       notes?: string;
       issueType?: DeliveryIssueType;
-    }) => {
-      if (!canUpdateDelivery) throw new Error('No tienes permiso para actualizar entregas.');
-      return apiFetch(`/orders/${orderId}/delivery-workflow`, {
+    }) =>
+      apiFetch(`/orders/${orderId}/delivery-workflow`, {
         method: 'POST',
         body: JSON.stringify({ workflowStatus, notes, issueType }),
-      });
-    },
+      }),
     onSuccess: async (_, variables) => {
       toast.success(
         variables.workflowStatus === 'ASSIGNED'
@@ -268,7 +259,6 @@ export default function DeliveryPanelPage() {
     [deliveries.dataUpdatedAt, operationalAlerts.dataUpdatedAt],
   );
   const criticalAlertCount = (operationalAlerts.data ?? []).filter((alert) => alert.severity === 'CRITICAL').length;
-  const deliveryMetric = (value: number) => (deliveries.isError && deliveries.data === undefined ? '—' : String(value));
 
   useEffect(() => {
     if (typeof window === 'undefined' || !user?.sub || !deliveries.data) {
@@ -404,53 +394,12 @@ export default function DeliveryPanelPage() {
         status={<Badge tone="info">{summary.total} activos</Badge>}
       />
 
-      {!canUpdateDelivery ? (
-        <StatusBanner
-          tone="info"
-          title="Modo consulta"
-          description="Puedes revisar tus entregas, pero esta sesión no tiene la capacidad delivery.update para cambiar el flujo."
-        />
-      ) : null}
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard compact label="A mi cargo" value={deliveryMetric(summary.mine)} hint="Pedidos asignados a esta sesión" icon={<UserRound className="h-5 w-5" />} />
-        <MetricCard compact label="Pendientes" value={deliveryMetric(summary.pending)} hint="Sin domiciliario confirmado" icon={<Clock3 className="h-5 w-5" />} accent="warning" />
-        <MetricCard compact label="En camino" value={deliveryMetric(summary.inTransit)} hint="Pedidos despachados ahora" icon={<Navigation className="h-5 w-5" />} accent="success" />
-        <MetricCard compact label="Activos" value={deliveryMetric(summary.total)} hint="Abiertos en reparto" icon={<Bike className="h-5 w-5" />} />
+        <MetricCard compact label="A mi cargo" value={String(summary.mine)} hint="Pedidos asignados a esta sesión" icon={<UserRound className="h-5 w-5" />} />
+        <MetricCard compact label="Pendientes" value={String(summary.pending)} hint="Sin domiciliario confirmado" icon={<Clock3 className="h-5 w-5" />} accent="warning" />
+        <MetricCard compact label="En camino" value={String(summary.inTransit)} hint="Pedidos despachados ahora" icon={<Navigation className="h-5 w-5" />} accent="success" />
+        <MetricCard compact label="Activos" value={String(summary.total)} hint="Abiertos en reparto" icon={<Bike className="h-5 w-5" />} />
       </div>
-
-      {deliveries.isError ? (
-        <StatusBanner
-          tone="danger"
-          title={deliveries.data?.length ? 'No pudimos actualizar las entregas' : 'Entregas no disponibles'}
-          description={deliveries.data?.length ? 'Mostramos la última copia segura guardada en este dispositivo.' : 'Revisa la conexión y vuelve a intentar. No asumimos que no haya pedidos.'}
-          action={
-            <Button size="sm" variant="secondary" className="min-h-11" onClick={() => void deliveries.refetch()} disabled={deliveries.isFetching}>
-              <RefreshCw className={`h-4 w-4 ${deliveries.isFetching ? 'animate-spin' : ''}`} />
-              Reintentar
-            </Button>
-          }
-        />
-      ) : null}
-
-      {operationalAlerts.isError ? (
-        <StatusBanner
-          tone="warning"
-          title="Alertas no disponibles"
-          description="Las entregas siguen visibles, pero no podemos confirmar las alertas del turno."
-          action={
-            <Button size="sm" variant="secondary" className="min-h-11" onClick={() => void operationalAlerts.refetch()} disabled={operationalAlerts.isFetching}>
-              Reintentar alertas
-            </Button>
-          }
-        />
-      ) : null}
-
-      <StatusBanner
-        tone="info"
-        title="La ubicación es solo una ayuda logística"
-        description="Abrir el mapa o recibir coordenadas no modifica la dirección comercial, la tarifa de domicilio ni el total confirmado."
-      />
 
       <StatusBanner
         tone={streamStatus === 'open' ? 'info' : streamStatus === 'connecting' ? 'warning' : 'warning'}
@@ -509,7 +458,7 @@ export default function DeliveryPanelPage() {
           ? Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-48 rounded-[1.7rem]" />)
           : null}
 
-        {!deliveries.isLoading && !deliveries.isError && !(deliveries.data?.length ?? 0) ? (
+        {!deliveries.isLoading && !(deliveries.data?.length ?? 0) ? (
           <Card>
             <EmptyState
               title="No hay domicilios activos ahora"
@@ -555,7 +504,7 @@ export default function DeliveryPanelPage() {
 
               <div className="border-b border-stone-100 bg-stone-50/40 px-5 py-4">
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <InfoPill icon={<MapPinned className="h-4 w-4" />} label="Zona" value={order.deliveryZoneLabel || 'Zona no disponible'} />
+                  <InfoPill icon={<MapPinned className="h-4 w-4" />} label="Zona" value={order.deliveryZoneLabel || 'Jamundí urbano'} />
                   <InfoPill
                     icon={<Navigation className="h-4 w-4" />}
                     label="Distancia"
@@ -584,7 +533,7 @@ export default function DeliveryPanelPage() {
 
               <div className="grid gap-2 border-t border-stone-100 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
                 {customerWhatsapp ? (
-                  <Button asChild size="sm" variant="secondary" className="min-h-11 w-full justify-center">
+                  <Button asChild size="sm" variant="secondary" className="w-full justify-center">
                     <a href={customerWhatsapp} target="_blank" rel="noreferrer">
                       <MessageCircle className="mr-2 h-4 w-4" />
                       Contactar cliente
@@ -593,7 +542,7 @@ export default function DeliveryPanelPage() {
                 ) : null}
 
                 {mapUrl ? (
-                  <Button asChild size="sm" variant="secondary" className="min-h-11 w-full justify-center">
+                  <Button asChild size="sm" variant="secondary" className="w-full justify-center">
                     <a href={mapUrl} target="_blank" rel="noreferrer">
                       <MapPinned className="mr-2 h-4 w-4" />
                       Abrir mapa
@@ -601,10 +550,10 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {canUpdateDelivery && canTake ? (
+                {canTake ? (
                   <Button
                     size="sm"
-                    className="min-h-11 w-full justify-center"
+                    className="w-full justify-center"
                     onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'ASSIGNED' })}
                     disabled={updateWorkflow.isPending}
                   >
@@ -613,10 +562,10 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {canUpdateDelivery && isMine && order.deliveryWorkflowStatus === 'ASSIGNED' ? (
+                {isMine && order.deliveryWorkflowStatus === 'ASSIGNED' ? (
                   <Button
                     size="sm"
-                    className="min-h-11 w-full justify-center"
+                    className="w-full justify-center"
                     onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'IN_TRANSIT' })}
                     disabled={updateWorkflow.isPending}
                   >
@@ -625,11 +574,11 @@ export default function DeliveryPanelPage() {
                   </Button>
                 ) : null}
 
-                {canUpdateDelivery && isMine && order.deliveryWorkflowStatus === 'IN_TRANSIT' ? (
+                {isMine && order.deliveryWorkflowStatus === 'IN_TRANSIT' ? (
                   <>
                     <Button
                       size="sm"
-                      className="min-h-11 w-full justify-center"
+                      className="w-full justify-center"
                       onClick={() => updateWorkflow.mutate({ orderId: order.id, workflowStatus: 'DELIVERED' })}
                       disabled={updateWorkflow.isPending}
                     >
@@ -639,7 +588,7 @@ export default function DeliveryPanelPage() {
                     <Button
                       variant="secondary"
                       size="sm"
-                      className="min-h-11 w-full justify-center"
+                      className="w-full justify-center"
                       onClick={() =>
                         updateWorkflow.mutate({
                           orderId: order.id,

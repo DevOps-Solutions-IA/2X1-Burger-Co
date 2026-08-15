@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { apiFetch } from '@/lib/api';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  LayoutDashboard,
   Package2,
   Boxes,
   ShoppingCart,
@@ -17,149 +18,90 @@ import {
   Store,
   ChefHat,
   Truck,
+  PiggyBank,
+  Tags,
   Users,
   ContactRound,
   Settings,
   Armchair,
   Bot,
-  ClipboardList,
-  CreditCard,
-  Gauge,
-  Headphones,
-  MessageSquareText,
-  ShieldCheck,
-  TrendingUp,
-  UserRoundSearch,
   Menu,
   X,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
-import { GlobalSearch } from '@/features/search/global-search';
 import { useAuth } from '@/features/auth/auth-provider';
-import { canAccessRoute } from '@/features/auth/access-control';
+import { hasPermission } from '@/features/auth/access-control';
 
-type NavItem = Readonly<{
-  href: string;
-  label: string;
-  icon: LucideIcon;
-}>;
-
-const navSections: ReadonlyArray<Readonly<{ title: string; items: readonly NavItem[] }>> = [
+const navSections = [
   {
-    title: 'Control',
+    title: 'Operación',
     items: [
-      { href: '/overview', label: 'Overview', icon: Gauge },
-      { href: '/sofia', label: 'Sofia', icon: Bot },
+      { href: '/dashboard', label: 'Inicio', icon: LayoutDashboard },
+      { href: '/pos', label: 'Punto de venta', icon: ShoppingCart, permission: 'sales.read' },
+      { href: '/tables', label: 'Mesas', icon: Armchair, permission: 'tables.read' },
+      { href: '/deliveries', label: 'Domicilios', icon: Truck, permission: 'delivery.read' },
+      { href: '/sofia', label: 'Sofía', icon: Bot, permission: 'orders.read' },
+      { href: '/sofia/customers', label: 'Clientes Sofía', icon: ContactRound, permission: 'orders.read' },
+      { href: '/cash', label: 'Caja', icon: Wallet, permission: 'cash.read' },
+      { href: '/reports', label: 'Reportes e histórico', icon: ReceiptText, permission: 'reports.read' },
     ],
   },
   {
-    title: 'Servicio',
+    title: 'Abastecimiento',
     items: [
-      { href: '/orders', label: 'Pedidos', icon: ClipboardList },
-      { href: '/kitchen', label: 'Cocina', icon: ChefHat },
-      { href: '/pos', label: 'Punto de venta', icon: ShoppingCart },
-      { href: '/tables', label: 'Mesas', icon: Armchair },
-      { href: '/deliveries', label: 'Domicilios', icon: Truck },
-      { href: '/payments', label: 'Pagos', icon: CreditCard },
-      { href: '/customer-service', label: 'Servicio al cliente', icon: Headphones },
+      { href: '/inventory', label: 'Inventario', icon: Boxes, permission: 'inventory.read' },
+      { href: '/purchases', label: 'Compras', icon: Store, permission: 'purchases.read' },
+      { href: '/expenses', label: 'Gastos', icon: PiggyBank, permission: 'expenses.read' },
+      { href: '/suppliers', label: 'Proveedores', icon: Truck, permission: 'suppliers.read' },
     ],
   },
   {
-    title: 'Relaciones',
+    title: 'Catálogo',
     items: [
-      { href: '/crm', label: 'CRM', icon: UserRoundSearch },
-      { href: '/customers', label: 'Clientes', icon: ContactRound },
-      { href: '/conversations', label: 'Conversaciones', icon: MessageSquareText },
+      { href: '/products', label: 'Productos', icon: Package2, permission: 'products.read' },
+      { href: '/ingredients', label: 'Insumos', icon: ChefHat, permission: 'ingredients.read' },
+      { href: '/categories', label: 'Categorías', icon: Tags, permission: 'categories.read' },
+      { href: '/recipes', label: 'Recetas', icon: ChefHat, permission: 'recipes.read' },
     ],
   },
   {
-    title: 'Inteligencia',
+    title: 'Administración',
     items: [
-      { href: '/analytics', label: 'Analitica', icon: TrendingUp },
-      { href: '/audit', label: 'Auditoria', icon: ShieldCheck },
-      { href: '/reports', label: 'Reportes', icon: ReceiptText },
-    ],
-  },
-  {
-    title: 'Operacion base',
-    items: [
-      { href: '/cash', label: 'Caja', icon: Wallet },
-      { href: '/inventory', label: 'Inventario', icon: Boxes },
-      { href: '/purchases', label: 'Compras', icon: Store },
-      { href: '/expenses', label: 'Gastos', icon: ReceiptText },
-      { href: '/suppliers', label: 'Proveedores', icon: Users },
-      { href: '/products', label: 'Productos', icon: Package2 },
-      { href: '/ingredients', label: 'Ingredientes', icon: Boxes },
-      { href: '/categories', label: 'Categorias', icon: ClipboardList },
-      { href: '/recipes', label: 'Recetas', icon: ChefHat },
-    ],
-  },
-  {
-    title: 'Administracion',
-    items: [
-      { href: '/team', label: 'Equipo y roles', icon: Users },
-      { href: '/settings', label: 'Configuracion', icon: Settings },
-      { href: '/activation-control', label: 'Control de activacion', icon: ShieldCheck },
+      { href: '/users', label: 'Usuarios', icon: Users, permission: 'users.read' },
+      { href: '/settings', label: 'Configuración', icon: Settings, permission: 'settings.read' },
     ],
   },
 ];
 
 const saleCountersSchema = z.object({
   sales: z.object({
+    bestSellers: z.array(z.object({
+      productName: z.string(),
+      quantity: z.union([z.number(), z.string()]),
+    }).passthrough()),
     itemsSold: z.union([z.number(), z.string()]),
   }).passthrough(),
 }).passthrough();
-
-const drawerFocusableSelector = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [desktopNavigation, setDesktopNavigation] = useState(false);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const sidebarRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const query = window.matchMedia('(min-width: 1024px)');
-    const syncNavigationMode = () => {
-      setDesktopNavigation(query.matches);
-      if (query.matches) setMobileNavOpen(false);
-    };
-    syncNavigationMode();
-    query.addEventListener('change', syncNavigationMode);
-    return () => query.removeEventListener('change', syncNavigationMode);
-  }, []);
 
   // Cerrar navegación móvil al navegar
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  // Cerrar navegación móvil con ESC
   useEffect(() => {
-    if (!mobileNavOpen) {
-      return;
-    }
-
-    const menuButton = menuButtonRef.current;
-    const frame = window.requestAnimationFrame(() => {
-      const firstControl = sidebarRef.current?.querySelector<HTMLElement>(drawerFocusableSelector);
-      (firstControl ?? sidebarRef.current)?.focus();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      menuButton?.focus();
+    if (!mobileNavOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
     };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, [mobileNavOpen]);
 
   // Bloquear scroll del body cuando el drawer móvil está abierto
@@ -173,41 +115,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [mobileNavOpen]);
 
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
-  const handleDrawerKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeMobileNav();
-      return;
-    }
-    if (event.key !== 'Tab' || !sidebarRef.current) return;
-
-    const focusable = Array.from(
-      sidebarRef.current.querySelectorAll<HTMLElement>(drawerFocusableSelector),
-    );
-    if (focusable.length === 0) {
-      event.preventDefault();
-      sidebarRef.current.focus();
-      return;
-    }
-
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }, [closeMobileNav]);
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => canAccessRoute(
-        item.href,
-        user?.permissions,
-        user?.roles,
-      )),
+      items: section.items.filter((item) => hasPermission(user?.permissions, item.permission)),
     }))
     .filter((section) => section.items.length > 0);
   const today = new Date().toLocaleDateString('es-CO', {
@@ -220,51 +131,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (char) => char.toUpperCase())
     : 'Sesión activa';
-  const canUseGlobalSearch = ['/customers', '/orders', '/conversations', '/customer-service', '/payments']
-    .some((route) => canAccessRoute(route, user?.permissions, user?.roles));
-  const canReadOperationalReport = canAccessRoute('/reports', user?.permissions, user?.roles);
 
   return (
     <div className="min-h-screen bg-surface text-ink">
-      <a
-        href="#main-content"
-        className="fixed left-4 top-3 z-[80] -translate-y-24 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink shadow-xl transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand-500"
+      {/* Botón hamburger para móvil */}
+      <button
+        type="button"
+        className="fixed left-3 top-3 z-[60] flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-ink shadow-soft transition active:scale-95 lg:hidden"
+        onClick={() => setMobileNavOpen((v) => !v)}
+        aria-label={mobileNavOpen ? 'Cerrar menú de navegación' : 'Abrir menú de navegación'}
+        aria-expanded={mobileNavOpen}
       >
-        Saltar al contenido principal
-      </a>
+        {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </button>
 
       {/* Backdrop overlay para móvil */}
       {mobileNavOpen ? (
-        <button
-          type="button"
+        <div
           className="fixed inset-0 z-[55] bg-black/30 backdrop-blur-sm lg:hidden"
           onClick={closeMobileNav}
           aria-hidden="true"
-          tabIndex={-1}
         />
       ) : null}
 
-      {/* Sidebar: diálogo modal en móvil, navegación persistente en desktop. */}
-      <aside
-        ref={sidebarRef}
-        id="mobile-navigation-dialog"
-        role={desktopNavigation ? undefined : 'dialog'}
-        aria-modal={!desktopNavigation && mobileNavOpen ? true : undefined}
-        aria-labelledby={!desktopNavigation ? 'mobile-navigation-title' : undefined}
-        aria-hidden={!desktopNavigation && !mobileNavOpen ? true : undefined}
-        inert={!desktopNavigation && !mobileNavOpen ? true : undefined}
-        tabIndex={!desktopNavigation ? -1 : undefined}
-        onKeyDown={!desktopNavigation ? handleDrawerKeyDown : undefined}
-        className={cn(
-          'rounded-[2rem] border border-white/[0.06] bg-black px-5 py-5 text-stone-100 shadow-2xl transition-transform duration-200',
-          'lg:fixed lg:bottom-4 lg:top-4 lg:flex lg:w-[280px] lg:flex-col lg:[left:max(1.5rem,calc((100vw-1600px)/2+1.5rem))]',
-          'fixed inset-4 z-[60] overflow-y-auto outline-none',
-          mobileNavOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] lg:translate-x-0',
-        )}
-      >
+      <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
+        {/* Sidebar: overlay en móvil, fijo en desktop */}
+        <aside
+          role="navigation"
+          aria-label="Navegación principal"
+          className={cn(
+            'rounded-[2rem] border border-white/[0.06] bg-black px-5 py-5 text-stone-100 shadow-2xl transition-transform duration-200',
+            'lg:fixed lg:bottom-4 lg:top-4 lg:flex lg:w-[280px] lg:flex-col lg:[left:max(1.5rem,calc((100vw-1600px)/2+1.5rem))]',
+            'fixed inset-4 z-[55] overflow-y-auto',
+            mobileNavOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] lg:translate-x-0',
+          )}
+        >
           <div className="flex flex-1 flex-col">
-            <div className="flex shrink-0 items-center justify-between gap-3 py-3">
-              <h2 id="mobile-navigation-title" className="sr-only">Navegación principal</h2>
+            {/* Logo */}
+            <div className="flex justify-center py-4 shrink-0">
               <div className="relative w-full max-w-[200px]">
                 <Image
                   src="/brand/sidebar-logo.png"
@@ -275,17 +179,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="h-auto w-full object-contain object-center"
                 />
               </div>
-              <button
-                type="button"
-                onClick={closeMobileNav}
-                aria-label="Cerrar menú de navegación"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-stone-200 transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 lg:hidden"
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
             </div>
 
-            <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-4" aria-label="Navegación principal">
+            {/* Navegación */}
+            <nav className="flex flex-1 flex-col justify-between px-1 overflow-hidden">
               {visibleNavSections.map((section) => (
                 <div key={section.title}>
                   <h2 className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-400">
@@ -296,16 +193,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       const Icon = item.icon;
                       const active =
                         pathname === item.href ||
-                        (item.href === '/overview' && pathname === '/dashboard') ||
                         (item.href !== '/sofia' && pathname?.startsWith(`${item.href}/`) === true);
                       return (
                         <Link
                           key={item.href}
                           href={item.href}
-                          aria-current={active ? 'page' : undefined}
                           data-testid={`nav-${item.href.replace('/', '') || 'home'}`}
                           className={cn(
-                            'group flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-medium transition-all duration-200',
+                            'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-medium transition-all duration-200',
                             active
                               ? 'bg-brand-500 text-ink shadow-[0_6px_16px_rgba(255,159,28,0.25)]'
                               : 'text-stone-300 hover:bg-white/[0.06] hover:text-white',
@@ -340,71 +235,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     await logout();
                     router.push('/login');
                   }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-stone-400 transition hover:bg-white/[0.08] hover:text-white"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-stone-400 transition hover:bg-white/[0.08] hover:text-white"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
               </div>
             </div>
           </div>
-      </aside>
+        </aside>
 
-      <div
-        inert={mobileNavOpen ? true : undefined}
-        aria-hidden={mobileNavOpen ? true : undefined}
-      >
-        <button
-          ref={menuButtonRef}
-          type="button"
-          className="fixed left-3 top-3 z-[50] flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-ink shadow-soft transition active:scale-95 lg:hidden"
-          onClick={() => setMobileNavOpen(true)}
-          aria-label="Abrir menú de navegación"
-          aria-controls="mobile-navigation-dialog"
-          aria-expanded={mobileNavOpen}
-        >
-          <Menu className="h-5 w-5" aria-hidden="true" />
-        </button>
-
-        <div className="mx-auto min-h-screen w-full max-w-[1600px] px-4 py-4 lg:h-screen lg:overflow-hidden lg:px-6">
-          <div className="min-h-0 min-w-0 max-w-full lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
-            <div className="min-h-0 min-w-0 max-w-full lg:h-full lg:overflow-y-auto lg:pr-1">
-              <div className="sticky top-0 z-30 pb-4 pt-0">
+        <div className="min-h-0 lg:ml-[296px] lg:h-[calc(100vh-2rem)]">
+          <div className="min-h-0 lg:h-full lg:overflow-y-auto lg:pr-1">
+            <div className="sticky top-0 z-30 pb-4 pt-0">
               <div className="absolute inset-x-0 inset-y-0 rounded-[2rem] bg-gradient-to-b from-surface via-surface/95 to-surface/70 backdrop-blur-sm" />
               <div className="relative rounded-[2rem] border border-white/[0.08] bg-black px-6 py-3 shadow-2xl">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <p className="text-[12px] font-semibold capitalize text-white whitespace-nowrap">{today}</p>
                     <span className="hidden sm:inline-flex h-4 w-px bg-white/15" />
-                    <p className="hidden truncate text-[11px] font-medium text-stone-400 sm:block">Centro operativo</p>
+                    <p className="hidden sm:block text-[11px] font-medium text-stone-400 truncate">Jornada actual</p>
                   </div>
-                  {canUseGlobalSearch ? (
-                    <div className="ml-auto w-11 min-w-11 overflow-hidden xl:flex xl:w-full xl:max-w-md xl:flex-1 xl:justify-center xl:overflow-visible xl:px-4">
-                      <GlobalSearch />
-                    </div>
-                  ) : <div className="ml-auto" />}
-                  {canReadOperationalReport ? (
-                    <div
-                      className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
-                      role="region"
-                      aria-label="Resumen de ventas de la jornada"
-                      tabIndex={0}
-                    >
-                      <SaleCounters />
-                    </div>
-                  ) : null}
+                  <div
+                    className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar"
+                    role="region"
+                    aria-label="Resumen de ventas de la jornada"
+                    tabIndex={0}
+                  >
+                    <SaleCounters />
+                  </div>
                 </div>
               </div>
-              </div>
-
-              <main
-                id="main-content"
-                data-testid="app-main"
-                className="w-full min-w-0 max-w-full overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
-                tabIndex={-1}
-              >
-                {children}
-              </main>
             </div>
+
+            <main
+              id="main-content"
+              data-testid="app-main"
+              className="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-soft"
+              tabIndex={-1}
+            >
+              {children}
+            </main>
           </div>
         </div>
       </div>
@@ -413,32 +283,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function SaleCounters() {
-  const { data, isPending, isError } = useQuery({
+  const { data } = useQuery({
     queryKey: ['sale-counters'],
     queryFn: async () => saleCountersSchema.parse(await apiFetch<unknown>('/reports/operational')),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
+    refetchInterval: 3000,
   });
 
-  if (isPending) {
-    return <span className="text-xs font-semibold text-stone-400">Actualizando jornada...</span>;
-  }
+  const sellers = data?.sales.bestSellers ?? [];
+  const itemsSold = Number(data?.sales.itemsSold ?? 0);
 
-  if (isError || !data) {
-    return (
-      <span className="inline-flex min-h-9 items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-4 text-xs font-semibold text-amber-100">
-        Resumen no disponible
-      </span>
+  const targetProducts = [
+    { key: '2x1', label: '2X1', match: '2x1' },
+    { key: 'doble', label: 'Doble Carne', match: 'doble' },
+    { key: 'sencilla', label: 'Sencilla', match: 'sencilla' },
+    { key: 'maxi', label: 'Maxy Family', match: 'maxi' },
+  ];
+
+  const counters = targetProducts.map((tp) => {
+    const found = sellers.find((s) =>
+      (s.productName ?? '').toLowerCase().includes(tp.match),
     );
-  }
-
-  const itemsSold = Number(data.sales.itemsSold);
+    return { label: tp.label, qty: found ? Number(found.quantity ?? 0) : 0 };
+  });
 
   return (
-    <span
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-[12px] font-bold text-white shadow-sm"
-      data-testid="topbar-items-sold"
-    >
-      <span className="text-brand-400">{itemsSold}</span> unidades vendidas hoy
-    </span>
+    <>
+      <span
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-[12px] font-bold text-white shadow-sm"
+        data-testid="topbar-items-sold"
+      >
+        <span className="text-brand-400">{itemsSold}</span> unidades vendidas hoy
+      </span>
+      {counters.map((c) => (
+        <span
+          key={c.label}
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-brand-500/40 bg-brand-500/15 px-4 py-2 text-[12px] font-bold shadow-sm backdrop-blur-sm transition hover:border-brand-400 hover:bg-brand-500/25"
+        >
+          <span className="text-brand-300">{c.label}</span>
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[11px] font-extrabold text-black">{c.qty}</span>
+        </span>
+      ))}
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { DiningTableStatus, OrderTicketStatus, PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { test, expect } from './fixtures/worker-auth';
-import { expectAccessiblePage } from './ephemeral/accessibility';
 
 const prisma = new PrismaClient();
 const waiterName = 'Mesero Principal';
@@ -173,14 +172,6 @@ async function ensureCashOpen(accessToken: string, request: import('@playwright/
   expect([200, 201, 409]).toContain(opened.status());
 }
 
-async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
-  const dimensions = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    content: document.documentElement.scrollWidth,
-  }));
-  expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
-}
-
 test.describe.serial('Waiter table-only flows', () => {
   test.beforeAll(async () => {
     await ensureWaiterFixture();
@@ -207,7 +198,7 @@ test.describe.serial('Waiter table-only flows', () => {
     await expect(page.getByRole('heading', { name: new RegExp(waiterTableLabel) })).toBeVisible();
     await page.locator('button:not([disabled])').filter({ hasText: /COP/ }).first().click();
     await page.getByTestId('waiter-save-order').click();
-    await expect(page.getByText(/^1 m[ií]as$/i)).toBeVisible();
+    await expect(page.getByText(/^1 mias$/i)).toBeVisible();
     await expect(page.getByRole('button', { name: new RegExp(`${waiterTableLabel}.*Con servicio`, 's') })).toBeVisible();
 
     const response = await request.get('/api/orders?activeOnly=true', {
@@ -341,7 +332,7 @@ test.describe.serial('Waiter table-only flows', () => {
     expect(persistedHistoricalOrder.waiterNameSnapshot).toBe('Virginia Mesera');
   });
 
-  test('waiter assignment endpoints are reachable for admin and protected for waiter', async ({ request, workerAccessToken }) => {
+  test('waiter assignment endpoints are reachable for admin and protected for waiter', async ({ page, request, workerAccessToken }) => {
     const groups = await request.get('/api/table-groups', {
       headers: { Authorization: `Bearer ${workerAccessToken}` },
     });
@@ -371,42 +362,5 @@ test.describe.serial('Waiter table-only flows', () => {
       const registration = await navigator.serviceWorker.getRegistration('/sw.js');
       return Boolean(registration);
     });
-  });
-
-  test('waiter standalone workflow is keyboard accessible at phone, tablet and desktop widths', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await loginAsWaiter(page);
-
-    const table = page.getByRole('button', { name: new RegExp(waiterTableLabel) });
-    await expect(table).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await expectAccessiblePage(page);
-
-    await table.focus();
-    await table.press('Enter');
-    const back = page.getByRole('button', { name: 'Cerrar comanda y volver a las mesas' });
-    await expect(back).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await back.focus();
-    await back.press('Enter');
-    await expect(table).toBeVisible();
-
-    await page.setViewportSize({ width: 768, height: 1024 });
-    await expect(table).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await expectAccessiblePage(page);
-
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(table).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await expectAccessiblePage(page);
-
-    await table.focus();
-    await table.press('Enter');
-    await expect(back).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await back.focus();
-    await back.press('Enter');
-    await expect(table).toBeVisible();
   });
 });

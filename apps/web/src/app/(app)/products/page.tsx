@@ -5,24 +5,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { Boxes, Package2, Search, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { MetricCard } from '@/components/ui/metric-card';
+import { SectionTitle } from '@/components/ui/section-title';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { FilterBar } from '@/components/product/filter-bar';
-import { MetricSurface } from '@/components/product/metric-surface';
-import { ModuleTabs } from '@/components/product/module-tabs';
-import { PageHeader } from '@/components/product/page-header';
-import { QueryState } from '@/components/product/query-state';
-import { StatusBadge } from '@/components/product/status-badge';
 import { apiFetch } from '@/lib/api';
 import { formatCurrency, formatNumber, matchesSearch } from '@/lib/format';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { focusFirstInvalidField } from '@/lib/form-accessibility';
-import { useAuth } from '@/features/auth/auth-provider';
-import { canPerformAction } from '@/features/auth/access-control';
 
 type Product = {
   id: string;
@@ -73,13 +68,6 @@ const initialForm: ProductForm = {
   isActive: true,
 };
 
-const catalogTabs = [
-  { id: 'products', label: 'Productos', href: '/products', active: true },
-  { id: 'ingredients', label: 'Insumos', href: '/ingredients' },
-  { id: 'categories', label: 'Categorías', href: '/categories' },
-  { id: 'recipes', label: 'Recetas', href: '/recipes' },
-] as const;
-
 function getProductBrandLabel(brand: Exclude<Product['brand'], never>) {
   switch (brand) {
     case 'HOUSE':
@@ -123,7 +111,6 @@ function mapProductToForm(product: Product): ProductForm {
 }
 
 export default function ProductsPage() {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
@@ -135,10 +122,6 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductForm>(initialForm);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const editProductId = searchParams?.get('edit') ?? null;
-  const canCreate = canPerformAction(user?.permissions, 'products.create', user?.roles, ['admin', 'inventory']);
-  const canUpdate = canPerformAction(user?.permissions, 'products.update', user?.roles, ['admin', 'inventory']);
-  const canDelete = canPerformAction(user?.permissions, 'products.update', user?.roles, ['admin', 'inventory']);
-  const canManage = canCreate || canUpdate;
 
   const formErrors = useMemo(() => {
     const errors: Record<string, string> = {};
@@ -212,11 +195,9 @@ export default function ProductsPage() {
       ).length,
     };
   }, [products.data]);
-  const metricsAvailable = products.isSuccess && Boolean(products.data);
 
   const saveProduct = useMutation({
     mutationFn: async () => {
-      if (selectedProduct ? !canUpdate : !canCreate) throw new Error('No tienes permiso para guardar productos.');
       if (Object.keys(formErrors).length > 0) {
         throw new Error('Corrige los campos marcados antes de guardar.');
       }
@@ -255,13 +236,11 @@ export default function ProductsPage() {
   });
 
   const toggleProductStatus = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => {
-      if (!canUpdate) throw new Error('No tienes permiso para cambiar productos.');
-      return apiFetch(`/products/${id}`, {
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiFetch(`/products/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
-      });
-    },
+      }),
     onSuccess: async (_, variables) => {
       toast.success(variables.isActive ? 'Producto activado' : 'Producto desactivado');
       await Promise.all([
@@ -269,17 +248,13 @@ export default function ProductsPage() {
         queryClient.invalidateQueries({ queryKey: ['products', 'sellable'] }),
       ]);
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'No fue posible cambiar el estado del producto'),
   });
 
   const deleteProduct = useMutation({
-    mutationFn: (id: string) => {
-      if (!canDelete) throw new Error('No tienes permiso para eliminar productos.');
-      return apiFetch(`/products/${id}`, {
+    mutationFn: (id: string) =>
+      apiFetch(`/products/${id}`, {
         method: 'DELETE',
-      });
-    },
+      }),
     onSuccess: async () => {
       toast.success('Producto eliminado');
       setSelectedProduct(null);
@@ -312,52 +287,43 @@ export default function ProductsPage() {
   }, [editProductId, products.data]);
 
   return (
-    <div className="space-y-5 p-4 sm:p-6 lg:p-8" data-testid="products-page">
-      <PageHeader
-        eyebrow="Catálogo operativo"
-        title="Productos — Carta y stock"
-        description="Gobierna precios, costos, disponibilidad y trazabilidad sin separar la carta de la operación."
-        status={products.isError
-          ? <StatusBadge status="UNKNOWN" label={products.data ? 'Catálogo desactualizado' : 'Catálogo sin verificar'} />
-          : products.isSuccess
-            ? <StatusBadge status="ACTIVE" label={`${metrics.active} activos`} />
-            : <StatusBadge status="PENDING" label="Verificando catálogo" />}
-        actions={canCreate ? (
-          <Button type="button" variant="secondary" onClick={() => { setSelectedProduct(null); setForm(initialForm); setSubmitAttempted(false); }}>
+    <div className="space-y-6 p-6 lg:p-8">
+      <SectionTitle
+        eyebrow="Catalogo"
+        title="Productos"
+        description="Precios, costos, inventario y estados en un solo lugar."
+        status={<Badge tone="info">{metrics.active} activos</Badge>}
+        actions={
+          <Button type="button" variant="secondary" size="sm" onClick={() => { setSelectedProduct(null); setForm(initialForm); }}>
             Nuevo producto
           </Button>
-        ) : undefined}
+        }
       />
 
-      <ModuleTabs items={catalogTabs} label="Administración de catálogo" />
-
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricSurface density="compact" label="Activos" value={metricsAvailable ? formatNumber(metrics.active) : undefined} context="En catálogo" icon={<Package2 className="h-5 w-5" />} unavailable={!metricsAvailable} />
-        <MetricSurface density="compact" label="Preparados" value={metricsAvailable ? formatNumber(metrics.prepared) : undefined} context="Gobernados por receta" icon={<Sparkles className="h-5 w-5" />} unavailable={!metricsAvailable} />
-        <MetricSurface density="compact" label="Stock directo" value={metricsAvailable ? formatNumber(metrics.direct) : undefined} context="Con existencia propia" icon={<Boxes className="h-5 w-5" />} unavailable={!metricsAvailable} />
-        <MetricSurface density="compact" label="Stock bajo" value={metricsAvailable ? formatNumber(metrics.lowStock) : undefined} context="Requiere revisión" icon={<Boxes className="h-5 w-5" />} unavailable={!metricsAvailable} status={metricsAvailable && metrics.lowStock > 0 ? <StatusBadge status="PENDING" label="Atención" /> : undefined} />
+        <MetricCard compact label="Activos" value={formatNumber(metrics.active)} hint="En catalogo" icon={<Package2 className="h-5 w-5" />} />
+        <MetricCard compact label="Preparados" value={formatNumber(metrics.prepared)} hint="Por receta" icon={<Sparkles className="h-5 w-5" />} accent="ink" />
+        <MetricCard compact label="Stock directo" value={formatNumber(metrics.direct)} hint="Stock propio" icon={<Boxes className="h-5 w-5" />} accent="success" />
+        <MetricCard compact label="Stock bajo" value={formatNumber(metrics.lowStock)} hint="Bajo el minimo" icon={<Boxes className="h-5 w-5" />} accent="danger" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Card className="flex min-h-0 flex-col overflow-hidden p-0">
-          <div className="space-y-4 border-b border-line px-4 py-4 sm:px-5">
+          <div className="space-y-4 border-b border-stone-100 px-5 py-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-[15px] font-extrabold">Carta</h2>
                 <p className="mt-0.5 text-[12px] text-stone-500">Busca, filtra y edita en una sola vista.</p>
               </div>
-              <StatusBadge status="VISIBLE" label={`${filteredProducts.length} visibles`} />
+              <Badge tone="neutral">{filteredProducts.length} visibles</Badge>
             </div>
-            <FilterBar
-              density="compact"
-              activeCount={Number(kindFilter !== 'ALL') + Number(brandFilter !== 'ALL') + Number(statusFilter !== 'ACTIVE') + Number(Boolean(search.trim()))}
-              search={<Field label="Buscar">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_0.85fr_0.85fr_0.85fr]">
+              <Field label="Buscar">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
                   <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, código o categoría" className="pl-9" />
                 </div>
-              </Field>}
-              filters={<>
+              </Field>
               <Field label="Tipo">
                 <Select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
                   <option value="ALL">Todos los tipos</option>
@@ -380,20 +346,10 @@ export default function ProductsPage() {
                   <option value="INACTIVE">Inactivos</option>
                 </Select>
               </Field>
-              </>}
-              actions={<Button type="button" variant="ghost" onClick={() => { setSearch(''); setKindFilter('ALL'); setBrandFilter('ALL'); setStatusFilter('ACTIVE'); }}>Limpiar</Button>}
-            />
+            </div>
           </div>
 
-          <QueryState
-            status={products.isLoading ? 'loading' : products.isError ? 'error' : filteredProducts.length === 0 ? 'empty' : 'ready'}
-            title={products.isError ? 'No pudimos cargar el catálogo' : 'Sin productos para mostrar'}
-            description={products.isError ? 'La carta real no está disponible; no mostramos datos estimados.' : 'Ajusta los filtros o crea un producto autorizado.'}
-            onRetry={products.isError ? () => void products.refetch() : undefined}
-            action={!products.isError ? <Button type="button" variant="secondary" onClick={() => { setSearch(''); setKindFilter('ALL'); setBrandFilter('ALL'); setStatusFilter('ACTIVE'); }}>Restablecer filtros</Button> : undefined}
-            className="m-4"
-          >
-          <div className="hide-scrollbar max-h-[32rem] min-h-0 divide-y divide-line overflow-y-auto">
+          <div className="hide-scrollbar max-h-[32rem] min-h-0 overflow-y-auto divide-y divide-stone-100">
             {filteredProducts.map((product) => {
               const lowStock =
                 product.kind === 'DIRECT_STOCK' &&
@@ -410,35 +366,34 @@ export default function ProductsPage() {
                   <button
                     type="button"
                     className={`rounded-xl border px-3 py-2.5 text-left transition ${isSelected ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-200 shadow-sm border-l-[3px] border-l-brand-400' : 'border-transparent hover:bg-stone-50/50'}`}
-                    onClick={() => { if (canUpdate) { setSelectedProduct(product); setForm(mapProductToForm(product)); } }}
-                    disabled={!canUpdate}
+                    onClick={() => { setSelectedProduct(product); setForm(mapProductToForm(product)); }}
                     data-testid="product-card"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[14px] font-extrabold text-ink truncate">{product.name}</p>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-xs font-semibold text-stone-600">{getProductBrandLabel(productBrand)}</span>
-                        <span className={`text-xs font-bold uppercase tracking-[0.05em] ${product.kind === 'DIRECT_STOCK' ? 'text-sky-700' : 'text-stone-600'}`}>
+                        <span className="text-[10px] font-semibold text-stone-400">{getProductBrandLabel(productBrand)}</span>
+                        <span className={`text-[10px] font-bold uppercase tracking-[0.05em] ${product.kind === 'DIRECT_STOCK' ? 'text-sky-600' : 'text-stone-500'}`}>
                           {product.kind === 'DIRECT_STOCK' ? 'Directo' : 'Preparado'}
                         </span>
-                        <span className={`text-xs font-bold ${product.isActive ? 'text-emerald-700' : 'text-stone-600'}`}>
+                        <span className={`text-[10px] font-bold ${product.isActive ? 'text-emerald-600' : 'text-stone-400'}`}>
                           {product.isActive ? 'Activo' : 'Inactivo'}
                         </span>
-                        {lowStock ? <span className="text-xs font-bold text-red-700">Stock bajo</span> : null}
+                        {lowStock ? <span className="text-[10px] font-bold text-red-600">Stock bajo</span> : null}
                       </div>
                     </div>
                     <p className="mt-0.5 text-[11px] text-stone-500">{product.code} &middot; {product.category.name}</p>
                     <div className="mt-2 grid grid-cols-3 gap-1.5">
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Venta</p>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Venta</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatCurrency(product.salePrice)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Costo</p>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Costo</p>
                         <p className="mt-0.5 text-[12px] font-extrabold text-ink tabular-nums">{formatCurrency(product.costPrice)}</p>
                       </div>
                       <div className="rounded-lg bg-stone-50 px-2.5 py-1.5 text-center">
-                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-600">Stock</p>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-stone-400">Stock</p>
                         <p className={`mt-0.5 text-[12px] font-extrabold tabular-nums ${lowStock ? 'text-red-600' : 'text-ink'}`}>{formatNumber(product.currentStock)}</p>
                       </div>
                     </div>
@@ -446,26 +401,33 @@ export default function ProductsPage() {
 
                   <div className="flex items-start justify-end">
                     <div className="flex items-center gap-1.5">
-                      {canUpdate ? <Button type="button" variant="secondary" size="sm" className="text-[11px]"
+                      <Button type="button" variant="secondary" size="sm" className="text-[11px]"
                         onClick={() => toggleProductStatus.mutate({ id: product.id, isActive: !product.isActive })}
                       >
                         {product.isActive ? 'Desactivar' : 'Activar'}
-                      </Button> : null}
-                      {canDelete ? <button type="button" className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                      </Button>
+                      <button type="button" className="text-[11px] font-semibold text-stone-400 hover:text-red-600 transition"
                         onClick={() => setConfirmDelete({ id: product.id, name: product.name })}
-                        disabled={deleteProduct.isPending} aria-label={`Eliminar ${product.name}`}>
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </button> : null}
+                        disabled={deleteProduct.isPending}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 </div>
               );
             })}
+            {!filteredProducts.length ? (
+              <div className="p-6">
+                <EmptyState
+                  title="Nada con ese filtro. Probá otra búsqueda."
+                  description="Ajusta la búsqueda o crea un producto nuevo."
+                />
+              </div>
+            ) : null}
           </div>
-          </QueryState>
         </Card>
 
-        {canManage ? <Card>
+        <Card>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-brand-50 p-3 text-brand-700">
               <Package2 className="h-5 w-5" />
@@ -484,22 +446,10 @@ export default function ProductsPage() {
             onSubmit={(event) => {
               event.preventDefault();
               setSubmitAttempted(true);
-              if (Object.keys(formErrors).length > 0) {
-                focusFirstInvalidField(event.currentTarget);
-                return;
-              }
+              if (Object.keys(formErrors).length > 0) return;
               saveProduct.mutate();
             }}
           >
-            {categories.isError || units.isError ? (
-              <QueryState
-                status="error"
-                title="Faltan datos de configuración"
-                description="Categorías y unidades deben estar disponibles para guardar un producto válido."
-                onRetry={() => void Promise.all([categories.refetch(), units.refetch()])}
-                className="md:col-span-2"
-              />
-            ) : null}
             <div className="md:col-span-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-600">Datos base</p>
             </div>
@@ -598,10 +548,10 @@ export default function ProductsPage() {
               </Field>
             </div>
             <div className="flex gap-3 md:col-span-2">
-              <Button type="submit" className="flex-1" disabled={saveProduct.isPending || categories.isLoading || categories.isError || units.isLoading || units.isError || (submitAttempted && Object.keys(formErrors).length > 0)}>
+              <Button type="submit" className="flex-1" disabled={saveProduct.isPending || (submitAttempted && Object.keys(formErrors).length > 0)}>
                 {saveProduct.isPending ? 'Guardando...' : selectedProduct ? 'Guardar cambios' : 'Crear producto'}
               </Button>
-              {selectedProduct && canDelete ? (
+              {selectedProduct ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -626,9 +576,9 @@ export default function ProductsPage() {
               ) : null}
             </div>
           </form>
-        </Card> : <Card><QueryState status="permission_denied" title="Modo consulta" description="Puedes revisar la carta y sus precios, pero no crear ni modificar productos." /></Card>}
+        </Card>
       </div>
-      {confirmDelete && canDelete ? (
+      {confirmDelete ? (
         <ConfirmDialog
           open
           title="Eliminar producto"

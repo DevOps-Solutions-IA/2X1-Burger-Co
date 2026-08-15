@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/product';
+import { SectionTitle } from '@/components/ui/section-title';
 
 type PosPageHeaderProps = {
   hasActiveOrder: boolean;
@@ -16,10 +16,10 @@ export function PosPageHeader({
   onNewOrder,
 }: PosPageHeaderProps) {
   return (
-    <PageHeader
-      eyebrow="Operación de venta"
-      title="Punto de venta"
-      description="Abre, atiende y cobra comandas desde un espacio operativo único."
+    <SectionTitle
+      eyebrow="Venta en marcha"
+      title="POS — 2X1 Burger Co"
+      description="Abrí, atendé y cobrá pedidos sin salir de esta pantalla."
       status={
         <Badge tone={hasActiveOrder ? 'info' : 'success'}>{hasActiveOrder ? 'Pedido en curso' : 'Nueva comanda'}</Badge>
       }
@@ -28,7 +28,6 @@ export function PosPageHeader({
           type="button"
           variant={hasActiveOrder || hasDraft ? 'secondary' : 'default'}
           onClick={onNewOrder}
-          className="w-full sm:w-auto"
         >
           Nueva comanda
         </Button>

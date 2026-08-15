@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetchSchema } from '@/lib/api';
-import { POLLING_INTERVAL, visiblePolling } from '@/lib/query-policy';
 import {
   sofiaAlertsSchema,
   sofiaConversationsInboxSchema,
@@ -43,7 +42,7 @@ export function useSofiaDashboardSummary() {
   return useQuery({
     queryKey: sofiaQueryKeys.dashboardSummary,
     queryFn: () => apiFetchSchema('/admin/sofia/dashboard/summary', sofiaDashboardSummarySchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    refetchInterval: 30_000,
   });
 }
 
@@ -51,7 +50,7 @@ export function useSofiaReadiness() {
   return useQuery({
     queryKey: sofiaQueryKeys.readiness,
     queryFn: () => apiFetchSchema('/admin/sofia/readiness', sofiaReadinessSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    refetchInterval: 30_000,
   });
 }
 
@@ -59,7 +58,7 @@ export function useSofiaGovernanceEvents() {
   return useQuery({
     queryKey: sofiaQueryKeys.governanceEvents,
     queryFn: () => apiFetchSchema('/admin/sofia/governance/events', sofiaGovernanceEventsSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    refetchInterval: 30_000,
   });
 }
 
@@ -67,7 +66,7 @@ export function useSofiaAlerts() {
   return useQuery({
     queryKey: sofiaQueryKeys.alerts,
     queryFn: () => apiFetchSchema('/admin/sofia/alerts', sofiaAlertsSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.operational),
+    refetchInterval: 30_000,
   });
 }
 
@@ -75,7 +74,7 @@ export function useSofiaQrStatus() {
   return useQuery({
     queryKey: sofiaQueryKeys.qrStatus,
     queryFn: () => apiFetchSchema('/admin/sofia/whatsapp/qr/status', sofiaQrStatusSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
+    refetchInterval: 15_000,
   });
 }
 
@@ -83,7 +82,7 @@ export function useSofiaConversationsInbox() {
   return useQuery({
     queryKey: sofiaQueryKeys.conversationsInbox,
     queryFn: () => apiFetchSchema('/admin/sofia/conversations/inbox', sofiaConversationsInboxSchema),
-    refetchInterval: visiblePolling(POLLING_INTERVAL.critical),
+    refetchInterval: 15_000,
   });
 }
 

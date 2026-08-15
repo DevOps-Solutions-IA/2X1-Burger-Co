@@ -22,9 +22,7 @@ export default tseslint.config(
     files: ['apps/api/src/**/*.ts', 'apps/web/src/**/*.{ts,tsx}', 'tests/**/*.ts', 'prisma/**/*.ts'],
     languageOptions: {
       parserOptions: {
-        projectService: {
-          allowDefaultProject: ['tests/e2e/waiter.mobile.spec.ts'],
-        },
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
