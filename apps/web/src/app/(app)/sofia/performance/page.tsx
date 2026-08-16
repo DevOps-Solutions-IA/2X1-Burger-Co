@@ -233,7 +233,7 @@ function TopReasonsChart({ reasons }: { reasons: SofiaMetricsSummary['autoSafe']
           <li key={reason.key}>
             <div className="flex items-baseline justify-between gap-3">
               <span className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-ink">
-                <span className="numeric-tabular mr-1.5 text-stone-400">{index + 1}.</span>
+                <span className="numeric-tabular mr-1.5 text-stone-600">{index + 1}.</span>
                 {reason.key}
               </span>
               <span className="numeric-tabular shrink-0 text-[12px] font-semibold text-stone-600 [font-variant-numeric:tabular-nums]">

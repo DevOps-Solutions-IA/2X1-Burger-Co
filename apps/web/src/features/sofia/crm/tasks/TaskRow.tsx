@@ -158,7 +158,7 @@ export function TaskRow({ task }: { task: SofiaCrmTask }) {
             >
               <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               {task.dueAt ? `Vence ${formatDateTime(task.dueAt)}` : 'Sin fecha de vencimiento'}
-              <span className="text-stone-400">· Creada {formatDateTime(task.createdAt)}</span>
+              <span className="text-stone-600">· Creada {formatDateTime(task.createdAt)}</span>
             </p>
           </div>
         </div>
