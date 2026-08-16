@@ -44,16 +44,16 @@ test('operator console handles authentication, safe navigation and logout', asyn
     ['/inventory', 'inventory-page'],
     ['/users', 'users-page'],
     ['/sofia', 'sofia-overview-page'],
+    ['/sofia/performance', 'sofia-performance-page'],
+    ['/sofia/validation', 'sofia-validation-page'],
     ['/sofia/conversations', 'sofia-conversations-page'],
-    ['/sofia/runtime', 'sofia-runtime-page'],
-    ['/sofia/audit', 'sofia-audit-page'],
+    ['/sofia/safety', 'sofia-safety-page'],
     ['/sofia/whatsapp-qr', 'sofia-whatsapp-qr-page'],
-    ['/sofia/commands', 'sofia-commands-page'],
-    ['/sofia/orders', 'sofia-orders-page'],
-    ['/sofia/payments', 'sofia-payments-page'],
-    ['/sofia/delivery', 'sofia-delivery-page'],
-    ['/sofia/customer-service', 'sofia-customer-service-page'],
-    ['/sofia/crm', 'sofia-crm-page'],
+    ['/sofia/crm', 'sofia-crm-customers-page'],
+    ['/sofia/crm/pipeline', 'sofia-crm-pipeline-page'],
+    ['/sofia/crm/segments', 'sofia-crm-segments-page'],
+    ['/sofia/crm/campaigns', 'sofia-crm-campaigns-page'],
+    ['/sofia/crm/tasks', 'sofia-crm-tasks-page'],
   ] as const;
 
   for (const [route, testId] of routes) {
@@ -66,7 +66,7 @@ test('operator console handles authentication, safe navigation and logout', asyn
 
   await page.goto('/sofia/customers');
   await expect(page).toHaveURL(/\/sofia\/crm$/);
-  await expect(page.getByTestId('sofia-crm-page')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('sofia-crm-customers-page')).toBeVisible({ timeout: 20_000 });
   await expectAccessiblePage(page);
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();

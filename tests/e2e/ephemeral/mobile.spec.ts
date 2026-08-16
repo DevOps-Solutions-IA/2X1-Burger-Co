@@ -15,7 +15,7 @@ test('mobile login and dashboard do not overflow horizontally', async ({ page })
 
   await page.goto('/sofia/customers');
   await expect(page).toHaveURL(/\/sofia\/crm$/);
-  await expect(page.getByTestId('sofia-crm-page')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('sofia-crm-customers-page')).toBeVisible({ timeout: 20_000 });
   const crmDimensions = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,

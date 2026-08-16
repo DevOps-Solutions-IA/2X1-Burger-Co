@@ -166,7 +166,7 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
               aria-pressed={isActive}
               className={cn(
                 'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition-colors',
-                isActive ? 'border-brand-500 bg-brand-500 text-ink shadow-soft' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200 hover:text-brand-700',
+                isActive ? 'border-brand-500 bg-brand-500 text-ink shadow-soft' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200',
               )}
               data-testid={`sofia-conversations-filter-${chip.key}`}
             >
