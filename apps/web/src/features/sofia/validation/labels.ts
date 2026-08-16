@@ -1,3 +1,16 @@
+import {
+  Bot,
+  ClipboardList,
+  CreditCard,
+  LifeBuoy,
+  MessageSquare,
+  PackageMinus,
+  Receipt,
+  ShieldCheck,
+  Truck,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 import type { SofiaStatusTone } from '@/components/sofia';
 import type { SecureCommandStatus, SecureCommandType } from '@/features/sofia/contracts';
 
@@ -30,8 +43,22 @@ export const SECURE_COMMAND_TYPE_LABEL: Record<SecureCommandType, string> = {
   SOFIA_CUSTOMER_AUTO_RESPONSE: 'Respuesta automática al cliente',
 };
 
-/** Estados terminales de un SecureCommand: ya no admiten aprobación ni rechazo. */
-export const SECURE_COMMAND_TERMINAL_STATUSES: SecureCommandStatus[] = ['SUCCEEDED', 'REJECTED', 'EXPIRED', 'FAILED'];
+/** Icono consistente por tipo de comando — misma iconografía en fila y detalle. */
+export const SECURE_COMMAND_TYPE_ICON: Record<SecureCommandType, LucideIcon> = {
+  SOFIA_INTERNAL_VALIDATE: ShieldCheck,
+  SOFIA_CREATE_ORDER: ClipboardList,
+  SOFIA_SEND_WHATSAPP: MessageSquare,
+  SOFIA_MARK_PAYMENT: CreditCard,
+  SOFIA_DEDUCT_STOCK: PackageMinus,
+  SOFIA_MUTATE_CASH: Wallet,
+  SOFIA_CREATE_SALE: Receipt,
+  SOFIA_ASSIGN_DELIVERY: Truck,
+  SOFIA_CUSTOMER_AUTO_RESPONSE: Bot,
+};
+
+export function secureCommandTypeIcon(commandType: string): LucideIcon {
+  return SECURE_COMMAND_TYPE_ICON[commandType as SecureCommandType] ?? ShieldCheck;
+}
 
 export function isSecureCommandActionable(status: SecureCommandStatus): boolean {
   return status === 'APPROVAL_REQUIRED';
@@ -58,6 +85,9 @@ export const CASE_STATUS_LABEL: Record<SofiaCustomerServiceCaseStatus, string> =
   RESOLVED: 'Resuelto',
   CLOSED: 'Cerrado',
 };
+
+/** Icono único de escalación de servicio al cliente — la categoría es texto libre del backend. */
+export const CASE_ICON: LucideIcon = LifeBuoy;
 
 /** Máquina de estados lineal real del backend: solo el siguiente estado es válido, nunca se salta. */
 const CASE_STATUS_ORDER: SofiaCustomerServiceCaseStatus[] = [
@@ -111,3 +141,19 @@ export function formatCaseCategory(category: string): string {
 export function truncateReferenceId(id: string): string {
   return id.length <= 8 ? id : `${id.slice(0, 8)}…`;
 }
+
+/**
+ * Clases de "avatar" de icono coherentes con el tono de `StatusBadge`
+ * (mismos pares borde/fondo/texto) para que la fila y el detalle usen
+ * exactamente la misma semántica de color en toda la superficie.
+ */
+export const TONE_AVATAR_CLASS: Record<SofiaStatusTone, string> = {
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  warning: 'border-amber-200 bg-amber-50 text-amber-800',
+  blocked: 'border-red-200 bg-red-50 text-red-700',
+  pending: 'border-sky-200 bg-sky-50 text-sky-700',
+  unknown: 'border-orange-200 bg-orange-50 text-orange-800',
+  failed: 'border-red-300 bg-red-100 text-red-800',
+  human_required: 'border-amber-300 bg-amber-100 text-amber-800',
+  read_only: 'border-stone-200 bg-stone-100 text-stone-600',
+};

@@ -31,8 +31,8 @@ export function QueryStateBoundary<T>({
     return (
       <div className="space-y-3" role="status" aria-live="polite" data-testid={testId ? `${testId}-loading` : undefined}>
         <span className="sr-only">{loadingLabel}</span>
-        <Skeleton className="h-24 w-full rounded-[1.35rem]" />
-        <Skeleton className="h-24 w-full rounded-[1.35rem]" />
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <Skeleton className="h-24 w-full rounded-2xl" />
       </div>
     );
   }
@@ -41,11 +41,11 @@ export function QueryStateBoundary<T>({
     const message = error instanceof ApiError ? error.message : 'No se pudo cargar la información desde el servidor.';
     return (
       <div
-        className="rounded-[1.35rem] border border-red-200 bg-red-50 px-5 py-5 text-center"
+        className="rounded-2xl border border-red-200 bg-red-50 px-5 py-5 text-center"
         role="alert"
         data-testid={testId ? `${testId}-error` : undefined}
       >
-        <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-[1rem] bg-white text-red-500 shadow-sm" aria-hidden="true">
+        <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-white text-red-500 shadow-sm" aria-hidden="true">
           <AlertTriangle className="h-5 w-5" />
         </div>
         <h2 className="mt-3 text-[14px] font-semibold text-red-900">{errorTitle}</h2>

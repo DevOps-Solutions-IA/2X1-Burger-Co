@@ -6,9 +6,9 @@ export default function SofiaCrmTasksPage() {
     <CrmFrame>
       <div className="space-y-4" data-testid="sofia-crm-tasks-page">
         <PageHeader
-          eyebrow="CRM SOFIA"
+          eyebrow="CRM"
           title="Tareas"
-          description="Tareas y seguimientos vinculados a leads, clientes o casos de servicio, con vencimientos y cambios de estado auditados."
+          description="Tareas y seguimientos vinculados a leads, clientes o casos de servicio, con vencimientos visibles a simple vista y cambios de estado auditados."
           data-testid="sofia-crm-tasks-header"
         />
         <TasksView />

@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { StatusBadge, QueryStateBoundary, toneFromCommandStatus } from '@/components/sofia';
+import { CheckCircle2, ListFilter, X, XCircle } from 'lucide-react';
+import { StatusBadge, QueryStateBoundary, Pager, toneFromCommandStatus } from '@/components/sofia';
 import { Card } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import {
   useSecureCommands,
   useSecureCommand,
@@ -17,8 +19,14 @@ import {
   useSecureCommandReject,
 } from '@/features/sofia/queries';
 import { secureCommandStatusSchema, secureCommandTypeSchema, type SecureCommandDetail } from '@/features/sofia/contracts';
-import { isSecureCommandActionable, secureCommandStatusLabel, secureCommandTypeLabel } from './labels';
-import { Pager } from './Pager';
+import {
+  isSecureCommandActionable,
+  secureCommandStatusLabel,
+  secureCommandTypeIcon,
+  secureCommandTypeLabel,
+  truncateReferenceId,
+  TONE_AVATAR_CLASS,
+} from './labels';
 
 const PAGE_SIZE = 10;
 
@@ -36,52 +44,60 @@ export function CommandsPanel() {
   });
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]" data-testid="sofia-validation-commands-panel">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_25rem]" data-testid="sofia-validation-commands-panel">
       <Card data-testid="sofia-validation-commands-list-card">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[11rem]">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-status">
-              Estado
-            </label>
-            <Select
-              id="sofia-validation-commands-filter-status"
-              className="mt-1"
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
-                setPage(1);
-              }}
-              data-testid="sofia-validation-commands-filter-status"
-            >
-              <option value="">Todos</option>
-              {secureCommandStatusSchema.options.map((option) => (
-                <option key={option} value={option}>
-                  {secureCommandStatusLabel(option)}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="min-w-[13rem]">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-type">
-              Tipo de comando
-            </label>
-            <Select
-              id="sofia-validation-commands-filter-type"
-              className="mt-1"
-              value={commandType}
-              onChange={(event) => {
-                setCommandType(event.target.value);
-                setPage(1);
-              }}
-              data-testid="sofia-validation-commands-filter-type"
-            >
-              <option value="">Todos</option>
-              {secureCommandTypeSchema.options.map((option) => (
-                <option key={option} value={option}>
-                  {secureCommandTypeLabel(option)}
-                </option>
-              ))}
-            </Select>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex items-center gap-1.5 pb-2.5 text-stone-500">
+              <ListFilter className="h-4 w-4" aria-hidden="true" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">Filtros</span>
+            </div>
+            <div className="min-w-[11rem]">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-status">
+                Estado
+              </label>
+              <Select
+                id="sofia-validation-commands-filter-status"
+                className="mt-1"
+                value={status}
+                onChange={(event) => {
+                  setStatus(event.target.value);
+                  setPage(1);
+                  setSelectedId(null);
+                }}
+                data-testid="sofia-validation-commands-filter-status"
+              >
+                <option value="">Todos</option>
+                {secureCommandStatusSchema.options.map((option) => (
+                  <option key={option} value={option}>
+                    {secureCommandStatusLabel(option)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="min-w-[13rem]">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-type">
+                Tipo de comando
+              </label>
+              <Select
+                id="sofia-validation-commands-filter-type"
+                className="mt-1"
+                value={commandType}
+                onChange={(event) => {
+                  setCommandType(event.target.value);
+                  setPage(1);
+                  setSelectedId(null);
+                }}
+                data-testid="sofia-validation-commands-filter-type"
+              >
+                <option value="">Todos</option>
+                {secureCommandTypeSchema.options.map((option) => (
+                  <option key={option} value={option}>
+                    {secureCommandTypeLabel(option)}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -100,41 +116,65 @@ export function CommandsPanel() {
                 <div data-testid="sofia-validation-commands-empty">
                   <EmptyState
                     title="No hay comandos en esta cola"
-                    description="Cuando SOFIA someta un comando gobernado (por ejemplo, envío de WhatsApp) que requiera revisión, aparecerá aquí."
+                    description="Cuando SOFIA someta un comando gobernado (por ejemplo, envío de WhatsApp) que requiera revisión, aparecerá aquí para su aprobación o rechazo."
                   />
                 </div>
               ) : (
                 <>
+                  <p className="mb-2.5 text-[11.5px] font-medium text-stone-500" data-testid="sofia-validation-commands-count">
+                    {data.total} {data.total === 1 ? 'comando' : 'comandos'} con los filtros actuales
+                  </p>
                   <ul className="space-y-2" data-testid="sofia-validation-commands-rows">
                     {data.items.map((command) => {
                       const isActive = command.id === selectedId;
+                      const tone = toneFromCommandStatus(command.status);
+                      const Icon = secureCommandTypeIcon(command.commandType);
                       return (
                         <li key={command.id}>
                           <button
                             type="button"
                             onClick={() => setSelectedId(command.id)}
-                            className={
-                              'flex w-full flex-col gap-1.5 rounded-[1.1rem] border px-3.5 py-3 text-left transition-colors sm:flex-row sm:items-center sm:justify-between ' +
-                              (isActive
+                            aria-current={isActive ? 'true' : undefined}
+                            className={cn(
+                              'flex w-full items-start gap-3 rounded-2xl border px-4 py-3.5 text-left transition-[border-color,background-color,box-shadow]',
+                              isActive
                                 ? 'border-brand-400 bg-brand-50/70 shadow-soft'
-                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40')
-                            }
+                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40',
+                            )}
                             data-testid={`sofia-validation-command-row-${command.id}`}
                           >
-                            <div className="min-w-0">
-                              <p className="truncate text-[13px] font-semibold text-ink">{secureCommandTypeLabel(command.commandType)}</p>
+                            <span
+                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])}
+                              aria-hidden="true"
+                            >
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="truncate text-[13px] font-semibold text-ink">{secureCommandTypeLabel(command.commandType)}</p>
+                                <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} className="shrink-0" />
+                              </div>
                               <p className="mt-0.5 truncate text-[12px] text-stone-600">
                                 Alcance: {command.scope} · Origen: {command.source}
                               </p>
-                              <p className="mt-0.5 text-[11px] text-stone-600">{formatDateTime(command.completedAt ?? command.claimedAt)}</p>
+                              <p className="mt-1 text-[11px] text-stone-500">{formatDateTime(command.completedAt ?? command.claimedAt)}</p>
                             </div>
-                            <StatusBadge tone={toneFromCommandStatus(command.status)} label={secureCommandStatusLabel(command.status)} />
                           </button>
                         </li>
                       );
                     })}
                   </ul>
-                  <Pager page={data.page} limit={data.limit} total={data.total} onPageChange={setPage} data-testid="sofia-validation-commands-pager" />
+                  <div className="mt-3">
+                    <Pager
+                      page={data.page}
+                      limit={data.limit}
+                      total={data.total}
+                      itemsLabel={data.total === 1 ? 'comando' : 'comandos'}
+                      onPrev={() => setPage((current) => Math.max(1, current - 1))}
+                      onNext={() => setPage((current) => current + 1)}
+                      data-testid="sofia-validation-commands-pager"
+                    />
+                  </div>
                 </>
               )
             }
@@ -143,9 +183,11 @@ export function CommandsPanel() {
       </Card>
 
       {selectedId ? (
-        <CommandDetail id={selectedId} onClosed={() => setSelectedId(null)} />
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <CommandDetail id={selectedId} onClosed={() => setSelectedId(null)} />
+        </div>
       ) : (
-        <Card data-testid="sofia-validation-command-detail-placeholder">
+        <Card className="lg:sticky lg:top-4 lg:self-start" data-testid="sofia-validation-command-detail-placeholder">
           <EmptyState title="Ningún comando seleccionado" description="Elige un comando de la lista para ver su detalle y, si aplica, aprobarlo o rechazarlo." />
         </Card>
       )}
@@ -206,27 +248,41 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
         {(detail: SecureCommandDetail) => {
           const { command, approvals } = detail;
           const actionable = isSecureCommandActionable(command.status);
+          const tone = toneFromCommandStatus(command.status);
+          const Icon = secureCommandTypeIcon(command.commandType);
           return (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-600">Comando</p>
-                  <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{secureCommandTypeLabel(command.commandType)}</h2>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])} aria-hidden="true">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">Comando gobernado</p>
+                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{secureCommandTypeLabel(command.commandType)}</h2>
+                    <div className="mt-1.5">
+                      <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} />
+                    </div>
+                  </div>
                 </div>
-                <button type="button" onClick={onClosed} className="text-[11px] font-semibold text-stone-600 hover:text-ink" data-testid="sofia-validation-command-detail-close">
-                  Cerrar
+                <button
+                  type="button"
+                  onClick={onClosed}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-500 transition-[background-color] hover:bg-stone-100"
+                  aria-label="Cerrar detalle del comando"
+                  data-testid="sofia-validation-command-detail-close"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <StatusBadge tone={toneFromCommandStatus(command.status)} label={secureCommandStatusLabel(command.status)} />
-
-              <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3.5 text-[12px]">
                 <DetailField label="Alcance" value={command.scope} />
                 <DetailField label="Origen" value={command.source} />
                 <DetailField label="Actor" value={`${command.actorId} (${command.actorType})`} />
                 <DetailField label="Objetivo" value={command.targetType} />
-                <DetailField label="Id objetivo" value={command.targetId ?? '—'} />
-                <DetailField label="Correlación" value={command.correlationId ?? '—'} />
+                <DetailField label="Id objetivo" value={command.targetId ? truncateReferenceId(command.targetId) : '—'} />
+                <DetailField label="Correlación" value={command.correlationId ? truncateReferenceId(command.correlationId) : '—'} />
                 <DetailField label="Reclamado" value={formatDateTime(command.claimedAt)} />
                 <DetailField label="Completado" value={formatDateTime(command.completedAt)} />
                 <DetailField label="Expira" value={formatDateTime(command.expiresAt)} />
@@ -236,14 +292,14 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
               </dl>
 
               {command.result && (
-                <div className="rounded-[1rem] border border-stone-200 bg-stone-50 px-3 py-2.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600">Resultado</p>
+                <div className="rounded-2xl border border-stone-200 bg-white px-3.5 py-3" data-testid="sofia-validation-command-result">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Resultado</p>
                   <p className="mt-1 text-[12.5px] font-semibold text-ink">{command.result.resultCode}</p>
                   {command.result.domainReferenceIds.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {command.result.domainReferenceIds.map((refId) => (
                         <Badge key={refId} tone="neutral">
-                          {refId}
+                          {truncateReferenceId(refId)}
                         </Badge>
                       ))}
                     </div>
@@ -252,30 +308,47 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
               )}
 
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600">Aprobaciones</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Aprobaciones</p>
                 {approvals.length === 0 ? (
                   <p className="mt-1.5 text-[12px] text-stone-600">Sin aprobaciones registradas todavía.</p>
                 ) : (
-                  <ul className="mt-1.5 space-y-1.5">
-                    {approvals.map((approval) => (
-                      <li key={approval.id} className="rounded-[0.9rem] border border-stone-200 bg-white px-3 py-2 text-[12px]">
-                        <p className="font-semibold text-ink">
-                          {approval.approverActorId} · {approval.status}
-                        </p>
-                        <p className="mt-0.5 text-stone-600">
-                          Motivo: {approval.reasonCode} · Política: {approval.policyReference}
-                        </p>
-                        <p className="mt-0.5 text-stone-600">Otorgada: {formatDateTime(approval.grantedAt)}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <ol className="mt-2.5 space-y-3 border-l border-stone-200 pl-4">
+                    {approvals.map((approval) => {
+                      const approved = approval.status === 'APPROVED';
+                      return (
+                        <li key={approval.id} className="relative text-[12px]">
+                          <span
+                            className={cn(
+                              'absolute -left-[1.32rem] top-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white',
+                              approved ? 'bg-emerald-500' : 'bg-stone-400',
+                            )}
+                            aria-hidden="true"
+                          />
+                          <p className="font-semibold text-ink">
+                            {approval.approverActorId} · {approval.status}
+                          </p>
+                          <p className="mt-0.5 text-stone-600">
+                            Motivo: {approval.reasonCode} · Política: {approval.policyReference}
+                          </p>
+                          <p className="mt-0.5 text-stone-500">Otorgada: {formatDateTime(approval.grantedAt)}</p>
+                        </li>
+                      );
+                    })}
+                  </ol>
                 )}
               </div>
 
               {actionable ? (
-                <div className="space-y-4 border-t border-stone-200 pt-4">
-                  <form onSubmit={handleApprove} className="space-y-2" data-testid="sofia-validation-command-approve-form">
-                    <p className="text-[12px] font-semibold text-ink">Aprobar comando</p>
+                <div className="grid grid-cols-1 gap-3 border-t border-stone-100 pt-4 sm:grid-cols-2">
+                  <form
+                    onSubmit={handleApprove}
+                    className="space-y-2 rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3.5"
+                    data-testid="sofia-validation-command-approve-form"
+                  >
+                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-800">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Aprobar comando
+                    </p>
                     <Input
                       value={approveReason}
                       onChange={(event) => setApproveReason(event.target.value)}
@@ -291,15 +364,23 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                     <Button
                       type="submit"
                       size="sm"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800"
                       disabled={approve.isPending || !approveReason.trim() || !policyReference.trim()}
                       data-testid="sofia-validation-command-approve-submit"
                     >
-                      {approve.isPending ? 'Aprobando…' : 'Aprobar comando'}
+                      {approve.isPending ? 'Aprobando…' : 'Aprobar'}
                     </Button>
                   </form>
 
-                  <form onSubmit={handleReject} className="space-y-2" data-testid="sofia-validation-command-reject-form">
-                    <p className="text-[12px] font-semibold text-ink">Rechazar comando</p>
+                  <form
+                    onSubmit={handleReject}
+                    className="space-y-2 rounded-2xl border border-red-100 bg-red-50/40 p-3.5"
+                    data-testid="sofia-validation-command-reject-form"
+                  >
+                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-red-800">
+                      <XCircle className="h-4 w-4" aria-hidden="true" />
+                      Rechazar comando
+                    </p>
                     <Input
                       value={rejectReason}
                       onChange={(event) => setRejectReason(event.target.value)}
@@ -311,15 +392,15 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                       variant="secondary"
                       size="sm"
                       disabled={reject.isPending || !rejectReason.trim()}
-                      className="border border-red-200 bg-red-50 text-red-800 hover:bg-red-100"
+                      className="w-full border border-red-200 bg-white text-red-800 hover:bg-red-50"
                       data-testid="sofia-validation-command-reject-submit"
                     >
-                      {reject.isPending ? 'Rechazando…' : 'Rechazar comando'}
+                      {reject.isPending ? 'Rechazando…' : 'Rechazar'}
                     </Button>
                   </form>
                 </div>
               ) : (
-                <p className="rounded-[1rem] border border-stone-200 bg-stone-50 px-3 py-2.5 text-[12px] text-stone-600" data-testid="sofia-validation-command-not-actionable">
+                <p className="rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-[12px] text-stone-600" data-testid="sofia-validation-command-not-actionable">
                   Este comando está en estado «{secureCommandStatusLabel(command.status)}» y no admite aprobación ni rechazo desde aquí.
                 </p>
               )}
@@ -334,8 +415,8 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-600">{label}</dt>
-      <dd className="mt-0.5 truncate font-semibold text-ink">{value}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">{label}</dt>
+      <dd className="mt-0.5 break-words font-semibold text-ink">{value}</dd>
     </div>
   );
 }

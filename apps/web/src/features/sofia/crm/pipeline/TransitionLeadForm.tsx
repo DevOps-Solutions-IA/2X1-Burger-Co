@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -31,7 +32,7 @@ export function TransitionLeadForm({
 
   const canSubmit = reasonCode.trim().length > 0 && (toStageId !== lead.currentStageId || toStatus !== lead.status);
 
-  function handleSubmit(event: React.FormEvent) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
     transitionLead.mutate(
@@ -50,7 +51,7 @@ export function TransitionLeadForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="mt-3 space-y-2.5 rounded-2xl border border-stone-200 bg-stone-50 p-3"
+      className="mt-3 space-y-2.5 rounded-2xl border border-brand-200 bg-brand-50/40 p-3.5"
       data-testid="sofia-crm-pipeline-transition-form"
     >
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -90,7 +91,8 @@ export function TransitionLeadForm({
       </div>
 
       {transitionLead.isError && (
-        <p className="text-[11px] font-semibold text-red-700" role="alert">
+        <p className="flex items-start gap-1.5 text-[11px] font-semibold text-red-700" role="alert">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {transitionLead.error instanceof ApiError ? transitionLead.error.message : 'No se pudo transicionar el lead.'}
         </p>
       )}

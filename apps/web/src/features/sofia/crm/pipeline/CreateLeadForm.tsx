@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
+import { AlertCircle, UserPlus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +26,7 @@ export function CreateLeadForm({ pipeline, onClose }: { pipeline: SofiaCrmPipeli
 
   const canSubmit = Boolean(customerId) && Boolean(currentStageId) && sourceReference.trim().length > 0 && title.trim().length > 0;
 
-  function handleSubmit(event: React.FormEvent) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!customerId || !canSubmit) return;
     createLead.mutate(
@@ -47,16 +48,23 @@ export function CreateLeadForm({ pipeline, onClose }: { pipeline: SofiaCrmPipeli
   return (
     <Card data-testid="sofia-crm-pipeline-create-lead-form">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-extrabold text-ink">Nuevo lead</h2>
-          <p className="mt-0.5 text-[12px] text-stone-600">Vincula un lead real a un cliente existente del CRM en «{pipeline.name}».</p>
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-700" aria-hidden="true">
+            <UserPlus className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-[15px] font-extrabold text-ink">Nuevo lead</h2>
+            <p className="mt-0.5 max-w-md text-[12px] leading-5 text-stone-600">
+              Vincula un lead real a un cliente existente del CRM en «{pipeline.name}».
+            </p>
+          </div>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onClose} data-testid="sofia-crm-pipeline-create-lead-cancel">
           Cancelar
         </Button>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
         <div>
           <label className="mb-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">Cliente</label>
           <CustomerPicker
@@ -73,7 +81,7 @@ export function CreateLeadForm({ pipeline, onClose }: { pipeline: SofiaCrmPipeli
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">Etapa inicial</label>
             <Select value={currentStageId} onChange={(event) => setCurrentStageId(event.target.value)} data-testid="sofia-crm-pipeline-create-lead-stage">
@@ -134,7 +142,8 @@ export function CreateLeadForm({ pipeline, onClose }: { pipeline: SofiaCrmPipeli
         </div>
 
         {createLead.isError && (
-          <p className="text-[12px] font-semibold text-red-700" role="alert">
+          <p className="flex items-start gap-1.5 text-[12px] font-semibold text-red-700" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {createLead.error instanceof ApiError ? createLead.error.message : 'No se pudo crear el lead.'}
           </p>
         )}

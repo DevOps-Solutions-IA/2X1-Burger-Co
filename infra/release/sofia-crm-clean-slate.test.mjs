@@ -91,7 +91,7 @@ test('Customer 360 route exists and aggregates all real customer data (identity,
   const detail = read('app', '(app)', 'sofia', 'crm', 'customers', '[customerId]', 'page.tsx');
   assert.match(detail, /useSofiaCrmCustomer/);
   assert.match(detail, /Customer360Tabs/);
-  for (const panel of ['IdentityPanel', 'TagsPanel', 'SegmentsPanel', 'ConsentsPanel', 'ActivityTimeline', 'LeadPanel', 'TasksPanel', 'NotesPanel', 'CasesPanel']) {
+  for (const panel of ['IdentityPanel', 'TagsPanel', 'SegmentsPanel', 'ConsentsPanel', 'ActivityPanel', 'LeadPanel', 'TasksPanel', 'NotesPanel', 'CasesPanel']) {
     assert.match(detail, new RegExp(panel), `Customer 360 debe montar ${panel}`);
   }
 });
@@ -100,13 +100,17 @@ test('shared SOFIA component family matches the expected set — no orphan or du
   const componentDirectory = web('components', 'sofia');
   const activeComponents = listFilesRecursive(componentDirectory).sort();
   const expectedComponents = [
+    'chart-theme.ts',
     'ControlTowerFrame.tsx',
     'CrmFrame.tsx',
     'Customer360Tabs.tsx',
     'index.ts',
     'PageHeader.tsx',
+    'Pager.tsx',
     'QueryStateBoundary.tsx',
+    'SectionHeading.tsx',
     'SectionTabs.tsx',
+    'StatCard.tsx',
     'StatusBadge.tsx',
     'status-tone.ts',
   ].sort();
@@ -177,10 +181,12 @@ test('no forbidden business mutations are wired into SOFIA operator/CRM routes',
 test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed allowlist', () => {
   // Cada entrada de esta lista es una acción operada por un HUMANO
   // autenticado desde el panel admin (gobernanza, aprobación de comandos,
-  // gestión de casos/leads/tareas/notas/campañas/segmentos CRM) — ninguna
-  // crea pedidos/pagos reales ni mueve stock/caja/checkout/POS/domicilios.
-  // Las 4 acciones de gobernanza comparten un único useMutation privado
-  // (useSofiaGovernanceAction); todas las demás declaran el suyo propio.
+  // gestión de casos/leads/tareas/notas/campañas/segmentos/tags/
+  // consentimientos/interacciones CRM) — ninguna crea pedidos/pagos reales
+  // ni mueve stock/caja/checkout/POS/domicilios. Las 4 acciones de
+  // gobernanza comparten un único useMutation privado
+  // (useSofiaGovernanceAction); grantOptIn/revokeOptIn comparten otro
+  // (useSofiaCrmConsentAction); todas las demás declaran el suyo propio.
   const allowedDirectMutationHooks = [
     'useSecureCommandApprove',
     'useSecureCommandReject',
@@ -193,15 +199,19 @@ test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed al
     'useSofiaCrmCreateNote',
     'useSofiaCrmCreateCampaign',
     'useSofiaCrmAttemptCampaignSend',
+    'useSofiaCrmCreateTag',
+    'useSofiaCrmAssignTag',
+    'useSofiaCrmRecordInteraction',
   ];
   const queries = read('features', 'sofia', 'queries.ts');
   const totalUseMutation = (queries.match(/\buseMutation\(/g) ?? []).length;
   assert.equal(
     totalUseMutation,
-    allowedDirectMutationHooks.length + 1,
-    'queries.ts debe declarar useMutation exactamente (allowlist directa + 1 helper privado de gobernanza)',
+    allowedDirectMutationHooks.length + 2,
+    'queries.ts debe declarar useMutation exactamente (allowlist directa + 2 helpers privados: gobernanza y consentimientos)',
   );
   assert.match(queries, /function useSofiaGovernanceAction\(/);
+  assert.match(queries, /function useSofiaCrmConsentAction\(/);
   for (const hook of allowedDirectMutationHooks) {
     assert.match(queries, new RegExp(`export function ${hook}\\(`), `falta el hook ${hook}`);
   }
@@ -210,6 +220,12 @@ test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed al
     assert.notEqual(start, -1, `falta el hook ${hook}`);
     const body = queries.slice(start, start + 200);
     assert.match(body, /useSofiaGovernanceAction\(/, `${hook} debe delegar en useSofiaGovernanceAction, no declarar su propio useMutation`);
+  }
+  for (const hook of ['useSofiaCrmGrantOptIn', 'useSofiaCrmRevokeOptIn']) {
+    const start = queries.indexOf(`export function ${hook}(`);
+    assert.notEqual(start, -1, `falta el hook ${hook}`);
+    const body = queries.slice(start, start + 200);
+    assert.match(body, /useSofiaCrmConsentAction\(/, `${hook} debe delegar en useSofiaCrmConsentAction, no declarar su propio useMutation`);
   }
 
   const dirsToScan = [

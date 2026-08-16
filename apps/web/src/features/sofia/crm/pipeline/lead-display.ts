@@ -41,3 +41,13 @@ export function stageOutcomeTone(outcome: string): SofiaStatusTone {
   if (outcome === 'LOST') return 'blocked';
   return 'read_only';
 }
+
+/** Iniciales para el avatar del cliente en la tarjeta de lead — nunca fabrica datos, deriva del nombre real. */
+export function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  if (!first) return '?';
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
+  const last = parts[parts.length - 1] ?? first;
+  return `${first[0] ?? ''}${last[0] ?? ''}`.toUpperCase();
+}

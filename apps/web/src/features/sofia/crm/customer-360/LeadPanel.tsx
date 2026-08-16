@@ -1,10 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
-import { Briefcase } from 'lucide-react';
+import { ArrowUpRight, Briefcase } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { QueryStateBoundary, StatusBadge, type SofiaStatusTone } from '@/components/sofia';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Pager, QueryStateBoundary, StatusBadge, type SofiaStatusTone } from '@/components/sofia';
 import { useSofiaCrmLeads } from '@/features/sofia/queries';
 import { formatDateTime } from '@/lib/format';
 
@@ -34,10 +35,16 @@ export function LeadPanel({ customerId }: { customerId: string }) {
 
   return (
     <Card data-testid="sofia-customer360-lead-panel">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[13.5px] font-extrabold text-ink">Pipeline</h3>
-          <p className="mt-0.5 text-[12px] text-stone-600">Leads de este cliente en el pipeline de ventas.</p>
+          <p className="mt-0.5 text-[12px] text-stone-600">
+            Leads de este cliente en el pipeline de ventas. La gestión completa vive en{' '}
+            <Link href="/sofia/crm/pipeline" className="font-semibold text-brand-700 hover:text-brand-900">
+              Pipeline
+            </Link>
+            .
+          </p>
         </div>
         <Briefcase className="h-4 w-4 shrink-0 text-stone-500" aria-hidden="true" />
       </div>
@@ -50,13 +57,13 @@ export function LeadPanel({ customerId }: { customerId: string }) {
         loadingLabel="Cargando leads del cliente…"
         errorTitle="No se pudo cargar el pipeline"
       >
-        {(result) =>
-          result.data.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed border-stone-200 bg-stone-50/85 px-3.5 py-3 text-[12px] text-stone-600">
-              Este cliente no tiene leads en el pipeline.
-            </p>
-          ) : (
-            <>
+        {(result) => (
+          <>
+            {result.data.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState icon={<Briefcase className="h-5 w-5" aria-hidden="true" />} title="Sin leads" description="Este cliente no tiene leads en el pipeline." />
+              </div>
+            ) : (
               <ul className="mt-3 space-y-2">
                 {result.data.map((lead) => (
                   <li key={lead.id} className="rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
@@ -71,30 +78,29 @@ export function LeadPanel({ customerId }: { customerId: string }) {
                   </li>
                 ))}
               </ul>
-              {result.pagination.pages > 1 && (
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-semibold text-stone-600">
-                    Página {result.pagination.page} de {result.pagination.pages}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                      Anterior
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={page >= result.pagination.pages}
-                      onClick={() => setPage((current) => Math.min(result.pagination.pages, current + 1))}
-                    >
-                      Siguiente
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )
-        }
+            )}
+            <div className="mt-3">
+              <Pager
+                page={result.pagination.page}
+                limit={result.pagination.limit}
+                total={result.pagination.total}
+                pages={result.pagination.pages}
+                itemsLabel="leads"
+                onPrev={() => setPage((current) => Math.max(1, current - 1))}
+                onNext={() => setPage((current) => Math.min(Math.max(1, result.pagination.pages), current + 1))}
+                data-testid="sofia-customer360-lead-pagination"
+              />
+            </div>
+            <Link
+              href="/sofia/crm/pipeline"
+              className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:text-brand-900"
+              data-testid="sofia-customer360-lead-link"
+            >
+              Ver pipeline completo
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </>
+        )}
       </QueryStateBoundary>
     </Card>
   );

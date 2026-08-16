@@ -1,14 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { PackageSearch, ShieldAlert, Tags } from 'lucide-react';
-import { ControlTowerFrame, PageHeader, QueryStateBoundary } from '@/components/sofia';
-import { useSofiaMetricsSummary } from '@/features/sofia/queries';
-import type { SofiaMetricsRange } from '@/features/sofia/contracts';
+import { CircleDollarSign, PackageSearch, Sparkles } from 'lucide-react';
+import {
+  ControlTowerFrame,
+  PageHeader,
+  QueryStateBoundary,
+  StatCard,
+  SOFIA_CHART_COLORS,
+  SOFIA_CHART_TOOLTIP_STYLE,
+} from '@/components/sofia';
 import { Card } from '@/components/ui/card';
-import { MetricCard } from '@/components/ui/metric-card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useSofiaMetricsSummary } from '@/features/sofia/queries';
+import type { SofiaMetricsRange, SofiaMetricsSummary } from '@/features/sofia/contracts';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -18,303 +24,378 @@ const RANGE_OPTIONS: { value: SofiaMetricsRange; label: string }[] = [
   { value: '30d', label: '30 días' },
 ];
 
-const AUTO_SAFE_COLORS: Record<'approved' | 'humanRequired' | 'blocked' | 'draftOnly', string> = {
-  approved: '#10b981', // emerald-500
-  humanRequired: '#f59e0b', // amber-500
-  blocked: '#ef4444', // red-500
-  draftOnly: '#a8a29e', // stone-400
-};
-
-const AUTO_SAFE_LABELS: Record<keyof typeof AUTO_SAFE_COLORS, string> = {
-  approved: 'Aprobado (autónomo)',
-  humanRequired: 'Requiere humano',
-  blocked: 'Bloqueado por SafetyGuard',
-  draftOnly: 'Solo borrador',
-};
-
-function percent(part: number, total: number): string {
-  if (total === 0) return '—';
+function formatPercent(part: number, total: number): string {
+  if (total <= 0) return '0%';
   return `${Math.round((part / total) * 100)}%`;
 }
 
-function RangeSelector({ range, onChange }: { range: SofiaMetricsRange; onChange: (r: SofiaMetricsRange) => void }) {
+/**
+ * Selector de rango compartido por los 3 bloques de esta página — un único
+ * fetch por rango vía `useSofiaMetricsSummary`. Nunca combina `transition-colors`
+ * con `hover:text-*`: el hover solo cambia fondo, el color de texto queda fijo.
+ */
+function RangeSelector({
+  value,
+  onChange,
+}: {
+  value: SofiaMetricsRange;
+  onChange: (range: SofiaMetricsRange) => void;
+}) {
   return (
-    <div className="flex gap-1.5 rounded-full border border-stone-200 bg-white p-1" data-testid="sofia-performance-range-selector">
-      {RANGE_OPTIONS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          aria-pressed={range === option.value}
-          className={cn(
-            'rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-colors',
-            range === option.value ? 'bg-brand-500 text-ink shadow-soft' : 'text-stone-600 hover:bg-stone-100 hover:text-ink',
-          )}
-          data-testid={`sofia-performance-range-${option.value}`}
-        >
-          {option.label}
-        </button>
-      ))}
+    <div
+      className="flex items-center gap-1 rounded-full border border-stone-200 bg-white p-1"
+      role="tablist"
+      aria-label="Rango de tiempo"
+      data-testid="sofia-performance-range"
+    >
+      {RANGE_OPTIONS.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'h-8 rounded-full px-3.5 text-[12px] font-semibold text-stone-600 transition-[background-color,box-shadow]',
+              active ? 'bg-brand-500 text-ink shadow-soft' : 'bg-transparent hover:bg-stone-100',
+            )}
+            data-testid={`sofia-performance-range-${option.value}`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function FunnelBar({ label, value, max, testId }: { label: string; value: number; max: number; testId: string }) {
-  const width = max > 0 ? Math.max((value / max) * 100, value > 0 ? 3 : 0) : 0;
+type AutoSafeOutcomeKey = 'approved' | 'humanRequired' | 'blocked' | 'draftOnly';
+
+const AUTO_SAFE_SEGMENTS: { key: AutoSafeOutcomeKey; label: string; color: string }[] = [
+  { key: 'approved', label: 'Aprobado automáticamente', color: SOFIA_CHART_COLORS.success },
+  { key: 'humanRequired', label: 'Escalado a humano', color: SOFIA_CHART_COLORS.warning },
+  { key: 'blocked', label: 'Bloqueado por SafetyGuard', color: SOFIA_CHART_COLORS.blocked },
+  { key: 'draftOnly', label: 'Solo borrador', color: SOFIA_CHART_COLORS.neutral },
+];
+
+/**
+ * `autoSafe` ES la tasa de éxito: `approved` actuó sola correctamente,
+ * `humanRequired` escaló (no es fallo), `blocked` lo detuvo SafetyGuard,
+ * `draftOnly` se quedó en borrador. Dona con centro = tasa de aprobación
+ * + leyenda con número y porcentaje explícitos (nunca solo color).
+ */
+function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['autoSafe'] }) {
+  if (autoSafe.total === 0) {
+    return (
+      <EmptyState
+        title="Sin datos en este rango"
+        description="No se registraron acciones auto-safe en el rango seleccionado."
+      />
+    );
+  }
+
+  const data = AUTO_SAFE_SEGMENTS.map((segment) => ({ ...segment, value: autoSafe[segment.key] })).filter(
+    (segment) => segment.value > 0,
+  );
+
   return (
-    <div className="flex items-center gap-3" data-testid={testId}>
-      <p className="w-32 shrink-0 truncate text-[12px] font-semibold text-stone-600">{label}</p>
-      <div className="h-6 flex-1 overflow-hidden rounded-full bg-stone-100">
-        <div className="h-full rounded-full bg-brand-500" style={{ width: `${width}%` }} />
+    <div className="grid grid-cols-1 items-center gap-5 md:grid-cols-[13rem_1fr]">
+      <div className="relative mx-auto h-52 w-52 shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="label"
+              innerRadius="68%"
+              outerRadius="100%"
+              paddingAngle={data.length > 1 ? 2 : 0}
+              stroke="#ffffff"
+              strokeWidth={2}
+              isAnimationActive={false}
+            >
+              {data.map((segment) => (
+                <Cell key={segment.key} fill={segment.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...SOFIA_CHART_TOOLTIP_STYLE}
+              formatter={(value, _name, item) => {
+                const numericValue = Number(value ?? 0);
+                return [
+                  `${formatNumber(numericValue)} · ${formatPercent(numericValue, autoSafe.total)}`,
+                  (item?.payload as { label?: string } | undefined)?.label ?? '',
+                ];
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <p className="numeric-tabular text-[1.6rem] font-bold leading-none tracking-tight text-ink [font-variant-numeric:tabular-nums]">
+            {formatPercent(autoSafe.approved, autoSafe.total)}
+          </p>
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-500">Aprobación</p>
+        </div>
       </div>
-      <p className="numeric-tabular w-14 shrink-0 text-right text-[13px] font-bold text-ink [font-variant-numeric:tabular-nums]">
-        {formatNumber(value)}
-      </p>
+
+      <ul className="space-y-2" data-testid="sofia-performance-autosafe-legend">
+        {data.map((segment) => (
+          <li
+            key={segment.key}
+            className="flex items-center justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: segment.color }}
+                aria-hidden="true"
+              />
+              <span className="break-words text-[12.5px] font-medium text-ink">{segment.label}</span>
+            </span>
+            <span className="numeric-tabular shrink-0 text-[12.5px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+              {formatNumber(segment.value)} · {formatPercent(segment.value, autoSafe.total)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+type FunnelStageKey = 'total' | 'active' | 'humanRequired' | 'humanTaken' | 'resolved';
+
+const FUNNEL_STAGES: { key: FunnelStageKey; label: string }[] = [
+  { key: 'total', label: 'Total' },
+  { key: 'active', label: 'Activas' },
+  { key: 'humanRequired', label: 'Requieren humano' },
+  { key: 'humanTaken', label: 'Tomadas por humano' },
+  { key: 'resolved', label: 'Resueltas' },
+];
+
+/** Embudo real: cada barra crece desde una línea base común, ancho proporcional al total. */
+function ConversationFunnel({ conversations }: { conversations: SofiaMetricsSummary['conversations'] }) {
+  const total = conversations.total;
+
+  if (total === 0) {
+    return (
+      <EmptyState
+        title="Sin datos en este rango"
+        description="No se registraron conversaciones en el rango seleccionado."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2.5" data-testid="sofia-performance-funnel">
+      {FUNNEL_STAGES.map((stage) => {
+        const value = conversations[stage.key];
+        const widthPct = (value / total) * 100;
+        return (
+          <div key={stage.key} className="flex items-center gap-3">
+            <span className="w-[9.5rem] shrink-0 text-[12px] font-medium text-stone-600">{stage.label}</span>
+            <div className="h-6 min-w-0 flex-1 rounded-md bg-stone-100">
+              <div
+                className="h-6 rounded-r-md bg-brand-500"
+                style={{ width: value > 0 ? `max(${widthPct}%, 6px)` : '0px' }}
+              />
+            </div>
+            <span className="numeric-tabular w-[6.5rem] shrink-0 text-right text-[12.5px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+              {formatNumber(value)} · {formatPercent(value, total)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Ranking de razones ya ordenado por el backend — barra proporcional al máximo del propio ranking. */
+function TopReasonsChart({ reasons }: { reasons: SofiaMetricsSummary['autoSafe']['topReasonCodes'] }) {
+  if (reasons.length === 0) {
+    return (
+      <EmptyState
+        title="Sin datos en este rango"
+        description="No se registraron razones de bloqueo o escalado en el rango seleccionado."
+      />
+    );
+  }
+
+  const total = reasons.reduce((sum, reason) => sum + reason.count, 0);
+  const max = Math.max(...reasons.map((reason) => reason.count));
+
+  return (
+    <ul className="space-y-3" data-testid="sofia-performance-top-reasons">
+      {reasons.map((reason, index) => {
+        const widthPct = max > 0 ? (reason.count / max) * 100 : 0;
+        return (
+          <li key={reason.key}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-ink">
+                <span className="numeric-tabular mr-1.5 text-stone-400">{index + 1}.</span>
+                {reason.key}
+              </span>
+              <span className="numeric-tabular shrink-0 text-[12px] font-semibold text-stone-600 [font-variant-numeric:tabular-nums]">
+                {formatNumber(reason.count)} · {formatPercent(reason.count, total)}
+              </span>
+            </div>
+            <div className="mt-1 h-2 rounded-full bg-stone-100">
+              <div
+                className="h-2 rounded-full"
+                style={{ width: reason.count > 0 ? `max(${widthPct}%, 3%)` : '0%', backgroundColor: SOFIA_CHART_COLORS.brand }}
+              />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+const INBOUND_ROWS: { key: keyof SofiaMetricsSummary['inbound']; label: string }[] = [
+  { key: 'total', label: 'Total entrantes' },
+  { key: 'qrGateway', label: 'Vía WhatsApp QR' },
+  { key: 'simulated', label: 'Simulados' },
+  { key: 'allowlistBlocked', label: 'Bloqueados por lista blanca' },
+  { key: 'duplicatesIgnored', label: 'Duplicados ignorados' },
+  { key: 'mediaWithoutTranscript', label: 'Multimedia sin transcripción' },
+];
+
+const OUTBOUND_ROWS: { key: keyof SofiaMetricsSummary['outbound']; label: string }[] = [
+  { key: 'suggested', label: 'Sugeridos por IA' },
+  { key: 'draftOnly', label: 'Solo borrador' },
+  { key: 'approvalPending', label: 'Pendientes de aprobación' },
+  { key: 'blockedRealSend', label: 'Envío real bloqueado' },
+  { key: 'sentReal', label: 'Enviados reales' },
+];
+
+function CompactMetricsTable({
+  title,
+  rows,
+  data,
+  testId,
+}: {
+  title: string;
+  rows: { key: string; label: string }[];
+  data: Record<string, number>;
+  testId: string;
+}) {
+  return (
+    <div data-testid={testId}>
+      <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-stone-500">{title}</h3>
+      <table className="mt-2 w-full">
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key} className="border-b border-stone-100 last:border-0">
+              <td className="py-1.5 pr-3 text-[12.5px] leading-snug text-stone-600">{row.label}</td>
+              <td className="numeric-tabular py-1.5 text-right text-[13px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+                {formatNumber(data[row.key])}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export default function SofiaPerformancePage() {
   const [range, setRange] = useState<SofiaMetricsRange>('today');
-  const metrics = useSofiaMetricsSummary(range);
-
-  const autoSafeChartData = useMemo(() => {
-    if (!metrics.data) return [];
-    const { approved, humanRequired, blocked, draftOnly } = metrics.data.autoSafe;
-    return (Object.entries({ approved, humanRequired, blocked, draftOnly }) as [keyof typeof AUTO_SAFE_COLORS, number][])
-      .filter(([, count]) => count > 0)
-      .map(([key, count]) => ({ key, name: AUTO_SAFE_LABELS[key], value: count, color: AUTO_SAFE_COLORS[key] }));
-  }, [metrics.data]);
+  const metricsQuery = useSofiaMetricsSummary(range);
 
   return (
-    <ControlTowerFrame>
-      <div className="space-y-4" data-testid="sofia-performance-page">
+    <div className="space-y-4" data-testid="sofia-performance-page">
+      <ControlTowerFrame>
         <PageHeader
           eyebrow="Torre de Control"
           title="Rendimiento"
-          description="Comportamiento real de SOFIA: qué tan seguido actúa sola con éxito, cuándo escala a un humano, cuándo SafetyGuard bloquea una acción y qué tan preciso es el reconocimiento del catálogo."
-          actions={<RangeSelector range={range} onChange={setRange} />}
+          description="Comportamiento y tasa de éxito real de SOFIA en el rango seleccionado."
+          actions={<RangeSelector value={range} onChange={setRange} />}
           data-testid="sofia-performance-header"
         />
 
         <QueryStateBoundary
-          isLoading={metrics.isLoading}
-          isError={metrics.isError}
-          error={metrics.error}
-          data={metrics.data}
-          loadingLabel="Cargando métricas de rendimiento…"
-          errorTitle="No se pudo cargar el rendimiento de SOFIA"
+          isLoading={metricsQuery.isLoading}
+          isError={metricsQuery.isError}
+          error={metricsQuery.error}
+          data={metricsQuery.data}
+          loadingLabel="Cargando métricas de rendimiento..."
+          errorTitle="No se pudieron cargar las métricas"
           data-testid="sofia-performance-metrics"
         >
-          {(data) => (
+          {(metrics) => (
             <div className="space-y-4">
-              {/* Tasa de éxito auto-safe */}
-              <Card data-testid="sofia-performance-autosafe-card">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Tasa de éxito auto-safe</p>
-                <h2 className="mt-1 text-[1.05rem] font-bold text-ink">
-                  {data.autoSafe.total > 0
-                    ? `${percent(data.autoSafe.approved, data.autoSafe.total)} aprobado sin intervención`
-                    : 'Sin datos en este rango'}
-                </h2>
-                {data.autoSafe.total === 0 ? (
-                  <EmptyState
-                    className="mt-3"
-                    title="Sin actividad auto-safe"
-                    description="SOFIA no registró intentos de auto-safe en el rango seleccionado."
-                    icon={<ShieldAlert className="h-5 w-5" />}
-                  />
-                ) : (
-                  <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-center">
-                    <div className="h-56 w-full lg:w-64" data-testid="sofia-performance-autosafe-chart">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={autoSafeChartData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
-                            {autoSafeChartData.map((entry) => (
-                              <Cell key={entry.key} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(value, name) => [
-                              `${formatNumber(Number(value ?? 0))} (${percent(Number(value ?? 0), data.autoSafe.total)})`,
-                              String(name),
-                            ]}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <ul className="flex-1 space-y-2" data-testid="sofia-performance-autosafe-legend">
-                      {(Object.keys(AUTO_SAFE_COLORS) as (keyof typeof AUTO_SAFE_COLORS)[]).map((key) => {
-                        const value = data.autoSafe[key];
-                        return (
-                          <li key={key} className="flex items-center justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2">
-                            <span className="flex items-center gap-2 text-[12.5px] font-semibold text-stone-700">
-                              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: AUTO_SAFE_COLORS[key] }} aria-hidden="true" />
-                              {AUTO_SAFE_LABELS[key]}
-                            </span>
-                            <span className="numeric-tabular text-[12.5px] font-bold text-ink [font-variant-numeric:tabular-nums]">
-                              {formatNumber(value)} · {percent(value, data.autoSafe.total)}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <Card>
+                  <h2 className="text-[13px] font-bold text-ink">Tasa de éxito auto-safe</h2>
+                  <div className="mt-3">
+                    <AutoSafeOutcomeChart autoSafe={metrics.autoSafe} />
                   </div>
-                )}
-              </Card>
-
-              {/* Embudo de conversaciones */}
-              <Card data-testid="sofia-performance-funnel-card">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Embudo de conversaciones</p>
-                {data.conversations.total === 0 ? (
-                  <EmptyState
-                    className="mt-3"
-                    title="Sin conversaciones en este rango"
-                    description="No se registraron conversaciones en el rango seleccionado."
-                  />
-                ) : (
-                  <div className="mt-3 space-y-2.5">
-                    <FunnelBar label="Total" value={data.conversations.total} max={data.conversations.total} testId="sofia-performance-funnel-total" />
-                    <FunnelBar label="Activas" value={data.conversations.active} max={data.conversations.total} testId="sofia-performance-funnel-active" />
-                    <FunnelBar
-                      label="Requieren humano"
-                      value={data.conversations.humanRequired}
-                      max={data.conversations.total}
-                      testId="sofia-performance-funnel-human-required"
-                    />
-                    <FunnelBar
-                      label="Tomadas por humano"
-                      value={data.conversations.humanTaken}
-                      max={data.conversations.total}
-                      testId="sofia-performance-funnel-human-taken"
-                    />
-                    <FunnelBar label="Resueltas" value={data.conversations.resolved} max={data.conversations.total} testId="sofia-performance-funnel-resolved" />
-                  </div>
-                )}
-              </Card>
-
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {/* Top razones de bloqueo/escalado */}
-                <Card data-testid="sofia-performance-reasons-card">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Top razones de bloqueo/escalado</p>
-                  {data.autoSafe.topReasonCodes.length === 0 ? (
-                    <EmptyState className="mt-3" title="Sin razones registradas" description="No hay códigos de razón en este rango." />
-                  ) : (
-                    <ol className="mt-3 space-y-2" data-testid="sofia-performance-reasons-list">
-                      {data.autoSafe.topReasonCodes.map((reason, index) => (
-                        <li
-                          key={reason.key}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2"
-                        >
-                          <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-stone-700">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[10px] font-bold text-stone-600">
-                              {index + 1}
-                            </span>
-                            <span className="truncate">{reason.key}</span>
-                          </span>
-                          <span className="numeric-tabular shrink-0 text-[12.5px] font-bold text-ink [font-variant-numeric:tabular-nums]">
-                            {formatNumber(reason.count)}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
                 </Card>
+                <Card>
+                  <h2 className="text-[13px] font-bold text-ink">Embudo de conversaciones</h2>
+                  <div className="mt-4">
+                    <ConversationFunnel conversations={metrics.conversations} />
+                  </div>
+                </Card>
+              </div>
 
-                {/* Precisión de catálogo */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3" data-testid="sofia-performance-catalog-metrics">
-                  <MetricCard
+              <Card>
+                <h2 className="text-[13px] font-bold text-ink">Top razones de bloqueo y escalado</h2>
+                <div className="mt-3">
+                  <TopReasonsChart reasons={metrics.autoSafe.topReasonCodes} />
+                </div>
+              </Card>
+
+              <div>
+                <h2 className="mb-2 text-[13px] font-bold text-ink">Precisión de catálogo</h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <StatCard
                     label="Productos desconocidos"
-                    value={formatNumber(data.catalog.unknownProducts)}
-                    icon={<PackageSearch className="h-5 w-5" />}
-                    accent="warning"
-                    compact
+                    value={formatNumber(metrics.catalog.unknownProducts)}
+                    icon={<PackageSearch className="h-4.5 w-4.5" />}
+                    accent={metrics.catalog.unknownProducts > 0 ? 'warning' : 'success'}
+                    data-testid="sofia-performance-stat-unknown-products"
                   />
-                  <MetricCard
+                  <StatCard
                     label="Precios desconocidos"
-                    value={formatNumber(data.catalog.unknownPrices)}
-                    icon={<Tags className="h-5 w-5" />}
-                    accent="warning"
-                    compact
+                    value={formatNumber(metrics.catalog.unknownPrices)}
+                    icon={<CircleDollarSign className="h-4.5 w-4.5" />}
+                    accent={metrics.catalog.unknownPrices > 0 ? 'warning' : 'success'}
+                    data-testid="sofia-performance-stat-unknown-prices"
                   />
-                  <MetricCard
-                    label="Correcciones Maxy Family"
-                    value={formatNumber(data.catalog.maxiFamilyCorrections)}
-                    icon={<ShieldAlert className="h-5 w-5" />}
-                    accent="ink"
-                    compact
+                  <StatCard
+                    label="Correcciones Maxi Family"
+                    value={formatNumber(metrics.catalog.maxiFamilyCorrections)}
+                    icon={<Sparkles className="h-4.5 w-4.5" />}
+                    accent="brand"
+                    data-testid="sofia-performance-stat-maxi-corrections"
                   />
                 </div>
               </div>
 
-              {/* Funnel inbound/outbound */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <Card data-testid="sofia-performance-inbound-card">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Inbound</p>
-                  <table className="mt-3 w-full text-[12.5px]" data-testid="sofia-performance-inbound-table">
-                    <tbody>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Total recibidos</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.inbound.total)}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Vía QR Gateway</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.inbound.qrGateway)}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Bloqueados por allowlist</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.inbound.allowlistBlocked)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-1.5 text-stone-600">Duplicados ignorados</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.inbound.duplicatesIgnored)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </Card>
-                <Card data-testid="sofia-performance-outbound-card">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Outbound</p>
-                  <table className="mt-3 w-full text-[12.5px]" data-testid="sofia-performance-outbound-table">
-                    <tbody>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Sugeridos</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.outbound.suggested)}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Solo borrador</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.outbound.draftOnly)}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-stone-100">
-                        <td className="py-1.5 text-stone-600">Pendientes de aprobación</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.outbound.approvalPending)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-1.5 text-stone-600">Enviados reales</td>
-                        <td className="numeric-tabular py-1.5 text-right font-bold text-ink [font-variant-numeric:tabular-nums]">
-                          {formatNumber(data.outbound.sentReal)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </Card>
-              </div>
+              <Card>
+                <h2 className="text-[13px] font-bold text-ink">Entrantes y salientes</h2>
+                <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                  <CompactMetricsTable
+                    title="Inbound"
+                    rows={INBOUND_ROWS}
+                    data={metrics.inbound}
+                    testId="sofia-performance-inbound-table"
+                  />
+                  <CompactMetricsTable
+                    title="Outbound"
+                    rows={OUTBOUND_ROWS}
+                    data={metrics.outbound}
+                    testId="sofia-performance-outbound-table"
+                  />
+                </div>
+              </Card>
             </div>
           )}
         </QueryStateBoundary>
-      </div>
-    </ControlTowerFrame>
+      </ControlTowerFrame>
+    </div>
   );
 }

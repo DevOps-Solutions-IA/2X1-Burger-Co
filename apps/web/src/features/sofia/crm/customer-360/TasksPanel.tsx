@@ -1,11 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
-import { ListChecks } from 'lucide-react';
+import { ArrowUpRight, ListChecks } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { QueryStateBoundary, StatusBadge, type SofiaStatusTone } from '@/components/sofia';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Pager, QueryStateBoundary, StatusBadge, type SofiaStatusTone } from '@/components/sofia';
 import { useSofiaCrmTasks } from '@/features/sofia/queries';
 import { formatDateTime } from '@/lib/format';
 
@@ -43,10 +44,16 @@ export function TasksPanel({ customerId }: { customerId: string }) {
 
   return (
     <Card data-testid="sofia-customer360-tasks-panel">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[13.5px] font-extrabold text-ink">Tareas</h3>
-          <p className="mt-0.5 text-[12px] text-stone-600">Tareas y seguimientos vinculados a este cliente.</p>
+          <p className="mt-0.5 text-[12px] text-stone-600">
+            Tareas y seguimientos vinculados a este cliente. La gestión completa vive en{' '}
+            <Link href="/sofia/crm/tasks" className="font-semibold text-brand-700 hover:text-brand-900">
+              Tareas
+            </Link>
+            .
+          </p>
         </div>
         <ListChecks className="h-4 w-4 shrink-0 text-stone-500" aria-hidden="true" />
       </div>
@@ -59,13 +66,13 @@ export function TasksPanel({ customerId }: { customerId: string }) {
         loadingLabel="Cargando tareas del cliente…"
         errorTitle="No se pudo cargar las tareas"
       >
-        {(result) =>
-          result.data.length === 0 ? (
-            <p className="mt-3 rounded-xl border border-dashed border-stone-200 bg-stone-50/85 px-3.5 py-3 text-[12px] text-stone-600">
-              Este cliente no tiene tareas registradas.
-            </p>
-          ) : (
-            <>
+        {(result) => (
+          <>
+            {result.data.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState icon={<ListChecks className="h-5 w-5" aria-hidden="true" />} title="Sin tareas" description="Este cliente no tiene tareas registradas." />
+              </div>
+            ) : (
               <ul className="mt-3 space-y-2">
                 {result.data.map((task) => (
                   <li key={task.id} className="rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
@@ -87,30 +94,29 @@ export function TasksPanel({ customerId }: { customerId: string }) {
                   </li>
                 ))}
               </ul>
-              {result.pagination.pages > 1 && (
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-semibold text-stone-600">
-                    Página {result.pagination.page} de {result.pagination.pages}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                      Anterior
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={page >= result.pagination.pages}
-                      onClick={() => setPage((current) => Math.min(result.pagination.pages, current + 1))}
-                    >
-                      Siguiente
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )
-        }
+            )}
+            <div className="mt-3">
+              <Pager
+                page={result.pagination.page}
+                limit={result.pagination.limit}
+                total={result.pagination.total}
+                pages={result.pagination.pages}
+                itemsLabel="tareas"
+                onPrev={() => setPage((current) => Math.max(1, current - 1))}
+                onNext={() => setPage((current) => Math.min(Math.max(1, result.pagination.pages), current + 1))}
+                data-testid="sofia-customer360-tasks-pagination"
+              />
+            </div>
+            <Link
+              href="/sofia/crm/tasks"
+              className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:text-brand-900"
+              data-testid="sofia-customer360-tasks-link"
+            >
+              Ver todas las tareas
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </>
+        )}
       </QueryStateBoundary>
     </Card>
   );

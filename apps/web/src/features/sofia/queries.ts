@@ -6,13 +6,18 @@ import {
   sofiaCrmCampaignSchema,
   sofiaCrmCampaignSendResultSchema,
   sofiaCrmCampaignsPageSchema,
+  sofiaCrmCustomerConsentSchema,
   sofiaCrmCustomerDetailSchema,
+  sofiaCrmCustomerInteractionSchema,
   sofiaCrmCustomersSchema,
+  sofiaCrmCustomerSummarySchema,
   sofiaCrmLeadDetailSchema,
+  sofiaCrmUnifiedTimelineSchema,
   sofiaCrmLeadsPageSchema,
   sofiaCrmNotesPageSchema,
   sofiaCrmPipelinesPageSchema,
   sofiaCrmSegmentsPageSchema,
+  sofiaCrmTagSchema,
   sofiaCrmTagsPageSchema,
   sofiaCrmTasksPageSchema,
   sofiaCustomerServiceCaseDetailSchema,
@@ -601,5 +606,109 @@ export function useSofiaCrmAttemptCampaignSend() {
         method: 'POST',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sofia', 'crm', 'campaigns'] }),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  CRM — Tags, consentimientos, interacción manual, timeline unificado */
+/* ------------------------------------------------------------------ */
+
+export function useSofiaCrmCreateTag() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetchSchema('/admin/sofia/crm/tags', sofiaCrmTagSchema, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sofia', 'crm', 'tags'] }),
+  });
+}
+
+export function useSofiaCrmAssignTag() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, tagId }: { customerId: string; tagId: string }) =>
+      apiFetchSchema(`/admin/sofia/crm/customers/${encodeURIComponent(customerId)}/tags`, sofiaCrmCustomerSummarySchema, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId }),
+      }),
+    onSuccess: (_data, variables) => queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.crmCustomer(variables.customerId) }),
+  });
+}
+
+export type SofiaCrmConsentInput = {
+  customerId: string;
+  purpose: 'MARKETING' | 'SERVICE';
+  channel: 'WHATSAPP' | 'SMS' | 'PHONE';
+  source: string;
+  evidence: string;
+};
+
+function useSofiaCrmConsentAction(action: 'opt-in' | 'revoke') {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, ...body }: SofiaCrmConsentInput) =>
+      apiFetchSchema(
+        `/admin/sofia/crm/customers/${encodeURIComponent(customerId)}/consents/${action}`,
+        sofiaCrmCustomerConsentSchema,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, variables) => queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.crmCustomer(variables.customerId) }),
+  });
+}
+
+/** Registra evidencia de opt-in de contacto (marketing o servicio) para un canal, con hash de evidencia. */
+export function useSofiaCrmGrantOptIn() {
+  return useSofiaCrmConsentAction('opt-in');
+}
+
+/** Registra evidencia de revocación de un opt-in previamente otorgado. */
+export function useSofiaCrmRevokeOptIn() {
+  return useSofiaCrmConsentAction('revoke');
+}
+
+export type SofiaCrmRecordInteractionInput = {
+  customerId: string;
+  kind: string;
+  channel: 'WHATSAPP' | 'PHONE' | 'IN_PERSON' | 'SYSTEM';
+  direction: 'INBOUND' | 'OUTBOUND' | 'INTERNAL';
+  summary: string;
+};
+
+/** Registra manualmente una interacción con el cliente (ej. llamada telefónica) en el timeline del CRM. */
+export function useSofiaCrmRecordInteraction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, ...body }: SofiaCrmRecordInteractionInput) =>
+      apiFetchSchema(
+        `/admin/sofia/crm/customers/${encodeURIComponent(customerId)}/timeline`,
+        sofiaCrmCustomerInteractionSchema,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, variables) => queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.crmCustomer(variables.customerId) }),
+  });
+}
+
+export type SofiaCrmUnifiedTimelineQuery = { page: number; limit: number };
+
+/**
+ * Actividad correlacionada real del cliente. Incluye eventos de dominios
+ * ajenos a SOFIA (ORDER_CHECKOUT, PAYMENT_INTENT, DELIVERY_EVENT) — por el
+ * principio de no-duplicación, esos 3 tipos deben renderizarse SOLO como
+ * chip de estado + id truncado, nunca con el objeto `facts` completo.
+ */
+export function useSofiaCrmUnifiedTimeline(customerId: string, query: SofiaCrmUnifiedTimelineQuery) {
+  const search = buildSearchParams(query);
+  return useQuery({
+    queryKey: ['sofia', 'crm', 'customers', customerId, 'unified-timeline', query] as const,
+    queryFn: () =>
+      apiFetchSchema(
+        `/admin/sofia/crm/customers/${encodeURIComponent(customerId)}/unified-timeline?${search}`,
+        sofiaCrmUnifiedTimelineSchema,
+      ),
+    enabled: customerId.length > 0,
   });
 }

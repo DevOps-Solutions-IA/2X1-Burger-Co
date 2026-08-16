@@ -762,6 +762,44 @@ export const sofiaCrmCampaignsPageSchema = z.object({
 export const sofiaCrmCampaignSendResultSchema = record;
 
 /* ------------------------------------------------------------------ */
+/*  CRM — timeline unificado (correlaciona interacciones, casos, leads,
+    tareas, notas + eventos de otros dominios). Los tipos de evento
+    ORDER_CHECKOUT/PAYMENT_INTENT/DELIVERY_EVENT existen porque el
+    backend correlaciona todo lo que le pasa a un cliente, pero el
+    frontend debe seguir el principio de no-duplicación: esos 3 tipos
+    se renderizan SOLO como chip de estado + id truncado, nunca con el
+    detalle completo de `facts` embebido. */
+/* ------------------------------------------------------------------ */
+
+export const sofiaCrmUnifiedTimelineEventTypeSchema = z.enum([
+  'INTERACTION',
+  'CONVERSATION',
+  'ORDER_CHECKOUT',
+  'PAYMENT_INTENT',
+  'SERVICE_CASE',
+  'CRM_LEAD',
+  'CRM_TASK',
+  'CRM_NOTE',
+  'DELIVERY_EVENT',
+]);
+
+export const sofiaCrmUnifiedTimelineEventSchema = z.object({
+  id: z.string(),
+  type: sofiaCrmUnifiedTimelineEventTypeSchema,
+  occurredAt: sofiaCrmDateSchema,
+  facts: record,
+});
+
+export const sofiaCrmUnifiedTimelineSchema = z.object({
+  data: z.array(sofiaCrmUnifiedTimelineEventSchema),
+  pagination: sofiaCrmPaginationSchema,
+  readModel: z.object({
+    boundedPerSource: z.number(),
+    potentiallyTruncated: z.boolean(),
+  }),
+});
+
+/* ------------------------------------------------------------------ */
 /*  Tipos                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -797,3 +835,4 @@ export type SofiaCrmLeadDetail = z.infer<typeof sofiaCrmLeadDetailSchema>;
 export type SofiaCrmTask = z.infer<typeof sofiaCrmTaskSchema>;
 export type SofiaCrmNote = z.infer<typeof sofiaCrmNoteSchema>;
 export type SofiaCrmCampaign = z.infer<typeof sofiaCrmCampaignSchema>;
+export type SofiaCrmUnifiedTimelineEvent = z.infer<typeof sofiaCrmUnifiedTimelineEventSchema>;

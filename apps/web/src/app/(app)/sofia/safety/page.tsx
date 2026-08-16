@@ -1,10 +1,27 @@
 'use client';
 
-import { AlertTriangle, KeyRound, Pause, Play, Power, PowerOff, ShieldAlert, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  Ban,
+  Bell,
+  History,
+  KeyRound,
+  ListChecks,
+  Pause,
+  Play,
+  Power,
+  PowerOff,
+  ShieldAlert,
+  ShieldCheck,
+  Siren,
+} from 'lucide-react';
 import {
   ControlTowerFrame,
   PageHeader,
   QueryStateBoundary,
+  SectionHeading,
+  StatCard,
   StatusBadge,
   toneFromAlertSeverity,
   toneFromCheckStatus,
@@ -28,24 +45,21 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const COUNTER_LABELS: Record<keyof SofiaRuntimeSafety['counters'], string> = {
-  messages_received_total: 'Mensajes recibidos',
-  messages_blocked_total: 'Mensajes bloqueados',
-  send_attempts_total: 'Intentos de envío',
-  send_blocked_total: 'Envíos bloqueados',
-  duplicate_events_total: 'Eventos duplicados',
-  payment_sensitive_total: 'Sensibles a pago',
-  human_escalations_total: 'Escalados a humano',
-  auto_reply_attempts_total: 'Intentos de auto-reply',
-  auto_safe_attempts_total: 'Intentos de auto-safe',
-  timeout_total: 'Timeouts',
-  allowlist_denied_total: 'Denegados por allowlist',
+const COUNTER_META: Record<keyof SofiaRuntimeSafety['counters'], { label: string; hint: string; accent: 'brand' | 'success' | 'warning' | 'danger' | 'ink' }> = {
+  messages_received_total: { label: 'Mensajes recibidos', hint: 'Inbound total', accent: 'brand' },
+  messages_blocked_total: { label: 'Mensajes bloqueados', hint: 'Detenidos por SafetyGuard', accent: 'warning' },
+  send_attempts_total: { label: 'Intentos de envío', hint: 'Siempre en dry-run', accent: 'ink' },
+  send_blocked_total: { label: 'Envíos bloqueados', hint: 'Envío real OFF', accent: 'danger' },
+  duplicate_events_total: { label: 'Eventos duplicados', hint: 'Deduplicados por idempotencia', accent: 'ink' },
+  payment_sensitive_total: { label: 'Sensibles a pago', hint: 'Nunca autoprocesados', accent: 'warning' },
+  human_escalations_total: { label: 'Escalados a humano', hint: 'Requieren revisión manual', accent: 'brand' },
+  auto_reply_attempts_total: { label: 'Intentos de auto-reply', hint: 'Auto reply está OFF', accent: 'ink' },
+  auto_safe_attempts_total: { label: 'Intentos de Auto Safe', hint: 'Auto Safe productivo OFF', accent: 'ink' },
+  timeout_total: { label: 'Timeouts', hint: 'Latencia/proveedor', accent: 'ink' },
+  allowlist_denied_total: { label: 'Denegados por allowlist', hint: 'Allowlist comercial pendiente', accent: 'danger' },
 };
 
-const DECLARED_FLAG_ROWS: {
-  key: keyof SofiaRuntimeSafety['state']['declared'];
-  label: string;
-}[] = [
+const DECLARED_FLAG_ROWS: { key: keyof SofiaRuntimeSafety['state']['declared']; label: string }[] = [
   { key: 'realSendingEnabled', label: 'Envío real de WhatsApp' },
   { key: 'autoReplyEnabled', label: 'Respuesta automática (auto-reply)' },
   { key: 'autoSafeEnabled', label: 'Auto Safe productivo' },
@@ -56,17 +70,7 @@ const DECLARED_FLAG_ROWS: {
 /*  (a) Runtime safety: declarado vs. efectivo + contadores            */
 /* ------------------------------------------------------------------ */
 
-function SafetyFlagRow({
-  label,
-  declared,
-  effective,
-  testId,
-}: {
-  label: string;
-  declared: boolean;
-  effective: boolean;
-  testId: string;
-}) {
+function SafetyFlagRow({ label, declared, effective, testId }: { label: string; declared: boolean; effective: boolean; testId: string }) {
   // Invariante de seguridad: mientras producción esté bloqueada, TODO lo
   // "Efectivo" debe leer false, sin importar lo declarado. Si algún día
   // effective llega en true, es una violación crítica y se marca en rojo.
@@ -75,10 +79,7 @@ function SafetyFlagRow({
     <tr className="border-b border-stone-100 last:border-0" data-testid={testId}>
       <td className="py-2.5 pr-3 text-[12.5px] font-semibold text-stone-700">{label}</td>
       <td className="py-2.5 pr-3">
-        <StatusBadge
-          tone={declared ? 'warning' : 'read_only'}
-          label={declared ? 'Declarado: ON' : 'Declarado: OFF'}
-        />
+        <StatusBadge tone={declared ? 'warning' : 'read_only'} label={declared ? 'Declarado: ON' : 'Declarado: OFF'} />
       </td>
       <td className="py-2.5">
         <StatusBadge
@@ -95,15 +96,45 @@ function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
   const { state, counters } = data;
   return (
     <Card data-testid="sofia-safety-runtime-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
-          Runtime safety — declarado vs. efectivo
-        </p>
-        <p className="text-[11.5px] text-stone-600">Generado: {formatDateTime(data.generatedAt)}</p>
+      <SectionHeading
+        icon={<ShieldCheck className="h-4.5 w-4.5" />}
+        title="Runtime safety — declarado vs. efectivo"
+        subtitle={`Generado: ${formatDateTime(data.generatedAt)}`}
+        right={
+          <>
+            <StatusBadge tone={state.globalPaused ? 'blocked' : 'success'} label={state.globalPaused ? 'SOFIA pausada' : 'SOFIA activa'} />
+            <StatusBadge tone={state.killSwitchActive ? 'blocked' : 'success'} label={state.killSwitchActive ? 'Kill-switch activo' : 'Kill-switch inactivo'} />
+          </>
+        }
+      />
+
+      <div className="mt-3.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <StatCard
+          label="Mensajes recibidos"
+          value={formatNumber(counters.messages_received_total)}
+          icon={<Activity className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Bloqueados por SafetyGuard"
+          value={formatNumber(counters.messages_blocked_total)}
+          accent="warning"
+          icon={<Ban className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Escalados a humano"
+          value={formatNumber(counters.human_escalations_total)}
+          icon={<ShieldAlert className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Sensibles a pago"
+          value={formatNumber(counters.payment_sensitive_total)}
+          accent="danger"
+          icon={<KeyRound className="h-4 w-4" />}
+        />
       </div>
 
       <div
-        className="mt-3 flex items-start gap-2.5 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 px-3.5 py-3"
+        className="mt-4 flex items-start gap-2.5 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 px-3.5 py-3"
         role="note"
       >
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
@@ -114,13 +145,13 @@ function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
         </p>
       </div>
 
-      <div className="mt-3.5 overflow-x-auto">
+      <div className="mt-3.5 overflow-x-auto rounded-[1.1rem] border border-stone-100">
         <table className="w-full text-left" data-testid="sofia-safety-flags-table">
           <thead>
-            <tr className="border-b border-stone-200 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-500">
-              <th className="pb-2 pr-3 font-semibold">Control</th>
-              <th className="pb-2 pr-3 font-semibold">Declarado</th>
-              <th className="pb-2 font-semibold">Efectivo</th>
+            <tr className="border-b border-stone-200 bg-stone-50/80 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-500">
+              <th className="px-3.5 py-2.5 font-semibold">Control</th>
+              <th className="px-3.5 py-2.5 font-semibold">Declarado</th>
+              <th className="px-3.5 py-2.5 font-semibold">Efectivo</th>
             </tr>
           </thead>
           <tbody>
@@ -144,16 +175,19 @@ function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <StatusBadge tone={state.globalPaused ? 'blocked' : 'success'} label={state.globalPaused ? 'SOFIA pausada' : 'SOFIA activa'} />
-        <StatusBadge tone={state.killSwitchActive ? 'blocked' : 'success'} label={state.killSwitchActive ? 'Kill-switch activo' : 'Kill-switch inactivo'} />
         <StatusBadge tone={state.automationBlocked ? 'blocked' : 'success'} label={state.automationBlocked ? 'Automatización bloqueada' : 'Automatización permitida'} />
+        <StatusBadge tone="read_only" label={`Política: ${state.policy}`} />
+        <StatusBadge tone="blocked" label="Producción bloqueada" />
       </div>
 
       <div className="mt-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Orden de precedencia</p>
         <ol className="mt-2 space-y-1.5" data-testid="sofia-safety-precedence-list">
           {state.precedence.map((item, index) => (
-            <li key={item} className="flex items-center gap-2 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-1.5 text-[12px] font-semibold text-stone-700">
+            <li
+              key={item}
+              className="flex items-center gap-2 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-1.5 text-[12px] font-semibold text-stone-700"
+            >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[10px] font-bold text-stone-600">
                 {index + 1}
               </span>
@@ -165,15 +199,20 @@ function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
 
       <div className="mt-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Contadores del día</p>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4" data-testid="sofia-safety-counters-grid">
-          {(Object.keys(COUNTER_LABELS) as (keyof SofiaRuntimeSafety['counters'])[]).map((key) => (
-            <div key={key} className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">{COUNTER_LABELS[key]}</p>
-              <p className="numeric-tabular mt-1 text-[1rem] font-bold text-ink [font-variant-numeric:tabular-nums]">
-                {formatNumber(counters[key])}
-              </p>
-            </div>
-          ))}
+        <div className="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4" data-testid="sofia-safety-counters-grid">
+          {(Object.keys(COUNTER_META) as (keyof SofiaRuntimeSafety['counters'])[]).map((key) => {
+            const meta = COUNTER_META[key];
+            return (
+              <StatCard
+                key={key}
+                label={meta.label}
+                value={formatNumber(counters[key])}
+                hint={meta.hint}
+                accent={meta.accent}
+                data-testid={`sofia-safety-counter-${key}`}
+              />
+            );
+          })}
         </div>
       </div>
     </Card>
@@ -222,16 +261,16 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
     }
   }
 
-  const anyError =
-    pauseGlobal.error ?? resumeGlobal.error ?? activateKill.error ?? deactivateKill.error;
+  const anyError = pauseGlobal.error ?? resumeGlobal.error ?? activateKill.error ?? deactivateKill.error;
 
   return (
     <Card data-testid="sofia-safety-governance-card">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Panel de gobernanza</p>
-      <p className="mt-1.5 text-[12.5px] leading-5.5 text-stone-600">
-        Acciones globales que pausan o bloquean toda la automatización de SOFIA. Son mutuamente excluyentes según el
-        estado actual y requieren confirmación explícita.
-      </p>
+      <SectionHeading
+        icon={<Power className="h-4.5 w-4.5" />}
+        title="Panel de gobernanza"
+        subtitle="Acciones globales, mutuamente excluyentes según el estado actual y siempre con confirmación explícita."
+        tone="ink"
+      />
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-[1.1rem] border border-stone-200 bg-stone-50/70 p-3.5" data-testid="sofia-safety-governance-pause-group">
@@ -240,23 +279,11 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
             <StatusBadge tone={status.globalPaused ? 'blocked' : 'success'} label={status.globalPaused ? 'Pausada' : 'Activa'} />
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={status.globalPaused || pauseGlobal.isPending}
-              onClick={handlePause}
-              data-testid="sofia-safety-action-pause"
-            >
+            <Button size="sm" variant="secondary" disabled={status.globalPaused || pauseGlobal.isPending} onClick={handlePause} data-testid="sofia-safety-action-pause">
               <Pause className="h-4 w-4" />
               {pauseGlobal.isPending ? 'Pausando…' : 'Pausar SOFIA'}
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={!status.globalPaused || resumeGlobal.isPending}
-              onClick={handleResume}
-              data-testid="sofia-safety-action-resume"
-            >
+            <Button size="sm" variant="secondary" disabled={!status.globalPaused || resumeGlobal.isPending} onClick={handleResume} data-testid="sofia-safety-action-resume">
               <Play className="h-4 w-4" />
               {resumeGlobal.isPending ? 'Reanudando…' : 'Reanudar SOFIA'}
             </Button>
@@ -276,7 +303,7 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
               onClick={handleActivateKillSwitch}
               data-testid="sofia-safety-action-killswitch-activate"
             >
-              <Power className="h-4 w-4" />
+              <Siren className="h-4 w-4" />
               {activateKill.isPending ? 'Activando…' : 'Activar kill-switch'}
             </Button>
             <Button
@@ -315,6 +342,12 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
 /*  (c) Readiness de producción                                        */
 /* ------------------------------------------------------------------ */
 
+const CHECKLIST_ACCENT: Record<'PASS' | 'WARNING' | 'BLOCKED', string> = {
+  PASS: 'border-l-emerald-400',
+  WARNING: 'border-l-amber-400',
+  BLOCKED: 'border-l-red-400',
+};
+
 function ReadinessSection() {
   const readiness = useSofiaReadiness();
   return (
@@ -329,14 +362,12 @@ function ReadinessSection() {
     >
       {(data) => (
         <Card data-testid="sofia-safety-readiness-card">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Readiness de producción</p>
-            <StatusBadge tone={toneFromCheckStatus(data.status)} label={`Estado: ${data.status}`} data-testid="sofia-safety-readiness-status" />
-          </div>
-
-          <p className="mt-2 text-[12.5px] leading-5.5 text-stone-600">
-            Próxima acción requerida: <span className="font-semibold text-ink">{data.nextRequiredAction}</span>
-          </p>
+          <SectionHeading
+            icon={<ListChecks className="h-4.5 w-4.5" />}
+            title="Readiness de producción"
+            subtitle={`Próxima acción requerida: ${data.nextRequiredAction}`}
+            right={<StatusBadge tone={toneFromCheckStatus(data.status)} label={`Estado: ${data.status}`} data-testid="sofia-safety-readiness-status" />}
+          />
 
           {data.checklist.length === 0 ? (
             <EmptyState className="mt-3" title="Sin checklist" description="No hay elementos de readiness registrados." />
@@ -345,13 +376,16 @@ function ReadinessSection() {
               {data.checklist.map((item) => (
                 <li
                   key={item.key}
-                  className="flex flex-col gap-1.5 rounded-xl border border-stone-100 bg-stone-50/70 px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                  className={cn(
+                    'flex flex-col gap-1.5 rounded-xl border border-l-4 border-stone-100 bg-stone-50/70 px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between',
+                    CHECKLIST_ACCENT[item.status],
+                  )}
                   data-testid={`sofia-safety-readiness-item-${item.key}`}
                 >
                   <div className="min-w-0">
                     <p className="text-[12.5px] font-semibold text-stone-800">{item.label}</p>
                     <p className="mt-0.5 text-[11.5px] text-stone-600">{item.reason}</p>
-                    {item.evidence ? <p className="mt-0.5 truncate text-[11px] text-stone-600">Evidencia: {item.evidence}</p> : null}
+                    {item.evidence ? <p className="mt-0.5 truncate text-[11px] text-stone-600" title={item.evidence}>Evidencia: {item.evidence}</p> : null}
                   </div>
                   <StatusBadge tone={toneFromCheckStatus(item.status)} className="shrink-0 self-start sm:self-center" />
                 </li>
@@ -410,16 +444,21 @@ function GovernanceEventsSection() {
       data-testid="sofia-safety-events"
     >
       {(data) => (
-        <Card data-testid="sofia-safety-events-card">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Timeline de eventos de gobernanza</p>
+        <Card data-testid="sofia-safety-events-card" className="h-full">
+          <SectionHeading icon={<History className="h-4.5 w-4.5" />} title="Timeline de eventos de gobernanza" tone="ink" />
           {data.length === 0 ? (
             <EmptyState className="mt-3" title="Sin eventos" description="No se han registrado eventos de gobernanza todavía." />
           ) : (
-            <ol className="mt-3.5 space-y-2.5" data-testid="sofia-safety-events-list">
+            <ol className="relative mt-3.5 space-y-0" data-testid="sofia-safety-events-list">
               {data.map((event, index) => (
-                <li key={`${event.type}-${event.createdAt}-${index}`} className="flex gap-3 rounded-xl border border-stone-100 bg-stone-50/70 px-3.5 py-2.5">
-                  <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-stone-600" aria-hidden="true" />
-                  <div className="min-w-0 flex-1">
+                <li key={`${event.type}-${event.createdAt}-${index}`} className="relative flex gap-3 pb-4 last:pb-0">
+                  {index < data.length - 1 && (
+                    <span className="absolute left-[0.9375rem] top-7 h-[calc(100%-1.25rem)] w-px bg-stone-200" aria-hidden="true" />
+                  )}
+                  <span className="relative z-10 flex h-[1.875rem] w-[1.875rem] shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 shadow-sm">
+                    <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0 flex-1 rounded-xl border border-stone-100 bg-stone-50/70 px-3.5 py-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[12px] font-bold text-ink">{event.type}</p>
                       <p className="text-[11px] text-stone-600">{formatDateTime(event.createdAt)}</p>
@@ -449,37 +488,49 @@ function AlertsSection() {
       errorTitle="No se pudo cargar las alertas"
       data-testid="sofia-safety-alerts"
     >
-      {(data) => (
-        <Card data-testid="sofia-safety-alerts-card">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Alertas</p>
-          {data.length === 0 ? (
-            <EmptyState className="mt-3" title="Sin alertas abiertas" description="No hay alertas registradas para SOFIA en este momento." />
-          ) : (
-            <ul className="mt-3.5 space-y-2.5" data-testid="sofia-safety-alerts-list">
-              {data.map((alert) => (
-                <li
-                  key={alert.id}
-                  className={cn(
-                    'rounded-xl border px-3.5 py-2.5',
-                    alert.severity === 'CRITICAL' ? 'border-red-200 bg-red-50' : alert.severity === 'WARNING' ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-stone-50/70',
-                  )}
-                  data-testid={`sofia-safety-alert-${alert.id}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[12.5px] font-bold text-ink">{alert.title}</p>
-                    <div className="flex items-center gap-1.5">
-                      <StatusBadge tone={toneFromAlertSeverity(alert.severity)} label={alert.severity} />
-                      <StatusBadge tone={alert.status === 'RESOLVED' ? 'success' : alert.status === 'ACKNOWLEDGED' ? 'pending' : 'warning'} label={alert.status} />
+      {(data) => {
+        const openCount = data.filter((alert) => alert.status === 'OPEN').length;
+        return (
+          <Card data-testid="sofia-safety-alerts-card" className="h-full">
+            <SectionHeading
+              icon={<Bell className="h-4.5 w-4.5" />}
+              title="Alertas"
+              tone={openCount > 0 ? 'warning' : 'ink'}
+              right={<StatusBadge tone={openCount > 0 ? 'warning' : 'success'} label={`${openCount} abiertas`} />}
+            />
+            {data.length === 0 ? (
+              <EmptyState className="mt-3" title="Sin alertas abiertas" description="No hay alertas registradas para SOFIA en este momento." />
+            ) : (
+              <ul className="mt-3.5 space-y-2.5" data-testid="sofia-safety-alerts-list">
+                {data.map((alert) => (
+                  <li
+                    key={alert.id}
+                    className={cn(
+                      'rounded-xl border px-3.5 py-2.5',
+                      alert.severity === 'CRITICAL'
+                        ? 'border-red-200 bg-red-50'
+                        : alert.severity === 'WARNING'
+                          ? 'border-amber-200 bg-amber-50'
+                          : 'border-stone-200 bg-stone-50/70',
+                    )}
+                    data-testid={`sofia-safety-alert-${alert.id}`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[12.5px] font-bold text-ink">{alert.title}</p>
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge tone={toneFromAlertSeverity(alert.severity)} label={alert.severity} />
+                        <StatusBadge tone={alert.status === 'RESOLVED' ? 'success' : alert.status === 'ACKNOWLEDGED' ? 'pending' : 'warning'} label={alert.status} />
+                      </div>
                     </div>
-                  </div>
-                  <p className="mt-1 text-[12px] text-stone-700">{alert.message}</p>
-                  <p className="mt-1 text-[11px] text-stone-600">{formatDateTime(alert.createdAt)}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
+                    <p className="mt-1 text-[12px] text-stone-700">{alert.message}</p>
+                    <p className="mt-1 text-[11px] text-stone-600">{formatDateTime(alert.createdAt)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        );
+      }}
     </QueryStateBoundary>
   );
 }

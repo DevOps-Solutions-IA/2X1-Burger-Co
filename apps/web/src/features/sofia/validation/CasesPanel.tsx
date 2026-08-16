@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { StatusBadge, QueryStateBoundary } from '@/components/sofia';
+import { ArrowRight, ListFilter, X } from 'lucide-react';
+import { StatusBadge, QueryStateBoundary, Pager } from '@/components/sofia';
 import { Card } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -10,19 +11,25 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import {
   useSofiaCustomerServiceCases,
   useSofiaCustomerServiceCase,
   useSofiaCustomerServiceTransition,
 } from '@/features/sofia/queries';
 import type { SofiaCustomerServiceCaseDetail, SofiaCustomerServiceCaseSummary } from '@/features/sofia/contracts';
-import { caseStatusLabel, formatCaseCategory, nextCaseStatus, toneFromCaseStatus, truncateReferenceId } from './labels';
-import { Pager } from './Pager';
+import { CASE_ICON, caseStatusLabel, formatCaseCategory, nextCaseStatus, toneFromCaseStatus, truncateReferenceId, TONE_AVATAR_CLASS } from './labels';
 
 const PAGE_SIZE = 10;
 const CASE_STATUS_OPTIONS = ['OPEN', 'HUMAN_REQUIRED', 'HUMAN_TAKEN', 'RESOLVED', 'CLOSED'] as const;
 
-function ReferenceChips({ item }: { item: Pick<SofiaCustomerServiceCaseSummary, 'orderCheckoutId' | 'orderTicketId' | 'paymentIntentId' | 'deliveryIssueId'> }) {
+function ReferenceChips({
+  item,
+  'data-testid': testId,
+}: {
+  item: Pick<SofiaCustomerServiceCaseSummary, 'orderCheckoutId' | 'orderTicketId' | 'paymentIntentId' | 'deliveryIssueId'>;
+  'data-testid'?: string;
+}) {
   const refs: Array<{ label: string; id: string }> = [];
   if (item.orderCheckoutId) refs.push({ label: 'Checkout', id: item.orderCheckoutId });
   if (item.orderTicketId) refs.push({ label: 'Ticket', id: item.orderTicketId });
@@ -32,7 +39,7 @@ function ReferenceChips({ item }: { item: Pick<SofiaCustomerServiceCaseSummary, 
   if (refs.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5" data-testid={testId}>
       {refs.map((ref) => (
         <Badge key={`${ref.label}-${ref.id}`} tone="neutral">
           {ref.label}: {truncateReferenceId(ref.id)}
@@ -56,9 +63,13 @@ export function CasesPanel() {
   });
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]" data-testid="sofia-validation-cases-panel">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_25rem]" data-testid="sofia-validation-cases-panel">
       <Card data-testid="sofia-validation-cases-list-card">
         <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-center gap-1.5 pb-2.5 text-stone-500">
+            <ListFilter className="h-4 w-4" aria-hidden="true" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">Filtros</span>
+          </div>
           <div className="min-w-[11rem]">
             <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-cases-filter-status">
               Estado
@@ -70,6 +81,7 @@ export function CasesPanel() {
               onChange={(event) => {
                 setStatus(event.target.value);
                 setPage(1);
+                setSelectedId(null);
               }}
               data-testid="sofia-validation-cases-filter-status"
             >
@@ -92,6 +104,7 @@ export function CasesPanel() {
               onChange={(event) => {
                 setCategory(event.target.value);
                 setPage(1);
+                setSelectedId(null);
               }}
               placeholder="ej. DELIVERY_ISSUE"
               data-testid="sofia-validation-cases-filter-category"
@@ -114,45 +127,66 @@ export function CasesPanel() {
                 <div data-testid="sofia-validation-cases-empty">
                   <EmptyState
                     title="No hay casos con estos filtros"
-                    description="Cuando SOFIA escale una conversación a un humano, el caso aparecerá aquí para su gestión."
+                    description="Cuando SOFIA escale una conversación a un humano, el caso aparecerá aquí para su gestión y trazabilidad."
                   />
                 </div>
               ) : (
                 <>
+                  <p className="mb-2.5 text-[11.5px] font-medium text-stone-500" data-testid="sofia-validation-cases-count">
+                    {data.total} {data.total === 1 ? 'caso' : 'casos'} con los filtros actuales
+                  </p>
                   <ul className="space-y-2" data-testid="sofia-validation-cases-rows">
                     {data.items.map((item) => {
                       const isActive = item.id === selectedId;
+                      const tone = toneFromCaseStatus(item.status);
                       return (
                         <li key={item.id}>
                           <button
                             type="button"
                             onClick={() => setSelectedId(item.id)}
-                            className={
-                              'flex w-full flex-col gap-1.5 rounded-[1.1rem] border px-3.5 py-3 text-left transition-colors ' +
-                              (isActive
+                            aria-current={isActive ? 'true' : undefined}
+                            className={cn(
+                              'flex w-full items-start gap-3 rounded-2xl border px-4 py-3.5 text-left transition-[border-color,background-color,box-shadow]',
+                              isActive
                                 ? 'border-brand-400 bg-brand-50/70 shadow-soft'
-                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40')
-                            }
+                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40',
+                            )}
                             data-testid={`sofia-validation-case-row-${item.id}`}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
+                            <span
+                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])}
+                              aria-hidden="true"
+                            >
+                              <CASE_ICON className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="flex items-start justify-between gap-2">
                                 <p className="truncate text-[13px] font-semibold text-ink">{formatCaseCategory(item.category)}</p>
-                                <p className="mt-0.5 text-[12px] text-stone-600">
-                                  {item.customer?.displayName ?? 'Sin cliente identificado'} · Origen: {item.source}
-                                </p>
+                                <StatusBadge tone={tone} label={caseStatusLabel(item.status)} className="shrink-0" />
                               </div>
-                              <StatusBadge tone={toneFromCaseStatus(item.status)} label={caseStatusLabel(item.status)} />
+                              <p className="truncate text-[12px] text-stone-600">
+                                {item.customer?.displayName ?? 'Sin cliente identificado'} · Origen: {item.source}
+                              </p>
+                              {item.sanitizedSummary && <p className="truncate text-[12px] text-stone-600" title={item.sanitizedSummary}>{item.sanitizedSummary}</p>}
+                              <ReferenceChips item={item} />
+                              <p className="text-[11px] text-stone-500">{formatDateTime(item.updatedAt)}</p>
                             </div>
-                            {item.sanitizedSummary && <p className="truncate text-[12px] text-stone-600">{item.sanitizedSummary}</p>}
-                            <ReferenceChips item={item} />
-                            <p className="text-[11px] text-stone-600">{formatDateTime(item.updatedAt)}</p>
                           </button>
                         </li>
                       );
                     })}
                   </ul>
-                  <Pager page={data.page} limit={data.limit} total={data.total} onPageChange={setPage} data-testid="sofia-validation-cases-pager" />
+                  <div className="mt-3">
+                    <Pager
+                      page={data.page}
+                      limit={data.limit}
+                      total={data.total}
+                      itemsLabel={data.total === 1 ? 'caso' : 'casos'}
+                      onPrev={() => setPage((current) => Math.max(1, current - 1))}
+                      onNext={() => setPage((current) => current + 1)}
+                      data-testid="sofia-validation-cases-pager"
+                    />
+                  </div>
                 </>
               )
             }
@@ -161,9 +195,11 @@ export function CasesPanel() {
       </Card>
 
       {selectedId ? (
-        <CaseDetail caseId={selectedId} onClosed={() => setSelectedId(null)} />
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <CaseDetail caseId={selectedId} onClosed={() => setSelectedId(null)} />
+        </div>
       ) : (
-        <Card data-testid="sofia-validation-case-detail-placeholder">
+        <Card className="lg:sticky lg:top-4 lg:self-start" data-testid="sofia-validation-case-detail-placeholder">
           <EmptyState title="Ningún caso seleccionado" description="Elige un caso de la lista para ver su línea de tiempo y transicionarlo al siguiente estado." />
         </Card>
       )}
@@ -215,23 +251,40 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
       >
         {(caseData) => {
           const next = nextCaseStatus(caseData.status);
+          const tone = toneFromCaseStatus(caseData.status);
           return (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-600">Caso</p>
-                  <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{formatCaseCategory(caseData.category)}</h2>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])} aria-hidden="true">
+                    <CASE_ICON className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">Caso de servicio al cliente</p>
+                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{formatCaseCategory(caseData.category)}</h2>
+                    <div className="mt-1.5">
+                      <StatusBadge tone={tone} label={caseStatusLabel(caseData.status)} />
+                    </div>
+                  </div>
                 </div>
-                <button type="button" onClick={onClosed} className="text-[11px] font-semibold text-stone-600 hover:text-ink" data-testid="sofia-validation-case-detail-close">
-                  Cerrar
+                <button
+                  type="button"
+                  onClick={onClosed}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-500 transition-[background-color] hover:bg-stone-100"
+                  aria-label="Cerrar detalle del caso"
+                  data-testid="sofia-validation-case-detail-close"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
 
-              <StatusBadge tone={toneFromCaseStatus(caseData.status)} label={caseStatusLabel(caseData.status)} />
+              {caseData.sanitizedSummary && (
+                <p className="rounded-2xl border border-stone-100 bg-stone-50/70 px-3.5 py-3 text-[12.5px] leading-5.5 text-stone-700">
+                  {caseData.sanitizedSummary}
+                </p>
+              )}
 
-              {caseData.sanitizedSummary && <p className="text-[12.5px] text-stone-700">{caseData.sanitizedSummary}</p>}
-
-              <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3.5 text-[12px]">
                 <DetailField label="Cliente" value={caseData.customer?.displayName ?? 'Sin identificar'} />
                 <DetailField label="Origen" value={caseData.source} />
                 <DetailField label="Asignado a" value={caseData.assignedActor?.fullName ?? 'Sin asignar'} />
@@ -240,22 +293,23 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                 <DetailField label="Actualizado" value={formatDateTime(caseData.updatedAt)} />
               </dl>
 
-              <ReferenceChips item={caseData} />
+              <ReferenceChips item={caseData} data-testid="sofia-validation-case-detail-references" />
 
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600">Línea de tiempo</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Línea de tiempo</p>
                 {caseData.events.length === 0 ? (
                   <p className="mt-1.5 text-[12px] text-stone-600">Sin eventos registrados todavía.</p>
                 ) : (
-                  <ol className="mt-1.5 space-y-1.5" data-testid="sofia-validation-case-timeline">
+                  <ol className="mt-2.5 space-y-3 border-l border-stone-200 pl-4" data-testid="sofia-validation-case-timeline">
                     {caseData.events.map((event) => (
-                      <li key={event.id} className="rounded-[0.9rem] border border-stone-200 bg-white px-3 py-2 text-[12px]">
+                      <li key={event.id} className="relative text-[12px]">
+                        <span className="absolute -left-[1.32rem] top-0.5 h-4 w-4 rounded-full border-2 border-white bg-brand-500" aria-hidden="true" />
                         <p className="font-semibold text-ink">
                           {event.action}
                           {event.fromStatus ? ` · ${caseStatusLabel(event.fromStatus)} → ${caseStatusLabel(event.toStatus)}` : ` · ${caseStatusLabel(event.toStatus)}`}
                         </p>
                         {event.reasonCode && <p className="mt-0.5 text-stone-600">Motivo: {event.reasonCode}</p>}
-                        <p className="mt-0.5 text-stone-600">{formatDateTime(event.createdAt)}</p>
+                        <p className="mt-0.5 text-stone-500">{formatDateTime(event.createdAt)}</p>
                       </li>
                     ))}
                   </ol>
@@ -268,10 +322,13 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                     event.preventDefault();
                     handleTransition(caseData, next);
                   }}
-                  className="space-y-2 border-t border-stone-200 pt-4"
+                  className="space-y-2 rounded-2xl border border-brand-100 bg-brand-50/40 p-3.5"
                   data-testid="sofia-validation-case-transition-form"
                 >
-                  <p className="text-[12px] font-semibold text-ink">Mover a «{caseStatusLabel(next)}»</p>
+                  <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    Mover a «{caseStatusLabel(next)}»
+                  </p>
                   <Input
                     value={reasonCode}
                     onChange={(event) => setReasonCode(event.target.value)}
@@ -289,6 +346,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                   <Button
                     type="submit"
                     size="sm"
+                    className="w-full"
                     disabled={transition.isPending || !reasonCode.trim() || (next === 'RESOLVED' && !resolutionCode.trim())}
                     data-testid="sofia-validation-case-transition-submit"
                   >
@@ -296,7 +354,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                   </Button>
                 </form>
               ) : (
-                <p className="rounded-[1rem] border border-stone-200 bg-stone-50 px-3 py-2.5 text-[12px] text-stone-600" data-testid="sofia-validation-case-not-actionable">
+                <p className="rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-[12px] text-stone-600" data-testid="sofia-validation-case-not-actionable">
                   Este caso está cerrado y no admite más transiciones.
                 </p>
               )}
@@ -311,8 +369,8 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-600">{label}</dt>
-      <dd className="mt-0.5 truncate font-semibold text-ink">{value}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">{label}</dt>
+      <dd className="mt-0.5 break-words font-semibold text-ink">{value}</dd>
     </div>
   );
 }

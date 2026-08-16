@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { StatusBadge } from '@/components/sofia';
+import { ChevronDown, ChevronRight, Inbox as InboxIcon, MessagesSquare } from 'lucide-react';
+import { StatCard, StatusBadge } from '@/components/sofia';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime, formatNumber } from '@/lib/format';
@@ -14,8 +14,10 @@ import {
   CONVERSATION_SIGNAL_LABEL,
   type ConversationSignalKey,
   activeSignals,
+  avatarClassFromId,
   findConversationById,
   firstConversationId,
+  initialsFromLabel,
   toneFromSignal,
 } from './format';
 
@@ -52,28 +54,39 @@ function ConversationListItem({
         onClick={onSelect}
         aria-pressed={isSelected}
         className={cn(
-          'w-full rounded-xl border px-3.5 py-2.5 text-left transition-colors',
+          'flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow]',
           isSelected ? 'border-brand-500 bg-brand-50/70 shadow-soft' : 'border-stone-100 bg-white hover:border-brand-200 hover:bg-stone-50',
         )}
         data-testid={`sofia-conversations-item-${conversation.id}`}
       >
-        <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-[12.5px] font-bold text-ink">{conversation.customerLabel}</p>
-          {conversation.unreadCount > 0 ? (
-            <span className="flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-ink">
-              {conversation.unreadCount}
-            </span>
-          ) : null}
-        </div>
-        <p className="mt-0.5 truncate text-[11.5px] text-stone-600">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
-        <p className="mt-1 truncate text-[12px] text-stone-700">{conversation.lastMessagePreview ?? 'Sin mensajes todavía'}</p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {signals.map((key) => (
-            <StatusBadge key={key} tone={toneFromSignal(key)} label={CONVERSATION_SIGNAL_LABEL[key]} withDot={false} />
-          ))}
-          {conversation.lastMessageAt ? (
-            <span className="ml-auto shrink-0 text-[10.5px] text-stone-600">{formatDateTime(conversation.lastMessageAt)}</span>
-          ) : null}
+        <span
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+            avatarClassFromId(conversation.id),
+          )}
+          aria-hidden="true"
+        >
+          {initialsFromLabel(conversation.customerLabel)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-[12.5px] font-bold text-ink">{conversation.customerLabel}</p>
+            {conversation.unreadCount > 0 ? (
+              <span className="flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-ink">
+                {conversation.unreadCount}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 truncate text-[11.5px] text-stone-600">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
+          <p className="mt-1 truncate text-[12px] text-stone-700">{conversation.lastMessagePreview ?? 'Sin mensajes todavía'}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {signals.map((key) => (
+              <StatusBadge key={key} tone={toneFromSignal(key)} label={CONVERSATION_SIGNAL_LABEL[key]} withDot={false} />
+            ))}
+            {conversation.lastMessageAt ? (
+              <span className="ml-auto shrink-0 text-[10.5px] text-stone-600">{formatDateTime(conversation.lastMessageAt)}</span>
+            ) : null}
+          </div>
         </div>
       </button>
     </li>
@@ -83,6 +96,7 @@ function ConversationListItem({
 function ConversationGroupSection({
   groupKey,
   label,
+  hint,
   total,
   hiddenByDefault,
   conversations,
@@ -91,6 +105,7 @@ function ConversationGroupSection({
 }: {
   groupKey: string;
   label: string;
+  hint: string;
   total: number;
   hiddenByDefault: boolean | undefined;
   conversations: SofiaInboxConversation[];
@@ -108,12 +123,14 @@ function ConversationGroupSection({
         aria-expanded={expanded}
         data-testid={`sofia-conversations-group-${groupKey}-toggle`}
       >
-        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-stone-600">
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          {label}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-stone-500" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-stone-500" />}
+          <span className="truncate text-[11px] font-bold uppercase tracking-[0.1em] text-stone-600">{label}</span>
+          {hiddenByDefault ? <StatusBadge tone="read_only" label="Oculto por defecto" className="hidden sm:inline-flex" /> : null}
         </span>
-        <span className="numeric-tabular text-[11px] font-bold text-stone-600 [font-variant-numeric:tabular-nums]">{formatNumber(total)}</span>
+        <span className="numeric-tabular shrink-0 text-[11px] font-bold text-stone-600 [font-variant-numeric:tabular-nums]">{formatNumber(total)}</span>
       </button>
+      {expanded && <p className="px-1 pb-1.5 text-[10.5px] text-stone-500">{hint}</p>}
 
       {expanded ? (
         conversations.length === 0 ? (
@@ -143,17 +160,15 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
 
   return (
     <div className="space-y-4">
-      <Card data-testid="sofia-conversations-summary">
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
-          <SummaryStat label="Total" value={inbox.summary.totalConversations} />
-          <SummaryStat label="Real" value={inbox.summary.realConversations} />
-          <SummaryStat label="Val. interna" value={inbox.summary.internalValidationConversations} />
-          <SummaryStat label="Sandbox" value={inbox.summary.sandboxConversations} />
-          <SummaryStat label="Histórico" value={inbox.summary.historicalConversations} />
-          <SummaryStat label="Pend. revisión" value={inbox.summary.pendingReview} accent="warning" />
-          <SummaryStat label="Enviados" value={inbox.summary.outboundSent} />
-        </div>
-      </Card>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7" data-testid="sofia-conversations-summary">
+        <StatCard label="Total" value={formatNumber(inbox.summary.totalConversations)} icon={<InboxIcon className="h-4 w-4" />} />
+        <StatCard label="Real" value={formatNumber(inbox.summary.realConversations)} />
+        <StatCard label="Validación interna" value={formatNumber(inbox.summary.internalValidationConversations)} />
+        <StatCard label="Sandbox" value={formatNumber(inbox.summary.sandboxConversations)} />
+        <StatCard label="Histórico" value={formatNumber(inbox.summary.historicalConversations)} />
+        <StatCard label="Pendientes de revisión" value={formatNumber(inbox.summary.pendingReview)} accent="warning" />
+        <StatCard label="Enviados" value={formatNumber(inbox.summary.outboundSent)} icon={<MessagesSquare className="h-4 w-4" />} />
+      </div>
 
       <div className="flex flex-wrap gap-1.5" data-testid="sofia-conversations-filters" role="group" aria-label="Filtrar por señal">
         {FILTER_CHIPS.map((chip) => {
@@ -165,8 +180,8 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
               onClick={() => setFilter(chip.key)}
               aria-pressed={isActive}
               className={cn(
-                'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition-colors',
-                isActive ? 'border-brand-500 bg-brand-500 text-ink shadow-soft' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200',
+                'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition-[background-color,border-color,box-shadow]',
+                isActive ? 'border-brand-500 bg-brand-500 text-ink shadow-soft' : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200 hover:bg-brand-50/40',
               )}
               data-testid={`sofia-conversations-filter-${chip.key}`}
             >
@@ -191,6 +206,7 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
                     key={group.key}
                     groupKey={group.key}
                     label={group.label}
+                    hint={group.hint}
                     total={groupData.total}
                     hiddenByDefault={groupData.hiddenByDefault}
                     conversations={filtered}
@@ -207,17 +223,6 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
           <ConversationDetailPanel conversation={selectedConversation} />
         </div>
       </div>
-    </div>
-  );
-}
-
-function SummaryStat({ label, value, accent = 'ink' }: { label: string; value: number; accent?: 'ink' | 'warning' }) {
-  return (
-    <div className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2.5">
-      <p className="truncate text-[9.5px] font-semibold uppercase tracking-[0.1em] text-stone-500">{label}</p>
-      <p className={cn('numeric-tabular mt-1 text-[1rem] font-bold [font-variant-numeric:tabular-nums]', accent === 'warning' ? 'text-amber-800' : 'text-ink')}>
-        {formatNumber(value)}
-      </p>
     </div>
   );
 }

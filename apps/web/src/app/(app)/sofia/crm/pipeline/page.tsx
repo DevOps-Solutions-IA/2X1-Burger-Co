@@ -60,8 +60,11 @@ export default function SofiaCrmPipelinePage() {
 
             return (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-stone-200/90 bg-white p-3.5 shadow-soft">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.35rem] border border-stone-200/90 bg-white p-4 shadow-soft">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-700" aria-hidden="true">
+                      <Workflow className="h-5 w-5" />
+                    </span>
                     {result.data.length > 1 ? (
                       <div className="min-w-[14rem]">
                         <Select
@@ -77,7 +80,7 @@ export default function SofiaCrmPipelinePage() {
                         </Select>
                       </div>
                     ) : (
-                      <p className="text-[14px] font-extrabold text-ink">{activePipeline.name}</p>
+                      <p className="break-words text-[14px] font-extrabold text-ink">{activePipeline.name}</p>
                     )}
                     <StatusBadge
                       tone={activePipeline.status === 'ACTIVE' ? 'success' : 'read_only'}

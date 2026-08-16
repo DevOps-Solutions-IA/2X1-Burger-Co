@@ -1,10 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Layers } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
-import { QueryStateBoundary } from '@/components/sofia';
+import { Pager, QueryStateBoundary, StatCard } from '@/components/sofia';
 import { useSofiaCrmSegments } from '@/features/sofia/queries';
 import { SegmentCard } from './SegmentCard';
 
@@ -25,7 +24,17 @@ export function SegmentsListView() {
       data-testid="sofia-crm-segments-list"
     >
       {(result) => (
-        <div className="space-y-3" data-testid="sofia-crm-segments-page-content">
+        <div className="space-y-4" data-testid="sofia-crm-segments-page-content">
+          <StatCard
+            label="Segmentos totales"
+            value={String(result.pagination.total)}
+            hint="Conteo real desde el backend del CRM."
+            icon={<Layers className="h-5 w-5" />}
+            accent="brand"
+            className="max-w-xs"
+            data-testid="sofia-crm-segments-total-stat"
+          />
+
           {result.data.length === 0 ? (
             <EmptyState
               icon={<Layers className="h-5 w-5" />}
@@ -34,47 +43,23 @@ export function SegmentsListView() {
               data-testid="sofia-crm-segments-empty"
             />
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="sofia-crm-segments-grid">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3" data-testid="sofia-crm-segments-grid">
               {result.data.map((segment) => (
                 <SegmentCard key={segment.id} segment={segment} />
               ))}
             </div>
           )}
 
-          {result.pagination.pages > 1 && (
-            <div
-              className="flex items-center justify-between gap-3 rounded-[1.35rem] border border-stone-200/90 bg-white px-4 py-3"
-              data-testid="sofia-crm-segments-pagination"
-            >
-              <p className="text-[12px] font-semibold text-stone-600">
-                Página {result.pagination.page} de {result.pagination.pages} &middot; {result.pagination.total} segmentos
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  data-testid="sofia-crm-segments-prev"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Anterior
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={page >= result.pagination.pages}
-                  onClick={() => setPage((current) => Math.min(result.pagination.pages, current + 1))}
-                  data-testid="sofia-crm-segments-next"
-                >
-                  Siguiente
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <Pager
+            page={result.pagination.page}
+            limit={result.pagination.limit}
+            total={result.pagination.total}
+            pages={result.pagination.pages}
+            itemsLabel="segmentos"
+            onPrev={() => setPage((current) => Math.max(1, current - 1))}
+            onNext={() => setPage((current) => current + 1)}
+            data-testid="sofia-crm-segments-pagination"
+          />
         </div>
       )}
     </QueryStateBoundary>

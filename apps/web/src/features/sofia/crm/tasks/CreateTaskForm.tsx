@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { ListPlus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -76,10 +77,17 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
 
   return (
     <Card data-testid="sofia-crm-tasks-create-form">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Nueva tarea</p>
-      <h2 className="mt-1 text-[1.05rem] font-bold text-ink">Crear tarea o seguimiento</h2>
-      <p className="mt-1 text-[12.5px] leading-5.5 text-stone-600">
-        Necesitas el ID real de un cliente existente — consulta la vista de Clientes si no lo tienes a mano.
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-700" aria-hidden="true">
+          <ListPlus className="h-4.5 w-4.5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-500">Nueva tarea</p>
+          <h2 className="text-[1.05rem] font-bold leading-tight text-ink">Crear tarea o seguimiento</h2>
+        </div>
+      </div>
+      <p className="mt-2.5 text-[12.5px] leading-5.5 text-stone-600">
+        Necesitas el ID real de un cliente existente — consulta el directorio de clientes si no lo tienes a mano.
       </p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
@@ -143,6 +151,7 @@ export function CreateTaskForm({ onCreated }: { onCreated?: () => void }) {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Detalle interno del seguimiento…"
+            rows={3}
             data-testid="sofia-crm-tasks-textarea-description"
           />
         </Field>

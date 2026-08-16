@@ -11,15 +11,15 @@ export default function SofiaValidationPage() {
 
   return (
     <ControlTowerFrame>
-      <div className="space-y-4" data-testid="sofia-validation-page">
+      <div className="space-y-5" data-testid="sofia-validation-page">
         <PageHeader
-          eyebrow="Validación"
-          title="Validación y aprobación"
+          eyebrow="Torre de Control"
+          title="Validación"
           description="Aprueba o rechaza comandos gobernados de SOFIA (SecureCommand) y gestiona las escalaciones de servicio al cliente que requieren intervención humana."
           data-testid="sofia-validation-header"
         />
 
-        <ValidationTabs active={tab} onSelect={setTab} />
+        <ValidationTabs active={tab} onSelect={setTab} data-testid="sofia-validation-tabs" />
 
         {tab === 'commands' ? <CommandsPanel /> : <CasesPanel />}
       </div>

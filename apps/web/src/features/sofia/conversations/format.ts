@@ -3,11 +3,11 @@ import type { SofiaConversationsInbox, SofiaInboxConversation } from '@/features
 
 export type ConversationScopeKey = keyof Pick<SofiaConversationsInbox, 'real' | 'internalValidation' | 'sandbox' | 'historical'>;
 
-export const CONVERSATION_SCOPE_GROUPS: { key: ConversationScopeKey; label: string }[] = [
-  { key: 'real', label: 'Real' },
-  { key: 'internalValidation', label: 'Validación interna' },
-  { key: 'sandbox', label: 'Sandbox' },
-  { key: 'historical', label: 'Histórico' },
+export const CONVERSATION_SCOPE_GROUPS: { key: ConversationScopeKey; label: string; hint: string }[] = [
+  { key: 'real', label: 'Real', hint: 'Canal WhatsApp receive-only en producción supervisada' },
+  { key: 'internalValidation', label: 'Validación interna', hint: 'Pruebas controladas del equipo' },
+  { key: 'sandbox', label: 'Sandbox', hint: 'Simulación — no es evidencia real' },
+  { key: 'historical', label: 'Histórico', hint: 'Conversaciones archivadas' },
 ];
 
 export type ConversationSignalKey = keyof SofiaInboxConversation['signals'];
@@ -82,4 +82,29 @@ export function firstConversationId(inbox: SofiaConversationsInbox): string | nu
     if (first) return first.id;
   }
   return null;
+}
+
+/** Iniciales para el avatar circular de la lista de conversaciones. */
+export function initialsFromLabel(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  if (!first) return '?';
+  const second = parts[1];
+  if (!second) return first.slice(0, 2).toUpperCase();
+  return (first.charAt(0) + second.charAt(0)).toUpperCase();
+}
+
+/** Color de avatar determinístico según el id, solo variación visual — sin significado semántico. */
+const AVATAR_PALETTE = [
+  'bg-brand-100 text-brand-800',
+  'bg-sky-100 text-sky-800',
+  'bg-emerald-100 text-emerald-800',
+  'bg-stone-200 text-stone-700',
+  'bg-amber-100 text-amber-800',
+];
+
+export function avatarClassFromId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length] ?? 'bg-stone-200 text-stone-700';
 }

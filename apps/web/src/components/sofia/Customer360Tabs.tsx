@@ -28,10 +28,10 @@ export function Customer360Tabs({
             aria-selected={isActive}
             onClick={() => onSelect(section.key)}
             className={cn(
-              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
+              'flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[12px] font-semibold transition-[background-color,border-color,box-shadow]',
               isActive
                 ? 'border-brand-500 bg-brand-500 text-ink shadow-soft'
-                : 'border-stone-200 bg-white text-stone-600 hover:border-brand-200',
+                : 'border-stone-200 bg-white text-stone-600 hover:border-brand-300 hover:bg-brand-50/60',
             )}
             data-testid={`sofia-customer360-tab-${section.key}`}
           >

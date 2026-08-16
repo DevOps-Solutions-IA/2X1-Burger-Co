@@ -28,7 +28,7 @@ export function StatusBadge({
       )}
       data-testid={testId}
     >
-      {withDot && <span className={cn('h-1.5 w-1.5 rounded-full', SOFIA_STATUS_TONE_DOT_CLASS[tone])} aria-hidden="true" />}
+      {withDot && <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', SOFIA_STATUS_TONE_DOT_CLASS[tone])} aria-hidden="true" />}
       {label ?? SOFIA_STATUS_TONE_LABEL[tone]}
     </span>
   );

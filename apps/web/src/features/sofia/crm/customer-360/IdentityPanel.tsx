@@ -37,14 +37,14 @@ export function IdentityPanel({ customer }: { customer: SofiaCrmCustomerDetail }
         <h3 className="text-[13.5px] font-extrabold text-ink">Identidades enmascaradas</h3>
         {customer.identities.length === 0 ? (
           <div className="mt-3">
-            <EmptyState icon={<Phone className="h-5 w-5" />} title="Sin identidades" description="Este cliente no tiene identidades registradas todavía." />
+            <EmptyState icon={<Phone className="h-5 w-5" aria-hidden="true" />} title="Sin identidades" description="Este cliente no tiene identidades registradas todavía." />
           </div>
         ) : (
           <ul className="mt-3 space-y-2">
             {customer.identities.map((identity) => (
               <li key={identity.id} className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-stone-600 shadow-sm">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-stone-600 shadow-sm" aria-hidden="true">
                     <Phone className="h-4 w-4" />
                   </div>
                   <div>

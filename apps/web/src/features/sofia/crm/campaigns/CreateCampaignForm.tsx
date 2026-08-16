@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import { StatusBanner } from '@/components/ui/status-banner';
 import { useSofiaCrmCreateCampaign, useSofiaCrmSegments } from '@/features/sofia/queries';
 import { ApiError } from '@/lib/api';
 
-/** Formulario de creación de campañas. Nunca envía WhatsApp real — solo crea el registro en estado DRAFT. */
+/** Crea una campaña en estado borrador. Nunca envía WhatsApp real — el envío queda siempre bloqueado por diseño. */
 export function CreateCampaignForm({ onCreated }: { onCreated?: () => void }) {
   const segments = useSofiaCrmSegments(1, 100);
   const createCampaign = useSofiaCrmCreateCampaign();
@@ -49,10 +50,17 @@ export function CreateCampaignForm({ onCreated }: { onCreated?: () => void }) {
 
   return (
     <Card data-testid="sofia-crm-campaigns-create-form">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Nueva campaña</p>
-      <h2 className="mt-1 text-[1.05rem] font-bold text-ink">Crear campaña de WhatsApp</h2>
-      <p className="mt-1 text-[12.5px] leading-5.5 text-stone-600">
-        La campaña se crea en estado borrador. El envío real de WhatsApp está bloqueado por diseño en todo el sistema.
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-700" aria-hidden="true">
+          <Sparkles className="h-4.5 w-4.5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-500">Nueva campaña</p>
+          <h2 className="text-[1.05rem] font-bold leading-tight text-ink">Crear campaña de WhatsApp</h2>
+        </div>
+      </div>
+      <p className="mt-2.5 text-[12.5px] leading-5.5 text-stone-600">
+        La campaña se crea en estado borrador. El envío real de WhatsApp está siempre bloqueado por diseño en todo el sistema.
       </p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
@@ -80,11 +88,12 @@ export function CreateCampaignForm({ onCreated }: { onCreated?: () => void }) {
           </Select>
         </Field>
 
-        <Field label="Plantilla de mensaje" required hint="Texto que se registrará como intento de envío, nunca se despacha realmente.">
+        <Field label="Plantilla de mensaje" required hint="Este texto queda registrado como intento de envío; nunca se despacha realmente.">
           <Textarea
             value={messageTemplate}
             onChange={(event) => setMessageTemplate(event.target.value)}
-            placeholder="Ej. Hola {{nombre}}, tenemos una promo especial para ti…"
+            placeholder="Ej. Hola {{nombre}}, tenemos una promoción especial para ti…"
+            rows={4}
             data-testid="sofia-crm-campaigns-textarea-template"
           />
         </Field>

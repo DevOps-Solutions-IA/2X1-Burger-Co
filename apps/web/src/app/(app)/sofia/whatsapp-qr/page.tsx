@@ -1,6 +1,6 @@
 'use client';
 
-import { ControlTowerFrame, PageHeader, QueryStateBoundary } from '@/components/sofia';
+import { ControlTowerFrame, PageHeader, QueryStateBoundary, StatusBadge } from '@/components/sofia';
 import { useSofiaQrStatus } from '@/features/sofia/queries';
 import { QrStatusCard } from '@/features/sofia/whatsapp-qr/QrStatusCard';
 
@@ -13,7 +13,15 @@ export default function SofiaWhatsappQrPage() {
         <PageHeader
           eyebrow="Canal WhatsApp"
           title="Vinculación QR — receive-only"
-          description="SOFIA recibe y analiza mensajes de este canal. El envío real de WhatsApp permanece bloqueado en todo el sistema."
+          description="Estado del canal WhatsApp QR: conectado, esperando escaneo o desconectado. SOFIA recibe y analiza mensajes de este canal; el envío real permanece bloqueado en todo el sistema."
+          statusBadges={
+            status.data ? (
+              <>
+                <StatusBadge tone={status.data.connected ? 'success' : 'blocked'} label={status.data.connected ? 'Canal conectado' : 'Canal no conectado'} />
+                <StatusBadge tone="read_only" label="Receive-only" />
+              </>
+            ) : undefined
+          }
           data-testid="sofia-whatsapp-qr-header"
         />
 

@@ -1,120 +1,131 @@
 'use client';
 
 import Link from 'next/link';
-import { Activity, ArrowUpRight, ShieldCheck, Users } from 'lucide-react';
-import { ControlTowerFrame, PageHeader, QueryStateBoundary, StatusBadge, toneFromCheckStatus } from '@/components/sofia';
-import { useSofiaDashboardSummary, useSofiaMetricsSummary } from '@/features/sofia/queries';
-import { MetricCard } from '@/components/ui/metric-card';
+import { BarChart3, ClipboardCheck, ShieldAlert, ShieldCheck, UserCog, Users } from 'lucide-react';
+import {
+  ControlTowerFrame,
+  PageHeader,
+  QueryStateBoundary,
+  StatCard,
+  StatusBadge,
+  SOFIA_STATUS_TONE_LABEL,
+  toneFromCheckStatus,
+  type SofiaStatusTone,
+} from '@/components/sofia';
 import { Button } from '@/components/ui/button';
+import { useSofiaDashboardSummary, useSofiaMetricsSummary } from '@/features/sofia/queries';
+import { formatNumber } from '@/lib/format';
 
-function formatApprovalRate(approved: number, total: number): string {
-  if (total === 0) return 'Sin datos';
-  return `${Math.round((approved / total) * 100)}%`;
+/** El backend declara `productionReadinessStatus` como texto libre; se normaliza a los 3 tonos conocidos de readiness y se degrada a "unknown" ante cualquier otro valor. */
+function productionReadinessTone(status: string): SofiaStatusTone {
+  if (status === 'PASS' || status === 'WARNING' || status === 'BLOCKED') {
+    return toneFromCheckStatus(status);
+  }
+  return 'unknown';
 }
 
 export default function SofiaOverviewPage() {
-  const summary = useSofiaDashboardSummary();
-  const metricsToday = useSofiaMetricsSummary('today');
+  const dashboardQuery = useSofiaDashboardSummary();
+  const todayMetricsQuery = useSofiaMetricsSummary('today');
 
   return (
-    <ControlTowerFrame>
-      <QueryStateBoundary
-        isLoading={summary.isLoading}
-        isError={summary.isError}
-        error={summary.error}
-        data={summary.data}
-        loadingLabel="Cargando resumen de la Torre de Control…"
-        errorTitle="No se pudo cargar el resumen"
-        data-testid="sofia-overview"
-      >
-        {(dashboard) => (
-          <div className="space-y-4" data-testid="sofia-overview-page">
-            <PageHeader
-              eyebrow="Torre de Control"
-              title="Resumen"
-              description="Estado del comportamiento de SOFIA hoy: aprobación automática, conversaciones que requieren atención humana y salud de producción/seguridad. La operación de POS, Caja, Stock y Domicilios permanece intacta."
-              statusBadges={
-                <>
-                  <StatusBadge
-                    tone={toneFromCheckStatus(dashboard.security.productionReadinessStatus as 'PASS' | 'WARNING' | 'BLOCKED')}
-                    label={`Producción: ${dashboard.security.productionReadinessStatus}`}
-                    data-testid="sofia-overview-production-badge"
-                  />
-                  <StatusBadge tone="read_only" label="Receive-only" />
-                  <StatusBadge
-                    tone={dashboard.general.globalPaused ? 'blocked' : 'success'}
-                    label={dashboard.general.globalPaused ? 'SOFIA pausada' : 'SOFIA activa'}
-                  />
-                </>
-              }
-              actions={
-                <>
-                  <Button variant="secondary" size="sm" asChild>
-                    <Link href="/sofia/performance">
-                      Ver rendimiento
-                      <ArrowUpRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                  <Button variant="secondary" size="sm" asChild>
-                    <Link href="/sofia/validation">
-                      Ir a validación
-                      <ArrowUpRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </>
-              }
-              data-testid="sofia-overview-header"
-            />
+    <div className="space-y-4" data-testid="sofia-overview-page">
+      <ControlTowerFrame>
+        <QueryStateBoundary
+          isLoading={dashboardQuery.isLoading || todayMetricsQuery.isLoading}
+          isError={dashboardQuery.isError || todayMetricsQuery.isError}
+          error={dashboardQuery.error ?? todayMetricsQuery.error}
+          data={
+            dashboardQuery.data && todayMetricsQuery.data
+              ? { dashboard: dashboardQuery.data, metrics: todayMetricsQuery.data }
+              : undefined
+          }
+          loadingLabel="Cargando resumen de SOFIA..."
+          errorTitle="No se pudo cargar el resumen"
+          data-testid="sofia-overview"
+        >
+          {({ dashboard, metrics }) => {
+            const readinessTone = productionReadinessTone(dashboard.security.productionReadinessStatus);
+            const autoSafeTotal = metrics.autoSafe.total;
+            const approvalRate =
+              autoSafeTotal > 0 ? Math.round((metrics.autoSafe.approved / autoSafeTotal) * 100) : null;
 
-            <QueryStateBoundary
-              isLoading={metricsToday.isLoading}
-              isError={metricsToday.isError}
-              error={metricsToday.error}
-              data={metricsToday.data}
-              loadingLabel="Cargando métricas de hoy…"
-              errorTitle="No se pudo cargar las métricas de hoy"
-              data-testid="sofia-overview-metrics"
-            >
-              {(metrics) => (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="sofia-overview-kpis">
-                  <MetricCard
-                    label="Aprobación auto-safe (hoy)"
-                    value={formatApprovalRate(metrics.autoSafe.approved, metrics.autoSafe.total)}
+            return (
+              <>
+                <PageHeader
+                  eyebrow="Torre de Control"
+                  title="Resumen"
+                  description="Estado operativo del agente y accesos directos a rendimiento y validación."
+                  statusBadges={
+                    <StatusBadge tone={readinessTone} label={SOFIA_STATUS_TONE_LABEL[readinessTone]} />
+                  }
+                  data-testid="sofia-overview-header"
+                />
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <StatCard
+                    label="Aprobación auto-safe hoy"
+                    value={approvalRate !== null ? `${approvalRate}%` : 'Sin datos'}
                     hint={
-                      metrics.autoSafe.total > 0
-                        ? `${metrics.autoSafe.approved} de ${metrics.autoSafe.total} acciones aprobadas sin intervención`
-                        : 'Sin actividad auto-safe registrada hoy'
+                      autoSafeTotal > 0
+                        ? `${formatNumber(metrics.autoSafe.approved)} de ${formatNumber(autoSafeTotal)} acciones evaluadas`
+                        : 'Sin datos en este rango'
                     }
-                    icon={<ShieldCheck className="h-5 w-5" />}
+                    icon={<ShieldCheck className="h-4.5 w-4.5" />}
                     accent="success"
+                    data-testid="sofia-overview-stat-approval"
                   />
-                  <MetricCard
+                  <StatCard
                     label="Conversaciones activas"
-                    value={String(metrics.conversations.active)}
-                    hint={`${metrics.conversations.total} conversaciones totales hoy`}
-                    icon={<Activity className="h-5 w-5" />}
+                    value={formatNumber(metrics.conversations.active)}
+                    hint={`${formatNumber(metrics.conversations.total)} conversaciones hoy`}
+                    icon={<Users className="h-4.5 w-4.5" />}
                     accent="brand"
+                    data-testid="sofia-overview-stat-active"
                   />
-                  <MetricCard
+                  <StatCard
                     label="Requieren humano"
-                    value={String(metrics.conversations.humanRequired)}
-                    hint={`${metrics.conversations.humanTaken} ya tomadas por un operador`}
-                    icon={<Users className="h-5 w-5" />}
+                    value={formatNumber(metrics.conversations.humanRequired)}
+                    hint={`${formatNumber(metrics.conversations.humanTaken)} ya tomadas por un humano`}
+                    icon={<UserCog className="h-4.5 w-4.5" />}
                     accent="warning"
+                    data-testid="sofia-overview-stat-human"
                   />
-                  <MetricCard
-                    label="Estado de seguridad"
-                    value={dashboard.security.securityCleanupStatus}
-                    hint={`Rotación de secretos: ${dashboard.security.secretRotationStatus}`}
-                    icon={<ShieldCheck className="h-5 w-5" />}
-                    accent="ink"
+                  <StatCard
+                    label="Seguridad y producción"
+                    value={SOFIA_STATUS_TONE_LABEL[readinessTone]}
+                    hint={`${formatNumber(dashboard.security.blockedChecks.length)} bloqueos · ${formatNumber(dashboard.security.pendingChecks.length)} pendientes`}
+                    icon={
+                      readinessTone === 'success' ? (
+                        <ShieldCheck className="h-4.5 w-4.5" />
+                      ) : (
+                        <ShieldAlert className="h-4.5 w-4.5" />
+                      )
+                    }
+                    accent={readinessTone === 'success' ? 'success' : readinessTone === 'blocked' ? 'danger' : 'warning'}
+                    data-testid="sofia-overview-stat-security"
                   />
                 </div>
-              )}
-            </QueryStateBoundary>
-          </div>
-        )}
-      </QueryStateBoundary>
-    </ControlTowerFrame>
+
+                <div className="flex flex-wrap items-center gap-2" data-testid="sofia-overview-quick-links">
+                  <Button asChild>
+                    <Link href="/sofia/performance">
+                      <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                      Ver rendimiento
+                    </Link>
+                  </Button>
+                  <Button asChild variant="secondary">
+                    <Link href="/sofia/validation">
+                      <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+                      Ir a validación
+                    </Link>
+                  </Button>
+                </div>
+              </>
+            );
+          }}
+        </QueryStateBoundary>
+      </ControlTowerFrame>
+    </div>
   );
 }

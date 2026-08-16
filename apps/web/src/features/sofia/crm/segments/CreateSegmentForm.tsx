@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
+import { AlertCircle, Layers } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,7 @@ export function CreateSegmentForm({ onClose }: { onClose: () => void }) {
 
   const canSubmit = name.trim().length > 0;
 
-  function handleSubmit(event: React.FormEvent) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
     createSegment.mutate(
@@ -31,16 +32,23 @@ export function CreateSegmentForm({ onClose }: { onClose: () => void }) {
   return (
     <Card data-testid="sofia-crm-segments-create-form">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-extrabold text-ink">Nuevo segmento</h2>
-          <p className="mt-0.5 text-[12px] text-stone-600">La membresía de clientes se agrega después, desde Customer 360.</p>
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-700" aria-hidden="true">
+            <Layers className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-[15px] font-extrabold text-ink">Nuevo segmento</h2>
+            <p className="mt-0.5 max-w-md text-[12px] leading-5 text-stone-600">
+              La membresía de clientes se agrega después, desde Customer 360.
+            </p>
+          </div>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onClose} data-testid="sofia-crm-segments-create-cancel">
           Cancelar
         </Button>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
         <div>
           <label className="mb-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">Nombre</label>
           <Input
@@ -61,7 +69,8 @@ export function CreateSegmentForm({ onClose }: { onClose: () => void }) {
         </div>
 
         {createSegment.isError && (
-          <p className="text-[12px] font-semibold text-red-700" role="alert">
+          <p className="flex items-start gap-1.5 text-[12px] font-semibold text-red-700" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {createSegment.error instanceof ApiError ? createSegment.error.message : 'No se pudo crear el segmento.'}
           </p>
         )}
