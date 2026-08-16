@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  */
 function SofiaModuleTag() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-sofia-200 bg-sofia-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-sofia-700">
+    <span className="inline-flex items-center gap-1 rounded-full border border-ink bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-400">
       SOFIA
     </span>
   );

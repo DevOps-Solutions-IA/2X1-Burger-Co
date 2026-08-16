@@ -45,7 +45,7 @@ export const SOFIA_CHART_TOOLTIP_STYLE_CONSOLE = {
   contentStyle: {
     borderRadius: '0.85rem',
     border: '1px solid rgba(255,255,255,0.12)',
-    background: '#1A0B3D',
+    background: '#0a0a0a',
     boxShadow: '0 16px 32px -16px rgba(0,0,0,0.6)',
     fontSize: '12px',
     fontFamily: 'var(--font-body), sans-serif',
