@@ -158,7 +158,7 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7" data-testid="sofia-conversations-summary">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4" data-testid="sofia-conversations-summary">
         <StatCard label="Total" value={formatNumber(inbox.summary.totalConversations)} icon={<InboxIcon className="h-4 w-4" />} variant="console" />
         <StatCard label="Real" value={formatNumber(inbox.summary.realConversations)} variant="console" />
         <StatCard label="Validación interna" value={formatNumber(inbox.summary.internalValidationConversations)} variant="console" />
