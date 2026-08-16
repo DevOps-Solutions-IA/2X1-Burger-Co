@@ -1,73 +1,78 @@
-'use client';
-
-import { useState } from 'react';
+import { Activity, Send } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Button } from '@/components/ui/button';
-import { StatusBadge, QueryStateBoundary } from '@/components/sofia/workspace';
-import { useSofiaCrmCustomerTimeline } from '@/features/sofia/queries';
+import { StatusBadge } from '@/components/sofia';
+import type { SofiaCrmCustomerDetail } from '@/features/sofia/contracts';
+import { formatDateTime } from '@/lib/format';
 
-const PAGE_SIZE = 10;
+const DIRECTION_LABEL: Record<'INBOUND' | 'OUTBOUND' | 'INTERNAL', string> = {
+  INBOUND: 'Entrante',
+  OUTBOUND: 'Saliente',
+  INTERNAL: 'Interno',
+};
 
-const DIRECTION_TONE = { INBOUND: 'read_only', OUTBOUND: 'success', INTERNAL: 'pending' } as const;
+const DELIVERY_STATUS_LABEL: Record<'PENDING' | 'BLOCKED' | 'CANCELLED', string> = {
+  PENDING: 'Pendiente',
+  BLOCKED: 'Bloqueado',
+  CANCELLED: 'Cancelado',
+};
 
-export function ActivityTimeline({ customerId }: { customerId: string }) {
-  const [page, setPage] = useState(1);
-  const timeline = useSofiaCrmCustomerTimeline(customerId, { page, limit: PAGE_SIZE });
-
+export function ActivityTimeline({ customer }: { customer: SofiaCrmCustomerDetail }) {
   return (
-    <Card data-testid="sofia-customer360-activity">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Actividad</p>
-      <h2 className="text-[15px] font-semibold text-ink">Línea de tiempo</h2>
+    <div className="space-y-3" data-testid="sofia-customer360-activity-panel">
+      <Card>
+        <h3 className="text-[13.5px] font-extrabold text-ink">Línea de tiempo de interacciones</h3>
+        <p className="mt-0.5 text-[12px] text-stone-600">Interacciones registradas por el backend, no editables desde este panel.</p>
 
-      <QueryStateBoundary
-        isLoading={timeline.isLoading}
-        isError={timeline.isError}
-        error={timeline.error}
-        data={timeline.data}
-        loadingLabel="Cargando actividad…"
-        errorTitle="No se pudo cargar la actividad"
-        data-testid="sofia-customer360-activity-boundary"
-      >
-        {(result) =>
-          result.data.length > 0 ? (
-            <>
-              <div className="mt-3 space-y-2">
-                {result.data.map((interaction) => (
-                  <div key={interaction.id} className="rounded-[0.9rem] bg-stone-50 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[12px] font-semibold text-ink">{interaction.kind}</p>
-                      <StatusBadge tone={DIRECTION_TONE[interaction.direction]} label={interaction.direction} withDot={false} />
-                    </div>
-                    <p className="mt-1 text-[11.5px] font-medium text-stone-600">{interaction.summary}</p>
-                    <p className="mt-1 text-[10.5px] font-medium text-stone-600">
-                      {interaction.channel} · {new Date(interaction.occurredAt).toLocaleString('es-CO')}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              {result.pagination.pages > 1 && (
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                    Anterior
-                  </Button>
-                  <span className="text-[11.5px] font-medium text-stone-600">
-                    Página {result.pagination.page} de {result.pagination.pages}
+        {customer.timeline.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState icon={<Activity className="h-5 w-5" />} title="Sin actividad" description="No hay interacciones registradas para este cliente." />
+          </div>
+        ) : (
+          <ol className="mt-3 space-y-2.5">
+            {customer.timeline.map((event) => (
+              <li key={event.id} className="rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[13px] font-bold text-ink">{event.kind}</p>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-stone-600">
+                    {event.channel} · {DIRECTION_LABEL[event.direction]}
                   </span>
-                  <Button variant="secondary" size="sm" disabled={page >= result.pagination.pages} onClick={() => setPage((current) => current + 1)}>
-                    Siguiente
-                  </Button>
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="mt-3">
-              <EmptyState title="Sin actividad" description="No hay interacciones registradas para este cliente todavía." />
-            </div>
-          )
-        }
-      </QueryStateBoundary>
-    </Card>
+                <p className="mt-1 text-[12px] leading-5 text-stone-600">{event.summary}</p>
+                <p className="mt-1 text-[11px] text-stone-600">{formatDateTime(event.occurredAt)}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
+
+      <Card data-testid="sofia-customer360-deliveries">
+        <h3 className="text-[13.5px] font-extrabold text-ink">Entregas de campañas</h3>
+        <p className="mt-0.5 text-[12px] text-stone-600">
+          Historial de intentos de entrega de campañas CRM. El envío real de WhatsApp permanece siempre bloqueado por diseño.
+        </p>
+
+        {customer.deliveries.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState icon={<Send className="h-5 w-5" />} title="Sin entregas" description="No hay entregas de campañas registradas para este cliente." />
+          </div>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {customer.deliveries.map((delivery) => (
+              <li key={delivery.id} className="rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[13px] font-bold text-ink">{delivery.recipientMasked}</p>
+                  <StatusBadge tone={delivery.status === 'PENDING' ? 'pending' : 'blocked'} label={DELIVERY_STATUS_LABEL[delivery.status]} />
+                </div>
+                {delivery.blockedReason && <p className="mt-1 text-[11px] text-stone-600">Razón: {delivery.blockedReason}</p>}
+                <p className="mt-1 text-[11px] text-stone-600">
+                  {delivery.attemptedAt ? `Intentado ${formatDateTime(delivery.attemptedAt)}` : `Creado ${formatDateTime(delivery.createdAt)}`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -1,127 +1,133 @@
-import { Ban, MessageCircle, ShieldCheck } from 'lucide-react';
+import { MessageCircle, ShieldAlert, User } from 'lucide-react';
+import { StatusBadge } from '@/components/sofia';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
-import { StatusBadge } from '@/components/sofia/workspace';
+import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { SofiaInboxConversation } from '@/features/sofia/contracts';
-import { SCOPE_LABEL, SCOPE_TONE, maskedPhoneOrLabel, toneFromFreeStatus } from './conversation-status';
+import {
+  CONVERSATION_SIGNAL_LABEL,
+  MESSAGE_DIRECTION_LABEL,
+  activeSignals,
+  toneFromMessageDirection,
+  toneFromSignal,
+} from './format';
 
-export function ConversationDetailPanel({
-  conversation,
-  'data-testid': testId,
-}: {
-  conversation: SofiaInboxConversation | null;
-  'data-testid'?: string;
-}) {
+export function ConversationDetailPanel({ conversation }: { conversation: SofiaInboxConversation | undefined }) {
   if (!conversation) {
     return (
-      <Card className="p-4" data-testid={testId}>
+      <Card data-testid="sofia-conversations-detail-empty">
         <EmptyState
-          icon={<MessageCircle className="h-5 w-5" />}
           title="Selecciona una conversación"
-          description="Elige una conversación de la bandeja para revisar mensajes, señales y estado de outbound."
+          description="Elige una conversación de la bandeja para ver sus mensajes, señales y razones operacionales."
+          icon={<MessageCircle className="h-5 w-5" />}
         />
       </Card>
     );
   }
 
+  const signals = activeSignals(conversation);
+
   return (
-    <Card className="space-y-4 p-4" data-testid={testId}>
+    <Card data-testid="sofia-conversations-detail" className="flex h-full flex-col">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">
-            {maskedPhoneOrLabel(conversation.phoneMasked, conversation.customerLabel)}
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-[13.5px] font-bold text-ink">
+            <User className="h-4 w-4 shrink-0 text-stone-600" aria-hidden="true" />
+            {conversation.customerLabel}
           </p>
-          <h2 className="text-[15px] font-semibold text-ink">{conversation.recommendedAction}</h2>
+          <p className="mt-0.5 text-[11.5px] text-stone-600">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <StatusBadge tone={SCOPE_TONE[conversation.scope]} label={SCOPE_LABEL[conversation.scope]} />
-          <StatusBadge tone={toneFromFreeStatus(conversation.humanStatus)} label={conversation.humanStatus} />
+        <StatusBadge tone="read_only" label={`${conversation.provider} · ${conversation.mode}`} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">Estado</p>
+          <p className="mt-0.5 text-[12.5px] font-semibold text-stone-800">{conversation.status}</p>
+        </div>
+        <div className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">Estado humano</p>
+          <p className="mt-0.5 text-[12.5px] font-semibold text-stone-800">{conversation.humanStatus}</p>
+        </div>
+        <div className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">Estado operacional</p>
+          <p className="mt-0.5 text-[12.5px] font-semibold text-stone-800">{conversation.operationalState}</p>
+        </div>
+        <div className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">SOFIA en esta conversación</p>
+          <StatusBadge tone={conversation.sofiaEnabled ? 'success' : 'read_only'} label={conversation.sofiaEnabled ? 'Habilitada' : 'Deshabilitada'} className="mt-0.5" />
         </div>
       </div>
 
-      {conversation.operationalReasons.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" data-testid="sofia-conversation-reasons">
-          {conversation.operationalReasons.map((reason) => (
-            <StatusBadge key={reason.code} tone="pending" label={reason.label} withDot={false} />
-          ))}
-        </div>
-      )}
-
-      <div>
-        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">Mensajes</p>
-        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-          {conversation.messages.length > 0 ? (
-            conversation.messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  'rounded-[0.9rem] border p-2.5 text-[12px]',
-                  message.direction === 'INBOUND' ? 'border-sky-200 bg-sky-50' : message.direction === 'SYSTEM' ? 'border-stone-200 bg-stone-50' : 'border-brand-200 bg-white',
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <StatusBadge tone="read_only" label={message.direction} withDot={false} />
-                  <span className="text-[10.5px] font-medium text-stone-600">{new Date(message.createdAt).toLocaleString('es-CO')}</span>
-                </div>
-                <p className="mt-1.5 font-medium text-stone-700">{message.bodyPreview ?? 'Sin vista previa'}</p>
-                {message.aiIntent && <p className="mt-1 text-[10.5px] font-medium text-brand-700">Intención: {message.aiIntent}</p>}
-              </div>
-            ))
-          ) : (
-            <p className="text-[12px] font-medium text-stone-600">Sin mensajes registrados.</p>
-          )}
-        </div>
+      <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3.5 py-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-900">Acción recomendada</p>
+        <p className="mt-0.5 text-[12.5px] font-semibold text-brand-900">{conversation.recommendedAction}</p>
       </div>
 
-      <div>
-        <div className="mb-1.5 flex items-center gap-1.5">
-          <Ban className="h-3.5 w-3.5 text-red-500" />
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-stone-600">
-            Outbox — envío real bloqueado ({conversation.outboundSentCount}/{conversation.outboxTotal} enviados)
-          </p>
-        </div>
-        <div className="space-y-2">
-          {conversation.outboundMessages.length > 0 ? (
-            conversation.outboundMessages.map((outbound) => (
-              <div key={outbound.id} className="rounded-[0.9rem] border border-stone-200 bg-white p-2.5 text-[12px]">
-                <div className="flex items-center justify-between gap-2">
-                  <StatusBadge tone={outbound.sent ? 'failed' : 'blocked'} label={outbound.status} />
-                  <span className="text-[10.5px] font-medium text-stone-600">Intentos: {outbound.attempts}</span>
-                </div>
-                <p className="mt-1.5 font-medium text-stone-700">{outbound.bodyPreview ?? 'Sin vista previa'}</p>
-                {outbound.lastError && <p className="mt-1 text-[10.5px] font-medium text-red-600">{outbound.lastError}</p>}
-              </div>
-            ))
-          ) : (
-            <p className="text-[12px] font-medium text-stone-600">Sin mensajes salientes registrados.</p>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-[0.9rem] border border-emerald-200 bg-emerald-50 p-3">
-        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Seguridad
-        </div>
-        <p className="mt-1 text-[12px] font-medium text-emerald-800">
-          IA: {conversation.ai.provider} ({conversation.ai.mode}
-          {conversation.ai.dryRun ? ', dry-run' : ''}) · SafetyGuard {conversation.safety.safetyGuard ? 'activo' : 'inactivo'} · WhatsApp no marca PAID.
-        </p>
-      </div>
-
-      {conversation.technicalReasonCodes.length > 0 && (
-        <details className="rounded-[0.9rem] border border-stone-200 bg-stone-50 p-3">
-          <summary className="cursor-pointer text-[11px] font-semibold text-stone-600">Detalle técnico</summary>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {conversation.technicalReasonCodes.map((code) => (
-              <span key={code} className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-mono text-stone-600">
-                {code}
-              </span>
+      <div className="mt-3.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">Señales</p>
+        {signals.length === 0 ? (
+          <p className="mt-1.5 text-[12px] text-stone-600">Sin señales activas para esta conversación.</p>
+        ) : (
+          <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid="sofia-conversations-detail-signals">
+            {signals.map((key) => (
+              <StatusBadge key={key} tone={toneFromSignal(key)} label={CONVERSATION_SIGNAL_LABEL[key]} data-testid={`sofia-conversations-detail-signal-${key}`} />
             ))}
           </div>
-        </details>
-      )}
+        )}
+      </div>
+
+      {conversation.operationalReasons.length > 0 ? (
+        <div className="mt-3.5">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+            <ShieldAlert className="h-3.5 w-3.5" /> Razones operacionales
+          </p>
+          <ul className="mt-1.5 space-y-1.5" data-testid="sofia-conversations-detail-reasons">
+            {conversation.operationalReasons.map((reason) => (
+              <li
+                key={reason.code}
+                className="rounded-lg border border-stone-100 bg-stone-50/70 px-3 py-1.5 text-[12px] font-semibold text-stone-700"
+                data-testid={`sofia-conversations-detail-reason-${reason.code}`}
+              >
+                {reason.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex-1 min-h-0">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+          Mensajes ({conversation.messages.length})
+        </p>
+        {conversation.messages.length === 0 ? (
+          <EmptyState className="mt-2" title="Sin mensajes" description="Esta conversación todavía no tiene mensajes registrados." />
+        ) : (
+          <ol className="mt-2 max-h-[26rem] space-y-2 overflow-y-auto pr-1" data-testid="sofia-conversations-detail-messages">
+            {conversation.messages.map((message) => (
+              <li
+                key={message.id}
+                className="rounded-xl border border-stone-100 bg-white px-3.5 py-2.5 shadow-sm"
+                data-testid={`sofia-conversations-detail-message-${message.id}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <StatusBadge tone={toneFromMessageDirection(message.direction)} label={MESSAGE_DIRECTION_LABEL[message.direction]} />
+                  <p className="text-[11px] text-stone-600">{formatDateTime(message.createdAt)}</p>
+                </div>
+                <p className={cn('mt-1.5 text-[12.5px] leading-5', message.bodyPreview ? 'text-stone-800' : 'text-stone-600 italic')}>
+                  {message.bodyPreview ?? 'Sin vista previa disponible'}
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
+                  <span>Estado: {message.status}</span>
+                  {message.aiIntent ? <span>Intención IA: {message.aiIntent}</span> : null}
+                  {message.confidence !== null ? <span>Confianza: {Math.round(message.confidence * 100)}%</span> : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </Card>
   );
 }

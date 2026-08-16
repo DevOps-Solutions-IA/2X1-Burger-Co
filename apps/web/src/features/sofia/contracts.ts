@@ -1,380 +1,11 @@
 import { z } from 'zod';
 
 const nullableString = z.string().nullable();
+const record = z.record(z.string(), z.unknown());
 
-export const sofiaFeaturedOfferSchema = z.object({
-  id: z.string(),
-  slug: z.string(),
-  name: z.string(),
-  description: z.string(),
-  imageUrl: z.string(),
-  salesHint: z.string(),
-  sortOrder: z.number(),
-  isActive: z.boolean(),
-  linkedProductName: nullableString,
-  offerType: z.string(),
-});
-
-export const sofiaCommercialCatalogItemSchema = z.object({
-  slug: z.string(),
-  name: z.string(),
-  type: z.string(),
-  price: z.number().nullable(),
-  priceSource: z.string(),
-  imageUrl: nullableString,
-  shortDescription: nullableString,
-  composition: z
-    .object({
-      requiredCopy: z.string().optional(),
-      items: z.array(z.string()).optional(),
-      notes: z.array(z.string()).optional(),
-    })
-    .nullable()
-    .optional(),
-  aliases: z.array(z.string()).optional(),
-  upsellRules: z.array(z.string()).optional(),
-  prohibitedClaims: z.array(z.string()).optional(),
-});
-
-export const sofiaAgentItemSchema = z.object({
-  productId: z.string(),
-  code: z.string(),
-  name: z.string(),
-  quantity: z.number(),
-  unitPrice: z.number(),
-  totalPrice: z.number(),
-  imageUrl: nullableString.optional(),
-  categoryName: nullableString.optional(),
-});
-
-export const sofiaSandboxAgentResultSchema = z.object({
-  conversationId: z.string(),
-  detectedIntent: z.string(),
-  confidence: z.number(),
-  extractedItems: z.array(sofiaAgentItemSchema),
-  currentItems: z.array(sofiaAgentItemSchema),
-  missingFields: z.array(z.string()),
-  suggestedUpsell: z
-    .object({
-      productId: z.string(),
-      name: z.string(),
-      price: z.number().nullable(),
-      message: z.string(),
-    })
-    .nullable(),
-  mediaSuggestion: z
-    .object({
-      type: z.string(),
-      productId: z.string(),
-      productName: z.string(),
-      imageUrl: nullableString,
-      altText: z.string(),
-      offerSlug: z.string().optional(),
-      salesHint: z.string().optional(),
-    })
-    .nullable(),
-  featuredOffers: z.array(sofiaFeaturedOfferSchema),
-  commercialCatalog: z.array(sofiaCommercialCatalogItemSchema),
-  matchedCatalogItem: sofiaCommercialCatalogItemSchema.nullable().optional(),
-  matchedFeaturedOffer: sofiaFeaturedOfferSchema.nullable().optional(),
-  promptVersion: z.string().optional(),
-  memory: z
-    .object({
-      customer: z
-        .object({
-          displayName: nullableString.optional(),
-          lastKnownAddress: nullableString.optional(),
-          memorySummary: nullableString.optional(),
-          lastOrderSummary: z.unknown().optional(),
-        })
-        .optional(),
-      conversation: z
-        .object({
-          currentIntent: nullableString.optional(),
-          lastProductDiscussed: nullableString.optional(),
-          memorySummary: nullableString.optional(),
-        })
-        .optional(),
-      repeatLastOrder: z
-        .object({ canRepeat: z.boolean(), responseText: z.string() })
-        .nullable()
-        .optional(),
-    })
-    .optional(),
-  autoSafeDecision: z
-    .object({
-      status: z.enum(['AUTO_SAFE_APPROVED', 'HUMAN_REQUIRED', 'BLOCKED', 'DRAFT_ONLY']),
-      approved: z.boolean(),
-      shouldSend: z.boolean(),
-      reasonCodes: z.array(z.string()),
-      blockingReasons: z.array(z.string()),
-      warnings: z.array(z.string()),
-      finalReply: nullableString,
-      requiredHumanAction: nullableString,
-    })
-    .optional(),
-  nextAction: z.enum(['HANDOFF', 'SANDBOX_DRAFT_CONFIRMED', 'ASK_MISSING_FIELDS', 'READY_TO_CONFIRM']),
-  responseText: z.string(),
-  shouldCreateDraft: z.boolean(),
-  shouldConfirmOrder: z.boolean(),
-  shouldHandoff: z.boolean(),
-  paymentLinkUrl: z.null(),
-  draft: z
-    .object({ id: z.string(), status: z.string(), total: z.union([z.number(), z.string()]) })
-    .nullable()
-    .optional(),
-  deliveryOrder: z
-    .object({ id: z.string(), orderTicketId: z.null().optional(), status: z.string().optional() })
-    .nullable()
-    .optional(),
-  businessStatus: z.object({ isOpen: z.boolean(), timezone: z.string(), schedule: z.string() }),
-  safeguards: z.object({
-    noWhatsappReal: z.literal(true),
-    noHermesReal: z.literal(true),
-    deepSeekBackendOnly: z.literal(true),
-    aiCannotOperateHermes: z.literal(true),
-    aiCannotMarkPaid: z.literal(true),
-    noRealPayments: z.literal(true),
-    sandboxOperationalIsolation: z.literal(true),
-    productiveActionBlocked: z.null(),
-  }),
-});
-
-export const sofiaSandboxRecoveryResultSchema = z.object({
-  conversationId: nullableString.optional(),
-  draftId: z.string().optional(),
-  detectedIntent: z.string(),
-  currentItems: z.array(sofiaAgentItemSchema).optional(),
-  nextAction: z.string(),
-  responseText: z.string(),
-});
-
-export const sofiaQrStatusSchema = z.object({
-  provider: z.literal('qr_gateway'),
-  mode: z.enum(['disabled', 'receive_only']),
-  status: z.enum([
-    'DISABLED',
-    'DISCONNECTED',
-    'CONNECTING',
-    'WAITING_QR',
-    'QR_READY',
-    'CONNECTED',
-    'RECONNECTING',
-    'FAILED',
-    'LOGGED_OUT',
-  ]),
-  ok: z.boolean(),
-  connected: z.boolean(),
-  adapterReal: z.boolean(),
-  phoneNumber: nullableString,
-  deviceName: nullableString,
-  qrAvailable: z.boolean(),
-  qrImageDataUrl: nullableString,
-  qrString: z.null(),
-  qrIssuedAt: nullableString,
-  qrExpiresAt: nullableString,
-  lastQrAt: nullableString,
-  lastConnectedAt: nullableString,
-  lastDisconnectedAt: nullableString,
-  lastError: nullableString,
-  lastErrorCode: nullableString,
-  lastErrorMessage: nullableString,
-  lastConnectionUpdateAt: nullableString,
-  sessionName: z.string(),
-  sessionPathSanitized: z.string(),
-  storageWritable: z.boolean(),
-  sessionStorageReady: z.boolean(),
-  inboundToday: z.number(),
-  outboundToday: z.number(),
-  pendingOutbound: z.number(),
-  realSendingEnabled: z.literal(false),
-  autoReplyEnabled: z.literal(false),
-  deepSeekEnabled: z.literal(false),
-  productionBlocked: z.literal(true),
-  blockers: z.array(z.string()),
-  warnings: z.array(z.string()),
-  reason: nullableString,
-  operatorMessage: z.string(),
-  updatedAt: z.string(),
-}).superRefine((value, context) => {
-  if (value.status === 'CONNECTED' && (!value.connected || !value.adapterReal)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'CONNECTED requiere socket real y connected=true.',
-    });
-  }
-  if (value.connected && value.status !== 'CONNECTED') {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'connected=true requiere status CONNECTED.',
-    });
-  }
-  if (
-    value.status === 'QR_READY' &&
-    (!value.adapterReal || !value.qrAvailable || !value.qrImageDataUrl)
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'QR_READY requiere adapter real e imagen QR disponible.',
-    });
-  }
-  if (value.qrAvailable && value.status !== 'QR_READY') {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'qrAvailable=true requiere status QR_READY.',
-    });
-  }
-});
-
-export const sofiaQrInboundTestResultSchema = z.object({
-  provider: z.literal('qr_gateway'),
-  mode: z.literal('receive_only'),
-  processingStatus: z.string(),
-  duplicate: z.boolean().optional(),
-  noWhatsappReal: z.literal(true),
-  realSendingEnabled: z.literal(false).optional(),
-  conversationId: z.string().optional(),
-  inboundMessageId: z.string().optional(),
-  inboundEventId: z.string().optional(),
-});
-
-export const sofiaQrSendBlockedResultSchema = z.object({
-  provider: z.literal('qr_gateway'),
-  status: z.literal('BLOCKED_REAL_SEND_DISABLED'),
-  sent: z.literal(false),
-  realSendingEnabled: z.literal(false),
-});
-
-const inboxConversationSchema = z.object({
-  id: z.string(),
-  scope: z.enum(['real', 'internal_validation', 'sandbox', 'historical']),
-  customerLabel: z.string(),
-  phoneMasked: nullableString,
-  phoneHash: nullableString,
-  provider: z.string(),
-  mode: z.string(),
-  status: z.string(),
-  humanStatus: z.string(),
-  sofiaEnabled: z.boolean(),
-  lastMessagePreview: nullableString,
-  lastMessageAt: nullableString,
-  lastInboundAt: nullableString,
-  unreadCount: z.number(),
-  operationalState: z.string(),
-  recommendedAction: z.string(),
-  signals: z.object({
-    humanRequired: z.boolean(),
-    paymentSensitive: z.boolean(),
-    unknownProduct: z.boolean(),
-    aiSuggestion: z.boolean(),
-    blocked: z.boolean(),
-    allowlistPending: z.boolean(),
-    pendingReview: z.boolean(),
-  }),
-  operationalReasons: z.array(z.object({ code: z.string(), label: z.string() })),
-  technicalReasonCodes: z.array(z.string()),
-  messages: z.array(
-    z.object({
-      id: z.string(),
-      direction: z.enum(['INBOUND', 'OUTBOUND', 'SYSTEM']),
-      provider: z.string(),
-      status: z.string(),
-      bodyPreview: nullableString,
-      aiIntent: nullableString,
-      confidence: z.number().nullable(),
-      createdAt: z.string(),
-    }),
-  ),
-  outboundMessages: z.array(
-    z.object({
-      id: z.string(),
-      bodyPreview: nullableString,
-      hasMedia: z.boolean(),
-      status: z.string(),
-      attempts: z.number(),
-      lastError: nullableString,
-      createdAt: z.string(),
-      sentAt: nullableString,
-      sent: z.boolean(),
-      realSendingEnabled: z.literal(false),
-    }),
-  ),
-  outboxTotal: z.number(),
-  outboundSentCount: z.number(),
-  relatedOperationCounts: z.object({ orderDrafts: z.number(), deliveryOrders: z.number() }),
-  ai: z.object({ provider: z.string(), mode: z.string(), dryRun: z.boolean() }),
-  safety: z.object({
-    safetyGuard: z.boolean(),
-    sentFalseExpected: z.literal(true),
-    realSendingEnabled: z.literal(false),
-    whatsappCanMarkPaid: z.literal(false),
-  }),
-  updatedAt: z.string(),
-  createdAt: z.string(),
-});
-
-const inboxGroupSchema = z.object({
-  total: z.number(),
-  hiddenByDefault: z.boolean().optional(),
-  conversations: z.array(inboxConversationSchema),
-});
-
-export const sofiaConversationsInboxSchema = z.object({
-  generatedAt: z.string(),
-  scope: z.object({
-    realOperationEnabled: z.boolean(),
-    realOperationReason: z.string(),
-    receiveOnly: z.literal(true),
-    sandboxHiddenByDefault: z.boolean(),
-    historicalHiddenByDefault: z.boolean(),
-  }),
-  real: inboxGroupSchema,
-  internalValidation: inboxGroupSchema,
-  sandbox: inboxGroupSchema,
-  historical: inboxGroupSchema,
-  filters: z.object({
-    allOperational: z.number(),
-    humanRequired: z.number(),
-    paymentSensitive: z.number(),
-    unknownProduct: z.number(),
-    blocked: z.number(),
-    aiSuggestions: z.number(),
-  }),
-  summary: z.object({
-    totalConversations: z.number(),
-    realConversations: z.number(),
-    internalValidationConversations: z.number(),
-    sandboxConversations: z.number(),
-    historicalConversations: z.number(),
-    pendingReview: z.number(),
-    outboundSent: z.number(),
-  }),
-  security: z.object({
-    realSendingEnabled: z.literal(false),
-    autoReplyEnabled: z.literal(false),
-    productionEnabled: z.literal(false),
-    whatsappCanMarkPaid: z.literal(false),
-    deepSeekEnabled: z.boolean(),
-    aiMode: z.string(),
-    dataPolicy: z.object({
-      noSecrets: z.boolean(),
-      noQrRaw: z.boolean(),
-      noFullPhone: z.boolean(),
-      providerPayloadExcluded: z.boolean(),
-    }),
-  }),
-});
-
-const countGroupSchema = z.object({
-  totalDecisions: z.number(),
-  approvedCount: z.number(),
-  humanRequiredCount: z.number(),
-  blockedCount: z.number(),
-  draftCount: z.number(),
-  paymentSensitiveCount: z.number(),
-  unknownProductCount: z.number(),
-  lastDecisionAt: nullableString,
-});
+/* ------------------------------------------------------------------ */
+/*  Centro de Control — resumen, gobernanza, runtime safety            */
+/* ------------------------------------------------------------------ */
 
 export const sofiaDashboardSummarySchema = z.object({
   generatedAt: z.string(),
@@ -422,7 +53,6 @@ export const sofiaDashboardSummarySchema = z.object({
     lastAiCheckAt: nullableString,
     source: z.string(),
   }),
-  safetyGuard: z.object({ real: countGroupSchema, sandbox: countGroupSchema, historical: countGroupSchema }),
   conversations: z.object({
     totalConversations: z.number(),
     realConversations: z.number(),
@@ -432,13 +62,6 @@ export const sofiaDashboardSummarySchema = z.object({
     paymentSensitive: z.number(),
     unknownProduct: z.number(),
     pendingReview: z.number(),
-  }),
-  internalValidation: z.object({
-    inboundToday: z.number(),
-    simulatedInboundToday: z.number(),
-    qrGatewayValidationInboundToday: z.number(),
-    autoSafeDecisionsToday: z.number(),
-    paidClaimsBlockedToday: z.number(),
   }),
   security: z.object({
     secretRotationStatus: z.string(),
@@ -456,7 +79,98 @@ export const sofiaDashboardSummarySchema = z.object({
     deliveriesUrl: z.string(),
     posUrl: z.string(),
   }),
+}).catchall(z.unknown());
+
+const sofiaMetricsRangeCountEntrySchema = z.object({ key: z.string(), count: z.number() });
+
+export const sofiaMetricsSummarySchema = z.object({
+  generatedAt: z.string(),
+  range: z.enum(['today', '7d', '30d']),
+  conversations: z.object({
+    total: z.number(),
+    active: z.number(),
+    humanRequired: z.number(),
+    humanTaken: z.number(),
+    paused: z.number(),
+    resolved: z.number(),
+    averageResponseDraftTimeMs: z.number().nullable(),
+  }),
+  inbound: z.object({
+    total: z.number(),
+    qrGateway: z.number(),
+    simulated: z.number(),
+    allowlistBlocked: z.number(),
+    duplicatesIgnored: z.number(),
+    mediaWithoutTranscript: z.number(),
+  }),
+  outbound: z.object({
+    suggested: z.number(),
+    draftOnly: z.number(),
+    approvalPending: z.number(),
+    blockedRealSend: z.number(),
+    sentReal: z.number(),
+  }),
+  autoSafe: z.object({
+    total: z.number(),
+    approved: z.number(),
+    humanRequired: z.number(),
+    blocked: z.number(),
+    draftOnly: z.number(),
+    topReasonCodes: z.array(sofiaMetricsRangeCountEntrySchema),
+    riskLevels: z.array(sofiaMetricsRangeCountEntrySchema),
+  }),
+  catalog: z.object({
+    productMentions: z.array(sofiaMetricsRangeCountEntrySchema),
+    unknownProducts: z.number(),
+    unknownPrices: z.number(),
+    maxiFamilyCorrections: z.number(),
+  }),
+  payments: z.object({
+    paymentSensitiveMessages: z.number(),
+    paidClaimsBlocked: z.number(),
+    whatsappCanMarkPaid: z.literal(false),
+  }),
+  memory: z.object({
+    customersWithMemory: z.number(),
+    updatedToday: z.number(),
+    optOuts: z.number(),
+    memoryUncertain: z.number(),
+  }),
+  safety: z.object({
+    safetyBlocks: z.number(),
+    prohibitedPhraseBlocks: z.number(),
+    inventedPromotionBlocks: z.number(),
+  }),
+  governance: z.object({
+    productionStatus: z.string(),
+    activeBlockers: z.array(z.string()),
+    killSwitchState: z.enum(['KILLED', 'PAUSED', 'ACTIVE']),
+    qrReceiveOnlyStatus: z.string(),
+  }),
+  system: z.object({
+    health: z.string(),
+    lastBackupAt: nullableString,
+    logSanitizationStatus: z.string(),
+    retentionStatus: z.string(),
+    alertsOpen: z.number(),
+    alertsCritical: z.number(),
+  }),
 });
+
+export const sofiaGovernanceStatusSchema = z.object({
+  globalPaused: z.boolean(),
+  killSwitchActive: z.boolean(),
+  qrRealAllowed: z.boolean(),
+  deepSeekRealAllowed: z.boolean(),
+  autoSafeProductionAllowed: z.boolean(),
+  secretRotationStatus: z.string(),
+  phase: z.string(),
+});
+
+export const sofiaGovernanceActionResponseSchema = z.object({
+  status: z.literal('PASS'),
+  message: z.string(),
+}).catchall(z.unknown());
 
 export const sofiaReadinessSchema = z.object({
   status: z.enum(['PASS', 'WARNING', 'BLOCKED']),
@@ -489,146 +203,6 @@ export const sofiaAlertsSchema = z.array(
     createdAt: z.string(),
   }),
 );
-
-export const sofiaGovernancePauseResponseSchema = z.object({
-  paused: z.boolean(),
-  status: z.string(),
-  message: z.string(),
-});
-
-export const sofiaAlertAckResponseSchema = z.object({
-  id: z.string(),
-  status: z.literal('ACKNOWLEDGED'),
-});
-
-export const sofiaConversationActionResponseSchema = z.object({
-  id: z.string(),
-  status: z.string(),
-  humanStatus: z.string(),
-  sofiaEnabled: z.boolean(),
-});
-
-export const sofiaOutboundCancelResponseSchema = z.object({
-  id: z.string(),
-  status: z.literal('CANCELLED'),
-});
-
-export const sofiaFeedbackResponseSchema = z.object({ id: z.string() });
-
-const sofiaCrmDateSchema = z.string().datetime({ offset: true });
-const sofiaCrmUnmaskedPhonePattern = /(?:\+?57[\s-]?)?3(?:[\s-]?\d){9}/;
-const sofiaCrmSafeTextSchema = z
-  .string()
-  .refine((value) => !sofiaCrmUnmaskedPhonePattern.test(value), 'El texto CRM contiene una identidad sin enmascarar.');
-const sofiaCrmSafeTimelineTextSchema = z
-  .string()
-  .max(1_000)
-  .refine((value) => !sofiaCrmUnmaskedPhonePattern.test(value), 'El timeline CRM contiene una identidad sin enmascarar.');
-const sofiaCrmMaskedIdentitySchema = z
-  .string()
-  .regex(/^\*{3}(?: \*{3} \d{4})?$/, 'La identidad CRM no esta enmascarada.');
-
-export const sofiaCrmCustomerIdentitySchema = z.object({
-  id: z.string(),
-  type: z.literal('PHONE'),
-  valueMasked: sofiaCrmMaskedIdentitySchema,
-  isPrimary: z.boolean(),
-  verifiedAt: sofiaCrmDateSchema.nullable(),
-});
-
-export const sofiaCrmCustomerTagSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  assignedAt: sofiaCrmDateSchema,
-});
-
-export const sofiaCrmCustomerSummarySchema = z.object({
-  id: z.string(),
-  displayName: sofiaCrmSafeTextSchema.nullable(),
-  status: z.enum(['ACTIVE', 'ARCHIVED']),
-  identities: z.array(sofiaCrmCustomerIdentitySchema),
-  tags: z.array(sofiaCrmCustomerTagSchema),
-  createdAt: sofiaCrmDateSchema,
-  updatedAt: sofiaCrmDateSchema,
-});
-
-export const sofiaCrmPaginationSchema = z.object({
-  page: z.number().int().positive(),
-  limit: z.number().int().positive(),
-  total: z.number().int().nonnegative(),
-  pages: z.number().int().nonnegative(),
-});
-
-export const sofiaCrmCustomersSchema = z.object({
-  data: z.array(sofiaCrmCustomerSummarySchema),
-  pagination: sofiaCrmPaginationSchema,
-});
-
-export const sofiaCrmCustomerConsentSchema = z.object({
-  id: z.string(),
-  purpose: z.enum(['MARKETING', 'SERVICE']),
-  channel: z.enum(['WHATSAPP', 'SMS', 'PHONE']),
-  status: z.enum(['GRANTED', 'REVOKED']),
-  source: z.string(),
-  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/i),
-  version: z.number().int().positive(),
-  grantedAt: sofiaCrmDateSchema.nullable(),
-  revokedAt: sofiaCrmDateSchema.nullable(),
-  createdAt: sofiaCrmDateSchema,
-});
-
-export const sofiaCrmCustomerInteractionSchema = z.object({
-  id: z.string(),
-  kind: z.string(),
-  channel: z.enum(['WHATSAPP', 'PHONE', 'IN_PERSON', 'SYSTEM']),
-  direction: z.enum(['INBOUND', 'OUTBOUND', 'INTERNAL']),
-  summary: sofiaCrmSafeTimelineTextSchema,
-  occurredAt: sofiaCrmDateSchema,
-  createdAt: sofiaCrmDateSchema,
-});
-
-export const sofiaCrmCustomerDetailSchema = sofiaCrmCustomerSummarySchema.extend({
-  consents: z.array(sofiaCrmCustomerConsentSchema),
-  timeline: z.array(sofiaCrmCustomerInteractionSchema),
-});
-
-export const sofiaCrmCustomerTimelineSchema = z.object({
-  data: z.array(sofiaCrmCustomerInteractionSchema),
-  pagination: sofiaCrmPaginationSchema,
-});
-
-export type SofiaSandboxAgentResult = z.infer<typeof sofiaSandboxAgentResultSchema>;
-export type SofiaSandboxRecoveryResult = z.infer<typeof sofiaSandboxRecoveryResultSchema>;
-export type SofiaQrStatus = z.infer<typeof sofiaQrStatusSchema>;
-export type SofiaQrInboundTestResult = z.infer<typeof sofiaQrInboundTestResultSchema>;
-export type SofiaQrSendBlockedResult = z.infer<typeof sofiaQrSendBlockedResultSchema>;
-export type SofiaConversationsInbox = z.infer<typeof sofiaConversationsInboxSchema>;
-export type SofiaInboxConversation = z.infer<typeof inboxConversationSchema>;
-export type SofiaInboxScope = SofiaInboxConversation['scope'];
-export type SofiaCrmCustomerSummary = z.infer<typeof sofiaCrmCustomerSummarySchema>;
-export type SofiaCrmCustomerDetail = z.infer<typeof sofiaCrmCustomerDetailSchema>;
-export type SofiaCrmCustomerConsent = z.infer<typeof sofiaCrmCustomerConsentSchema>;
-export type SofiaCrmCustomerInteraction = z.infer<typeof sofiaCrmCustomerInteractionSchema>;
-export const sofiaGovernanceStatusSchema = z.object({
-  globalPaused: z.boolean(),
-  killSwitchActive: z.boolean(),
-  qrRealAllowed: z.boolean(),
-  deepSeekRealAllowed: z.boolean(),
-  autoSafeProductionAllowed: z.boolean(),
-  secretRotationStatus: z.string(),
-  phase: z.string(),
-});
-
-export const sofiaGovernanceMetricsSchema = z.object({
-  generatedAt: z.string(),
-  autoSafe: z.record(z.string(), z.unknown()),
-  conversations: z.record(z.string(), z.unknown()),
-  memory: z.record(z.string(), z.unknown()),
-  prompt: z.record(z.string(), z.unknown()).nullable(),
-  catalog: z.record(z.string(), z.unknown()),
-  safetyBlocks: z.number(),
-  humanRequired: z.number(),
-});
 
 export const sofiaSecurityStatusSchema = z.object({
   generatedAt: z.string(),
@@ -676,105 +250,197 @@ export const sofiaRuntimeSafetySchema = z.object({
   }),
 });
 
-export const sofiaGovernanceActionResponseSchema = z.object({
-  status: z.literal('PASS'),
-  message: z.string(),
-}).catchall(z.unknown());
+/* ------------------------------------------------------------------ */
+/*  WhatsApp QR / Conversaciones                                       */
+/* ------------------------------------------------------------------ */
 
-const sofiaPaymentIntentStatusSchema = z.enum([
-  'CREATED',
-  'PENDING',
-  'PAID',
-  'FAILED',
-  'EXPIRED',
-  'CANCELLED',
-  'UNKNOWN_RESULT',
-]);
-
-export const sofiaAdminPaymentIntentSchema = z.object({
-  id: z.string(),
-  status: sofiaPaymentIntentStatusSchema,
-  provider: z.string(),
-  amount: z.union([z.number(), z.string()]),
-  currency: z.string(),
-  attemptNumber: z.number().optional(),
-  checkoutId: z.string().nullable().optional(),
-  providerPaymentId: z.string().nullable().optional(),
-  providerReference: z.string().nullable().optional(),
-  failureCode: z.string().nullable().optional(),
-  expiresAt: z.string().nullable().optional(),
-  completedAt: z.string().nullable().optional(),
-  version: z.number().optional(),
-  checkout: z.record(z.string(), z.unknown()).nullable().optional(),
-  links: z.array(z.record(z.string(), z.unknown())).optional(),
-  createdAt: z.string(),
+export const sofiaQrStatusSchema = z.object({
+  provider: z.literal('qr_gateway'),
+  mode: z.enum(['disabled', 'receive_only']),
+  status: z.enum([
+    'DISABLED', 'DISCONNECTED', 'CONNECTING', 'WAITING_QR', 'QR_READY',
+    'CONNECTED', 'RECONNECTING', 'FAILED', 'LOGGED_OUT',
+  ]),
+  ok: z.boolean(),
+  connected: z.boolean(),
+  adapterReal: z.boolean(),
+  phoneNumber: nullableString,
+  deviceName: nullableString,
+  qrAvailable: z.boolean(),
+  qrImageDataUrl: nullableString,
+  qrIssuedAt: nullableString,
+  qrExpiresAt: nullableString,
+  lastQrAt: nullableString,
+  lastConnectedAt: nullableString,
+  lastDisconnectedAt: nullableString,
+  lastError: nullableString,
+  lastErrorCode: nullableString,
+  lastErrorMessage: nullableString,
+  sessionName: z.string(),
+  storageWritable: z.boolean(),
+  sessionStorageReady: z.boolean(),
+  inboundToday: z.number(),
+  outboundToday: z.number(),
+  pendingOutbound: z.number(),
+  realSendingEnabled: z.literal(false),
+  autoReplyEnabled: z.literal(false),
+  deepSeekEnabled: z.boolean(),
+  productionBlocked: z.literal(true),
+  blockers: z.array(z.string()),
+  warnings: z.array(z.string()),
+  reason: nullableString,
+  operatorMessage: z.string(),
   updatedAt: z.string(),
 }).catchall(z.unknown());
 
-function sofiaAdminListSchema<T extends z.ZodTypeAny>(itemSchema: T) {
-  return z.object({
-    items: z.array(itemSchema),
-    page: z.number(),
-    limit: z.number(),
-    total: z.number(),
-  });
-}
-
-export const sofiaAdminPaymentIntentsSchema = sofiaAdminListSchema(sofiaAdminPaymentIntentSchema);
-
-export const sofiaAdminPaymentLinkSchema = z.object({
+const inboxConversationSchema = z.object({
   id: z.string(),
-  paymentIntentId: z.string().optional(),
+  scope: z.enum(['real', 'internal_validation', 'sandbox', 'historical']),
+  customerLabel: z.string(),
+  phoneMasked: nullableString,
+  provider: z.string(),
+  mode: z.string(),
   status: z.string(),
-  expiresAt: z.string().nullable().optional(),
-  openedAt: z.string().nullable().optional(),
-  revokedAt: z.string().nullable().optional(),
-  createdAt: z.string(),
+  humanStatus: z.string(),
+  sofiaEnabled: z.boolean(),
+  lastMessagePreview: nullableString,
+  lastMessageAt: nullableString,
+  lastInboundAt: nullableString,
+  unreadCount: z.number(),
+  operationalState: z.string(),
+  recommendedAction: z.string(),
+  signals: z.object({
+    humanRequired: z.boolean(),
+    paymentSensitive: z.boolean(),
+    unknownProduct: z.boolean(),
+    aiSuggestion: z.boolean(),
+    blocked: z.boolean(),
+    allowlistPending: z.boolean(),
+    pendingReview: z.boolean(),
+  }),
+  operationalReasons: z.array(z.object({ code: z.string(), label: z.string() })),
+  messages: z.array(
+    z.object({
+      id: z.string(),
+      direction: z.enum(['INBOUND', 'OUTBOUND', 'SYSTEM']),
+      status: z.string(),
+      bodyPreview: nullableString,
+      aiIntent: nullableString,
+      confidence: z.number().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+}).catchall(z.unknown());
+
+const inboxGroupSchema = z.object({
+  total: z.number(),
+  hiddenByDefault: z.boolean().optional(),
+  conversations: z.array(inboxConversationSchema),
+});
+
+export const sofiaConversationsInboxSchema = z.object({
+  generatedAt: z.string(),
+  real: inboxGroupSchema,
+  internalValidation: inboxGroupSchema,
+  sandbox: inboxGroupSchema,
+  historical: inboxGroupSchema,
+  filters: z.object({
+    allOperational: z.number(),
+    humanRequired: z.number(),
+    paymentSensitive: z.number(),
+    unknownProduct: z.number(),
+    blocked: z.number(),
+    aiSuggestions: z.number(),
+  }),
+  summary: z.object({
+    totalConversations: z.number(),
+    realConversations: z.number(),
+    internalValidationConversations: z.number(),
+    sandboxConversations: z.number(),
+    historicalConversations: z.number(),
+    pendingReview: z.number(),
+    outboundSent: z.number(),
+  }),
+  security: record,
+}).catchall(z.unknown());
+
+/* ------------------------------------------------------------------ */
+/*  Validación — SecureCommand                                         */
+/* ------------------------------------------------------------------ */
+
+export const secureCommandStatusSchema = z.enum([
+  'RECEIVED', 'VALIDATED', 'APPROVAL_REQUIRED', 'APPROVED', 'CLAIMED',
+  'EXECUTING', 'SUCCEEDED', 'FAILED', 'REJECTED', 'EXPIRED',
+]);
+
+export const secureCommandTypeSchema = z.enum([
+  'SOFIA_INTERNAL_VALIDATE', 'SOFIA_CREATE_ORDER', 'SOFIA_SEND_WHATSAPP',
+  'SOFIA_MARK_PAYMENT', 'SOFIA_DEDUCT_STOCK', 'SOFIA_MUTATE_CASH',
+  'SOFIA_CREATE_SALE', 'SOFIA_ASSIGN_DELIVERY', 'SOFIA_CUSTOMER_AUTO_RESPONSE',
+]);
+
+export const secureCommandResultSchema = z.object({
+  resultCode: z.string(),
+  domainReferenceIds: z.array(z.string()),
+  createdAt: z.string().optional(),
+}).catchall(z.unknown()).nullable();
+
+export const secureCommandRecordSchema = z.object({
+  id: z.string(),
+  commandType: z.string(),
+  scope: z.string(),
+  idempotencyKey: z.string(),
+  status: secureCommandStatusSchema,
+  actorId: z.string(),
+  actorType: z.string(),
+  source: z.string(),
+  targetType: z.string(),
+  targetId: nullableString,
+  expectedVersion: nullableString,
+  correlationId: nullableString,
+  traceId: nullableString,
+  claimedAt: nullableString,
+  completedAt: nullableString,
+  failureClass: nullableString,
+  failureCode: nullableString,
+  retryable: z.boolean(),
+  version: z.number(),
+  expiresAt: z.string(),
+  createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-  paymentIntent: z.record(z.string(), z.unknown()).nullable().optional(),
+  result: secureCommandResultSchema,
 }).catchall(z.unknown());
 
-export const sofiaAdminPaymentLinksSchema = sofiaAdminListSchema(sofiaAdminPaymentLinkSchema);
+export const secureCommandsPageSchema = z.object({
+  items: z.array(secureCommandRecordSchema),
+  page: z.number(),
+  limit: z.number(),
+  total: z.number(),
+});
 
-export const sofiaAdminPaymentTransitionSchema = z.object({
+export const secureCommandApprovalSchema = z.object({
   id: z.string(),
-  paymentIntentId: z.string().optional(),
-  fromStatus: z.string().nullable().optional(),
-  toStatus: z.string(),
-  reasonCode: z.string().nullable().optional(),
-  actorId: z.string().nullable().optional(),
-  webhookEventId: z.string().nullable().optional(),
-  createdAt: z.string(),
+  commandId: z.string(),
+  approverActorId: z.string(),
+  status: z.enum(['APPROVED', 'REVOKED', 'EXPIRED']),
+  grantedAt: z.string(),
+  expiresAt: z.string(),
+  revokedAt: nullableString,
+  reasonCode: z.string(),
+  policyReference: z.string(),
 }).catchall(z.unknown());
 
-export const sofiaAdminPaymentTransitionsSchema = sofiaAdminListSchema(sofiaAdminPaymentTransitionSchema);
+export const secureCommandDetailSchema = z.object({
+  command: secureCommandRecordSchema,
+  approvals: z.array(secureCommandApprovalSchema),
+});
 
-export const sofiaAdminPaymentWebhookSchema = z.object({
-  id: z.string(),
-  paymentIntentId: z.string().optional(),
-  provider: z.string().optional(),
-  eventType: z.string().optional(),
-  amount: z.union([z.number(), z.string()]).nullable().optional(),
-  currency: z.string().nullable().optional(),
-  signatureValid: z.boolean().optional(),
-  processedStatus: z.string(),
-  processingAttempts: z.number().optional(),
-  resultCode: z.string().nullable().optional(),
-  lastErrorCode: z.string().nullable().optional(),
-  retryable: z.boolean().optional(),
-  paymentTransition: z.record(z.string(), z.unknown()).nullable().optional(),
-  receivedAt: z.string(),
-  processedAt: z.string().nullable().optional(),
-}).catchall(z.unknown());
-
-export const sofiaAdminPaymentWebhooksSchema = sofiaAdminListSchema(sofiaAdminPaymentWebhookSchema);
+/* ------------------------------------------------------------------ */
+/*  Validación — Servicio al Cliente (escalaciones de SOFIA)           */
+/* ------------------------------------------------------------------ */
 
 const sofiaCustomerServiceCaseStatusSchema = z.enum([
-  'OPEN',
-  'HUMAN_REQUIRED',
-  'HUMAN_TAKEN',
-  'RESOLVED',
-  'CLOSED',
+  'OPEN', 'HUMAN_REQUIRED', 'HUMAN_TAKEN', 'RESOLVED', 'CLOSED',
 ]);
 
 export const sofiaCustomerServiceCaseSummarySchema = z.object({
@@ -782,43 +448,44 @@ export const sofiaCustomerServiceCaseSummarySchema = z.object({
   status: sofiaCustomerServiceCaseStatusSchema,
   category: z.string(),
   source: z.string(),
-  sanitizedSummary: z.string().nullable().optional(),
-  customerId: z.string().nullable().optional(),
-  customer: z.object({ id: z.string(), displayName: z.string().nullable(), status: z.string() }).nullable().optional(),
-  conversationId: z.string().nullable().optional(),
-  orderCheckoutId: z.string().nullable().optional(),
-  orderTicketId: z.string().nullable().optional(),
-  paymentIntentId: z.string().nullable().optional(),
-  deliveryIssueId: z.string().nullable().optional(),
-  assignedActorId: z.string().nullable().optional(),
-  assignedActor: z.object({ id: z.string(), fullName: z.string().nullable(), accessName: z.string().nullable() }).nullable().optional(),
-  resolutionActorId: z.string().nullable().optional(),
-  resolutionCode: z.string().nullable().optional(),
+  sanitizedSummary: nullableString.optional(),
+  customerId: nullableString.optional(),
+  customer: z.object({ id: z.string(), displayName: nullableString, status: z.string() }).nullable().optional(),
+  conversationId: nullableString.optional(),
+  orderCheckoutId: nullableString.optional(),
+  orderTicketId: nullableString.optional(),
+  paymentIntentId: nullableString.optional(),
+  deliveryIssueId: nullableString.optional(),
+  assignedActor: z.object({ id: z.string(), fullName: nullableString, accessName: nullableString }).nullable().optional(),
+  resolutionCode: nullableString.optional(),
   version: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  resolvedAt: z.string().nullable().optional(),
-  closedAt: z.string().nullable().optional(),
 }).catchall(z.unknown());
 
-export const sofiaCustomerServiceCasesSchema = sofiaAdminListSchema(sofiaCustomerServiceCaseSummarySchema);
+export const sofiaCustomerServiceCasesSchema = z.object({
+  items: z.array(sofiaCustomerServiceCaseSummarySchema),
+  page: z.number(),
+  limit: z.number(),
+  total: z.number(),
+});
 
 export const sofiaCustomerServiceCaseEventSchema = z.object({
   id: z.string(),
   version: z.number(),
   action: z.string(),
-  fromStatus: z.string().nullable().optional(),
+  fromStatus: nullableString.optional(),
   toStatus: z.string(),
-  actorId: z.string().nullable().optional(),
-  reasonCode: z.string().nullable().optional(),
+  actorId: nullableString.optional(),
+  reasonCode: nullableString.optional(),
   createdAt: z.string(),
 }).catchall(z.unknown());
 
 export const sofiaCustomerServiceCaseDetailSchema = sofiaCustomerServiceCaseSummarySchema.extend({
-  orderCheckout: z.record(z.string(), z.unknown()).nullable().optional(),
-  orderTicket: z.record(z.string(), z.unknown()).nullable().optional(),
-  paymentIntent: z.record(z.string(), z.unknown()).nullable().optional(),
-  deliveryIssue: z.record(z.string(), z.unknown()).nullable().optional(),
+  orderCheckout: record.nullable().optional(),
+  orderTicket: record.nullable().optional(),
+  paymentIntent: record.nullable().optional(),
+  deliveryIssue: record.nullable().optional(),
   events: z.array(sofiaCustomerServiceCaseEventSchema),
 });
 
@@ -827,21 +494,306 @@ export const sofiaCustomerServiceTransitionResultSchema = z.object({
   serviceCase: sofiaCustomerServiceCaseSummarySchema,
 });
 
+/* ------------------------------------------------------------------ */
+/*  CRM — identidad enmascarada / consentimiento (invariantes)         */
+/* ------------------------------------------------------------------ */
+
+const sofiaCrmDateSchema = z.string();
+const sofiaCrmUnmaskedPhonePattern = /(?:\+?57[\s-]?)?3(?:[\s-]?\d){9}/;
+const sofiaCrmSafeTextSchema = z
+  .string()
+  .refine((value) => !sofiaCrmUnmaskedPhonePattern.test(value), 'El texto CRM contiene una identidad sin enmascarar.');
+const sofiaCrmMaskedIdentitySchema = z
+  .string()
+  .regex(/^\*{3}(?: \*{3} \d{4})?$/, 'La identidad CRM no esta enmascarada.');
+
+export const sofiaCrmCustomerIdentitySchema = z.object({
+  id: z.string(),
+  type: z.literal('PHONE'),
+  valueMasked: sofiaCrmMaskedIdentitySchema,
+  isPrimary: z.boolean(),
+  verifiedAt: sofiaCrmDateSchema.nullable(),
+});
+
+export const sofiaCrmCustomerTagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  assignedAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmCustomerSegmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']),
+  addedAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmCustomerSummarySchema = z.object({
+  id: z.string(),
+  displayName: sofiaCrmSafeTextSchema.nullable(),
+  status: z.enum(['ACTIVE', 'ARCHIVED']),
+  identities: z.array(sofiaCrmCustomerIdentitySchema),
+  tags: z.array(sofiaCrmCustomerTagSchema),
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+}).catchall(z.unknown());
+
+export const sofiaCrmPaginationSchema = z.object({
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  pages: z.number().int().nonnegative(),
+});
+
+export const sofiaCrmCustomersSchema = z.object({
+  data: z.array(sofiaCrmCustomerSummarySchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmCustomerConsentSchema = z.object({
+  id: z.string(),
+  purpose: z.enum(['MARKETING', 'SERVICE']),
+  channel: z.enum(['WHATSAPP', 'SMS', 'PHONE']),
+  status: z.enum(['GRANTED', 'REVOKED']),
+  source: z.string(),
+  evidenceHash: z.string(),
+  version: z.number().int().positive(),
+  grantedAt: sofiaCrmDateSchema.nullable(),
+  revokedAt: sofiaCrmDateSchema.nullable(),
+  createdAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmCustomerInteractionSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  channel: z.enum(['WHATSAPP', 'PHONE', 'IN_PERSON', 'SYSTEM']),
+  direction: z.enum(['INBOUND', 'OUTBOUND', 'INTERNAL']),
+  summary: z.string(),
+  occurredAt: sofiaCrmDateSchema,
+  createdAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmCampaignDeliverySchema = z.object({
+  id: z.string(),
+  campaignId: z.string(),
+  recipientMasked: z.string(),
+  status: z.enum(['PENDING', 'BLOCKED', 'CANCELLED']),
+  blockedReason: nullableString,
+  attemptedAt: sofiaCrmDateSchema.nullable(),
+  createdAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmCustomerDetailSchema = sofiaCrmCustomerSummarySchema.extend({
+  consents: z.array(sofiaCrmCustomerConsentSchema),
+  timeline: z.array(sofiaCrmCustomerInteractionSchema),
+  segments: z.array(sofiaCrmCustomerSegmentSchema),
+  deliveries: z.array(sofiaCrmCampaignDeliverySchema),
+});
+
+/* ------------------------------------------------------------------ */
+/*  CRM — segmentos, tags, pipelines, leads, tareas, notas, campañas   */
+/* ------------------------------------------------------------------ */
+
+export const sofiaCrmSegmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: nullableString,
+  status: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']),
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+  _count: z.object({ memberships: z.number(), campaigns: z.number() }),
+});
+
+export const sofiaCrmSegmentsPageSchema = z.object({
+  data: z.array(sofiaCrmSegmentSchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmTagSchema = z.object({ id: z.string(), name: z.string() });
+export const sofiaCrmTagsPageSchema = z.object({ data: z.array(sofiaCrmTagSchema), pagination: sofiaCrmPaginationSchema });
+
+export const sofiaCrmPipelineStageSchema = z.object({
+  id: z.string(),
+  pipelineId: z.string(),
+  name: z.string(),
+  position: z.number(),
+  outcome: z.enum(['OPEN', 'WON', 'LOST']),
+});
+
+export const sofiaCrmPipelineSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: nullableString,
+  status: z.enum(['ACTIVE', 'ARCHIVED']),
+  stages: z.array(sofiaCrmPipelineStageSchema),
+  _count: z.object({ leads: z.number() }),
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmPipelinesPageSchema = z.object({
+  data: z.array(sofiaCrmPipelineSchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+const crmLeadStatusSchema = z.enum(['NEW', 'QUALIFIED', 'ACTIVE', 'WON', 'LOST', 'ARCHIVED']);
+const crmLeadSourceSchema = z.enum(['WHATSAPP', 'POS', 'DELIVERY', 'CUSTOMER_SERVICE', 'AUTHORIZED_OPERATOR']);
+
+export const sofiaCrmLeadSummarySchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customer: z.object({ id: z.string(), displayName: nullableString, status: z.string() }),
+  pipelineId: z.string(),
+  pipeline: z.object({ id: z.string(), name: z.string(), status: z.string() }),
+  currentStageId: z.string(),
+  currentStage: z.object({ id: z.string(), name: z.string(), position: z.number(), outcome: z.string() }),
+  source: crmLeadSourceSchema,
+  sourceReference: z.string(),
+  title: z.string(),
+  status: crmLeadStatusSchema,
+  ownerId: nullableString,
+  owner: z.object({ id: z.string(), fullName: z.string(), isActive: z.boolean() }).nullable(),
+  version: z.number(),
+  qualifiedAt: nullableString,
+  wonAt: nullableString,
+  lostAt: nullableString,
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmLeadsPageSchema = z.object({
+  data: z.array(sofiaCrmLeadSummarySchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmLeadStageHistorySchema = z.object({
+  id: z.string(),
+  version: z.number(),
+  fromStageId: nullableString,
+  toStageId: z.string(),
+  fromStatus: nullableString,
+  toStatus: z.string(),
+  actorId: nullableString,
+  reasonCode: z.string(),
+  createdAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmLeadDetailSchema = sofiaCrmLeadSummarySchema.extend({
+  pipeline: z.object({
+    id: z.string(),
+    name: z.string(),
+    status: z.string(),
+    stages: z.array(sofiaCrmPipelineStageSchema),
+  }),
+  currentStage: sofiaCrmPipelineStageSchema,
+  stageHistory: z.array(sofiaCrmLeadStageHistorySchema),
+});
+
+const crmTaskTypeSchema = z.enum(['TASK', 'FOLLOW_UP']);
+const crmTaskStatusSchema = z.enum(['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
+const crmTaskPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+
+export const sofiaCrmTaskSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customer: z.object({ id: z.string(), displayName: nullableString }),
+  leadId: nullableString,
+  lead: z.object({ id: z.string(), title: z.string(), status: z.string() }).nullable(),
+  customerServiceCaseId: nullableString,
+  source: z.string(),
+  sourceReference: z.string(),
+  type: crmTaskTypeSchema,
+  status: crmTaskStatusSchema,
+  priority: crmTaskPrioritySchema,
+  title: z.string(),
+  sanitizedDescription: nullableString,
+  assignedToId: nullableString,
+  assignedTo: z.object({ id: z.string(), fullName: z.string(), isActive: z.boolean() }).nullable(),
+  dueAt: nullableString,
+  completedAt: nullableString,
+  cancelledAt: nullableString,
+  version: z.number(),
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+});
+
+export const sofiaCrmTasksPageSchema = z.object({
+  data: z.array(sofiaCrmTaskSchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmNoteSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  leadId: nullableString,
+  customerServiceCaseId: nullableString,
+  source: z.string(),
+  sourceReference: z.string(),
+  sanitizedBody: z.string().optional(),
+  body: z.string().optional(),
+  author: z.object({ id: z.string(), fullName: z.string() }).nullable(),
+  createdAt: sofiaCrmDateSchema,
+}).catchall(z.unknown());
+
+export const sofiaCrmNotesPageSchema = z.object({
+  data: z.array(sofiaCrmNoteSchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmCampaignSchema = z.object({
+  id: z.string(),
+  segmentId: nullableString,
+  segment: z.object({ id: z.string(), name: z.string() }).nullable(),
+  name: z.string(),
+  channel: z.string(),
+  messageTemplate: z.string(),
+  status: z.enum(['DRAFT', 'BLOCKED', 'CANCELLED']),
+  blockedReason: nullableString,
+  createdAt: sofiaCrmDateSchema,
+  updatedAt: sofiaCrmDateSchema,
+  _count: z.object({ deliveries: z.number() }),
+});
+
+export const sofiaCrmCampaignsPageSchema = z.object({
+  data: z.array(sofiaCrmCampaignSchema),
+  pagination: sofiaCrmPaginationSchema,
+});
+
+export const sofiaCrmCampaignSendResultSchema = record;
+
+/* ------------------------------------------------------------------ */
+/*  Tipos                                                              */
+/* ------------------------------------------------------------------ */
+
+export type SofiaDashboardSummary = z.infer<typeof sofiaDashboardSummarySchema>;
+export type SofiaMetricsSummary = z.infer<typeof sofiaMetricsSummarySchema>;
+export type SofiaMetricsRange = 'today' | '7d' | '30d';
 export type SofiaGovernanceStatus = z.infer<typeof sofiaGovernanceStatusSchema>;
-export type SofiaGovernanceMetrics = z.infer<typeof sofiaGovernanceMetricsSchema>;
+export type SofiaReadiness = z.infer<typeof sofiaReadinessSchema>;
+export type SofiaGovernanceEvents = z.infer<typeof sofiaGovernanceEventsSchema>;
+export type SofiaAlerts = z.infer<typeof sofiaAlertsSchema>;
+export type SofiaAlert = SofiaAlerts[number];
 export type SofiaSecurityStatus = z.infer<typeof sofiaSecurityStatusSchema>;
 export type SofiaRuntimeSafety = z.infer<typeof sofiaRuntimeSafetySchema>;
-export type SofiaAdminPaymentIntent = z.infer<typeof sofiaAdminPaymentIntentSchema>;
-export type SofiaAdminPaymentLink = z.infer<typeof sofiaAdminPaymentLinkSchema>;
-export type SofiaAdminPaymentTransition = z.infer<typeof sofiaAdminPaymentTransitionSchema>;
-export type SofiaAdminPaymentWebhook = z.infer<typeof sofiaAdminPaymentWebhookSchema>;
+export type SofiaQrStatus = z.infer<typeof sofiaQrStatusSchema>;
+export type SofiaConversationsInbox = z.infer<typeof sofiaConversationsInboxSchema>;
+export type SofiaInboxConversation = z.infer<typeof inboxConversationSchema>;
+export type SecureCommandStatus = z.infer<typeof secureCommandStatusSchema>;
+export type SecureCommandType = z.infer<typeof secureCommandTypeSchema>;
+export type SecureCommandRecord = z.infer<typeof secureCommandRecordSchema>;
+export type SecureCommandDetail = z.infer<typeof secureCommandDetailSchema>;
 export type SofiaCustomerServiceCaseSummary = z.infer<typeof sofiaCustomerServiceCaseSummarySchema>;
 export type SofiaCustomerServiceCaseDetail = z.infer<typeof sofiaCustomerServiceCaseDetailSchema>;
 export type SofiaCustomerServiceCaseEvent = z.infer<typeof sofiaCustomerServiceCaseEventSchema>;
 export type SofiaCustomerServiceTransitionResult = z.infer<typeof sofiaCustomerServiceTransitionResultSchema>;
-export type SofiaDashboardSummary = z.infer<typeof sofiaDashboardSummarySchema>;
-export type SofiaReadiness = z.infer<typeof sofiaReadinessSchema>;
-export type SofiaGovernanceEvents = z.infer<typeof sofiaGovernanceEventsSchema>;
-export type SofiaGovernanceEvent = SofiaGovernanceEvents[number];
-export type SofiaAlerts = z.infer<typeof sofiaAlertsSchema>;
-export type SofiaAlert = SofiaAlerts[number];
+export type SofiaCrmCustomerSummary = z.infer<typeof sofiaCrmCustomerSummarySchema>;
+export type SofiaCrmCustomerDetail = z.infer<typeof sofiaCrmCustomerDetailSchema>;
+export type SofiaCrmSegment = z.infer<typeof sofiaCrmSegmentSchema>;
+export type SofiaCrmTag = z.infer<typeof sofiaCrmTagSchema>;
+export type SofiaCrmPipeline = z.infer<typeof sofiaCrmPipelineSchema>;
+export type SofiaCrmPipelineStage = z.infer<typeof sofiaCrmPipelineStageSchema>;
+export type SofiaCrmLeadSummary = z.infer<typeof sofiaCrmLeadSummarySchema>;
+export type SofiaCrmLeadDetail = z.infer<typeof sofiaCrmLeadDetailSchema>;
+export type SofiaCrmTask = z.infer<typeof sofiaCrmTaskSchema>;
+export type SofiaCrmNote = z.infer<typeof sofiaCrmNoteSchema>;
+export type SofiaCrmCampaign = z.infer<typeof sofiaCrmCampaignSchema>;

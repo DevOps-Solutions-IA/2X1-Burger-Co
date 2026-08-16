@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation';
 
-export default async function SofiaCustomerDetailRedirectPage({ params }: { params: Promise<{ customerId: string }> }) {
+/** Ruta legacy — el Customer 360 vive ahora en /sofia/crm/customers/[customerId]. */
+export default async function LegacySofiaCustomerDetailPage({
+  params,
+}: {
+  params: Promise<{ customerId: string }>;
+}) {
   const { customerId } = await params;
-  redirect(`/sofia/crm/customers/${encodeURIComponent(customerId)}`);
+  redirect(`/sofia/crm/customers/${customerId}`);
 }

@@ -40,9 +40,25 @@ export type NewApprovalRecord = {
   auditIdentity: string;
 };
 
+export type CommandListQuery = {
+  status?: SecureCommandStatus;
+  commandType?: string;
+  page: number;
+  limit: number;
+};
+
+export type CommandListPage = {
+  items: CommandRecord[];
+  page: number;
+  limit: number;
+  total: number;
+};
+
 export interface CommandRepository {
   receive(input: NewCommandRecord, audit: CommandAuditEvidence): Promise<{ command: CommandRecord; created: boolean }>;
   find(commandId: string): Promise<CommandRecord | null>;
+  list(query: CommandListQuery): Promise<CommandListPage>;
+  listApprovals(commandId: string): Promise<CommandApprovalRecord[]>;
   findApproval(approvalId: string): Promise<CommandApprovalRecord | null>;
   findValidApproval(commandId: string, now: Date): Promise<CommandApprovalRecord | null>;
   actorAuthorization(actorId: string): Promise<ActorAuthorization>;

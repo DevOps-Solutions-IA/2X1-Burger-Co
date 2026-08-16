@@ -1,8 +1,7 @@
-export function customerDisplayName(displayName: string | null) {
-  return displayName?.trim() || 'Cliente sin nombre registrado';
-}
+/** Helpers de presentación puramente derivados — sin llamadas a red ni estado. */
 
-export function humanizeCrmCode(value: string) {
-  const normalized = value.replace(/_/g, ' ').toLocaleLowerCase('es-CO');
-  return normalized.charAt(0).toLocaleUpperCase('es-CO') + normalized.slice(1);
+/** Nombre de cliente listo para mostrar, con fallback cuando el CRM no tiene displayName capturado. */
+export function customerDisplayName(name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : 'Cliente sin nombre';
 }

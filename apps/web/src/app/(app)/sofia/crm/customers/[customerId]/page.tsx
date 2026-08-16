@@ -1,29 +1,38 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { PageHeader, QueryStateBoundary, StatusBadge, Customer360Tabs } from '@/components/sofia';
+import { SOFIA_CUSTOMER_360_SECTIONS, type SofiaCustomer360SectionKey } from '@/features/sofia/navigation';
 import { useSofiaCrmCustomer } from '@/features/sofia/queries';
+import { customerDisplayName } from '@/features/sofia/crm-display';
 import { IdentityPanel } from '@/features/sofia/crm/customer-360/IdentityPanel';
 import { TagsPanel } from '@/features/sofia/crm/customer-360/TagsPanel';
+import { SegmentsPanel } from '@/features/sofia/crm/customer-360/SegmentsPanel';
 import { ConsentsPanel } from '@/features/sofia/crm/customer-360/ConsentsPanel';
 import { ActivityTimeline } from '@/features/sofia/crm/customer-360/ActivityTimeline';
+import { LeadPanel } from '@/features/sofia/crm/customer-360/LeadPanel';
+import { TasksPanel } from '@/features/sofia/crm/customer-360/TasksPanel';
+import { NotesPanel } from '@/features/sofia/crm/customer-360/NotesPanel';
 import { CasesPanel } from '@/features/sofia/crm/customer-360/CasesPanel';
-import { SOFIA_CUSTOMER_360_SECTIONS, type SofiaCustomer360SectionKey } from '@/features/sofia/workspace/architecture';
-import { Customer360Tabs, PhaseBoundaryNotice, QueryStateBoundary, WorkspaceHeader } from '@/components/sofia/workspace';
-import { customerDisplayName } from '@/features/sofia/crm-display';
 
 export default function SofiaCustomer360Page() {
   const params = useParams<{ customerId: string }>();
   const customerId = params?.customerId ?? '';
+  const [activeSection, setActiveSection] = useState<SofiaCustomer360SectionKey>('identity');
+
   const customer = useSofiaCrmCustomer(customerId);
-  const [activeTab, setActiveTab] = useState<SofiaCustomer360SectionKey>('identity');
 
   return (
     <div className="space-y-4" data-testid="sofia-customer360-page">
-      <Link href="/sofia/crm" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-brand-700 hover:text-brand-900" data-testid="sofia-customer360-back">
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+      <Link
+        href="/sofia/crm"
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand-700 hover:text-brand-900"
+        data-testid="sofia-customer360-back-link"
+      >
+        <ArrowLeft className="h-4 w-4" />
         Volver a clientes
       </Link>
 
@@ -38,27 +47,34 @@ export default function SofiaCustomer360Page() {
       >
         {(data) => (
           <>
-            <WorkspaceHeader eyebrow="Customer 360" title={customerDisplayName(data.displayName)} description="Vista agregada del cliente a partir de datos reales del backend." />
+            <PageHeader
+              eyebrow="CRM · Customer 360"
+              title={customerDisplayName(data.displayName)}
+              description="Vista completa del cliente en el CRM: identidad, tags, segmentos, consentimientos, actividad, pipeline, tareas, notas y casos de servicio."
+              statusBadges={
+                <StatusBadge tone={data.status === 'ACTIVE' ? 'success' : 'read_only'} label={data.status === 'ACTIVE' ? 'Activo' : 'Archivado'} />
+              }
+              data-testid="sofia-customer360-header"
+            />
 
-            <Customer360Tabs sections={SOFIA_CUSTOMER_360_SECTIONS} active={activeTab} onSelect={setActiveTab} data-testid="sofia-customer360-tabs" />
+            <Customer360Tabs
+              sections={SOFIA_CUSTOMER_360_SECTIONS}
+              active={activeSection}
+              onSelect={setActiveSection}
+              data-testid="sofia-customer360-tabs"
+            />
 
-            {activeTab === 'identity' && <IdentityPanel customer={data} />}
-            {activeTab === 'tags' && <TagsPanel customer={data} />}
-            {activeTab === 'consents' && <ConsentsPanel customer={data} />}
-            {activeTab === 'activity' && <ActivityTimeline customerId={customerId} />}
-            {activeTab === 'cases' && <CasesPanel customerId={customerId} />}
-            {(['conversations', 'orders', 'payments', 'deliveries', 'notes'] as const).map(
-              (key) =>
-                activeTab === key && (
-                  <PhaseBoundaryNotice
-                    key={key}
-                    title={`${SOFIA_CUSTOMER_360_SECTIONS.find((s) => s.key === key)?.label} disponible en una fase posterior`}
-                    description={SOFIA_CUSTOMER_360_SECTIONS.find((s) => s.key === key)?.description ?? ''}
-                    pendingPhase={SOFIA_CUSTOMER_360_SECTIONS.find((s) => s.key === key)?.pendingPhase ?? ''}
-                    data-testid={`sofia-customer360-${key}-boundary`}
-                  />
-                ),
-            )}
+            <div data-testid={`sofia-customer360-panel-${activeSection}`}>
+              {activeSection === 'identity' && <IdentityPanel customer={data} />}
+              {activeSection === 'tags' && <TagsPanel customer={data} />}
+              {activeSection === 'segments' && <SegmentsPanel customer={data} />}
+              {activeSection === 'consents' && <ConsentsPanel customer={data} />}
+              {activeSection === 'activity' && <ActivityTimeline customer={data} />}
+              {activeSection === 'lead' && <LeadPanel customerId={customerId} />}
+              {activeSection === 'tasks' && <TasksPanel customerId={customerId} />}
+              {activeSection === 'notes' && <NotesPanel customerId={customerId} />}
+              {activeSection === 'cases' && <CasesPanel customerId={customerId} />}
+            </div>
           </>
         )}
       </QueryStateBoundary>

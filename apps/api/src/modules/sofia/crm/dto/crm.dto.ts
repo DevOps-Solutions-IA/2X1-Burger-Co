@@ -152,6 +152,26 @@ export class CreateCustomerCampaignDto {
   messageTemplate!: string;
 }
 
+export class ListCrmCampaignsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 25;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  segmentId?: string;
+}
+
 export class CrmPaginationDto {
   @IsOptional()
   @Type(() => Number)

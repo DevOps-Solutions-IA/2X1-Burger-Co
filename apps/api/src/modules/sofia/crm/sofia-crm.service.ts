@@ -29,6 +29,7 @@ import {
   CreateCrmTaskDto,
   CreateCustomerTagDto,
   CustomerConsentDto,
+  ListCrmCampaignsDto,
   ListCrmLeadsDto,
   ListCrmNotesDto,
   ListCrmPipelinesDto,
@@ -374,6 +375,10 @@ export class SofiaCrmService {
       after: { status: segment.status, memberCount: segment._count.memberships },
     });
     return segment;
+  }
+
+  listCampaigns(dto: ListCrmCampaignsDto) {
+    return this.phase8Repository.listCampaigns(dto);
   }
 
   async createDraftCampaign(dto: CreateCustomerCampaignDto, actor: AuthUser) {

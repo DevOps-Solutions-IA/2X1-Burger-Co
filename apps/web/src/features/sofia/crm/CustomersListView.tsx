@@ -1,43 +1,54 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, Users } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { StatusBadge, QueryStateBoundary } from '@/components/sofia/workspace';
-import { useSofiaCrmCustomers } from '@/features/sofia/queries';
+import { QueryStateBoundary, StatusBadge } from '@/components/sofia';
 import { customerDisplayName } from '@/features/sofia/crm-display';
+import { useSofiaCrmCustomers } from '@/features/sofia/queries';
+import { formatDate } from '@/lib/format';
 
 const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function CustomersListView() {
-  const [inputValue, setInputValue] = useState('');
-  const [query, setQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      setQuery(inputValue);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [inputValue]);
+    const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const customers = useSofiaCrmCustomers({ q: query, page, limit: PAGE_SIZE });
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  const customers = useSofiaCrmCustomers({ q: debouncedSearch, page, limit: PAGE_SIZE });
 
   return (
-    <div className="space-y-3" data-testid="sofia-crm-customers-view">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
-        <Input
-          value={inputValue}
-          onChange={(event) => setInputValue(event.target.value)}
-          placeholder="Buscar por nombre o identidad enmascarada…"
-          className="pl-9"
-          data-testid="sofia-crm-search-input"
-        />
+    <Card className="overflow-hidden p-0" data-testid="sofia-crm-customers-list">
+      <div className="space-y-3 border-b border-stone-100 px-5 py-4">
+        <div>
+          <h2 className="text-[15px] font-extrabold text-ink">Directorio de clientes</h2>
+          <p className="mt-0.5 text-[12px] text-stone-600">Identidad enmascarada, estado y tags del CRM.</p>
+        </div>
+        <div className="relative" data-testid="sofia-crm-customers-search">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
+          <Input
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Buscar cliente por nombre o identidad…"
+            className="pl-9"
+            data-testid="sofia-crm-customers-search-input"
+          />
+        </div>
       </div>
 
       <QueryStateBoundary
@@ -45,61 +56,88 @@ export function CustomersListView() {
         isError={customers.isError}
         error={customers.error}
         data={customers.data}
-        loadingLabel="Buscando clientes…"
+        loadingLabel="Cargando clientes…"
         errorTitle="No se pudo cargar el directorio de clientes"
         data-testid="sofia-crm-customers"
       >
-        {(result) =>
-          result.data.length > 0 ? (
-            <>
-              <div className="space-y-2">
-                {result.data.map((customer) => (
+        {(result) => (
+          <>
+            <div className="hide-scrollbar divide-y divide-stone-100">
+              {result.data.map((customer) => {
+                const primaryIdentity = customer.identities.find((identity) => identity.isPrimary) ?? customer.identities[0];
+                return (
                   <Link
                     key={customer.id}
-                    href={`/sofia/crm/customers/${encodeURIComponent(customer.id)}`}
-                    className="group flex items-center justify-between gap-3 rounded-[1.15rem] border border-stone-200 bg-white p-3.5 transition-colors hover:border-brand-200"
-                    data-testid={`sofia-crm-customer-row-${customer.id}`}
+                    href={`/sofia/crm/customers/${customer.id}`}
+                    className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-stone-50"
+                    data-testid="sofia-crm-customer-row"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-[13.5px] font-semibold text-ink">{customerDisplayName(customer.displayName)}</p>
-                      <p className="mt-0.5 text-[11.5px] font-medium text-stone-600">
-                        {customer.identities.find((identity) => identity.isPrimary)?.valueMasked ?? 'Sin identidad primaria'}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-[14px] font-extrabold text-ink">{customerDisplayName(customer.displayName)}</p>
+                        <StatusBadge tone={customer.status === 'ACTIVE' ? 'success' : 'read_only'} label={customer.status === 'ACTIVE' ? 'Activo' : 'Archivado'} />
+                      </div>
+                      <p className="mt-0.5 truncate text-[12px] text-stone-600">
+                        {primaryIdentity ? primaryIdentity.valueMasked : 'Sin identidad registrada'} &middot; Cliente desde {formatDate(customer.createdAt)}
                       </p>
                       {customer.tags.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {customer.tags.map((tag) => (
-                            <StatusBadge key={tag.id} tone="read_only" label={tag.name} withDot={false} />
+                            <Badge key={tag.id} tone="neutral">{tag.name}</Badge>
                           ))}
                         </div>
                       )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <StatusBadge tone={customer.status === 'ACTIVE' ? 'success' : 'read_only'} label={customer.status === 'ACTIVE' ? 'Activo' : 'Archivado'} withDot={false} />
-                      <ArrowUpRight className="h-4 w-4 text-stone-400 group-hover:text-brand-600" aria-hidden="true" />
-                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-stone-400" aria-hidden="true" />
                   </Link>
-                ))}
-              </div>
+                );
+              })}
+            </div>
 
-              {result.pagination.pages > 1 && (
-                <div className="flex items-center justify-between gap-3 pt-1" data-testid="sofia-crm-pagination">
-                  <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+            {result.data.length === 0 && (
+              <div className="p-8">
+                <EmptyState
+                  icon={<Users className="h-5 w-5" />}
+                  title="Sin clientes"
+                  description={debouncedSearch ? 'Ningún cliente coincide con la búsqueda.' : 'Todavía no hay clientes registrados en el CRM.'}
+                />
+              </div>
+            )}
+
+            {result.pagination.pages > 1 && (
+              <div className="flex items-center justify-between gap-3 border-t border-stone-100 px-5 py-3.5" data-testid="sofia-crm-customers-pagination">
+                <p className="text-[12px] font-semibold text-stone-600">
+                  Página {result.pagination.page} de {result.pagination.pages} &middot; {result.pagination.total} clientes
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    data-testid="sofia-crm-customers-prev"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
                     Anterior
                   </Button>
-                  <span className="text-[12px] font-medium text-stone-600">
-                    Página {result.pagination.page} de {result.pagination.pages} · {result.pagination.total} clientes
-                  </span>
-                  <Button variant="secondary" size="sm" disabled={page >= result.pagination.pages} onClick={() => setPage((current) => current + 1)}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={page >= result.pagination.pages}
+                    onClick={() => setPage((current) => Math.min(result.pagination.pages, current + 1))}
+                    data-testid="sofia-crm-customers-next"
+                  >
                     Siguiente
+                    <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
-              )}
-            </>
-          ) : (
-            <EmptyState title="Sin clientes" description={query ? 'No hay clientes que coincidan con la búsqueda.' : 'Todavía no hay clientes registrados en el CRM.'} />
-          )
-        }
+              </div>
+            )}
+          </>
+        )}
       </QueryStateBoundary>
-    </div>
+    </Card>
   );
 }

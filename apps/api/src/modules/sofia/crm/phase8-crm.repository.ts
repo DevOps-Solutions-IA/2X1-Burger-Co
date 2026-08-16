@@ -735,6 +735,23 @@ export class Phase8CrmRepository {
     ]).then(([rows, total]) => page(rows, total, input));
   }
 
+  listCampaigns(input: { page: number; limit: number; segmentId?: string }) {
+    const where = input.segmentId ? { segmentId: input.segmentId } : {};
+    return this.prisma.$transaction([
+      this.prisma.customerCampaign.findMany({
+        where,
+        include: {
+          segment: { select: { id: true, name: true } },
+          _count: { select: { deliveries: true } },
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        skip: (input.page - 1) * input.limit,
+        take: input.limit,
+      }),
+      this.prisma.customerCampaign.count({ where }),
+    ]).then(([rows, total]) => page(rows, total, input));
+  }
+
   async unifiedTimeline(customerId: string, input: ListTimelineDto, access: UnifiedTimelineAccess) {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
     if (!customer) throw new CrmPersistenceError('CRM_NOT_FOUND');

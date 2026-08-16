@@ -1,59 +1,88 @@
-import { QrCode } from 'lucide-react';
+import Image from 'next/image';
 import { Card } from '@/components/ui/card';
-import { StatusBadge } from '@/components/sofia/workspace';
+import { MetricCard } from '@/components/ui/metric-card';
+import { StatusBadge } from '@/components/sofia';
 import type { SofiaQrStatus } from '@/features/sofia/contracts';
+
+const STATUS_LABEL: Record<SofiaQrStatus['status'], string> = {
+  DISABLED: 'Deshabilitado',
+  DISCONNECTED: 'Desconectado',
+  CONNECTING: 'Conectando',
+  WAITING_QR: 'Esperando QR',
+  QR_READY: 'QR listo para escanear',
+  CONNECTED: 'Conectado',
+  RECONNECTING: 'Reconectando',
+  FAILED: 'Falló',
+  LOGGED_OUT: 'Sesión cerrada',
+};
+
+function statusTone(status: SofiaQrStatus['status']) {
+  if (status === 'CONNECTED') return 'success' as const;
+  if (status === 'QR_READY' || status === 'CONNECTING' || status === 'RECONNECTING' || status === 'WAITING_QR') return 'pending' as const;
+  if (status === 'FAILED') return 'failed' as const;
+  return 'blocked' as const;
+}
 
 export function QrStatusCard({ status }: { status: SofiaQrStatus }) {
   return (
-    <Card className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]" data-testid="sofia-qr-status-card">
-      <div>
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Estado</p>
-        <div className="mt-1.5 flex items-center gap-2">
-          <h2 className="text-[16px] font-semibold text-ink">{status.status}</h2>
-          <StatusBadge tone={status.connected ? 'success' : status.qrAvailable ? 'pending' : 'read_only'} label={status.connected ? 'Conectado' : status.qrAvailable ? 'QR listo' : 'Sin conexión'} />
+    <div className="space-y-4" data-testid="sofia-whatsapp-qr-status-card">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-stone-600">Estado de conexión</p>
+            <h2 className="mt-1 text-[18px] font-bold text-ink">{STATUS_LABEL[status.status]}</h2>
+            {status.deviceName && <p className="mt-1 text-[12.5px] text-stone-600">Dispositivo: {status.deviceName}</p>}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <StatusBadge tone={statusTone(status.status)} label={STATUS_LABEL[status.status]} />
+            <StatusBadge tone={status.adapterReal ? 'success' : 'warning'} label={status.adapterReal ? 'Adapter real' : 'Adapter simulado'} />
+            <StatusBadge tone="read_only" label="Receive-only" />
+            <StatusBadge tone="blocked" label="Envío real OFF" />
+          </div>
         </div>
 
-        <div className="mt-3.5 space-y-1.5">
-          <Row label="Adapter real" value={status.adapterReal ? 'Sí' : 'No'} tone={status.adapterReal ? 'success' : 'warning'} />
-          <Row label="Envío real" value="Bloqueado" tone="blocked" />
-          <Row label="Sesión" value={status.sessionName} />
-          <Row label="Inbound hoy" value={String(status.inboundToday)} />
-          <Row label="Salientes pendientes" value={String(status.pendingOutbound)} />
-          {status.deviceName && <Row label="Dispositivo" value={status.deviceName} />}
-          {status.phoneNumber && <Row label="Número" value={status.phoneNumber} />}
-        </div>
-
-        {status.blockers.length > 0 && (
-          <div className="mt-3.5 flex flex-wrap gap-1.5" data-testid="sofia-qr-blockers">
-            {status.blockers.map((blocker) => (
-              <StatusBadge key={blocker} tone="blocked" label={blocker} />
-            ))}
+        {status.qrAvailable && status.qrImageDataUrl && (
+          <div className="mt-4 flex flex-col items-center gap-2 rounded-[1.15rem] border border-dashed border-stone-200 bg-stone-50/70 p-4">
+            <Image src={status.qrImageDataUrl} alt="Código QR de vinculación de WhatsApp" width={220} height={220} unoptimized className="rounded-[0.85rem]" />
+            <p className="text-[11.5px] text-stone-600">Escanea con WhatsApp para vincular el canal.</p>
           </div>
         )}
 
-        <p className="mt-3.5 rounded-[0.9rem] bg-brand-50 px-3 py-2.5 text-[12px] font-medium text-brand-900">{status.operatorMessage}</p>
-      </div>
-
-      <div className="flex flex-col items-center justify-center rounded-[1.1rem] border border-dashed border-brand-200 bg-brand-50/40 p-5">
-        {status.qrImageDataUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- data URL generado en runtime; next/image no aporta optimización sobre un data: URI ya renderizado.
-          <img src={status.qrImageDataUrl} alt="Código QR de vinculación WhatsApp" className="h-48 w-48 rounded-[0.9rem] bg-white p-2 shadow-sm" data-testid="sofia-qr-image" />
-        ) : (
-          <>
-            <QrCode className="h-10 w-10 text-brand-300" aria-hidden="true" />
-            <p className="mt-2.5 text-[12.5px] font-medium text-stone-600">Sin QR disponible en este momento.</p>
-          </>
+        {(status.blockers.length > 0 || status.warnings.length > 0) && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {status.blockers.length > 0 && (
+              <div className="rounded-[1.15rem] border border-red-200 bg-red-50 p-3.5" data-testid="sofia-whatsapp-qr-blockers">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-red-700">Bloqueadores</p>
+                <ul className="mt-1.5 space-y-1 text-[12px] font-medium text-red-800">
+                  {status.blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {status.warnings.length > 0 && (
+              <div className="rounded-[1.15rem] border border-amber-200 bg-amber-50 p-3.5" data-testid="sofia-whatsapp-qr-warnings">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-amber-700">Precauciones</p>
+                <ul className="mt-1.5 space-y-1 text-[12px] font-medium text-amber-800">
+                  {status.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
-      </div>
-    </Card>
-  );
-}
 
-function Row({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'warning' | 'blocked' }) {
-  return (
-    <div className="flex items-center justify-between rounded-[0.9rem] bg-stone-50 px-3 py-2">
-      <span className="text-[12px] font-medium text-stone-600">{label}</span>
-      {tone ? <StatusBadge tone={tone} label={value} withDot={false} /> : <span className="text-[12px] font-semibold text-ink">{value}</span>}
+        {status.operatorMessage && (
+          <p className="mt-4 rounded-[0.9rem] bg-stone-50 px-3 py-2.5 text-[12px] font-medium text-stone-600">{status.operatorMessage}</p>
+        )}
+      </Card>
+
+      <section className="grid gap-3 sm:grid-cols-3" data-testid="sofia-whatsapp-qr-metrics">
+        <MetricCard label="Recibidos hoy" value={String(status.inboundToday)} hint="Mensajes entrantes" />
+        <MetricCard label="Enviados hoy" value={String(status.outboundToday)} hint="Solo sugerencias/borradores" />
+        <MetricCard label="Pendientes de salida" value={String(status.pendingOutbound)} hint="En cola, envío real bloqueado" accent="warning" />
+      </section>
     </div>
   );
 }

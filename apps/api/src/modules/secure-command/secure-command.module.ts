@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SofiaModule } from '../sofia/sofia.module';
+import { CommandAdminReadService } from './command-admin-read.service';
 import { CommandApprovalService } from './command-approval.service';
 import { CommandAuditService } from './command-audit.service';
 import { CommandConflictResolver } from './command-conflict-resolver';
@@ -12,12 +13,15 @@ import { CommandResultStore } from './command-result.store';
 import { COMMAND_REPOSITORY, COMMAND_RUNTIME_SAFETY } from './ports/command-repository.port';
 import { PrismaCommandRepository } from './persistence/prisma-command.repository';
 import { SofiaCommandRuntimeSafetyAdapter } from './runtime-safety.adapter';
+import { SecureCommandAdminController } from './secure-command-admin.controller';
 import { SecureCommandService } from './secure-command.service';
 
 @Module({
   imports: [SofiaModule],
+  controllers: [SecureCommandAdminController],
   providers: [
     SecureCommandService,
+    CommandAdminReadService,
     CommandApprovalService,
     CommandAuditService,
     CommandConflictResolver,

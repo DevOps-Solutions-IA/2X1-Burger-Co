@@ -80,6 +80,32 @@ export class PrismaCommandRepository implements CommandRepository {
     return record ? this.command(record) : null;
   }
 
+  async list(query: Parameters<CommandRepository['list']>[0]) {
+    const where: Prisma.SofiaCommandWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.commandType ? { commandType: query.commandType } : {}),
+    };
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.sofiaCommand.count({ where }),
+      this.prisma.sofiaCommand.findMany({
+        where,
+        include: { result: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    ]);
+    return { items: items.map((item) => this.command(item)), page: query.page, limit: query.limit, total };
+  }
+
+  async listApprovals(commandId: string) {
+    const records = await this.prisma.sofiaCommandApproval.findMany({
+      where: { commandId },
+      orderBy: { grantedAt: 'desc' },
+    });
+    return records.map((record) => this.approval(record));
+  }
+
   async findApproval(approvalId: string) {
     const record = await this.prisma.sofiaCommandApproval.findUnique({ where: { id: approvalId } });
     return record ? this.approval(record) : null;
