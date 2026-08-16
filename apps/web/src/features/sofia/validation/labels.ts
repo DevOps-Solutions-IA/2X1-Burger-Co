@@ -157,3 +157,19 @@ export const TONE_AVATAR_CLASS: Record<SofiaStatusTone, string> = {
   human_required: 'border-amber-300 bg-amber-100 text-amber-800',
   read_only: 'border-stone-200 bg-stone-100 text-stone-600',
 };
+
+/**
+ * Misma semántica que `TONE_AVATAR_CLASS`, en la paleta oscura de la Torre
+ * de Control (`console-theme.ts`). Usado por CommandsPanel/CasesPanel
+ * cuando el panel se renderiza dentro del shell oscuro.
+ */
+export const TONE_AVATAR_CLASS_CONSOLE: Record<SofiaStatusTone, string> = {
+  success: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  warning: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  blocked: 'border-red-400/30 bg-red-400/10 text-red-300',
+  pending: 'border-sky-400/30 bg-sky-400/10 text-sky-300',
+  unknown: 'border-orange-400/30 bg-orange-400/10 text-orange-300',
+  failed: 'border-red-400/40 bg-red-400/15 text-red-300',
+  human_required: 'border-amber-400/40 bg-amber-400/15 text-amber-300',
+  read_only: 'border-white/15 bg-white/[0.06] text-white/60',
+};

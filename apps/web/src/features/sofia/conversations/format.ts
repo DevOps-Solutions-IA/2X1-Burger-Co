@@ -103,8 +103,20 @@ const AVATAR_PALETTE = [
   'bg-amber-100 text-amber-800',
 ];
 
-export function avatarClassFromId(id: string): string {
+/** Equivalente oscuro translúcido de `AVATAR_PALETTE`, en el mismo orden, para la Torre de Control. */
+const AVATAR_PALETTE_CONSOLE = [
+  'bg-brand-400/15 text-brand-300',
+  'bg-sky-400/15 text-sky-300',
+  'bg-emerald-400/15 text-emerald-300',
+  'bg-white/10 text-white/70',
+  'bg-amber-400/15 text-amber-300',
+];
+
+export function avatarClassFromId(id: string, variant: 'light' | 'console' = 'light'): string {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  if (variant === 'console') {
+    return AVATAR_PALETTE_CONSOLE[hash % AVATAR_PALETTE_CONSOLE.length] ?? 'bg-white/10 text-white/70';
+  }
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length] ?? 'bg-stone-200 text-stone-700';
 }

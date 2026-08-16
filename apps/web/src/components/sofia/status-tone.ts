@@ -48,6 +48,34 @@ export const SOFIA_STATUS_TONE_DOT_CLASS: Record<SofiaStatusTone, string> = {
   read_only: 'bg-stone-400',
 };
 
+/**
+ * Variante oscura de `SOFIA_STATUS_TONE_BADGE_CLASS`, solo para la Torre
+ * de Control (`console-theme.ts`). Chips translúcidos con borde de color
+ * en vez de fondo pastel — el pastel claro es ilegible sobre fondo oscuro.
+ * Texto en tono 300 verificado con contraste >4.5:1 sobre el shell violeta-carbón.
+ */
+export const SOFIA_STATUS_TONE_CONSOLE_BADGE_CLASS: Record<SofiaStatusTone, string> = {
+  success: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
+  warning: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+  blocked: 'border-red-400/30 bg-red-400/10 text-red-300',
+  pending: 'border-sky-400/30 bg-sky-400/10 text-sky-300',
+  unknown: 'border-orange-400/30 bg-orange-400/10 text-orange-300',
+  failed: 'border-red-400/40 bg-red-400/15 text-red-200',
+  human_required: 'border-amber-400/40 bg-amber-400/15 text-amber-200',
+  read_only: 'border-white/15 bg-white/[0.06] text-white/65',
+};
+
+export const SOFIA_STATUS_TONE_CONSOLE_DOT_CLASS: Record<SofiaStatusTone, string> = {
+  success: 'bg-emerald-400',
+  warning: 'bg-amber-400',
+  blocked: 'bg-red-400',
+  pending: 'bg-sky-400',
+  unknown: 'bg-orange-400',
+  failed: 'bg-red-400',
+  human_required: 'bg-amber-400',
+  read_only: 'bg-white/40',
+};
+
 /** Mapea los estados PASS/WARNING/BLOCKED del backend (readiness, checklist) a SofiaStatusTone. */
 export function toneFromCheckStatus(status: 'PASS' | 'WARNING' | 'BLOCKED'): SofiaStatusTone {
   if (status === 'PASS') return 'success';

@@ -101,9 +101,11 @@ test('shared SOFIA component family matches the expected set — no orphan or du
   const activeComponents = listFilesRecursive(componentDirectory).sort();
   const expectedComponents = [
     'chart-theme.ts',
+    'console-theme.ts',
     'ControlTowerFrame.tsx',
     'CrmFrame.tsx',
     'Customer360Tabs.tsx',
+    'EmptyStrip.tsx',
     'index.ts',
     'PageHeader.tsx',
     'Pager.tsx',

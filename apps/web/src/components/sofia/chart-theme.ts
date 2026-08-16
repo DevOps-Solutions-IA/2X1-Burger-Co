@@ -31,3 +31,28 @@ export const SOFIA_CHART_TOOLTIP_STYLE = {
 } as const;
 
 export const SOFIA_CHART_AXIS_TICK_STYLE = { fontSize: 11, fill: SOFIA_CHART_AXIS_COLOR };
+
+/**
+ * Variante oscura — misma paleta de estado (los colores de segmento no
+ * cambian, para que un gráfico siga leyéndose igual que su `StatusBadge`
+ * correspondiente), pero grilla/ejes/tooltip legibles sobre el shell
+ * violeta-carbón de la Torre de Control.
+ */
+export const SOFIA_CHART_GRID_COLOR_CONSOLE = 'rgba(255,255,255,0.08)';
+export const SOFIA_CHART_AXIS_COLOR_CONSOLE = 'rgba(255,255,255,0.55)';
+
+export const SOFIA_CHART_TOOLTIP_STYLE_CONSOLE = {
+  contentStyle: {
+    borderRadius: '0.85rem',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: '#1A0B3D',
+    boxShadow: '0 16px 32px -16px rgba(0,0,0,0.6)',
+    fontSize: '12px',
+    fontFamily: 'var(--font-body), sans-serif',
+    padding: '8px 12px',
+  },
+  labelStyle: { fontWeight: 700, color: '#ffffff', marginBottom: 2 },
+  itemStyle: { fontSize: '12px', color: 'rgba(255,255,255,0.85)' },
+} as const;
+
+export const SOFIA_CHART_AXIS_TICK_STYLE_CONSOLE = { fontSize: 11, fill: SOFIA_CHART_AXIS_COLOR_CONSOLE };

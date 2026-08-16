@@ -3,13 +3,11 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { CheckCircle2, ListFilter, X, XCircle } from 'lucide-react';
-import { StatusBadge, QueryStateBoundary, Pager, toneFromCommandStatus } from '@/components/sofia';
-import { Card } from '@/components/ui/card';
+import { StatusBadge, QueryStateBoundary, Pager, EmptyStrip, CONSOLE_CARD_CLASS, toneFromCommandStatus } from '@/components/sofia';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -25,7 +23,7 @@ import {
   secureCommandTypeIcon,
   secureCommandTypeLabel,
   truncateReferenceId,
-  TONE_AVATAR_CLASS,
+  TONE_AVATAR_CLASS_CONSOLE,
 } from './labels';
 
 const PAGE_SIZE = 10;
@@ -45,20 +43,20 @@ export function CommandsPanel() {
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_25rem]" data-testid="sofia-validation-commands-panel">
-      <Card data-testid="sofia-validation-commands-list-card">
+      <div className={cn(CONSOLE_CARD_CLASS)} data-testid="sofia-validation-commands-list-card">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex items-center gap-1.5 pb-2.5 text-stone-500">
+            <div className="flex items-center gap-1.5 pb-2.5 text-white/55">
               <ListFilter className="h-4 w-4" aria-hidden="true" />
               <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">Filtros</span>
             </div>
             <div className="min-w-[11rem]">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-status">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70" htmlFor="sofia-validation-commands-filter-status">
                 Estado
               </label>
               <Select
                 id="sofia-validation-commands-filter-status"
-                className="mt-1"
+                className="mt-1 border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                 value={status}
                 onChange={(event) => {
                   setStatus(event.target.value);
@@ -76,12 +74,12 @@ export function CommandsPanel() {
               </Select>
             </div>
             <div className="min-w-[13rem]">
-              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-commands-filter-type">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70" htmlFor="sofia-validation-commands-filter-type">
                 Tipo de comando
               </label>
               <Select
                 id="sofia-validation-commands-filter-type"
-                className="mt-1"
+                className="mt-1 border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                 value={commandType}
                 onChange={(event) => {
                   setCommandType(event.target.value);
@@ -109,19 +107,21 @@ export function CommandsPanel() {
             data={query.data}
             loadingLabel="Cargando comandos gobernados…"
             errorTitle="No se pudieron cargar los comandos"
+            variant="console"
             data-testid="sofia-validation-commands-list"
           >
             {(data) =>
               data.items.length === 0 ? (
                 <div data-testid="sofia-validation-commands-empty">
-                  <EmptyState
+                  <EmptyStrip
+                    variant="console"
                     title="No hay comandos en esta cola"
                     description="Cuando SOFIA someta un comando gobernado (por ejemplo, envío de WhatsApp) que requiera revisión, aparecerá aquí para su aprobación o rechazo."
                   />
                 </div>
               ) : (
                 <>
-                  <p className="mb-2.5 text-[11.5px] font-medium text-stone-500" data-testid="sofia-validation-commands-count">
+                  <p className="mb-2.5 text-[11.5px] font-medium text-white/55" data-testid="sofia-validation-commands-count">
                     {data.total} {data.total === 1 ? 'comando' : 'comandos'} con los filtros actuales
                   </p>
                   <ul className="space-y-2" data-testid="sofia-validation-commands-rows">
@@ -138,26 +138,26 @@ export function CommandsPanel() {
                             className={cn(
                               'flex w-full items-start gap-3 rounded-2xl border px-4 py-3.5 text-left transition-[border-color,background-color,box-shadow]',
                               isActive
-                                ? 'border-brand-400 bg-brand-50/70 shadow-soft'
-                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40',
+                                ? 'border-brand-400 bg-brand-400/[0.08] shadow-soft'
+                                : 'border-white/10 bg-white/[0.04] hover:border-brand-400/40 hover:bg-white/[0.06]',
                             )}
                             data-testid={`sofia-validation-command-row-${command.id}`}
                           >
                             <span
-                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])}
+                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS_CONSOLE[tone])}
                               aria-hidden="true"
                             >
                               <Icon className="h-4 w-4" />
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2">
-                                <p className="truncate text-[13px] font-semibold text-ink">{secureCommandTypeLabel(command.commandType)}</p>
-                                <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} className="shrink-0" />
+                                <p className="truncate text-[13px] font-semibold text-white">{secureCommandTypeLabel(command.commandType)}</p>
+                                <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} variant="console" className="shrink-0" />
                               </div>
-                              <p className="mt-0.5 truncate text-[12px] text-stone-600">
+                              <p className="mt-0.5 truncate text-[12px] text-white/70">
                                 Alcance: {command.scope} · Origen: {command.source}
                               </p>
-                              <p className="mt-1 text-[11px] text-stone-500">{formatDateTime(command.completedAt ?? command.claimedAt)}</p>
+                              <p className="mt-1 text-[11px] text-white/55">{formatDateTime(command.completedAt ?? command.claimedAt)}</p>
                             </div>
                           </button>
                         </li>
@@ -172,6 +172,7 @@ export function CommandsPanel() {
                       itemsLabel={data.total === 1 ? 'comando' : 'comandos'}
                       onPrev={() => setPage((current) => Math.max(1, current - 1))}
                       onNext={() => setPage((current) => current + 1)}
+                      variant="console"
                       data-testid="sofia-validation-commands-pager"
                     />
                   </div>
@@ -180,16 +181,20 @@ export function CommandsPanel() {
             }
           </QueryStateBoundary>
         </div>
-      </Card>
+      </div>
 
       {selectedId ? (
         <div className="lg:sticky lg:top-4 lg:self-start">
           <CommandDetail id={selectedId} onClosed={() => setSelectedId(null)} />
         </div>
       ) : (
-        <Card className="lg:sticky lg:top-4 lg:self-start" data-testid="sofia-validation-command-detail-placeholder">
-          <EmptyState title="Ningún comando seleccionado" description="Elige un comando de la lista para ver su detalle y, si aplica, aprobarlo o rechazarlo." />
-        </Card>
+        <div className={cn(CONSOLE_CARD_CLASS, 'lg:sticky lg:top-4 lg:self-start')} data-testid="sofia-validation-command-detail-placeholder">
+          <EmptyStrip
+            variant="console"
+            title="Ningún comando seleccionado"
+            description="Elige un comando de la lista para ver su detalle y, si aplica, aprobarlo o rechazarlo."
+          />
+        </div>
       )}
     </div>
   );
@@ -236,7 +241,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
   }
 
   return (
-    <Card data-testid="sofia-validation-command-detail">
+    <div className={cn(CONSOLE_CARD_CLASS)} data-testid="sofia-validation-command-detail">
       <QueryStateBoundary
         isLoading={detailQuery.isLoading}
         isError={detailQuery.isError}
@@ -244,6 +249,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
         data={detailQuery.data}
         loadingLabel="Cargando detalle del comando…"
         errorTitle="No se pudo cargar el comando"
+        variant="console"
       >
         {(detail: SecureCommandDetail) => {
           const { command, approvals } = detail;
@@ -254,21 +260,21 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])} aria-hidden="true">
+                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS_CONSOLE[tone])} aria-hidden="true">
                     <Icon className="h-5 w-5" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">Comando gobernado</p>
-                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{secureCommandTypeLabel(command.commandType)}</h2>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">Comando gobernado</p>
+                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-white">{secureCommandTypeLabel(command.commandType)}</h2>
                     <div className="mt-1.5">
-                      <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} />
+                      <StatusBadge tone={tone} label={secureCommandStatusLabel(command.status)} variant="console" />
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={onClosed}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-500 transition-[background-color] hover:bg-stone-100"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/55 transition-[background-color] hover:bg-white/10"
                   aria-label="Cerrar detalle del comando"
                   data-testid="sofia-validation-command-detail-close"
                 >
@@ -276,7 +282,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                 </button>
               </div>
 
-              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3.5 text-[12px]">
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 text-[12px]">
                 <DetailField label="Alcance" value={command.scope} />
                 <DetailField label="Origen" value={command.source} />
                 <DetailField label="Actor" value={`${command.actorId} (${command.actorType})`} />
@@ -292,9 +298,9 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
               </dl>
 
               {command.result && (
-                <div className="rounded-2xl border border-stone-200 bg-white px-3.5 py-3" data-testid="sofia-validation-command-result">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Resultado</p>
-                  <p className="mt-1 text-[12.5px] font-semibold text-ink">{command.result.resultCode}</p>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3" data-testid="sofia-validation-command-result">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Resultado</p>
+                  <p className="mt-1 text-[12.5px] font-semibold text-white">{command.result.resultCode}</p>
                   {command.result.domainReferenceIds.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {command.result.domainReferenceIds.map((refId) => (
@@ -308,11 +314,11 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
               )}
 
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Aprobaciones</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Aprobaciones</p>
                 {approvals.length === 0 ? (
-                  <p className="mt-1.5 text-[12px] text-stone-600">Sin aprobaciones registradas todavía.</p>
+                  <p className="mt-1.5 text-[12px] text-white/70">Sin aprobaciones registradas todavía.</p>
                 ) : (
-                  <ol className="mt-2.5 space-y-3 border-l border-stone-200 pl-4">
+                  <ol className="mt-2.5 space-y-3 border-l border-white/10 pl-4">
                     {approvals.map((approval) => {
                       const approved = approval.status === 'APPROVED';
                       return (
@@ -324,13 +330,13 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                             )}
                             aria-hidden="true"
                           />
-                          <p className="font-semibold text-ink">
+                          <p className="font-semibold text-white">
                             {approval.approverActorId} · {approval.status}
                           </p>
-                          <p className="mt-0.5 text-stone-600">
+                          <p className="mt-0.5 text-white/70">
                             Motivo: {approval.reasonCode} · Política: {approval.policyReference}
                           </p>
-                          <p className="mt-0.5 text-stone-500">Otorgada: {formatDateTime(approval.grantedAt)}</p>
+                          <p className="mt-0.5 text-white/55">Otorgada: {formatDateTime(approval.grantedAt)}</p>
                         </li>
                       );
                     })}
@@ -339,13 +345,13 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
               </div>
 
               {actionable ? (
-                <div className="grid grid-cols-1 gap-3 border-t border-stone-100 pt-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 border-t border-white/10 pt-4 sm:grid-cols-2">
                   <form
                     onSubmit={handleApprove}
-                    className="space-y-2 rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3.5"
+                    className="space-y-2 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.08] p-3.5"
                     data-testid="sofia-validation-command-approve-form"
                   >
-                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-800">
+                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-200">
                       <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                       Aprobar comando
                     </p>
@@ -353,12 +359,14 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                       value={approveReason}
                       onChange={(event) => setApproveReason(event.target.value)}
                       placeholder="reasonCode, ej. OPERATOR_APPROVED_NOTIFICATION"
+                      className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                       data-testid="sofia-validation-command-approve-reason"
                     />
                     <Input
                       value={policyReference}
                       onChange={(event) => setPolicyReference(event.target.value)}
                       placeholder="policyReference, ej. SOFIA_WHATSAPP_POLICY_V1"
+                      className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                       data-testid="sofia-validation-command-approve-policy"
                     />
                     <Button
@@ -374,10 +382,10 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
 
                   <form
                     onSubmit={handleReject}
-                    className="space-y-2 rounded-2xl border border-red-100 bg-red-50/40 p-3.5"
+                    className="space-y-2 rounded-2xl border border-red-400/25 bg-red-400/[0.08] p-3.5"
                     data-testid="sofia-validation-command-reject-form"
                   >
-                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-red-800">
+                    <p className="flex items-center gap-1.5 text-[12px] font-semibold text-red-200">
                       <XCircle className="h-4 w-4" aria-hidden="true" />
                       Rechazar comando
                     </p>
@@ -385,6 +393,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                       value={rejectReason}
                       onChange={(event) => setRejectReason(event.target.value)}
                       placeholder="reasonCode, ej. OPERATOR_REJECTED_CONTENT"
+                      className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                       data-testid="sofia-validation-command-reject-reason"
                     />
                     <Button
@@ -392,7 +401,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                       variant="secondary"
                       size="sm"
                       disabled={reject.isPending || !rejectReason.trim()}
-                      className="w-full border border-red-200 bg-white text-red-800 hover:bg-red-50"
+                      className="w-full border border-red-400/25 bg-red-400/[0.08] text-red-200 hover:bg-red-400/[0.14]"
                       data-testid="sofia-validation-command-reject-submit"
                     >
                       {reject.isPending ? 'Rechazando…' : 'Rechazar'}
@@ -400,7 +409,7 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
                   </form>
                 </div>
               ) : (
-                <p className="rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-[12px] text-stone-600" data-testid="sofia-validation-command-not-actionable">
+                <p className="rounded-2xl border border-white/10 bg-white/[0.06] px-3.5 py-3 text-[12px] text-white/70" data-testid="sofia-validation-command-not-actionable">
                   Este comando está en estado «{secureCommandStatusLabel(command.status)}» y no admite aprobación ni rechazo desde aquí.
                 </p>
               )}
@@ -408,15 +417,15 @@ function CommandDetail({ id, onClosed }: { id: string; onClosed: () => void }) {
           );
         }}
       </QueryStateBoundary>
-    </Card>
+    </div>
   );
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">{label}</dt>
-      <dd className="mt-0.5 break-words font-semibold text-ink">{value}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/55">{label}</dt>
+      <dd className="mt-0.5 break-words font-semibold text-white">{value}</dd>
     </div>
   );
 }

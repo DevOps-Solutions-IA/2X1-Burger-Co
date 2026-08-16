@@ -15,20 +15,22 @@ export default function SofiaConversationsPage() {
           eyebrow="Torre de Control"
           title="Conversaciones"
           description="Bandeja de solo lectura de conversaciones reales, de validación interna, sandbox e históricas. SOFIA opera en modo receive-only: esta vista no envía ni modifica mensajes."
+          variant="console"
           statusBadges={
             inbox.data ? (
               <>
-                <StatusBadge tone="read_only" label={`Total: ${formatNumber(inbox.data.summary.totalConversations)}`} />
+                <StatusBadge tone="read_only" label={`Total: ${formatNumber(inbox.data.summary.totalConversations)}`} variant="console" />
                 <StatusBadge
                   tone={inbox.data.summary.pendingReview > 0 ? 'warning' : 'success'}
                   label={`Pendientes de revisión: ${formatNumber(inbox.data.summary.pendingReview)}`}
+                  variant="console"
                 />
-                <StatusBadge tone="read_only" label="Solo lectura" />
+                <StatusBadge tone="read_only" label="Solo lectura" variant="console" />
               </>
             ) : undefined
           }
           actions={
-            inbox.data ? <span className="text-[11px] text-stone-600">Actualizado: {formatDateTime(inbox.data.generatedAt)}</span> : undefined
+            inbox.data ? <span className="text-[11px] text-white/70">Actualizado: {formatDateTime(inbox.data.generatedAt)}</span> : undefined
           }
           data-testid="sofia-conversations-header"
         />
@@ -40,6 +42,7 @@ export default function SofiaConversationsPage() {
           data={inbox.data}
           loadingLabel="Cargando bandeja de conversaciones…"
           errorTitle="No se pudo cargar la bandeja de conversaciones"
+          variant="console"
           data-testid="sofia-conversations-boundary"
         >
           {(data) => <ConversationsInboxView inbox={data} />}

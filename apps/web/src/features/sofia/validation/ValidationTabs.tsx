@@ -28,7 +28,7 @@ export function ValidationTabs({
 }) {
   return (
     <div
-      className="inline-flex gap-1 rounded-2xl border border-stone-200/90 bg-white p-1 shadow-soft"
+      className="inline-flex gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1 shadow-soft"
       role="tablist"
       aria-label="Secciones de Validación"
       data-testid={testId}
@@ -47,7 +47,7 @@ export function ValidationTabs({
               'flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold transition-[background-color,border-color,box-shadow]',
               isActive
                 ? 'bg-brand-500 text-ink shadow-soft'
-                : 'border border-transparent text-stone-600 hover:border-stone-200 hover:bg-stone-50',
+                : 'border border-transparent text-white/70 hover:border-white/10 hover:bg-white/[0.06]',
             )}
             data-testid={`sofia-validation-tab-${tab.key}`}
           >

@@ -3,13 +3,11 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowRight, ListFilter, X } from 'lucide-react';
-import { StatusBadge, QueryStateBoundary, Pager } from '@/components/sofia';
-import { Card } from '@/components/ui/card';
+import { StatusBadge, QueryStateBoundary, Pager, EmptyStrip, CONSOLE_CARD_CLASS } from '@/components/sofia';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { EmptyState } from '@/components/ui/empty-state';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -18,7 +16,15 @@ import {
   useSofiaCustomerServiceTransition,
 } from '@/features/sofia/queries';
 import type { SofiaCustomerServiceCaseDetail, SofiaCustomerServiceCaseSummary } from '@/features/sofia/contracts';
-import { CASE_ICON, caseStatusLabel, formatCaseCategory, nextCaseStatus, toneFromCaseStatus, truncateReferenceId, TONE_AVATAR_CLASS } from './labels';
+import {
+  CASE_ICON,
+  caseStatusLabel,
+  formatCaseCategory,
+  nextCaseStatus,
+  toneFromCaseStatus,
+  truncateReferenceId,
+  TONE_AVATAR_CLASS_CONSOLE,
+} from './labels';
 
 const PAGE_SIZE = 10;
 const CASE_STATUS_OPTIONS = ['OPEN', 'HUMAN_REQUIRED', 'HUMAN_TAKEN', 'RESOLVED', 'CLOSED'] as const;
@@ -64,19 +70,19 @@ export function CasesPanel() {
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_25rem]" data-testid="sofia-validation-cases-panel">
-      <Card data-testid="sofia-validation-cases-list-card">
+      <div className={cn(CONSOLE_CARD_CLASS)} data-testid="sofia-validation-cases-list-card">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex items-center gap-1.5 pb-2.5 text-stone-500">
+          <div className="flex items-center gap-1.5 pb-2.5 text-white/55">
             <ListFilter className="h-4 w-4" aria-hidden="true" />
             <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">Filtros</span>
           </div>
           <div className="min-w-[11rem]">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-cases-filter-status">
+            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70" htmlFor="sofia-validation-cases-filter-status">
               Estado
             </label>
             <Select
               id="sofia-validation-cases-filter-status"
-              className="mt-1"
+              className="mt-1 border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
               value={status}
               onChange={(event) => {
                 setStatus(event.target.value);
@@ -94,12 +100,12 @@ export function CasesPanel() {
             </Select>
           </div>
           <div className="min-w-[11rem]">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-600" htmlFor="sofia-validation-cases-filter-category">
+            <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70" htmlFor="sofia-validation-cases-filter-category">
               Categoría
             </label>
             <Input
               id="sofia-validation-cases-filter-category"
-              className="mt-1"
+              className="mt-1 border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
               value={category}
               onChange={(event) => {
                 setCategory(event.target.value);
@@ -120,19 +126,21 @@ export function CasesPanel() {
             data={query.data}
             loadingLabel="Cargando casos de servicio al cliente…"
             errorTitle="No se pudieron cargar los casos"
+            variant="console"
             data-testid="sofia-validation-cases-list"
           >
             {(data) =>
               data.items.length === 0 ? (
                 <div data-testid="sofia-validation-cases-empty">
-                  <EmptyState
+                  <EmptyStrip
+                    variant="console"
                     title="No hay casos con estos filtros"
                     description="Cuando SOFIA escale una conversación a un humano, el caso aparecerá aquí para su gestión y trazabilidad."
                   />
                 </div>
               ) : (
                 <>
-                  <p className="mb-2.5 text-[11.5px] font-medium text-stone-500" data-testid="sofia-validation-cases-count">
+                  <p className="mb-2.5 text-[11.5px] font-medium text-white/55" data-testid="sofia-validation-cases-count">
                     {data.total} {data.total === 1 ? 'caso' : 'casos'} con los filtros actuales
                   </p>
                   <ul className="space-y-2" data-testid="sofia-validation-cases-rows">
@@ -148,28 +156,28 @@ export function CasesPanel() {
                             className={cn(
                               'flex w-full items-start gap-3 rounded-2xl border px-4 py-3.5 text-left transition-[border-color,background-color,box-shadow]',
                               isActive
-                                ? 'border-brand-400 bg-brand-50/70 shadow-soft'
-                                : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-brand-50/40',
+                                ? 'border-brand-400 bg-brand-400/[0.08] shadow-soft'
+                                : 'border-white/10 bg-white/[0.04] hover:border-brand-400/40 hover:bg-white/[0.06]',
                             )}
                             data-testid={`sofia-validation-case-row-${item.id}`}
                           >
                             <span
-                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])}
+                              className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS_CONSOLE[tone])}
                               aria-hidden="true"
                             >
                               <CASE_ICON className="h-4 w-4" />
                             </span>
                             <div className="min-w-0 flex-1 space-y-1.5">
                               <div className="flex items-start justify-between gap-2">
-                                <p className="truncate text-[13px] font-semibold text-ink">{formatCaseCategory(item.category)}</p>
-                                <StatusBadge tone={tone} label={caseStatusLabel(item.status)} className="shrink-0" />
+                                <p className="truncate text-[13px] font-semibold text-white">{formatCaseCategory(item.category)}</p>
+                                <StatusBadge tone={tone} label={caseStatusLabel(item.status)} variant="console" className="shrink-0" />
                               </div>
-                              <p className="truncate text-[12px] text-stone-600">
+                              <p className="truncate text-[12px] text-white/70">
                                 {item.customer?.displayName ?? 'Sin cliente identificado'} · Origen: {item.source}
                               </p>
-                              {item.sanitizedSummary && <p className="truncate text-[12px] text-stone-600" title={item.sanitizedSummary}>{item.sanitizedSummary}</p>}
+                              {item.sanitizedSummary && <p className="truncate text-[12px] text-white/70" title={item.sanitizedSummary}>{item.sanitizedSummary}</p>}
                               <ReferenceChips item={item} />
-                              <p className="text-[11px] text-stone-500">{formatDateTime(item.updatedAt)}</p>
+                              <p className="text-[11px] text-white/55">{formatDateTime(item.updatedAt)}</p>
                             </div>
                           </button>
                         </li>
@@ -184,6 +192,7 @@ export function CasesPanel() {
                       itemsLabel={data.total === 1 ? 'caso' : 'casos'}
                       onPrev={() => setPage((current) => Math.max(1, current - 1))}
                       onNext={() => setPage((current) => current + 1)}
+                      variant="console"
                       data-testid="sofia-validation-cases-pager"
                     />
                   </div>
@@ -192,16 +201,20 @@ export function CasesPanel() {
             }
           </QueryStateBoundary>
         </div>
-      </Card>
+      </div>
 
       {selectedId ? (
         <div className="lg:sticky lg:top-4 lg:self-start">
           <CaseDetail caseId={selectedId} onClosed={() => setSelectedId(null)} />
         </div>
       ) : (
-        <Card className="lg:sticky lg:top-4 lg:self-start" data-testid="sofia-validation-case-detail-placeholder">
-          <EmptyState title="Ningún caso seleccionado" description="Elige un caso de la lista para ver su línea de tiempo y transicionarlo al siguiente estado." />
-        </Card>
+        <div className={cn(CONSOLE_CARD_CLASS, 'lg:sticky lg:top-4 lg:self-start')} data-testid="sofia-validation-case-detail-placeholder">
+          <EmptyStrip
+            variant="console"
+            title="Ningún caso seleccionado"
+            description="Elige un caso de la lista para ver su línea de tiempo y transicionarlo al siguiente estado."
+          />
+        </div>
       )}
     </div>
   );
@@ -240,7 +253,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
   }
 
   return (
-    <Card data-testid="sofia-validation-case-detail">
+    <div className={cn(CONSOLE_CARD_CLASS)} data-testid="sofia-validation-case-detail">
       <QueryStateBoundary
         isLoading={detailQuery.isLoading}
         isError={detailQuery.isError}
@@ -248,6 +261,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
         data={detailQuery.data}
         loadingLabel="Cargando detalle del caso…"
         errorTitle="No se pudo cargar el caso"
+        variant="console"
       >
         {(caseData) => {
           const next = nextCaseStatus(caseData.status);
@@ -256,21 +270,21 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS[tone])} aria-hidden="true">
+                  <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', TONE_AVATAR_CLASS_CONSOLE[tone])} aria-hidden="true">
                     <CASE_ICON className="h-5 w-5" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">Caso de servicio al cliente</p>
-                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-ink">{formatCaseCategory(caseData.category)}</h2>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">Caso de servicio al cliente</p>
+                    <h2 className="mt-0.5 truncate text-[15px] font-bold text-white">{formatCaseCategory(caseData.category)}</h2>
                     <div className="mt-1.5">
-                      <StatusBadge tone={tone} label={caseStatusLabel(caseData.status)} />
+                      <StatusBadge tone={tone} label={caseStatusLabel(caseData.status)} variant="console" />
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={onClosed}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-stone-500 transition-[background-color] hover:bg-stone-100"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/55 transition-[background-color] hover:bg-white/10"
                   aria-label="Cerrar detalle del caso"
                   data-testid="sofia-validation-case-detail-close"
                 >
@@ -279,12 +293,12 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
               </div>
 
               {caseData.sanitizedSummary && (
-                <p className="rounded-2xl border border-stone-100 bg-stone-50/70 px-3.5 py-3 text-[12.5px] leading-5.5 text-stone-700">
+                <p className="rounded-2xl border border-white/10 bg-white/[0.06] px-3.5 py-3 text-[12.5px] leading-5.5 text-white/85">
                   {caseData.sanitizedSummary}
                 </p>
               )}
 
-              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-stone-100 bg-stone-50/70 p-3.5 text-[12px]">
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 text-[12px]">
                 <DetailField label="Cliente" value={caseData.customer?.displayName ?? 'Sin identificar'} />
                 <DetailField label="Origen" value={caseData.source} />
                 <DetailField label="Asignado a" value={caseData.assignedActor?.fullName ?? 'Sin asignar'} />
@@ -296,20 +310,20 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
               <ReferenceChips item={caseData} data-testid="sofia-validation-case-detail-references" />
 
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-stone-500">Línea de tiempo</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Línea de tiempo</p>
                 {caseData.events.length === 0 ? (
-                  <p className="mt-1.5 text-[12px] text-stone-600">Sin eventos registrados todavía.</p>
+                  <p className="mt-1.5 text-[12px] text-white/70">Sin eventos registrados todavía.</p>
                 ) : (
-                  <ol className="mt-2.5 space-y-3 border-l border-stone-200 pl-4" data-testid="sofia-validation-case-timeline">
+                  <ol className="mt-2.5 space-y-3 border-l border-white/10 pl-4" data-testid="sofia-validation-case-timeline">
                     {caseData.events.map((event) => (
                       <li key={event.id} className="relative text-[12px]">
                         <span className="absolute -left-[1.32rem] top-0.5 h-4 w-4 rounded-full border-2 border-white bg-brand-500" aria-hidden="true" />
-                        <p className="font-semibold text-ink">
+                        <p className="font-semibold text-white">
                           {event.action}
                           {event.fromStatus ? ` · ${caseStatusLabel(event.fromStatus)} → ${caseStatusLabel(event.toStatus)}` : ` · ${caseStatusLabel(event.toStatus)}`}
                         </p>
-                        {event.reasonCode && <p className="mt-0.5 text-stone-600">Motivo: {event.reasonCode}</p>}
-                        <p className="mt-0.5 text-stone-500">{formatDateTime(event.createdAt)}</p>
+                        {event.reasonCode && <p className="mt-0.5 text-white/70">Motivo: {event.reasonCode}</p>}
+                        <p className="mt-0.5 text-white/55">{formatDateTime(event.createdAt)}</p>
                       </li>
                     ))}
                   </ol>
@@ -322,10 +336,10 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                     event.preventDefault();
                     handleTransition(caseData, next);
                   }}
-                  className="space-y-2 rounded-2xl border border-brand-100 bg-brand-50/40 p-3.5"
+                  className="space-y-2 rounded-2xl border border-brand-400/25 bg-brand-400/[0.08] p-3.5"
                   data-testid="sofia-validation-case-transition-form"
                 >
-                  <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ink">
+                  <p className="flex items-center gap-1.5 text-[12px] font-semibold text-white">
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     Mover a «{caseStatusLabel(next)}»
                   </p>
@@ -333,6 +347,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                     value={reasonCode}
                     onChange={(event) => setReasonCode(event.target.value)}
                     placeholder="reasonCode, ej. OPERATOR_TOOK_CASE"
+                    className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                     data-testid="sofia-validation-case-transition-reason"
                   />
                   {next === 'RESOLVED' && (
@@ -340,6 +355,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                       value={resolutionCode}
                       onChange={(event) => setResolutionCode(event.target.value)}
                       placeholder="resolutionCode, ej. RESOLVED_REFUND_ISSUED"
+                      className="border-white/15 bg-white/[0.04] text-white placeholder:text-white/40"
                       data-testid="sofia-validation-case-transition-resolution"
                     />
                   )}
@@ -354,7 +370,7 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
                   </Button>
                 </form>
               ) : (
-                <p className="rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-[12px] text-stone-600" data-testid="sofia-validation-case-not-actionable">
+                <p className="rounded-2xl border border-white/10 bg-white/[0.06] px-3.5 py-3 text-[12px] text-white/70" data-testid="sofia-validation-case-not-actionable">
                   Este caso está cerrado y no admite más transiciones.
                 </p>
               )}
@@ -362,15 +378,15 @@ function CaseDetail({ caseId, onClosed }: { caseId: string; onClosed: () => void
           );
         }}
       </QueryStateBoundary>
-    </Card>
+    </div>
   );
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500">{label}</dt>
-      <dd className="mt-0.5 break-words font-semibold text-ink">{value}</dd>
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/55">{label}</dt>
+      <dd className="mt-0.5 break-words font-semibold text-white">{value}</dd>
     </div>
   );
 }

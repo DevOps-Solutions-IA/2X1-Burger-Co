@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { CircleDollarSign, PackageSearch, Sparkles } from 'lucide-react';
 import {
+  CONSOLE_CARD_CLASS,
   ControlTowerFrame,
+  EmptyStrip,
   PageHeader,
   QueryStateBoundary,
   StatCard,
   SOFIA_CHART_COLORS,
-  SOFIA_CHART_TOOLTIP_STYLE,
+  SOFIA_CHART_TOOLTIP_STYLE_CONSOLE,
 } from '@/components/sofia';
-import { Card } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/empty-state';
 import { useSofiaMetricsSummary } from '@/features/sofia/queries';
 import type { SofiaMetricsRange, SofiaMetricsSummary } from '@/features/sofia/contracts';
 import { formatNumber } from '@/lib/format';
@@ -43,7 +43,7 @@ function RangeSelector({
 }) {
   return (
     <div
-      className="flex items-center gap-1 rounded-full border border-stone-200 bg-white p-1"
+      className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] p-1"
       role="tablist"
       aria-label="Rango de tiempo"
       data-testid="sofia-performance-range"
@@ -58,8 +58,8 @@ function RangeSelector({
             aria-selected={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              'h-8 rounded-full px-3.5 text-[12px] font-semibold text-stone-600 transition-[background-color,box-shadow]',
-              active ? 'bg-brand-500 text-ink shadow-soft' : 'bg-transparent hover:bg-stone-100',
+              'h-8 rounded-full px-3.5 text-[12px] font-semibold text-white/70 transition-[background-color,box-shadow]',
+              active ? 'bg-brand-500 text-ink shadow-soft' : 'bg-transparent hover:bg-white/10',
             )}
             data-testid={`sofia-performance-range-${option.value}`}
           >
@@ -89,7 +89,8 @@ const AUTO_SAFE_SEGMENTS: { key: AutoSafeOutcomeKey; label: string; color: strin
 function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['autoSafe'] }) {
   if (autoSafe.total === 0) {
     return (
-      <EmptyState
+      <EmptyStrip
+        variant="console"
         title="Sin datos en este rango"
         description="No se registraron acciones auto-safe en el rango seleccionado."
       />
@@ -121,7 +122,7 @@ function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['aut
               ))}
             </Pie>
             <Tooltip
-              {...SOFIA_CHART_TOOLTIP_STYLE}
+              {...SOFIA_CHART_TOOLTIP_STYLE_CONSOLE}
               formatter={(value, _name, item) => {
                 const numericValue = Number(value ?? 0);
                 return [
@@ -133,10 +134,10 @@ function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['aut
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <p className="numeric-tabular text-[1.6rem] font-bold leading-none tracking-tight text-ink [font-variant-numeric:tabular-nums]">
+          <p className="numeric-tabular text-[1.6rem] font-bold leading-none tracking-tight text-white [font-variant-numeric:tabular-nums]">
             {formatPercent(autoSafe.approved, autoSafe.total)}
           </p>
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-500">Aprobación</p>
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/55">Aprobación</p>
         </div>
       </div>
 
@@ -144,7 +145,7 @@ function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['aut
         {data.map((segment) => (
           <li
             key={segment.key}
-            className="flex items-center justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2"
           >
             <span className="flex min-w-0 items-center gap-2">
               <span
@@ -152,9 +153,9 @@ function AutoSafeOutcomeChart({ autoSafe }: { autoSafe: SofiaMetricsSummary['aut
                 style={{ backgroundColor: segment.color }}
                 aria-hidden="true"
               />
-              <span className="break-words text-[12.5px] font-medium text-ink">{segment.label}</span>
+              <span className="break-words text-[12.5px] font-medium text-white">{segment.label}</span>
             </span>
-            <span className="numeric-tabular shrink-0 text-[12.5px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+            <span className="numeric-tabular shrink-0 text-[12.5px] font-semibold text-white [font-variant-numeric:tabular-nums]">
               {formatNumber(segment.value)} · {formatPercent(segment.value, autoSafe.total)}
             </span>
           </li>
@@ -180,7 +181,8 @@ function ConversationFunnel({ conversations }: { conversations: SofiaMetricsSumm
 
   if (total === 0) {
     return (
-      <EmptyState
+      <EmptyStrip
+        variant="console"
         title="Sin datos en este rango"
         description="No se registraron conversaciones en el rango seleccionado."
       />
@@ -194,14 +196,14 @@ function ConversationFunnel({ conversations }: { conversations: SofiaMetricsSumm
         const widthPct = (value / total) * 100;
         return (
           <div key={stage.key} className="flex items-center gap-3">
-            <span className="w-[9.5rem] shrink-0 text-[12px] font-medium text-stone-600">{stage.label}</span>
-            <div className="h-6 min-w-0 flex-1 rounded-md bg-stone-100">
+            <span className="w-[9.5rem] shrink-0 text-[12px] font-medium text-white/70">{stage.label}</span>
+            <div className="h-6 min-w-0 flex-1 rounded-md bg-white/[0.06]">
               <div
                 className="h-6 rounded-r-md bg-brand-500"
                 style={{ width: value > 0 ? `max(${widthPct}%, 6px)` : '0px' }}
               />
             </div>
-            <span className="numeric-tabular w-[6.5rem] shrink-0 text-right text-[12.5px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+            <span className="numeric-tabular w-[6.5rem] shrink-0 text-right text-[12.5px] font-semibold text-white [font-variant-numeric:tabular-nums]">
               {formatNumber(value)} · {formatPercent(value, total)}
             </span>
           </div>
@@ -215,7 +217,8 @@ function ConversationFunnel({ conversations }: { conversations: SofiaMetricsSumm
 function TopReasonsChart({ reasons }: { reasons: SofiaMetricsSummary['autoSafe']['topReasonCodes'] }) {
   if (reasons.length === 0) {
     return (
-      <EmptyState
+      <EmptyStrip
+        variant="console"
         title="Sin datos en este rango"
         description="No se registraron razones de bloqueo o escalado en el rango seleccionado."
       />
@@ -232,15 +235,15 @@ function TopReasonsChart({ reasons }: { reasons: SofiaMetricsSummary['autoSafe']
         return (
           <li key={reason.key}>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-ink">
-                <span className="numeric-tabular mr-1.5 text-stone-600">{index + 1}.</span>
+              <span className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-white">
+                <span className="numeric-tabular mr-1.5 text-white/70">{index + 1}.</span>
                 {reason.key}
               </span>
-              <span className="numeric-tabular shrink-0 text-[12px] font-semibold text-stone-600 [font-variant-numeric:tabular-nums]">
+              <span className="numeric-tabular shrink-0 text-[12px] font-semibold text-white/70 [font-variant-numeric:tabular-nums]">
                 {formatNumber(reason.count)} · {formatPercent(reason.count, total)}
               </span>
             </div>
-            <div className="mt-1 h-2 rounded-full bg-stone-100">
+            <div className="mt-1 h-2 rounded-full bg-white/[0.06]">
               <div
                 className="h-2 rounded-full"
                 style={{ width: reason.count > 0 ? `max(${widthPct}%, 3%)` : '0%', backgroundColor: SOFIA_CHART_COLORS.brand }}
@@ -283,13 +286,13 @@ function CompactMetricsTable({
 }) {
   return (
     <div data-testid={testId}>
-      <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-stone-500">{title}</h3>
+      <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-white/55">{title}</h3>
       <table className="mt-2 w-full">
         <tbody>
           {rows.map((row) => (
-            <tr key={row.key} className="border-b border-stone-100 last:border-0">
-              <td className="py-1.5 pr-3 text-[12.5px] leading-snug text-stone-600">{row.label}</td>
-              <td className="numeric-tabular py-1.5 text-right text-[13px] font-semibold text-ink [font-variant-numeric:tabular-nums]">
+            <tr key={row.key} className="border-b border-white/10 last:border-0">
+              <td className="py-1.5 pr-3 text-[12.5px] leading-snug text-white/70">{row.label}</td>
+              <td className="numeric-tabular py-1.5 text-right text-[13px] font-semibold text-white [font-variant-numeric:tabular-nums]">
                 {formatNumber(data[row.key])}
               </td>
             </tr>
@@ -312,6 +315,7 @@ export default function SofiaPerformancePage() {
           title="Rendimiento"
           description="Comportamiento y tasa de éxito real de SOFIA en el rango seleccionado."
           actions={<RangeSelector value={range} onChange={setRange} />}
+          variant="console"
           data-testid="sofia-performance-header"
         />
 
@@ -322,40 +326,42 @@ export default function SofiaPerformancePage() {
           data={metricsQuery.data}
           loadingLabel="Cargando métricas de rendimiento..."
           errorTitle="No se pudieron cargar las métricas"
+          variant="console"
           data-testid="sofia-performance-metrics"
         >
           {(metrics) => (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <Card>
-                  <h2 className="text-[13px] font-bold text-ink">Tasa de éxito auto-safe</h2>
+                <div className={CONSOLE_CARD_CLASS}>
+                  <h2 className="text-[13px] font-bold text-white">Tasa de éxito auto-safe</h2>
                   <div className="mt-3">
                     <AutoSafeOutcomeChart autoSafe={metrics.autoSafe} />
                   </div>
-                </Card>
-                <Card>
-                  <h2 className="text-[13px] font-bold text-ink">Embudo de conversaciones</h2>
+                </div>
+                <div className={CONSOLE_CARD_CLASS}>
+                  <h2 className="text-[13px] font-bold text-white">Embudo de conversaciones</h2>
                   <div className="mt-4">
                     <ConversationFunnel conversations={metrics.conversations} />
                   </div>
-                </Card>
+                </div>
               </div>
 
-              <Card>
-                <h2 className="text-[13px] font-bold text-ink">Top razones de bloqueo y escalado</h2>
+              <div className={CONSOLE_CARD_CLASS}>
+                <h2 className="text-[13px] font-bold text-white">Top razones de bloqueo y escalado</h2>
                 <div className="mt-3">
                   <TopReasonsChart reasons={metrics.autoSafe.topReasonCodes} />
                 </div>
-              </Card>
+              </div>
 
               <div>
-                <h2 className="mb-2 text-[13px] font-bold text-ink">Precisión de catálogo</h2>
+                <h2 className="mb-2 text-[13px] font-bold text-white">Precisión de catálogo</h2>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <StatCard
                     label="Productos desconocidos"
                     value={formatNumber(metrics.catalog.unknownProducts)}
                     icon={<PackageSearch className="h-4.5 w-4.5" />}
                     accent={metrics.catalog.unknownProducts > 0 ? 'warning' : 'success'}
+                    variant="console"
                     data-testid="sofia-performance-stat-unknown-products"
                   />
                   <StatCard
@@ -363,6 +369,7 @@ export default function SofiaPerformancePage() {
                     value={formatNumber(metrics.catalog.unknownPrices)}
                     icon={<CircleDollarSign className="h-4.5 w-4.5" />}
                     accent={metrics.catalog.unknownPrices > 0 ? 'warning' : 'success'}
+                    variant="console"
                     data-testid="sofia-performance-stat-unknown-prices"
                   />
                   <StatCard
@@ -370,13 +377,14 @@ export default function SofiaPerformancePage() {
                     value={formatNumber(metrics.catalog.maxiFamilyCorrections)}
                     icon={<Sparkles className="h-4.5 w-4.5" />}
                     accent="brand"
+                    variant="console"
                     data-testid="sofia-performance-stat-maxi-corrections"
                   />
                 </div>
               </div>
 
-              <Card>
-                <h2 className="text-[13px] font-bold text-ink">Entrantes y salientes</h2>
+              <div className={CONSOLE_CARD_CLASS}>
+                <h2 className="text-[13px] font-bold text-white">Entrantes y salientes</h2>
                 <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                   <CompactMetricsTable
                     title="Inbound"
@@ -391,7 +399,7 @@ export default function SofiaPerformancePage() {
                     testId="sofia-performance-outbound-table"
                   />
                 </div>
-              </Card>
+              </div>
             </div>
           )}
         </QueryStateBoundary>
