@@ -247,7 +247,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     this.assertSessionMutationAccess(actor);
     const actorId = actor.sub;
     this.intentionalShutdown = false;
-    const runtimeGate = await this.getQrRuntimeGate();
+    const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
+    const runtimeGate = await this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode });
     if (!runtimeGate.allowed) {
       await this.audit('SOFIA_QR_CONNECT_BLOCKED', actorId, {
         reason: runtimeGate.reason,
