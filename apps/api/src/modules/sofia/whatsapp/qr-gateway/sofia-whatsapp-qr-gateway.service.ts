@@ -29,6 +29,7 @@ import {
 } from './qr-session-ownership.coordinator';
 import {
   SofiaWhatsappQrConnectionStatus,
+  SofiaWhatsappQrDiscoveryResult,
   SofiaWhatsappQrStatusResponse,
 } from './sofia-whatsapp-qr-gateway.types';
 
@@ -39,6 +40,8 @@ import {
 const QR_SESSION_SETTING_KEY = 'SOFIA_WHATSAPP_QR_SESSION_STATE';
 const QR_SESSION_LEASE_MS = 30_000;
 const QR_SESSION_HEARTBEAT_MS = 10_000;
+/** Bootstrap-only: cuánto vive en memoria un resultado de `WHATSAPP_QR_DISCOVERY_MODE` sin leerse. */
+const QR_DISCOVERY_RESULT_TTL_MS = 5 * 60_000;
 const QR_RUNTIME_GATE_SETTING_KEYS = {
   globalPaused: 'SOFIA_GLOBAL_PAUSED',
   killSwitch: 'SOFIA_KILL_SWITCH',
@@ -93,6 +96,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   private reconnectAttempts = 0;
   private intentionalShutdown = false;
   private fencedEffects = 0;
+  /** Solo `WHATSAPP_QR_DISCOVERY_MODE` — nunca persistido, se lee una vez y se borra. */
+  private discoveryResult: SofiaWhatsappQrDiscoveryResult | null = null;
 
   /* Real Baileys socket state */
   private real: RealSocketState = {
@@ -694,6 +699,11 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
       const runtimeGate = await this.getQrRuntimeGate();
       if (!runtimeGate.allowed) {
         await this.rejectConnectedSocket(socket, runtimeGate.reason);
+        return;
+      }
+
+      if (this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true) {
+        await this.completeDiscoverySession(socket, fencingToken);
         return;
       }
 
@@ -1393,6 +1403,66 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     await this.clearAuthDir();
     await this.teardownRealSocket(false);
     await this.releaseSessionOwnership();
+  }
+
+  /**
+   * `WHATSAPP_QR_DISCOVERY_MODE` únicamente — captura la identidad real de
+   * WhatsApp (cuenta + `@lid`) UNA vez, sin exigir el binding exacto (que
+   * todavía no se conoce en un primer bootstrap), nunca deja el estado en
+   * `CONNECTED`, y cierra la sesión de inmediato. El valor crudo vive solo
+   * en memoria (`this.discoveryResult`, TTL de 5 minutos) y nunca se
+   * escribe en Prisma ni en auditoría sin enmascarar.
+   */
+  private async completeDiscoverySession(socket: WASocket, fencingToken: number): Promise<void> {
+    const providerAccountId = this.connectedPhoneNumber(socket);
+    const businessIdentity = this.connectedBusinessIdentity(socket);
+    const sessionOwner = this.connectedSessionOwner(fencingToken);
+    const captured = Boolean(providerAccountId && businessIdentity && sessionOwner);
+
+    this.real.connectionStatus = 'DISCOVERY_CAPTURED';
+    this.real.qrString = null;
+    this.real.qrImageDataUrl = null;
+    this.real.lastError = captured
+      ? null
+      : 'No se pudo capturar la identidad completa de WhatsApp. Vuelve a escanear el QR.';
+    this.real.lastErrorCode = captured ? null : 'WHATSAPP_DISCOVERY_IDENTITY_INCOMPLETE';
+
+    if (providerAccountId && businessIdentity && sessionOwner) {
+      this.discoveryResult = {
+        accountId: providerAccountId,
+        businessIdentity,
+        sessionOwner,
+        capturedAt: new Date().toISOString(),
+      };
+      setTimeout(() => {
+        this.discoveryResult = null;
+      }, QR_DISCOVERY_RESULT_TTL_MS).unref();
+    }
+
+    await this.audit('SOFIA_QR_DISCOVERY_SESSION_RAN', 'system', {
+      captured,
+      valuesSanitized: true,
+    });
+
+    try {
+      await socket.logout();
+    } catch {
+      // Local credential cleanup below still prevents reuse of the discovery session.
+    }
+    await this.clearAuthDir();
+    await this.teardownRealSocket(true);
+    await this.releaseSessionOwnership();
+  }
+
+  /**
+   * Lectura única del resultado de `WHATSAPP_QR_DISCOVERY_MODE` — se borra
+   * de memoria al leerse (o expira solo a los 5 minutos). Nunca aparece en
+   * `getStatus()` ni en ningún otro endpoint/reporte.
+   */
+  getDiscoveryResult(): SofiaWhatsappQrDiscoveryResult | { available: false } {
+    const result = this.discoveryResult;
+    this.discoveryResult = null;
+    return result ?? { available: false };
   }
 
   private safePersistedStatus(status?: SofiaWhatsappQrConnectionStatus): SofiaWhatsappQrConnectionStatus {

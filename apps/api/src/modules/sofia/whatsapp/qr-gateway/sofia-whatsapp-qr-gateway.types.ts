@@ -7,7 +7,20 @@ export type SofiaWhatsappQrConnectionStatus =
   | 'CONNECTED'
   | 'RECONNECTING'
   | 'FAILED'
-  | 'LOGGED_OUT';
+  | 'LOGGED_OUT'
+  | 'DISCOVERY_CAPTURED';
+
+/**
+ * Resultado de una sesión de `WHATSAPP_QR_DISCOVERY_MODE` — expuesto UNA sola
+ * vez vía `GET .../discovery-result` y borrado de memoria al leerse (o tras
+ * 5 minutos). Nunca se persiste crudo en Prisma ni en auditoría.
+ */
+export type SofiaWhatsappQrDiscoveryResult = {
+  accountId: string;
+  businessIdentity: string;
+  sessionOwner: string;
+  capturedAt: string;
+};
 
 export type SofiaWhatsappQrMode = 'disabled' | 'receive_only' | 'supervised' | 'auto_safe';
 

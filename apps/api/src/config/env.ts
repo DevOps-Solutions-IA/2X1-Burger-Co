@@ -55,6 +55,7 @@ const envSchema = z
     WHATSAPP_QR_ALLOW_REAL_SEND: envBoolean.default(false),
     WHATSAPP_QR_ALLOW_RECEIVE: envBoolean.default(false),
     WHATSAPP_QR_SANDBOX_ONLY: envBoolean.default(true),
+    WHATSAPP_QR_DISCOVERY_MODE: envBoolean.default(false),
     SOFIA_QR_PILOT_ALLOWLIST_ENABLED: envBoolean.default(true),
     SOFIA_QR_PILOT_ALLOWED_PHONES: z.string().optional(),
     SOFIA_QR_PILOT_RECEIVE_ONLY: envBoolean.default(true),
@@ -219,6 +220,9 @@ const envSchema = z
       }
       if (data.WHATSAPP_QR_ALLOW_REAL_SEND || data.SOFIA_QR_PILOT_REAL_SEND) {
         reject('WHATSAPP_QR_ALLOW_REAL_SEND', 'SOFIA_PROD_REAL_SEND_FORBIDDEN');
+      }
+      if (data.WHATSAPP_QR_DISCOVERY_MODE) {
+        reject('WHATSAPP_QR_DISCOVERY_MODE', 'SOFIA_PROD_QR_DISCOVERY_FORBIDDEN');
       }
       if (data.SOFIA_PRODUCTION_ENABLED) {
         reject('SOFIA_PRODUCTION_ENABLED', 'SOFIA_PROD_ACTIVATION_FORBIDDEN');

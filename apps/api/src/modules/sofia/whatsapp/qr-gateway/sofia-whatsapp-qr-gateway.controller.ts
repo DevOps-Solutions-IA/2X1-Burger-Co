@@ -32,6 +32,17 @@ export class SofiaWhatsappQrGatewayController {
     return this.qrGatewayService.getCode();
   }
 
+  /**
+   * Solo relevante con `WHATSAPP_QR_DISCOVERY_MODE=true` (prohibido en
+   * producción). Lectura única del `@lid`/cuenta capturados en el último
+   * escaneo de descubrimiento — el valor se borra de memoria al leerse.
+   */
+  @Get('discovery-result')
+  @Permissions('settings.update')
+  getDiscoveryResult() {
+    return this.qrGatewayService.getDiscoveryResult();
+  }
+
   @Post('disconnect')
   @Permissions('settings.update')
   disconnect(@CurrentUser() actor: AuthUser) {
