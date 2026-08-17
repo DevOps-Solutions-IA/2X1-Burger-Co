@@ -696,13 +696,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     /* Connected */
     if (update.connection === 'open') {
-      const runtimeGate = await this.getQrRuntimeGate();
+      const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
+      const runtimeGate = await this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode });
       if (!runtimeGate.allowed) {
         await this.rejectConnectedSocket(socket, runtimeGate.reason);
         return;
       }
 
-      if (this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true) {
+      if (discoveryMode) {
         await this.completeDiscoverySession(socket, fencingToken);
         return;
       }
@@ -1224,7 +1225,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return 'DISCONNECTED';
   }
 
-  private async getQrRuntimeGate() {
+  private async getQrRuntimeGate(options: { skipGovernanceApproval?: boolean } = {}) {
     if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
       return { allowed: false, reason: 'QR_GATEWAY_DISABLED' as const };
     }
@@ -1270,7 +1271,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.globalPaused)?.paused === true) {
       return { allowed: false, reason: 'GLOBAL_PAUSED' as const };
     }
-    if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.qrRealAllowed)?.allowed !== true) {
+    // La aprobación de gobernanza (`qrRealAllowed`) exige un `@lid` con
+    // formato válido ya configurado (`qrReceiveOnlyConfigurationIsSafe()`
+    // en sofia-governance.service.ts) — imposible de tener antes de un
+    // primer descubrimiento. `WHATSAPP_QR_DISCOVERY_MODE` es la ÚNICA
+    // razón legítima para omitir esta verificación; todo lo demás arriba
+    // (kill-switch, pausa, real-send, auto-reply/auto-safe/handler) se
+    // sigue exigiendo sin excepción.
+    if (!options.skipGovernanceApproval && values.get(QR_RUNTIME_GATE_SETTING_KEYS.qrRealAllowed)?.allowed !== true) {
       return { allowed: false, reason: 'QR_GOVERNANCE_NOT_APPROVED' as const };
     }
 

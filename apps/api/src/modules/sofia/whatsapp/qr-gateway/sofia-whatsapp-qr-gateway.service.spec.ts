@@ -122,14 +122,17 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     WHATSAPP_EXPECTED_SESSION_OWNER: 'sofia-main',
   };
 
-  function subject(overrides: Record<string, unknown> = {}) {
+  function subject(
+    overrides: Record<string, unknown> = {},
+    settingsRows: Array<{ key: string; value: unknown }> = [
+      { key: 'SOFIA_QR_REAL_ALLOWED', value: { allowed: true } },
+    ],
+  ) {
     const processInboundWebhook = jest.fn().mockResolvedValue({ processingStatus: 'SUGGESTED_ONLY' });
     const auditLog = jest.fn().mockResolvedValue({ id: 'audit-id' });
     const prisma = {
       setting: {
-        findMany: jest.fn().mockResolvedValue([
-          { key: 'SOFIA_QR_REAL_ALLOWED', value: { allowed: true } },
-        ]),
+        findMany: jest.fn().mockResolvedValue(settingsRows),
       },
     };
     const config = {
@@ -271,16 +274,22 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     });
   });
 
-  it('WHATSAPP_QR_DISCOVERY_MODE captures identity once, never reaches CONNECTED, and tears the session down', async () => {
-    const { instance, auditLog } = subject({
-      WHATSAPP_QR_DISCOVERY_MODE: true,
-      // Deliberately mismatched vs. safeValues' expected binding — discovery
-      // must succeed anyway, since the whole point is capturing the real
-      // identity before it's known.
-      WHATSAPP_EXPECTED_ACCOUNT_ID: '',
-      WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '',
-      WHATSAPP_EXPECTED_SESSION_OWNER: '',
-    });
+  it('WHATSAPP_QR_DISCOVERY_MODE captures identity once, never reaches CONNECTED, and tears the session down — even with governance NOT yet approved', async () => {
+    const { instance, auditLog } = subject(
+      {
+        WHATSAPP_QR_DISCOVERY_MODE: true,
+        // Deliberately mismatched/empty vs. safeValues' expected binding —
+        // discovery must succeed anyway, since the whole point is capturing
+        // the real identity before it's known.
+        WHATSAPP_EXPECTED_ACCOUNT_ID: '',
+        WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '',
+        WHATSAPP_EXPECTED_SESSION_OWNER: '',
+      },
+      // Governance has NOT approved qrRealAllowed — this is the real-world
+      // state during a first bootstrap (approval requires an already-valid
+      // @lid, which is exactly what discovery mode exists to obtain).
+      [],
+    );
     authorizeLease(instance);
     const socket = {
       user: {
@@ -330,6 +339,37 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     });
     // Read-once: the second read must come back empty.
     expect(internal.getDiscoveryResult()).toEqual({ available: false });
+  });
+
+  it('still rejects a normal (non-discovery) connection when governance has not approved qrRealAllowed', async () => {
+    const { instance } = subject({}, []);
+    authorizeLease(instance);
+    const socket = {
+      user: {
+        id: '123456789012345:42@lid',
+        lid: '123456789012345:42@lid',
+        phoneNumber: '573001234567@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; lastErrorCode: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'FAILED',
+      lastErrorCode: 'QR_GOVERNANCE_NOT_APPROVED',
+    });
   });
 
   it('leaves normal binding enforcement untouched when WHATSAPP_QR_DISCOVERY_MODE is off (default)', async () => {
