@@ -1639,8 +1639,12 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
       // The exclusive create prevents replacing or following an existing entry.
+      // 'wx+' (not 'wx'): the handle is read back below to prove the bytes
+      // round-trip through the filesystem, and a write-only fd cannot be
+      // read from (Node throws EBADF) — this always failed for real before,
+      // it just never ran end-to-end until a genuine QR connect attempt did.
       // eslint-disable-next-line security/detect-non-literal-fs-filename
-      handle = await fs.open(testFile, 'wx', 0o600);
+      handle = await fs.open(testFile, 'wx+', 0o600);
       await handle.writeFile('ok', 'utf8');
       const content = Buffer.alloc(2);
       const { bytesRead } = await handle.read(content, 0, content.length, 0);

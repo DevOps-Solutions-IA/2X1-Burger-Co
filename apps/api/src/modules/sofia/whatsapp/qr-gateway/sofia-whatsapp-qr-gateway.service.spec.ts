@@ -1,4 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AuthUser } from '../../../../common/types/auth-user.type';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { AuditService } from '../../../audit/audit.service';
@@ -367,6 +370,31 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
       adapterReal: true,
       connected: false,
     });
+  });
+
+  it('the session-storage write test actually round-trips through the real filesystem', async () => {
+    // Regression for a real bug found running the canary end-to-end: the
+    // write-test opened the probe file with 'wx' (write-only, exclusive
+    // create) and then tried to .read() from that same handle — Node
+    // always throws EBADF for that, so ensureSessionStorageReady(true)
+    // failed unconditionally for every real connect() attempt. No prior
+    // test exercised the real filesystem here, so it went uncaught.
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sofia-qr-storage-test-'));
+    try {
+      const { instance } = subject({
+        WHATSAPP_QR_SESSION_PATH: tmpRoot,
+        WHATSAPP_QR_SESSION_NAME: 'storage-write-test',
+      });
+      const internal = instance as unknown as {
+        ensureSessionStorageReady(writeTest: boolean): Promise<{ ok: boolean; error: string | null }>;
+      };
+
+      const result = await internal.ensureSessionStorageReady(true);
+
+      expect(result).toEqual({ ok: true, error: null });
+    } finally {
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it('still rejects a normal (non-discovery) connection when governance has not approved qrRealAllowed', async () => {
