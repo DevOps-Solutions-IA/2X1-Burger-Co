@@ -7,27 +7,24 @@
  * y oscurecería toda la app para cualquier usuario con tema oscuro
  * en su sistema — por eso este archivo existe en vez de usar `dark:`).
  *
- * Paleta: negro puro + blanco + los colores de marca del logo
- * (`brand-*`, ámbar/naranja) — sin morado en ningún punto. El acento de
- * color viene únicamente de un resplandor `brand` muy sutil arriba del
- * shell (`CONSOLE_GLOW_OVERLAY_CLASS`), nunca de un fondo de color.
+ * Paleta: EXACTAMENTE el negro ya establecido en `app-shell.tsx`
+ * (sidebar y barra superior) — `bg-black` plano, `border-white/[0.06]`,
+ * `shadow-2xl`, sin degradado ni resplandor de color. Nada de morado,
+ * nada de gradientes ni "glow" decorativo: eso lee como plantilla
+ * genérica de dashboard de IA, no como la identidad negra ya
+ * establecida de la marca. El único acento de color es `brand-*`
+ * (ámbar/naranja del logo), usado con la misma moderación puntual que
+ * ya usa el nav activo del sidebar (`shadow-[0_6px_16px_rgba(255,159,28,0.25)]`
+ * sobre un elemento pequeño, nunca como fondo de página).
  */
 
 export const CONSOLE_SHELL_CLASS =
-  'relative isolate overflow-hidden rounded-[1.75rem] bg-[radial-gradient(ellipse_140%_60%_at_50%_-20%,#141414_0%,#0a0a0a_45%,#000000_100%)] p-4 shadow-[0_40px_80px_-40px_rgba(0,0,0,0.9)] md:p-6';
-
-/** Resplandor de marca muy sutil arriba del shell — el único color que rompe el negro/blanco, y es el mismo naranja del logo. */
-export const CONSOLE_GLOW_OVERLAY_CLASS =
-  'pointer-events-none absolute -top-32 left-1/2 -z-10 h-72 w-[140%] -translate-x-1/2 rounded-full bg-brand-500/[0.08] blur-[110px]';
-
-/** Rejilla de puntos muy tenue sobre el shell — textura de "panel técnico", no decoración ruidosa. */
-export const CONSOLE_GRID_OVERLAY_CLASS =
-  'pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:radial-gradient(circle,#fff_1px,transparent_1px)] [background-size:22px_22px]';
+  'relative isolate overflow-hidden rounded-[2rem] border border-white/[0.06] bg-black p-4 shadow-2xl md:p-6';
 
 export const CONSOLE_CARD_CLASS =
-  'rounded-[1.45rem] border border-white/10 bg-white/[0.05] p-4.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_18px_40px_-24px_rgba(0,0,0,0.8)] backdrop-blur-md md:p-5';
+  'rounded-[1.45rem] border border-white/[0.06] bg-white/[0.04] p-4.5 shadow-2xl md:p-5';
 
-export const CONSOLE_INSET_CLASS = 'rounded-2xl border border-white/10 bg-black/40';
+export const CONSOLE_INSET_CLASS = 'rounded-2xl border border-white/[0.08] bg-white/[0.04]';
 
 export const CONSOLE_TEXT = {
   /** Texto principal — números grandes, títulos. Contraste >12:1 sobre el shell. */
@@ -39,7 +36,7 @@ export const CONSOLE_TEXT = {
   eyebrow: 'text-brand-400',
 } as const;
 
-export const CONSOLE_BORDER_CLASS = 'border-white/10';
+export const CONSOLE_BORDER_CLASS = 'border-white/[0.06]';
 export const CONSOLE_DIVIDER_CLASS = 'border-white/[0.08]';
 
 /**

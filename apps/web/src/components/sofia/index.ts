@@ -33,7 +33,6 @@ export {
 } from './chart-theme';
 export {
   CONSOLE_SHELL_CLASS,
-  CONSOLE_GRID_OVERLAY_CLASS,
   CONSOLE_CARD_CLASS,
   CONSOLE_INSET_CLASS,
   CONSOLE_TEXT,
