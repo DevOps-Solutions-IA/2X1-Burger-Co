@@ -133,7 +133,10 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     const prisma = {
       setting: {
         findMany: jest.fn().mockResolvedValue(settingsRows),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
+      whatsappInboundEvent: { count: jest.fn().mockResolvedValue(0) },
+      whatsappOutboundMessage: { count: jest.fn().mockResolvedValue(0) },
     };
     const config = {
       get: jest.fn((key: string) => ({ ...safeValues, ...overrides })[key]),
@@ -339,6 +342,31 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     });
     // Read-once: the second read must come back empty.
     expect(internal.getDiscoveryResult()).toEqual({ available: false });
+  });
+
+  it('getStatus() surfaces the real QR while WHATSAPP_QR_DISCOVERY_MODE is on and governance is not yet approved', async () => {
+    // Regression for a real bug found while running the actual canary:
+    // connect() bypassing the governance gate was not enough — getStatus()
+    // (the only way an operator retrieves the QR image to scan) had its own
+    // separate, non-bypassed getQrRuntimeGate() call, so it kept reporting
+    // status:'DISABLED', qrAvailable:false even after a real QR was ready.
+    const { instance } = subject({ WHATSAPP_QR_DISCOVERY_MODE: true }, []);
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; qrImageDataUrl: string | null };
+    };
+    internal.real.socket = { user: {} };
+    internal.real.connectionStatus = 'QR_READY';
+    internal.real.qrImageDataUrl = 'data:image/png;base64,fake-qr-for-test';
+
+    const status = await instance.getStatus();
+
+    expect(status).toMatchObject({
+      status: 'QR_READY',
+      qrAvailable: true,
+      qrImageDataUrl: 'data:image/png;base64,fake-qr-for-test',
+      adapterReal: true,
+      connected: false,
+    });
   });
 
   it('still rejects a normal (non-discovery) connection when governance has not approved qrRealAllowed', async () => {

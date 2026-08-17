@@ -143,6 +143,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     /* If we have a real socket, return real state */
+    const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
     const [state, inboundToday, outboundToday, pendingOutbound, sessionStorage, runtimeGate] = await Promise.all([
       this.getSessionState(),
       this.prisma.whatsappInboundEvent.count({
@@ -158,7 +159,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         },
       }),
       this.ensureSessionStorageReady(false),
-      this.getQrRuntimeGate(),
+      // Sin este bypass, el estado siempre reporta DISABLED/qrAvailable:false
+      // mientras la gobernanza no esté aprobada — lo que en la práctica
+      // haría invisible el QR real ya generado por connect() en modo
+      // descubrimiento y el operador nunca podría escanearlo. connectionStatus
+      // nunca llega a CONNECTED durante el descubrimiento (ver
+      // completeDiscoverySession), así que esto no expone un estado
+      // "conectado" falso — solo el QR_READY necesario para escanear.
+      this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode }),
     ]);
 
     /* Merge real socket state with persisted state */
