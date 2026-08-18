@@ -1,94 +1,607 @@
 # CLAUDE.md
 
-Guia operativa para Claude Code al trabajar en este repositorio.
+Guía operativa para Claude Code al trabajar en este repositorio.
 
-## Estado actual del sistema
+Todo reporte, explicación, conclusión, hallazgo y comunicación hacia el owner debe realizarse en español, excepto código, comandos, nombres técnicos, identificadores, variables, endpoints o mensajes literales provenientes de herramientas.
 
-Este repositorio contiene el sistema `inventario-fastfood-system` para 2X1 Burger Co. Es una aplicacion operacional de fast food con POS, inventario, caja, compras, gastos, domicilios, reportes y el modulo supervisado Sofia.
+---
 
-La fuente de verdad actual para Sofia esta en:
+# 1. Propósito del repositorio
 
-- `docs/sofia-current-state.md`
+Este repositorio contiene `inventario-fastfood-system` para 2X1 Burger Co.
 
-## Stack
+Es una aplicación operacional que integra, entre otros dominios:
 
-- Frontend: Next.js + TypeScript.
-- Backend: NestJS + TypeScript.
-- DB: PostgreSQL + Prisma.
-- Monorepo: pnpm workspaces.
-- Infra: Docker Compose, nginx reverse proxy, health checks y scripts de backup.
+* POS
+* Inventario
+* Caja
+* Compras
+* Gastos
+* Domicilios
+* Reportes
+* Pagos
+* SOFIA
+* CRM
 
-## Modulos criticos protegidos
+Stack principal:
 
-No modificar estos flujos salvo que el usuario lo pida explicitamente y haya pruebas suficientes:
+* Frontend: Next.js + TypeScript
+* Backend: NestJS + TypeScript
+* Base de datos: PostgreSQL + Prisma
+* Monorepo: pnpm workspaces
+* Infraestructura: Docker Compose, nginx, health checks, backup/recovery y CI
 
-- POS.
-- Caja.
-- Stock/inventario.
-- Checkout.
-- Domicilios.
-- Pagos.
-- Precios.
-- Catalogo comercial.
-- Reglas Maxy Family.
+---
 
-Toda venta debe actualizar stock y caja. Toda compra recibida debe actualizar stock. Los gastos afectan el cierre diario. El cierre diario debe conservar auditabilidad.
+# 2. Principio fundamental
 
-Delivery Phase A está congelada. Consultar `docs/delivery-phase-a-frozen.md` antes de modificar el flujo de cuentas de domicilio.
+SOFIA es una capa de inteligencia, automatización y orquestación gobernada.
 
-## Sofia
+SOFIA:
 
-Sofia es un modulo supervisado, no un reemplazo del POS ni de Domicilios.
+* NO reemplaza las autoridades canónicas del POS.
+* NO reemplaza Caja.
+* NO reemplaza Inventario.
+* NO reemplaza Checkout.
+* NO reemplaza Payments.
+* NO reemplaza Delivery.
+* NO crea autoridades paralelas de negocio.
 
-Estado actual:
+SOFIA consume y orquesta capacidades existentes mediante contratos, servicios y comandos autorizados.
 
-- Opera en modo supervisado.
-- WhatsApp QR Gateway usa Baileys real en receive-only.
-- QR real Baileys validado.
-- CONNECTED fisico validado de forma condicionada.
-- DeepSeek real esta permitido solo en dry-run backend.
-- SafetyGuard esta activo.
-- Envio real WhatsApp bloqueado.
-- Auto reply OFF.
-- Auto Safe productivo OFF.
-- Produccion bloqueada.
-- Allowlist comercial final pendiente.
-- Envio real interno diferido al final.
-- UI/UX operador GO tecnico; content cleanup pendiente.
-- Security cleanup 4B GO condicionado por rotacion/aceptacion owner.
+---
 
-## Reglas duras de Sofia
+# 3. Autoridad del owner
 
-Nunca activar sin fase explicita:
+El owner del proyecto puede autorizar explícitamente fases de:
 
-- `WHATSAPP_QR_ALLOW_REAL_SEND=true`.
-- `WHATSAPP_MODE=auto_safe`.
-- `SOFIA_AUTO_REPLY_ENABLED=true`.
-- `SOFIA_AUTO_SAFE_ENABLED=true`.
-- `SOFIA_PRODUCTION_ENABLED=true`.
+* desarrollo
+* preproducción
+* canary
+* activación productiva
+* migración
+* integración con proveedores reales
+* WhatsApp real
+* pagos reales
+* Bold
+* automatización
+* pedidos
+* delivery
 
-Nunca desde Sofia:
+Una autorización explícita del owner permite PREPARAR e IMPLEMENTAR código production-capable dentro del alcance autorizado.
 
-- Enviar WhatsApp real.
-- Marcar pagos como PAID.
-- Crear pagos reales.
-- Crear pedidos reales.
-- Mover caja, stock, checkout, POS o domicilios.
-- Exponer `.env`, secretos, QR raw, session auth o numeros completos.
-- Usar mocks como evidencia real.
+Sin embargo:
 
-## Diferencia de modos
+**implementar una capacidad productiva y activarla físicamente son gates diferentes.**
 
-| Modo | Significado | Permitido |
-| --- | --- | --- |
-| Sandbox | Simulacion/laboratorio. No es evidencia real. | Pruebas controladas y UI demo marcada como sandbox. |
-| Dry-run | Ejecuta logica o proveedor real para sugerencias, pero no envia ni opera. | DeepSeek real backend dry-run, SafetyGuard, comparacion contra rules. |
-| Receive-only | WhatsApp recibe inbound, pero no responde. | QR Baileys, inbound y conversaciones supervisadas. |
-| Produccion | Operacion real con clientes. | Bloqueada hasta fase formal posterior. |
+Un agente puede implementar una capacidad autorizada sin activar tráfico, cobros, mensajes ni mutaciones productivas hasta recibir la autorización específica correspondiente.
 
-## Regla Maxy Family
+---
 
-La composicion autorizada es:
+# 4. Clasificación obligatoria de controles
+
+Todos los controles del proyecto deben clasificarse como uno de estos tipos:
+
+## A. PERMANENT_SAFETY_INVARIANT
+
+Nunca se elimina ni debilita.
+
+Incluye como mínimo:
+
+* RBAC server-side
+* autenticación
+* protección PII
+* secret management
+* auditoría
+* idempotencia
+* protección de concurrencia
+* versionado
+* fail-closed
+* kill switch
+* recovery
+* protección contra doble pago
+* `UNKNOWN_RESULT`
+* prohibición de fake-success
+* prohibición de mocks productivos
+* validación de webhooks
+* autoridad financiera server-side
+* protección de stock/caja
+* separación test/production
+
+## B. PREPRODUCTION_TEMPORARY_GATE
+
+Control temporal usado durante construcción o validación.
+
+Puede ser reemplazado por un gate productivo gobernado cuando el owner autorice la fase correspondiente.
+
+## C. OWNER_ACTIVATION_GATE
+
+Requiere autorización explícita del owner antes de activarse.
+
+## D. PROVIDER_READINESS_GATE
+
+Depende de credenciales, binding, health, cuenta, webhook, infraestructura o configuración real del proveedor.
+
+## E. FINANCIAL_SAFETY_GATE
+
+Protección adicional para operaciones monetarias.
+
+No puede omitirse aunque exista autorización owner.
+
+---
+
+# 5. Regla principal de seguridad
+
+Ante incertidumbre operacional o financiera:
+
+**FAIL CLOSED.**
+
+No asumir:
+
+* permiso
+* éxito
+* pago confirmado
+* pedido creado
+* mensaje enviado
+* entrega completada
+* identidad
+* consentimiento
+* provider health
+
+La ausencia de evidencia válida nunca debe convertirse en éxito.
+
+---
+
+# 6. Módulos críticos protegidos
+
+Los siguientes dominios tienen autoridad propia y no deben ser duplicados o reescritos desde SOFIA:
+
+* POS
+* Caja
+* Stock / Inventario
+* Checkout
+* Domicilios
+* Pagos
+* Precios
+* Catálogo comercial
+* Kitchen
+* Reglas Maxy Family
+
+Toda venta debe respetar las autoridades existentes de:
+
+* stock
+* caja
+* pedido
+* pago
+* auditoría
+
+Toda compra recibida debe respetar la autoridad de stock.
+
+Los gastos deben conservar su relación con el cierre diario.
+
+El cierre diario debe permanecer auditable.
+
+---
+
+# 7. Estado operacional vs política permanente
+
+Los estados operativos actuales como:
+
+* receive-only
+* outbound OFF
+* auto reply OFF
+* Bold OFF
+* producción OFF
+* proveedor bloqueado
+* allowlist activa
+
+son **estado runtime**, no necesariamente reglas permanentes del sistema.
+
+No convertir automáticamente el estado actual en una prohibición eterna.
+
+El estado actual debe obtenerse del código/configuración/runtime y de la fuente de verdad técnica correspondiente.
+
+La documentación de estado puede actualizarse cuando una fase cambia formalmente el runtime.
+
+---
+
+# 8. Modos SOFIA
+
+SOFIA puede operar conceptualmente en diferentes niveles:
+
+## Disabled
+
+SOFIA no ejecuta operaciones.
+
+## Sandbox
+
+Simulación/laboratorio.
+
+No constituye evidencia de operación real.
+
+## Dry-run
+
+Puede utilizar lógica o proveedor real para producir sugerencias, pero sin mutación productiva.
+
+## Receive-only
+
+Permite recepción real de WhatsApp sin outbound.
+
+## Supervised
+
+SOFIA puede proponer y ejecutar capacidades autorizadas mediante control humano, RBAC, SecureCommand y runtime safety.
+
+## Controlled Production
+
+Permite operación real únicamente cuando:
+
+* owner gate aprobado
+* provider ready
+* runtime safety PASS
+* RBAC PASS
+* kill switch OFF
+* global pause OFF
+* capability habilitada
+* requisitos específicos del dominio satisfechos
+
+## Automated Production
+
+Nivel superior de autonomía.
+
+Requiere autorización owner independiente y políticas adicionales.
+
+No debe asumirse automáticamente por habilitar Controlled Production.
+
+---
+
+# 9. SOFIA Runtime Safety
+
+Runtime Safety debe permanecer como autoridad de seguridad operacional.
+
+Debe controlar al menos:
+
+* producción
+* outbound
+* auto reply
+* auto safe
+* kill switch
+* global pause
+* capability activation
+* provider readiness
+* allowlist cuando corresponda
+
+La arquitectura production-grade debe permitir que una capacidad pueda estar:
+
+* disponible
+* deshabilitada
+* supervisada
+* bloqueada
+* degradada
+* pending approval
+* activa
+
+No debe requerirse eliminar Runtime Safety para entrar en producción.
+
+Debe evolucionar de:
+
+`permanentemente imposible`
+
+a:
+
+`activable solo cuando todos los gates requeridos pasan`.
+
+---
+
+# 10. SecureCommand
+
+Las operaciones sensibles de SOFIA deben utilizar SecureCommand cuando corresponda.
+
+Debe preservar:
+
+* actor
+* acción
+* entidad
+* idempotency key
+* aprobación
+* policy
+* lifecycle
+* lease
+* concurrencia
+* resultado
+* recovery
+* auditoría
+
+No ejecutar mutaciones críticas directamente desde componentes frontend.
+
+---
+
+# 11. WhatsApp
+
+WhatsApp debe utilizar la arquitectura canónica existente.
+
+Mantener:
+
+* provider binding
+* account binding
+* session ownership
+* deduplicación
+* rate limiting
+* consentimiento
+* handoff humano
+* media security
+* audit
+* recovery
+* provider health
+
+## Receive-only
+
+Puede utilizarse como primer canary real.
+
+## Outbound real
+
+Solo puede activarse mediante una fase formal aprobada.
+
+Antes de habilitar outbound deben verificarse como mínimo:
+
+* account binding correcto
+* provider health
+* session ownership
+* consentimiento cuando aplique
+* dedup
+* idempotencia
+* rate limiting
+* handoff
+* runtime safety
+* kill switch
+* auditoría
+
+Un mock nunca puede sustituir evidencia productiva.
+
+---
+
+# 12. Auto Reply / Auto Safe
+
+Auto Reply y Auto Safe NO son invariantes permanentemente prohibidos.
+
+Son capacidades de alto riesgo que requieren gates específicos.
+
+Pueden implementarse como production-capable cuando el owner autorice la fase correspondiente.
+
+Su activación efectiva requiere:
+
+* production capability autorizada
+* runtime safety PASS
+* outbound PASS
+* provider ready
+* policy PASS
+* confidence / SafetyGuard
+* RBAC
+* handoff disponible
+* kill switch operativo
+* auditoría
+
+Auto Safe nunca puede saltarse SecureCommand cuando SecureCommand sea requerido por la operación.
+
+---
+
+# 13. IA / DeepSeek
+
+El proveedor IA puede evolucionar entre:
+
+* disabled
+* dry-run
+* suggest
+* supervised
+* auto
+
+El modo real debe respetar:
+
+* provider health
+* timeout
+* retry policy
+* redacción PII
+* fallback
+* SafetyGuard
+* confidence
+* runtime mode
+
+DeepSeek real no debe implicar automáticamente automatización productiva.
+
+---
+
+# 14. Pedidos
+
+SOFIA puede crear pedidos reales únicamente mediante una fase productiva autorizada y utilizando la autoridad canónica existente.
+
+Flujo conceptual:
+
+SOFIA
+→ SecureCommand cuando corresponda
+→ canonical Checkout
+→ Order Orchestration
+→ Kitchen / Delivery
+
+Nunca crear un modelo paralelo de pedido.
+
+Nunca asumir éxito por respuesta parcial.
+
+Idempotencia obligatoria.
+
+---
+
+# 15. Pagos
+
+Los pagos son infraestructura financiera crítica.
+
+Reglas permanentes:
+
+* frontend nunca determina `PAID`
+* crear PaymentIntent no significa pago
+* crear PaymentLink no significa pago
+* redirect del navegador no significa pago
+* request aceptado por proveedor no significa pago
+* webhook sin verificar no significa pago
+* no blind retry
+* no duplicate charge
+
+`UNKNOWN_RESULT` es un estado financiero de primera clase.
+
+Ante `UNKNOWN_RESULT`:
+
+* bloquear retry automático
+* mantener evidencia
+* solicitar reconciliación/revisión
+* no cobrar nuevamente
+
+Bold real requiere autorización owner separada y provider readiness.
+
+---
+
+# 16. Caja / Stock
+
+SOFIA nunca debe escribir directamente en:
+
+* Caja
+* Stock
+
+Debe utilizar las autoridades de dominio existentes.
+
+Toda operación debe mantener:
+
+* consistencia
+* trazabilidad
+* atomicidad
+* reconciliación
+* auditoría
+
+---
+
+# 17. CRM y PII
+
+El CRM puede utilizar identidad persistida y Customer 360.
+
+Debe respetar:
+
+* PII masking
+* identity hashes
+* consent
+* retention
+* secret rotation
+* RBAC
+* audit
+
+Nunca reconstruir PII protegida desde frontend.
+
+Nunca mostrar números completos cuando el contrato backend entregue datos enmascarados.
+
+---
+
+# 18. Mocks y sandbox
+
+Permitidos únicamente en:
+
+* tests
+* ambientes aislados
+* fixtures
+* CI
+* sandbox explícitamente identificado
+
+Prohibido en producción:
+
+* mock WhatsApp
+* mock payment provider
+* fake-success
+* fixture business results
+* demo database como autoridad
+* sample data presentado como real
+
+---
+
+# 19. Migraciones y Prisma
+
+No ejecutar:
+
+```bash
+prisma migrate reset --force
+```
+
+en bases existentes del owner.
+
+No modificar migraciones históricas.
+
+Las migraciones nuevas deben ser:
+
+* versionadas
+* revisables
+* ensayadas
+* reconciliables
+* recuperables
+
+Una migración productiva requiere autorización explícita separada.
+
+---
+
+# 20. Producción
+
+No confundir:
+
+**código production-grade**
+
+con:
+
+**producción activada**.
+
+Durante desarrollo puede construirse código completamente production-capable mientras tráfico real permanece OFF.
+
+La activación productiva requiere una orden explícita del owner para el gate correspondiente.
+
+Ejemplos de gates independientes:
+
+* production runtime
+* WhatsApp outbound
+* Auto Reply
+* Auto Safe
+* Order creation
+* Kitchen
+* Bold
+* Payment orchestration
+* Delivery
+* Notification workers
+
+No activar todos automáticamente como consecuencia de autorizar uno.
+
+---
+
+# 21. Procedimiento formal de activación
+
+Toda activación productiva debe seguir como mínimo:
+
+1. Owner authorization.
+2. Confirmar SHA exacto.
+3. CI verde.
+4. Dependency audit.
+5. Secret scan.
+6. Backup válido cuando corresponda.
+7. Provider readiness.
+8. Runtime safety PASS.
+9. RBAC PASS.
+10. Kill switch probado.
+11. Recovery probado.
+12. Canary.
+13. Observación.
+14. Reconciliación.
+15. Expansión gradual.
+16. Rollback disponible.
+
+Si un gate falla:
+
+STOP.
+
+---
+
+# 22. Regla Maxy Family
+
+Composición autorizada:
 
 ```text
 6 burgers + 1 porcion personal de papitas + 1 Pepsi 1.5 L
@@ -100,21 +613,45 @@ Upsell permitido:
 Si quieres que todos acompanen con papitas, puedes agregar porciones adicionales.
 ```
 
-No usar como copy comercial permitido:
+No usar como copy comercial válido:
 
-- papas grandes.
-- papas familiares.
-- papas para todos.
-- porcion familiar de papas.
-- papitas para todos.
-- combo familiar con papas familiares.
+* papas grandes
+* papas familiares
+* papas para todos
+* porción familiar de papas
+* papitas para todos
+* combo familiar con papas familiares
 
-Esas frases solo pueden aparecer en blocklists, tests negativos o documentacion tecnica de prohibiciones.
+Estas frases solo pueden aparecer en:
 
-## Comandos comunes
+* blocklists
+* pruebas negativas
+* documentación técnica de prohibición
+
+---
+
+# 23. Seguridad y secretos
+
+Nunca:
+
+* imprimir `.env`
+* publicar secretos
+* mostrar API keys
+* mostrar JWT
+* guardar QR raw en reportes
+* publicar session auth
+* publicar private keys
+* publicar contraseñas seed
+* copiar números completos innecesariamente
+
+Los reportes deben estar sanitizados.
+
+---
+
+# 24. Comandos comunes
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm --filter @inventory-fastfood/api typecheck
 pnpm --filter @inventory-fastfood/web typecheck
 pnpm --filter @inventory-fastfood/api build
@@ -123,59 +660,138 @@ docker compose ps
 curl -fsS http://localhost/api/health
 ```
 
-No ejecutar migraciones destructivas ni reset de Prisma sin consentimiento explicito del usuario.
+---
 
-Prohibido usar:
-
-```bash
-prisma migrate reset --force
-PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=...
-```
-
-## Estructura relevante
+# 25. Estructura relevante
 
 ```text
-apps/api/          Backend NestJS.
-apps/web/          Frontend Next.js.
-packages/          Paquetes compartidos.
-prisma/            Schema y migraciones.
-infra/             Docker, nginx, backups, deployment prep.
-tests/e2e/         Playwright.
-docs/              Documentacion actual.
+apps/api/          Backend NestJS
+apps/web/          Frontend Next.js
+packages/          Paquetes compartidos
+prisma/            Schema y migraciones
+infra/             Docker, nginx, backups y release
+tests/e2e/         Playwright
+docs/              Documentación
 ```
 
-Rutas Sofia principales:
+SOFIA:
 
 ```text
 apps/api/src/modules/sofia/
 apps/web/src/app/(app)/sofia/
 apps/web/src/components/sofia/
-docs/sofia-current-state.md
 ```
 
-## Seguridad y privacidad
+---
 
-- No imprimir `.env`.
-- No copiar secretos a reportes.
-- No guardar QR raw en markdown.
-- No exponer session paths absolutos innecesarios.
-- No mostrar numeros completos; usar hash parcial o ultimos 4 si es necesario.
-- Los reportes deben ser sanitizados.
-- Las credenciales seed son solo para desarrollo local y no deben publicarse con valores completos en esta guia.
+# 26. Testing
 
-## Credenciales seed
+Production-grade requiere pruebas más fuertes, no menos pruebas.
 
-Existen usuarios seed para desarrollo local, pero esta guia no debe listar contrasenas/codigos completos. Consultar `prisma/seed.ts` solo en entorno local autorizado y nunca copiar valores a reportes.
+Ejecutar según el alcance:
 
-## Criterios de cierre para cambios
+* unit
+* component
+* contract
+* architecture
+* integration
+* PostgreSQL concurrency
+* E2E
+* RBAC
+* security
+* secret scan
+* dependency audit
+* recovery
+* migration rehearsal
+* canary
+* rollback
 
-Para cambios de codigo:
+Mocks de tests nunca son evidencia productiva.
 
-1. Mantener produccion bloqueada.
-2. Mantener envio real WhatsApp bloqueado.
-3. Mantener auto reply OFF.
-4. Mantener Auto Safe productivo OFF.
-5. No tocar POS/Caja/Stock/Checkout salvo alcance explicito.
-6. Ejecutar typecheck/build pertinentes.
-7. Ejecutar checks de secretos y activacion real si se toca Sofia.
-8. Actualizar documentacion si cambia estado operativo.
+---
+
+# 27. Reglas para agentes
+
+Un agente NO debe:
+
+* eliminar protecciones permanentes
+* inventar fake-success
+* debilitar controles financieros
+* saltarse RBAC
+* activar producción sin autorización
+* activar proveedores reales automáticamente
+* reescribir historia Git
+* eliminar evidencia del owner
+
+Un agente SÍ puede, cuando existe autorización explícita:
+
+* implementar código production-capable
+* transformar gates temporales en gates gobernados
+* preparar providers reales
+* crear tests productivos
+* preparar canary
+* preparar rollout
+* preparar rollback
+* construir mecanismos de activación segura
+
+No debe negarse a preparar una capacidad production-grade únicamente porque el runtime actual esté desactivado, siempre que el owner haya autorizado explícitamente la fase de implementación y no se esté solicitando todavía su activación física.
+
+---
+
+# 28. Criterio de cierre para una fase de implementación
+
+Antes de considerar una fase completa:
+
+1. Alcance implementado completamente.
+2. Backend authority preservada.
+3. RBAC PASS.
+4. Runtime Safety PASS.
+5. Idempotencia PASS cuando aplique.
+6. Concurrencia PASS cuando aplique.
+7. Recovery PASS cuando aplique.
+8. Auditoría PASS.
+9. PII PASS.
+10. Secret scan PASS.
+11. Dependency audit PASS.
+12. Typecheck PASS.
+13. Build PASS.
+14. Tests relevantes PASS.
+15. CI PASS.
+16. No mocks productivos.
+17. No fake-success.
+18. No TODO crítico.
+19. Revisión independiente.
+20. Owner review antes de merge cuando haya sido requerido.
+
+---
+
+# 29. Criterio de cierre para activación productiva
+
+Una activación productiva no se considera completa hasta demostrar:
+
+* configuración válida
+* provider binding
+* readiness
+* canary
+* health
+* observabilidad
+* auditoría
+* reconciliación
+* rollback
+* ausencia de side effects inesperados
+
+Cada capability puede activarse progresivamente.
+
+---
+
+# 30. Regla final
+
+El objetivo arquitectónico no es mantener SOFIA permanentemente bloqueada.
+
+El objetivo es:
+
+**SOFIA production-capable, gobernada, auditable, reversible y fail-closed.**
+
+La seguridad debe impedir operaciones incorrectas.
+
+No debe impedir permanentemente operaciones correctas y explícitamente autorizadas.
