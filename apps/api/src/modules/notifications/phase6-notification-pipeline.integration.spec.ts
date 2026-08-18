@@ -129,7 +129,16 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
       Array.from({ length: concurrentEnqueue }, () => outbox.enqueue(input)),
     );
     expect(new Set(intents.map(({ id }) => id)).size).toBe(1);
-    return intents[0]!;
+    const intent = intents[0]!;
+    await expect(prisma.auditLog.findFirstOrThrow({
+      where: {
+        actorId: 'notification-outbox',
+        module: 'notifications',
+        action: 'NOTIFICATION_INTENT_ENQUEUED',
+        entityId: intent.id,
+      },
+    })).resolves.toMatchObject({ actorType: 'SYSTEM', entity: 'notification_intent', result: 'SUCCESS' });
+    return intent;
   }
 
   function consumer(
@@ -182,6 +191,14 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     })).resolves.toMatchObject({
       actorType: 'SYSTEM',
       userId: null,
+    });
+    await expect(prisma.auditLog.findFirstOrThrow({
+      where: { actorId: 'notification-outbox', module: 'notifications', action: 'NOTIFICATION_COMMAND_PENDING', entityId: intentId },
+    })).resolves.toMatchObject({
+      actorType: 'SYSTEM',
+      userId: null,
+      entity: 'notification_intent',
+      result: 'SUCCESS',
     });
     expect(secureCommands.execute).not.toHaveBeenCalled();
     expect(commandHandler.execute).not.toHaveBeenCalled();
@@ -293,6 +310,14 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     expect(await prisma.sofiaCommand.count()).toBe(0);
     expect(secureCommands.execute).not.toHaveBeenCalled();
     expect(gateway.send).not.toHaveBeenCalled();
+    await expect(prisma.auditLog.findFirstOrThrow({
+      where: {
+        actorId: 'notification-outbox',
+        module: 'notifications',
+        action: 'NOTIFICATION_SUPPRESSED',
+        entityId: intent.id,
+      },
+    })).resolves.toMatchObject({ result: 'BLOCKED', reasonCode: 'HUMAN_HANDOFF_ACTIVE' });
   });
 
   it('uses persisted revoked consent to suppress service automation before command materialization', async () => {
@@ -319,6 +344,14 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     expect(await prisma.sofiaCommand.count()).toBe(0);
     expect(secureCommands.execute).not.toHaveBeenCalled();
     expect(gateway.send).not.toHaveBeenCalled();
+    await expect(prisma.auditLog.findFirstOrThrow({
+      where: {
+        actorId: 'notification-outbox',
+        module: 'notifications',
+        action: 'NOTIFICATION_SUPPRESSED',
+        entityId: intent.id,
+      },
+    })).resolves.toMatchObject({ result: 'BLOCKED', reasonCode: 'CONSENT_REVOKED' });
   });
 
   it('materializes a real delivery domain event through policy into a disabled command', async () => {
