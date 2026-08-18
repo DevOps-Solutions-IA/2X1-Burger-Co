@@ -60,8 +60,9 @@ function harness() {
     deferReconciliation: jest.fn(),
     settleMaintenance: jest.fn(),
   };
-  const service = new NotificationOutboxService(repository as never);
-  return { service, repository };
+  const audit = { log: jest.fn().mockResolvedValue({}) };
+  const service = new NotificationOutboxService(repository as never, audit as never);
+  return { service, repository, audit };
 }
 
 describe('NotificationOutboxService', () => {
@@ -97,8 +98,9 @@ describe('NotificationOutboxService', () => {
   });
 
   it('persists a policy suppression as a durable terminal intent', async () => {
-    const { service, repository } = harness();
+    const { service, repository, audit } = harness();
     repository.create.mockResolvedValue(intent({
+      id: 'notification-suppressed-1',
       policyOutcome: 'SUPPRESSED',
       policyReason: 'HUMAN_TAKEN',
       status: NotificationIntentStatus.SUPPRESSED,
@@ -115,6 +117,30 @@ describe('NotificationOutboxService', () => {
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
       policyOutcome: 'SUPPRESSED',
       policyReason: 'HUMAN_TAKEN',
+    }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: 'notification-outbox',
+      actorType: 'SYSTEM',
+      action: 'NOTIFICATION_INTENT_SUPPRESSED_AT_ENQUEUE',
+      module: 'notifications',
+      entity: 'notification_intent',
+      entityId: 'notification-suppressed-1',
+      result: 'BLOCKED',
+      reasonCode: 'HUMAN_TAKEN',
+    }));
+  });
+
+  it('audits a successfully enqueued intent as an allowed transition', async () => {
+    const { service, repository, audit } = harness();
+    repository.create.mockResolvedValue(intent({ id: 'notification-allowed-1' }));
+
+    await service.enqueue({ ...base, factEnvelope: { total: 30_000 } }, now);
+
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_INTENT_ENQUEUED',
+      module: 'notifications',
+      entityId: 'notification-allowed-1',
+      result: 'SUCCESS',
     }));
   });
 
@@ -176,7 +202,7 @@ describe('NotificationOutboxService', () => {
   });
 
   it('suppresses an active fenced claim with current policy evidence', async () => {
-    const { service, repository } = harness();
+    const { service, repository, audit } = harness();
     repository.markSuppressed.mockResolvedValue(intent({ status: NotificationIntentStatus.SUPPRESSED }));
 
     await service.markSuppressed({
@@ -198,6 +224,35 @@ describe('NotificationOutboxService', () => {
       now,
     }));
     expect(repository.markSuppressed.mock.calls[0]?.[0].claimOwnerHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_SUPPRESSED',
+      module: 'notifications',
+      entityId: 'notification-1',
+      result: 'BLOCKED',
+      reasonCode: 'HUMAN_TAKEN',
+    }));
+  });
+
+  it('audits a command-pending transition with the bound secure command and outbound identifiers', async () => {
+    const { service, repository, audit } = harness();
+    repository.markCommandPending.mockResolvedValue(intent({ status: NotificationIntentStatus.COMMAND_PENDING }));
+
+    await service.markCommandPending({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 2,
+      workerIdentity: 'worker-replica-1',
+      secureCommandId: 'command-1',
+      outboundMessageId: 'outbound-1',
+      now,
+    });
+
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_COMMAND_PENDING',
+      module: 'notifications',
+      entityId: 'notification-1',
+      result: 'SUCCESS',
+      metadata: { secureCommandId: 'command-1', outboundMessageId: 'outbound-1' },
+    }));
   });
 
   it('queries post-command reconciliation separately from send claims', async () => {
@@ -211,7 +266,7 @@ describe('NotificationOutboxService', () => {
   });
 
   it('defers a pending command with bounded scheduling and no resend', async () => {
-    const { service, repository } = harness();
+    const { service, repository, audit } = harness();
     repository.deferReconciliation.mockResolvedValue(intent({ status: NotificationIntentStatus.COMMAND_PENDING }));
 
     await service.reconcile({
@@ -232,11 +287,16 @@ describe('NotificationOutboxService', () => {
       nextRetryAt: new Date('2026-08-08T12:00:05.000Z'),
     });
     expect(repository.claim).not.toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_RECONCILIATION_DEFERRED',
+      module: 'notifications',
+      result: 'NO_OP',
+    }));
   });
 
   it('accepts authoritative outbound success after a crash in COMMAND_PENDING', async () => {
-    const { service, repository } = harness();
-    repository.reconcile.mockResolvedValue(intent({ status: NotificationIntentStatus.SUCCEEDED }));
+    const { service, repository, audit } = harness();
+    repository.reconcile.mockResolvedValue(intent({ id: 'notification-1', status: NotificationIntentStatus.SUCCEEDED }));
 
     await service.reconcile({
       notificationIntentId: 'notification-1',
@@ -255,6 +315,12 @@ describe('NotificationOutboxService', () => {
       outboundMessageId: 'outbound-1',
       completedAt: now,
       incrementAttempts: false,
+    }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_RECONCILIATION_SUCCEEDED',
+      module: 'notifications',
+      entityId: 'notification-1',
+      result: 'SUCCESS',
     }));
   });
 
@@ -277,7 +343,7 @@ describe('NotificationOutboxService', () => {
   });
 
   it('sweeps pre-dispatch exhaustion to FAILED and post-dispatch exhaustion to UNKNOWN_RESULT', async () => {
-    const { service, repository } = harness();
+    const { service, repository, audit } = harness();
     repository.findMaintenanceCandidates.mockResolvedValue([
       { id: 'pending-1', status: NotificationIntentStatus.PENDING, version: 2, attempts: 3, expiresAt: null, leaseExpiresAt: null },
       { id: 'dispatch-1', status: NotificationIntentStatus.DISPATCHED, version: 4, attempts: 3, expiresAt: null, leaseExpiresAt: null },
@@ -297,6 +363,36 @@ describe('NotificationOutboxService', () => {
       notificationIntentId: 'dispatch-1',
       targetStatus: NotificationIntentStatus.UNKNOWN_RESULT,
       errorCode: 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED',
+    }));
+    expect(audit.log).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      action: 'NOTIFICATION_MAINTENANCE_SETTLED',
+      module: 'notifications',
+      entityId: 'pending-1',
+      result: 'FAILED',
+      reasonCode: 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
+    }));
+    expect(audit.log).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      action: 'NOTIFICATION_MAINTENANCE_SETTLED',
+      module: 'notifications',
+      entityId: 'dispatch-1',
+      result: 'BLOCKED',
+      reasonCode: 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED',
+    }));
+  });
+
+  it('audits UNKNOWN_RESULT as a blocked, non-retryable terminal state requiring human reconciliation', async () => {
+    const { service, repository, audit } = harness();
+    repository.markUnknownResult.mockResolvedValue(intent({ id: 'notification-1', status: NotificationIntentStatus.UNKNOWN_RESULT }));
+
+    await service.markUnknownResult('notification-1', 4, 'PROVIDER_RESULT_UNKNOWN', now);
+
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'NOTIFICATION_UNKNOWN_RESULT',
+      module: 'notifications',
+      entityId: 'notification-1',
+      result: 'BLOCKED',
+      reasonCode: 'PROVIDER_RESULT_UNKNOWN',
+      metadata: { requiresHumanReconciliation: true },
     }));
   });
 });

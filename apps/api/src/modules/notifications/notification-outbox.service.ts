@@ -7,6 +7,8 @@ import {
   Prisma,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { AuditService } from '../audit/audit.service';
+import type { AuditResult } from '../audit/audit.types';
 import { decideNotificationReconciliation, deterministicNotificationHash } from './domain';
 import type { NotificationReconciliationObservation } from './domain/notification.types';
 import {
@@ -14,6 +16,11 @@ import {
   type NotificationClaimResult,
 } from './persistence/notification-intent.repository';
 import { NotificationIntentRepository } from './persistence/notification-intent.repository';
+
+const AUDIT_ACTOR_ID = 'notification-outbox';
+const AUDIT_SOURCE = 'notification_outbox';
+const AUDIT_MODULE = 'notifications';
+const AUDIT_ENTITY = 'notification_intent';
 
 const MAX_FACT_BYTES = 32 * 1024;
 const MAX_FACT_DEPTH = 8;
@@ -67,7 +74,10 @@ export class NotificationOutboxService {
     retryDelayMs: 5_000,
   });
 
-  constructor(private readonly repository: NotificationIntentRepository) {}
+  constructor(
+    private readonly repository: NotificationIntentRepository,
+    private readonly audit: AuditService,
+  ) {}
 
   enqueue(input: EnqueueNotificationIntentInput, now = new Date()): Promise<NotificationIntent> {
     this.assertIdentity(input);
@@ -92,7 +102,26 @@ export class NotificationOutboxService {
       expiresAt: input.expiresAt ?? null,
       now,
     };
-    return this.repository.create(createInput);
+    return this.repository.create(createInput).then(async (intent) => {
+      const suppressedAtCreation = intent.status === NotificationIntentStatus.SUPPRESSED;
+      await this.auditTransition({
+        action: suppressedAtCreation ? 'NOTIFICATION_INTENT_SUPPRESSED_AT_ENQUEUE' : 'NOTIFICATION_INTENT_ENQUEUED',
+        notificationIntentId: intent.id,
+        result: suppressedAtCreation ? 'BLOCKED' : 'SUCCESS',
+        reasonCode: intent.policyReason,
+        metadata: {
+          eventType: intent.eventType,
+          sourceEventId: intent.sourceEventId,
+          aggregateType: intent.aggregateType,
+          aggregateId: intent.aggregateId,
+          aggregateVersion: intent.aggregateVersion,
+          channel: intent.channel,
+          purpose: intent.purpose,
+          status: intent.status,
+        },
+      });
+      return intent;
+    });
   }
 
   findClaimCandidates(now = new Date(), limit = 25) {
@@ -150,6 +179,15 @@ export class NotificationOutboxService {
       secureCommandId: input.secureCommandId,
       outboundMessageId: input.outboundMessageId,
       now: input.now ?? new Date(),
+    }).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_COMMAND_PENDING',
+        notificationIntentId: intent.id,
+        result: 'SUCCESS',
+        reasonCode: null,
+        metadata: { secureCommandId: input.secureCommandId, outboundMessageId: input.outboundMessageId },
+      });
+      return intent;
     });
   }
 
@@ -172,6 +210,15 @@ export class NotificationOutboxService {
       consentVersion: input.consentVersion,
       handoffVersion: input.handoffVersion,
       now,
+    }).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_SUPPRESSED',
+        notificationIntentId: intent.id,
+        result: 'BLOCKED',
+        reasonCode: input.reasonCode,
+        metadata: { consentVersion: input.consentVersion, handoffVersion: input.handoffVersion },
+      });
+      return intent;
     });
   }
 
@@ -180,19 +227,53 @@ export class NotificationOutboxService {
     expectedVersion: number;
     outboundMessageId: string;
   }>) {
-    return this.repository.markDispatched(input);
+    return this.repository.markDispatched(input).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_DISPATCHED',
+        notificationIntentId: intent.id,
+        result: 'SUCCESS',
+        reasonCode: null,
+        metadata: { outboundMessageId: input.outboundMessageId },
+      });
+      return intent;
+    });
   }
 
   markSucceeded(notificationIntentId: string, expectedVersion: number, now = new Date()) {
-    return this.repository.markSucceeded({ notificationIntentId, expectedVersion, now });
+    return this.repository.markSucceeded({ notificationIntentId, expectedVersion, now }).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_SUCCEEDED',
+        notificationIntentId: intent.id,
+        result: 'SUCCESS',
+        reasonCode: null,
+      });
+      return intent;
+    });
   }
 
   markUnknownResult(notificationIntentId: string, expectedVersion: number, errorCode: string, now = new Date()) {
-    return this.repository.markUnknownResult({ notificationIntentId, expectedVersion, errorCode, now });
+    return this.repository.markUnknownResult({ notificationIntentId, expectedVersion, errorCode, now }).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_UNKNOWN_RESULT',
+        notificationIntentId: intent.id,
+        result: 'BLOCKED',
+        reasonCode: errorCode,
+        metadata: { requiresHumanReconciliation: true },
+      });
+      return intent;
+    });
   }
 
   markFailedAfterDispatch(notificationIntentId: string, expectedVersion: number, errorCode: string, now = new Date()) {
-    return this.repository.markFailedAfterDispatch({ notificationIntentId, expectedVersion, errorCode, now });
+    return this.repository.markFailedAfterDispatch({ notificationIntentId, expectedVersion, errorCode, now }).then(async (intent) => {
+      await this.auditTransition({
+        action: 'NOTIFICATION_FAILED_AFTER_DISPATCH',
+        notificationIntentId: intent.id,
+        result: 'FAILED',
+        reasonCode: errorCode,
+      });
+      return intent;
+    });
   }
 
   markPreDispatchFailure(input: Readonly<{
@@ -211,6 +292,16 @@ export class NotificationOutboxService {
       maxAttempts: NotificationOutboxService.OPTIONS.maxAttempts,
       nextRetryAt: new Date(now.getTime() + NotificationOutboxService.OPTIONS.retryDelayMs),
       now,
+    }).then(async (intent) => {
+      const exhausted = intent.status === NotificationIntentStatus.FAILED;
+      await this.auditTransition({
+        action: exhausted ? 'NOTIFICATION_PRE_DISPATCH_EXHAUSTED' : 'NOTIFICATION_PRE_DISPATCH_RETRY_SCHEDULED',
+        notificationIntentId: intent.id,
+        result: 'FAILED',
+        reasonCode: input.errorCode,
+        metadata: { attempts: intent.attempts },
+      });
+      return intent;
     });
   }
 
@@ -235,6 +326,15 @@ export class NotificationOutboxService {
         secureCommandId: input.secureCommandId,
         outboundMessageId,
         nextRetryAt: new Date(now.getTime() + NotificationOutboxService.OPTIONS.retryDelayMs),
+      }).then(async (intent) => {
+        await this.auditTransition({
+          action: 'NOTIFICATION_RECONCILIATION_DEFERRED',
+          notificationIntentId: intent.id,
+          result: 'NO_OP',
+          reasonCode: input.observation,
+          metadata: { secureCommandId: input.secureCommandId },
+        });
+        return intent;
       });
     }
 
@@ -243,6 +343,9 @@ export class NotificationOutboxService {
     const terminal = targetStatus === NotificationIntentStatus.SUCCEEDED
       || targetStatus === NotificationIntentStatus.FAILED
       || targetStatus === NotificationIntentStatus.UNKNOWN_RESULT;
+    const reconciliationErrorCode = targetStatus === NotificationIntentStatus.SUCCEEDED
+      ? null
+      : (input.errorCode ?? this.defaultError(input.observation));
     return this.repository.reconcile({
       notificationIntentId: input.notificationIntentId,
       expectedVersion: input.expectedVersion,
@@ -250,12 +353,19 @@ export class NotificationOutboxService {
       targetStatus,
       secureCommandId: input.secureCommandId,
       outboundMessageId,
-      errorCode: targetStatus === NotificationIntentStatus.SUCCEEDED
-        ? null
-        : (input.errorCode ?? this.defaultError(input.observation)),
+      errorCode: reconciliationErrorCode,
       completedAt: terminal ? now : null,
       nextRetryAt: terminal ? null : new Date(now.getTime() + NotificationOutboxService.OPTIONS.retryDelayMs),
       incrementAttempts: !terminal,
+    }).then(async (intent) => {
+      await this.auditTransition({
+        action: `NOTIFICATION_RECONCILIATION_${targetStatus}`,
+        notificationIntentId: intent.id,
+        result: this.reconciliationResult(targetStatus),
+        reasonCode: reconciliationErrorCode ?? input.observation,
+        metadata: { observation: input.observation, secureCommandId: input.secureCommandId },
+      });
+      return intent;
     });
   }
 
@@ -266,7 +376,12 @@ export class NotificationOutboxService {
       const expired = candidate.expiresAt !== null && candidate.expiresAt.getTime() <= now.getTime();
       const postDispatch = candidate.status === NotificationIntentStatus.COMMAND_PENDING
         || candidate.status === NotificationIntentStatus.DISPATCHED;
-      settled.push(await this.repository.settleMaintenance({
+      const errorCode = expired
+        ? 'NOTIFICATION_EXPIRED'
+        : postDispatch
+          ? 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED'
+          : 'NOTIFICATION_ATTEMPTS_EXHAUSTED';
+      const settledIntent = await this.repository.settleMaintenance({
         notificationIntentId: candidate.id,
         expectedVersion: candidate.version,
         expectedStatus: candidate.status,
@@ -275,15 +390,47 @@ export class NotificationOutboxService {
           : postDispatch
             ? NotificationIntentStatus.UNKNOWN_RESULT
             : NotificationIntentStatus.FAILED,
-        errorCode: expired
-          ? 'NOTIFICATION_EXPIRED'
-          : postDispatch
-            ? 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED'
-            : 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
+        errorCode,
         now,
-      }));
+      });
+      await this.auditTransition({
+        action: 'NOTIFICATION_MAINTENANCE_SETTLED',
+        notificationIntentId: settledIntent.id,
+        result: settledIntent.status === NotificationIntentStatus.UNKNOWN_RESULT ? 'BLOCKED' : 'FAILED',
+        reasonCode: errorCode,
+        metadata: { targetStatus: settledIntent.status, previousStatus: candidate.status },
+      });
+      settled.push(settledIntent);
     }
     return settled;
+  }
+
+  private async auditTransition(input: Readonly<{
+    action: string;
+    notificationIntentId: string;
+    result: AuditResult;
+    reasonCode: string | null;
+    metadata?: Readonly<Record<string, unknown>>;
+  }>): Promise<void> {
+    await this.audit.log({
+      actorId: AUDIT_ACTOR_ID,
+      actorType: 'SYSTEM',
+      action: input.action,
+      module: AUDIT_MODULE,
+      entity: AUDIT_ENTITY,
+      entityId: input.notificationIntentId,
+      result: input.result,
+      reasonCode: input.reasonCode,
+      metadata: input.metadata,
+      source: AUDIT_SOURCE,
+    });
+  }
+
+  private reconciliationResult(targetStatus: NotificationIntentStatus): AuditResult {
+    if (targetStatus === NotificationIntentStatus.SUCCEEDED) return 'SUCCESS';
+    if (targetStatus === NotificationIntentStatus.FAILED) return 'FAILED';
+    if (targetStatus === NotificationIntentStatus.UNKNOWN_RESULT) return 'BLOCKED';
+    return 'SUCCESS';
   }
 
   private assertIdentity(input: EnqueueNotificationIntentInput): void {
