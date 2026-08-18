@@ -37,17 +37,36 @@ const AUTHORIZED_ATTESTATION = {
   ownerAuthorizationReference: 'SOFIA_PHASE_0_FILE_ONLY_DRIFT_ACCEPTANCE_2026-08-01',
 } as const;
 
-// Owner-authorized additive Phase 8 frontier. This bridge permits rollback of
-// the frontier-37 runtime after migration 38 without trusting arbitrary future
-// database state. Name and Prisma checksum must both match exactly.
-const AUTHORIZED_FORWARD_MIGRATIONS = [{
-  migrationName: '20260812130000_sofia_crm_product_core',
-  checksum: 'adb1e236995f9e0d5b1e87108f4d098d07d53fce3dfdef0f5183bf5c0a2e62d5',
-  baseMigrationCount: 37,
-  baseLatestMigration: '20260809030000_sofia_live_operations_recovery_core',
-  baseInventoryFingerprint: '130bc2f2b8338c4340f316bfb740b4933db7a5c93b8d0ddb9b1eb8a59f18d1e8',
-  authorizationReference: 'SOFIA_MACRO_PHASE_8_CRM_DOMAIN_EXTENSION_2026-08-13',
-}] as const;
+// Owner-authorized additive forward bridges. Each entry is scoped to exactly
+// one base frontier (identified by count + latest migration name + a content
+// fingerprint of that exact base inventory) and authorizes exactly one single
+// next migration on top of it. Entries are independent per base: a runtime
+// whose own expected inventory is frontier 37 is evaluated only against the
+// entry whose base matches frontier 37, never against any other entry. This
+// keeps each base/next-migration bridge isolated so adding a new entry for a
+// later frontier can never change what an earlier frontier's runtime accepts.
+// Multi-migration suffixes (more than one unauthorized-by-name row beyond a
+// runtime's own expected inventory) are never authorized by this mechanism,
+// even if each individual migration has its own bridge entry elsewhere: only
+// a single-hop, exactly-one-migration forward step is ever accepted.
+const AUTHORIZED_FORWARD_MIGRATIONS = [
+  {
+    baseMigrationCount: 37,
+    baseLatestMigration: '20260809030000_sofia_live_operations_recovery_core',
+    baseInventoryFingerprint: '130bc2f2b8338c4340f316bfb740b4933db7a5c93b8d0ddb9b1eb8a59f18d1e8',
+    migrationName: '20260812130000_sofia_crm_product_core',
+    checksum: 'adb1e236995f9e0d5b1e87108f4d098d07d53fce3dfdef0f5183bf5c0a2e62d5',
+    authorizationReference: 'SOFIA_MACRO_PHASE_8_CRM_DOMAIN_EXTENSION_2026-08-13',
+  },
+  {
+    baseMigrationCount: 38,
+    baseLatestMigration: '20260812130000_sofia_crm_product_core',
+    baseInventoryFingerprint: '5cf17b1a70a5bacfb9e913a9870a1e39c2317dd77133aeccfa991dabb5291c45',
+    migrationName: '20260817120000_sofia_ai_suggestion_correlation',
+    checksum: '660d122232054cd1d744b8017d90688c45cf3cb0613361ccc12e787246b77d97',
+    authorizationReference: 'SOFIA_AI_SUGGESTION_CORRELATION_FORWARD_COMPATIBILITY_2026-08-17',
+  },
+] as const;
 
 export function evaluateMigrationIdentity(
   migrations: AppliedMigration[],
@@ -71,7 +90,8 @@ export function evaluateMigrationIdentity(
   }
 
   const additionalRows = appliedRows.slice(expectedInventory.length);
-  if (!isAuthorizedForwardSuffix(additionalRows, expectedInventory)) {
+  const forwardBridge = additionalRows.length === 0 ? null : findAuthorizedForwardBridge(additionalRows, expectedInventory);
+  if (additionalRows.length > 0 && forwardBridge === null) {
     return incompatible('MIGRATION_HISTORY_INCOMPATIBLE', appliedRows.length);
   }
 
@@ -115,9 +135,7 @@ export function evaluateMigrationIdentity(
       appliedCount: appliedRows.length,
       attestedMigrationCount: verifiedAttestations.length,
       forwardCompatibleMigrationCount: additionalRows.length,
-      forwardCompatibilityEvidence: AUTHORIZED_FORWARD_MIGRATIONS.map(
-        (migration) => migration.authorizationReference,
-      ),
+      forwardCompatibilityEvidence: forwardBridge ? [forwardBridge.authorizationReference] : [],
       forensicEvidenceCommits: verifiedAttestations.map((attestation) => attestation.forensicEvidenceCommit),
     };
   }
@@ -133,21 +151,29 @@ export function evaluateMigrationIdentity(
   };
 }
 
-function isAuthorizedForwardSuffix(
+// Selects the single forward bridge (if any) whose base matches the caller's
+// own expected inventory exactly, then requires the additional rows to be
+// EXACTLY that one authorized migration -- never zero-or-more, never a chain
+// of several. A base with no matching bridge entry, or additional rows that
+// don't collapse to exactly that bridge's single migration, yields null
+// (fail closed). This is evaluated per runtime: a frontier-37 runtime only
+// ever matches the frontier-37 entry, a frontier-38 runtime only ever matches
+// the frontier-38 entry, regardless of how many other entries exist.
+function findAuthorizedForwardBridge(
   additionalRows: AppliedMigration[],
   expectedInventory: ReleaseManifest['migrationInventory'],
-): boolean {
-  return additionalRows.length === 0 ||
-    additionalRows.length === AUTHORIZED_FORWARD_MIGRATIONS.length &&
-    additionalRows.every((migration, index) => {
-      const authorized = AUTHORIZED_FORWARD_MIGRATIONS[index];
-      return authorized !== undefined &&
-        expectedInventory.length === authorized.baseMigrationCount &&
-        expectedInventory.at(-1)?.name === authorized.baseLatestMigration &&
-        inventoryFingerprint(expectedInventory) === authorized.baseInventoryFingerprint &&
-        migration.migrationName === authorized.migrationName &&
-        migration.checksum === authorized.checksum;
-    });
+): (typeof AUTHORIZED_FORWARD_MIGRATIONS)[number] | null {
+  if (additionalRows.length !== 1) return null;
+  const fingerprint = inventoryFingerprint(expectedInventory);
+  const bridge = AUTHORIZED_FORWARD_MIGRATIONS.find(
+    (candidate) =>
+      candidate.baseMigrationCount === expectedInventory.length &&
+      candidate.baseLatestMigration === expectedInventory.at(-1)?.name &&
+      candidate.baseInventoryFingerprint === fingerprint,
+  );
+  if (!bridge) return null;
+  const [row] = additionalRows;
+  return row!.migrationName === bridge.migrationName && row!.checksum === bridge.checksum ? bridge : null;
 }
 
 function inventoryFingerprint(inventory: ReleaseManifest['migrationInventory']): string {
