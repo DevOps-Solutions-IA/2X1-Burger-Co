@@ -24,15 +24,26 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 createdb --maintenance-db="$ADMIN_URL" "$DB_NAME"
-mkdir -p "$FRONTIER_DIR/migrations"
-cp prisma/schema.prisma "$FRONTIER_DIR/schema.prisma"
-cp prisma/migrations/migration_lock.toml "$FRONTIER_DIR/migrations/migration_lock.toml"
-find prisma/migrations -mindepth 1 -maxdepth 1 -type d | sort | head -n 37 | while IFS= read -r migration; do
-  cp -a "$migration" "$FRONTIER_DIR/migrations/"
-done
 
-DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema "$FRONTIER_DIR/schema.prisma" >/dev/null
-[[ "$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')" == 37 ]]
+deploy_frontier() {
+  local frontier="$1"
+  local schema_root="$FRONTIER_DIR/frontier-$frontier"
+  mkdir -p "$schema_root/migrations"
+  cp prisma/schema.prisma "$schema_root/schema.prisma"
+  cp prisma/migrations/migration_lock.toml "$schema_root/migrations/migration_lock.toml"
+  find prisma/migrations -mindepth 1 -maxdepth 1 -type d | sort | head -n "$frontier" | while IFS= read -r migration; do
+    cp -a "$migration" "$schema_root/migrations/"
+  done
+  DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema "$schema_root/schema.prisma" >/dev/null
+  local applied
+  applied="$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')"
+  [[ "$applied" == "$frontier" ]] || {
+    printf '[error] expected Prisma frontier %s, found %s\n' "$frontier" "$applied" >&2
+    exit 3
+  }
+}
+
+deploy_frontier 37
 
 psql "$TARGET_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
 INSERT INTO users (id, email, "passwordHash", "fullName", "updatedAt")
@@ -64,8 +75,10 @@ SQL
 
 BEFORE_COUNTS="$(psql "$TARGET_URL" -X -Atqc "SELECT concat((SELECT count(*) FROM users), ':', (SELECT count(*) FROM crm_customers), ':', (SELECT count(*) FROM crm_customer_tags), ':', (SELECT count(*) FROM crm_customer_tag_assignments), ':', (SELECT count(*) FROM customer_service_cases))")"
 
-DATABASE_URL="$TARGET_URL" pnpm exec prisma migrate deploy --schema prisma/schema.prisma >/dev/null
-[[ "$(psql "$TARGET_URL" -X -Atqc 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')" == 38 ]]
+
+# Keep this Phase 8 rehearsal pinned to its own migration frontier even when
+# later additive migrations exist in the repository.
+deploy_frontier 38
 
 AFTER_COUNTS="$(psql "$TARGET_URL" -X -Atqc "SELECT concat((SELECT count(*) FROM users), ':', (SELECT count(*) FROM crm_customers), ':', (SELECT count(*) FROM crm_customer_tags), ':', (SELECT count(*) FROM crm_customer_tag_assignments), ':', (SELECT count(*) FROM customer_service_cases))")"
 [[ "$BEFORE_COUNTS" == "$AFTER_COUNTS" ]]
