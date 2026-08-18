@@ -70,7 +70,7 @@ test('canary deployment waits for bounded service health before smoke', () => {
 test('rollback canary rebuilds the exact forward-compatible bridge source', () => {
   const status = JSON.parse(readFileSync('.engineering/sofia-production/master-status.json', 'utf8'));
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
-  const forwardCompatibleBridge = 'dc748b03b52c83f34882edc64de859cc9ab50645';
+  const forwardCompatibleBridge = '4156efdf27097463aacd6b5a73c3e103404c849c';
 
   assert.match(status.productionSha, /^[a-f0-9]{40}$/);
   assert.ok(
