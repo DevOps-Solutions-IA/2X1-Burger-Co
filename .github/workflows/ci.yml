@@ -107,6 +107,7 @@ jobs:
             src/modules/delivery-operations/delivery-workflow.policy.spec.ts \
             src/modules/delivery-operations/delivery-workflow.service.spec.ts \
             src/modules/delivery-operations/persistence/prisma-delivery-workflow.repository.spec.ts \
+            src/modules/delivery-operations/production/delivery-assignment-command.handler.spec.ts \
             src/modules/notifications/domain/notification-domain.spec.ts \
             src/modules/notifications/notification-intent-consumer.service.spec.ts \
             src/modules/notifications/notification-outbound-materializer.spec.ts \
@@ -213,6 +214,7 @@ jobs:
             src/tests/phase6-persistence-concurrency.integration.spec.ts \
             src/tests/phase6-payment-webhook-fault-injection.integration.spec.ts \
             src/modules/orders/orders.phase6-atomicity.integration.spec.ts \
+            src/modules/delivery-operations/production/delivery-assignment-command.integration.spec.ts \
             src/modules/notifications/phase6-notification-pipeline.integration.spec.ts \
             src/modules/sofia/complaint-inbound.integration.spec.ts \
             src/modules/sofia/whatsapp/production/whatsapp-inbound-checkpoint.integration.spec.ts \
