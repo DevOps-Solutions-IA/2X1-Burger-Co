@@ -1894,6 +1894,7 @@ model SofiaAutoSafeDecisionEvent {
   createdAt              DateTime             @default(now()) @map("created_at")
   customerMemory         SofiaCustomerMemory? @relation(fields: [customerMemoryId], references: [id], onDelete: SetNull)
   promptVersion          SofiaPromptVersion?  @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  outboundMessages       WhatsappOutboundMessage[]
 
   @@index([conversationId, createdAt])
   @@index([customerMemoryId, createdAt])
@@ -2047,11 +2048,13 @@ model WhatsappOutboundMessage {
   recipientIdentityHash String?                      @map("recipient_identity_hash")
   purpose               String?                      @map("purpose")
   unknownResult         Boolean                      @default(false) @map("unknown_result")
+  autoSafeDecisionEventId String?                    @map("auto_safe_decision_event_id")
   conversation          WhatsappConversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   inboundMessage        WhatsappMessage?             @relation(fields: [inboundMessageId], references: [id], onDelete: SetNull)
   approvedBy            User?                        @relation("WhatsappOutboundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   account               WhatsappProviderAccount?     @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   secureCommand         SofiaCommand?                @relation(fields: [secureCommandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  autoSafeDecisionEvent SofiaAutoSafeDecisionEvent?  @relation(fields: [autoSafeDecisionEventId], references: [id], onDelete: SetNull)
   statusEvents          WhatsappMessageStatusEvent[]
   notificationIntent    NotificationIntent?
 
@@ -2062,6 +2065,7 @@ model WhatsappOutboundMessage {
   @@index([recipientIdentityHash, createdAt])
   @@index([status, nextRetryAt])
   @@index([approvedById])
+  @@index([autoSafeDecisionEventId])
   @@map("whatsapp_outbound_messages")
 }
 

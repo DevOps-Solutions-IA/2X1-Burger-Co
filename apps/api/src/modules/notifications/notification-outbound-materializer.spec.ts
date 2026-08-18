@@ -87,6 +87,7 @@ function outbound(overrides: Partial<WhatsappOutboundMessage> = {}): WhatsappOut
     recipientIdentityHash: 'a'.repeat(64),
     purpose: CustomerConsentPurpose.SERVICE,
     unknownResult: false,
+    autoSafeDecisionEventId: null,
     ...overrides,
   };
 }

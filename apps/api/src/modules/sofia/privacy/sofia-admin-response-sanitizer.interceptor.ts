@@ -1,5 +1,6 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { map, Observable } from 'rxjs';
+import { redactSensitiveText } from './sofia-pii-redaction';
 
 const OMITTED_KEYS = new Set([
   'rawPayload',
@@ -14,10 +15,13 @@ export class SofiaAdminResponseSanitizerInterceptor implements NestInterceptor {
   }
 
   private sanitize(value: unknown): unknown {
-    if (value == null || typeof value !== 'object') return value;
+    if (value == null) return value;
     if (value instanceof Date || Buffer.isBuffer(value)) return value;
+    if (typeof value === 'string') return redactSensitiveText(value);
+    if (typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map((item) => this.sanitize(item));
-    if (typeof (value as { toJSON?: unknown }).toJSON === 'function') return value;
+    const toJSON = (value as { toJSON?: () => unknown }).toJSON;
+    if (typeof toJSON === 'function') return this.sanitize(toJSON.call(value));
 
     const source = value as Record<string, unknown>;
     const result: Record<string, unknown> = {};

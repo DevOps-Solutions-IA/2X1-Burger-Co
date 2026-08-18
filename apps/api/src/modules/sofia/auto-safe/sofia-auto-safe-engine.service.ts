@@ -231,6 +231,9 @@ export class SofiaAutoSafeEngineService {
       shouldSend: decision.shouldSend,
       responseLength: input.candidateReply.length,
       finalReplyPresent: Boolean(decision.finalReply),
+      aiProvider: input.aiProviderMeta?.provider ?? null,
+      aiMode: input.aiProviderMeta?.mode ?? null,
+      aiModel: input.aiProviderMeta?.model ?? null,
     };
   }
 

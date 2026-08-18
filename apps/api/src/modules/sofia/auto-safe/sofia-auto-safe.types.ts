@@ -68,6 +68,7 @@ export type SofiaAutoSafeInput = {
   deepSeekReady: boolean;
   businessStatus?: { isOpen: boolean; timezone?: string; schedule?: string };
   metadata?: Prisma.InputJsonValue;
+  aiProviderMeta?: { provider: string; mode: string; model?: string | null };
 };
 
 export type SofiaAutoSafeDecision = {

@@ -460,6 +460,7 @@ export class SofiaWhatsappService {
             noWhatsappRealSent: true,
           },
           createdAt: new Date().toISOString(),
+          eventId: undefined,
         },
         nextAction: 'ASK_TEXT_CONFIRMATION',
         responseText,
@@ -657,6 +658,7 @@ export class SofiaWhatsappService {
       isOpen: checkpoint.businessOpen,
       accountId: input.accountId,
       statusOverride: checkpoint.outboundStatus,
+      autoSafeDecisionEventId: input.sofiaResult?.autoSafeDecision?.eventId ?? null,
     });
 
     return {
@@ -712,6 +714,7 @@ export class SofiaWhatsappService {
     accountId: string;
     headers?: HeaderMap;
     statusOverride?: string | null;
+    autoSafeDecisionEventId?: string | null;
   }) {
     const {
       mode,
@@ -725,6 +728,7 @@ export class SofiaWhatsappService {
       accountId,
       headers,
       statusOverride,
+      autoSafeDecisionEventId,
     } = input;
     if (!responseText.trim()) return null;
     const responseHash = this.sha256(`${responseText}|${mediaUrl ?? ''}`);
@@ -747,6 +751,7 @@ export class SofiaWhatsappService {
         recipientIdentityHash: this.providerHealth.identityHash(
           (await this.ensureConversation(conversationId)).phone,
         ),
+        autoSafeDecisionEventId: autoSafeDecisionEventId ?? null,
     });
 
     return outbound;

@@ -84,6 +84,7 @@ export class PrismaWhatsappConversationRepository {
     idempotencyKey: string;
     accountId: string;
     recipientIdentityHash: string;
+    autoSafeDecisionEventId?: string | null;
   }) {
     return this.prisma.whatsappOutboundMessage.create({ data: { ...input, purpose: 'SERVICE' } });
   }

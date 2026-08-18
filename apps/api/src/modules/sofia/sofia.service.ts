@@ -70,6 +70,18 @@ type InboxConversationRecord = {
     lastError: string | null;
     createdAt: Date;
     sentAt: Date | null;
+    autoSafeDecisionEvent: {
+      id: string;
+      status: string;
+      riskLevel: string;
+      approved: boolean;
+      inputSummaryJson: Prisma.JsonValue;
+      outputSummaryJson: Prisma.JsonValue;
+      safetyGuardSummaryJson: Prisma.JsonValue;
+      reasonCodesJson: Prisma.JsonValue;
+      blockingReasonsJson: Prisma.JsonValue;
+      createdAt: Date;
+    } | null;
   }>;
   _count: {
     deliveryOrders: number;
@@ -138,6 +150,20 @@ const inboxConversationSelect = {
       lastError: true,
       createdAt: true,
       sentAt: true,
+      autoSafeDecisionEvent: {
+        select: {
+          id: true,
+          status: true,
+          riskLevel: true,
+          approved: true,
+          inputSummaryJson: true,
+          outputSummaryJson: true,
+          safetyGuardSummaryJson: true,
+          reasonCodesJson: true,
+          blockingReasonsJson: true,
+          createdAt: true,
+        },
+      },
     },
   },
   _count: {
@@ -168,6 +194,43 @@ export class SofiaService {
       return 0;
     }
     return Number(value);
+  }
+
+  private jsonField(value: Prisma.JsonValue | undefined, key: string): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return (value as Record<string, unknown>)[key] ?? null;
+  }
+
+  private aiSuggestionSummary(
+    event: {
+      id: string;
+      status: string;
+      riskLevel: string;
+      approved: boolean;
+      inputSummaryJson: Prisma.JsonValue;
+      outputSummaryJson: Prisma.JsonValue;
+      safetyGuardSummaryJson: Prisma.JsonValue;
+      reasonCodesJson: Prisma.JsonValue;
+      blockingReasonsJson: Prisma.JsonValue;
+      createdAt: Date;
+    } | null,
+  ) {
+    if (!event) return null;
+    const confidenceRaw = this.jsonField(event.inputSummaryJson, 'confidence');
+    return {
+      decisionEventId: event.id,
+      status: event.status,
+      riskLevel: event.riskLevel,
+      approved: event.approved,
+      confidence: typeof confidenceRaw === 'number' ? confidenceRaw : null,
+      provider: this.jsonField(event.outputSummaryJson, 'aiProvider'),
+      mode: this.jsonField(event.outputSummaryJson, 'aiMode'),
+      model: this.jsonField(event.outputSummaryJson, 'aiModel'),
+      reasonCodes: Array.isArray(event.reasonCodesJson) ? event.reasonCodesJson : [],
+      blockingReasons: Array.isArray(event.blockingReasonsJson) ? event.blockingReasonsJson : [],
+      safetyFlags: this.jsonField(event.safetyGuardSummaryJson, 'safetyFlags'),
+      createdAt: event.createdAt.toISOString(),
+    };
   }
 
   private readItemsSnapshot(value: Prisma.JsonValue): SofiaItemSnapshot[] {
@@ -679,6 +742,7 @@ export class SofiaService {
         sentAt: outbound.sentAt?.toISOString() ?? null,
         sent: outbound.status === 'SENT',
         realSendingEnabled: false,
+        aiSuggestion: this.aiSuggestionSummary(outbound.autoSafeDecisionEvent),
       })),
       outboxTotal: conversation._count.outboundMessages,
       outboundSentCount,
