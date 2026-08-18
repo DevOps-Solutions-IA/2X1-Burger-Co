@@ -61,6 +61,8 @@ jobs:
         run: bash infra/testing/phase6-legacy-migration.sh
       - name: Phase 8 representative legacy migration 37 to 38
         run: bash infra/testing/phase8-legacy-migration.sh
+      - name: Sofia AI suggestion correlation migration 38 to 39
+        run: bash infra/testing/sofia-ai-suggestion-correlation-migration.sh
       - name: API lint with visible debt and web zero-warning gate
         run: |
           pnpm --filter @inventory-fastfood/api lint

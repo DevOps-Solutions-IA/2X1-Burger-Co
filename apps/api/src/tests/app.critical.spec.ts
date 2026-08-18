@@ -4961,6 +4961,111 @@ describe('Critical business flows', () => {
     }
   });
 
+  it('wires a real receive-only suggestion end to end: persisted, correlated, audited, RBAC-protected and never sent', async () => {
+    const { accessToken } = await login();
+    const originalAllowlistEnabled = process.env.SOFIA_QR_PILOT_ALLOWLIST_ENABLED;
+    const originalAllowlistPhones = process.env.SOFIA_QR_PILOT_ALLOWED_PHONES;
+    const stockBefore = await prisma.product.aggregate({ _sum: { currentStock: true } });
+    const cashMovementsBefore = await prisma.cashMovement.count();
+    const salesBefore = await prisma.sale.count();
+    const ordersBefore = await prisma.orderTicket.count();
+    const deliveryOrdersBefore = await prisma.whatsappDeliveryOrder.count();
+    const salePaymentsBefore = await prisma.salePayment.count();
+    const paymentIntentsBefore = await prisma.paymentIntent.count();
+    const paymentLinksBefore = await prisma.paymentLink.count();
+    const phone = '573001116001';
+
+    try {
+      process.env.SOFIA_QR_PILOT_ALLOWLIST_ENABLED = 'true';
+      process.env.SOFIA_QR_PILOT_ALLOWED_PHONES = phone;
+      const externalMessageId = `qr-ai-wiring-${Date.now()}`;
+      const inboundTimestamp = new Date().toISOString();
+
+      const first = await sofiaWhatsappService.processInboundWebhook(
+        'qr_gateway',
+        {
+          provider: 'qr_gateway',
+          externalMessageId,
+          providerEventId: `${externalMessageId}-event`,
+          phone,
+          text: 'Quiero una burger clásica',
+          messageType: 'TEXT',
+          timestamp: inboundTimestamp,
+        },
+        { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+        { trustedBaileysTransport: true },
+      );
+      expect(first.outbound?.status).toBe('SUGGESTED');
+      expect(first.outbound?.status).not.toBe('SENT');
+      const conversationId = first.conversationId as string;
+      const outboundId = (first.outbound as { id: string }).id;
+
+      // Retrying the exact same provider event must never create a second suggestion.
+      const duplicate = await sofiaWhatsappService.processInboundWebhook(
+        'qr_gateway',
+        {
+          provider: 'qr_gateway',
+          externalMessageId,
+          providerEventId: `${externalMessageId}-event`,
+          phone,
+          text: 'Quiero una burger clásica',
+          messageType: 'TEXT',
+          timestamp: inboundTimestamp,
+        },
+        { 'x-sofia-whatsapp-mode': 'receive_only', 'x-sofia-whatsapp-provider': 'qr_gateway' },
+        { trustedBaileysTransport: true },
+      );
+      expect(duplicate.processingStatus).toBe('DUPLICATE_IGNORED');
+      expect(await prisma.whatsappOutboundMessage.count({ where: { conversationId } })).toBe(1);
+
+      const persistedOutbound = await prisma.whatsappOutboundMessage.findUniqueOrThrow({ where: { id: outboundId } });
+      expect(persistedOutbound.autoSafeDecisionEventId).toEqual(expect.any(String));
+      const decisionEvent = await prisma.sofiaAutoSafeDecisionEvent.findUniqueOrThrow({
+        where: { id: persistedOutbound.autoSafeDecisionEventId! },
+      });
+      expect(decisionEvent.channelMode).toBe('whatsapp_adapter');
+      expect(decisionEvent.isSandbox).toBe(false);
+      expect(await prisma.auditLog.findFirstOrThrow({
+        where: { module: 'sofia', action: { in: ['AI_SUGGESTION_READY', 'AI_SUGGESTION_BLOCKED'] }, entityId: conversationId },
+      })).toBeTruthy();
+
+      const detail = await request(app.getHttpServer())
+        .get(`/admin/sofia/conversations/inbox/${conversationId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const suggestedOutbound = (detail.body.outboundMessages as Array<{ id: string; aiSuggestion: unknown }>).find(
+        (o) => o.id === outboundId,
+      );
+      expect(suggestedOutbound?.aiSuggestion).toMatchObject({
+        decisionEventId: persistedOutbound.autoSafeDecisionEventId,
+      });
+      expect(JSON.stringify(detail.body)).not.toContain(phone);
+
+      const { accessToken: waiterToken } = await loginWaiter();
+      const forbidden = await request(app.getHttpServer())
+        .get(`/admin/sofia/conversations/inbox/${conversationId}`)
+        .set('Authorization', `Bearer ${waiterToken}`);
+      expect(forbidden.status).not.toBe(200);
+
+      expect(await prisma.orderTicket.count()).toBe(ordersBefore);
+      expect(await prisma.whatsappDeliveryOrder.count()).toBe(deliveryOrdersBefore);
+      const stockAfter = await prisma.product.aggregate({ _sum: { currentStock: true } });
+      expect(String(stockAfter._sum.currentStock)).toBe(String(stockBefore._sum.currentStock));
+      expect(await prisma.cashMovement.count()).toBe(cashMovementsBefore);
+      expect(await prisma.sale.count()).toBe(salesBefore);
+      expect(await prisma.salePayment.count()).toBe(salePaymentsBefore);
+      expect(await prisma.paymentIntent.count()).toBe(paymentIntentsBefore);
+      expect(await prisma.paymentLink.count()).toBe(paymentLinksBefore);
+      expect(await prisma.whatsappOutboundMessage.count({ where: { conversationId, status: 'SENT' } })).toBe(0);
+      expect(await prisma.whatsappOutboundMessage.count({ where: { status: 'SENT' } })).toBe(0);
+    } finally {
+      if (originalAllowlistEnabled === undefined) delete process.env.SOFIA_QR_PILOT_ALLOWLIST_ENABLED;
+      else process.env.SOFIA_QR_PILOT_ALLOWLIST_ENABLED = originalAllowlistEnabled;
+      if (originalAllowlistPhones === undefined) delete process.env.SOFIA_QR_PILOT_ALLOWED_PHONES;
+      else process.env.SOFIA_QR_PILOT_ALLOWED_PHONES = originalAllowlistPhones;
+    }
+  });
+
   it('exposes Sofia learning, metrics, privacy, retention, alerts and backup hardening without production activation', async () => {
     const { accessToken } = await login();
     const stockBefore = await prisma.product.aggregate({ _sum: { currentStock: true } });

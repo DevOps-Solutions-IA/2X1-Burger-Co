@@ -60,6 +60,7 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
       {} as never,
       {} as never,
       cases,
+      {} as never,
     );
   });
 

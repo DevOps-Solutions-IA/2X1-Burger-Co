@@ -244,6 +244,7 @@ function repositoryFrontier37Inventory(): ReleaseManifest['migrationInventory'] 
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .filter((name) => name !== '20260812130000_sofia_crm_product_core')
+    .filter((name) => name !== '20260817120000_sofia_ai_suggestion_correlation')
     .sort()
     .map((name) => ({
       name,

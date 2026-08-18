@@ -1,7 +1,7 @@
 # Hallazgo — cobertura de redacción PII más débil en respuestas admin de SOFIA que en logs
 
 - Fecha de registro: 2026-08-17
-- Estado: **NO corregido** (documentación únicamente, según alcance autorizado)
+- Estado: **Corregido** (2026-08-17, rama `feat/sofia-ai-supervised-suggestion-wiring`) — ver "Corrección aplicada" al final de este documento.
 - Componente: `apps/api/src/modules/sofia/privacy/sofia-admin-response-sanitizer.interceptor.ts`
 - Descubierto durante: auditoría READ-ONLY de gates de producción de SOFIA (2026-08-17)
 
@@ -51,3 +51,21 @@ receive-only). Se registra aquí exclusivamente para que quede trazado y prioriz
 Este cambio, si se autoriza, es contenido dentro de un solo archivo de interceptor y
 sus tests — no requiere tocar ninguna de las 4 capas de bloqueo de producción ni
 ningún archivo de la lista "NO modificar todavía" de esta sesión.
+
+## Corrección aplicada (2026-08-17)
+
+Autorizado explícitamente en el alcance de "SOFIA WIRING PHASE 1". Cambios, contenidos
+exactamente a `sofia-admin-response-sanitizer.interceptor.ts` y su spec:
+
+1. `sanitize()` ahora aplica `redactSensitiveText` a **todo** valor string durante la
+   recursión (no solo a los que tienen clave `phone`), igual que `sanitizeJson`. Los
+   campos con clave `phone` conservan el enmascarado exacto (`maskPhone`, últimos 4
+   dígitos visibles) para no romper el contrato existente del panel.
+2. Los objetos con `toJSON` (ej. `Decimal` de Prisma) ahora se convierten a su
+   primitivo (`toJSON()`) y ese resultado pasa por `sanitize()` en vez de devolverse
+   intacto.
+3. Tests añadidos: teléfono/correo incrustados en `notes`/`lastCustomerMessage` (texto
+   libre, no en clave "phone") quedan redactados; un valor con `toJSON` se convierte y
+   se sanitiza. Los 3 tests preexistentes siguen en verde sin modificación.
+
+5/5 tests pasando localmente (`npx jest privacy/sofia-admin-response-sanitizer.interceptor.spec.ts`).

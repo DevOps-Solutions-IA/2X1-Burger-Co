@@ -22,6 +22,8 @@ import {
   type RecipeAvailabilityService,
   type SofiaActorContext,
 } from '../../application/contracts/sofia-domain-contracts';
+import { AuditService } from '../audit/audit.service';
+import { redactSensitiveText } from './privacy/sofia-pii-redaction';
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAutoSafeEngineService } from './auto-safe/sofia-auto-safe-engine.service';
 import { SofiaCommercialCatalogService } from './catalog/sofia-commercial-catalog.service';
@@ -118,6 +120,7 @@ export class SofiaAgentService {
     private readonly commercialCheckout: CommercialCheckoutService,
     private readonly whatsappHandoff: WhatsappHandoffService,
     private readonly customerServiceCases: CustomerServiceCaseService,
+    private readonly auditService: AuditService,
   ) {}
 
   private actorContext(actorId: string, source: 'WHATSAPP' | 'SANDBOX'): SofiaActorContext {
@@ -567,6 +570,12 @@ export class SofiaAgentService {
       throw new BadRequestException('El inbound WhatsApp requiere una conversación persistida por el transporte.');
     }
 
+    void this.logAiAudit('AI_REQUEST_STARTED', {
+      userId: actorId,
+      entityId: dto.conversationId ?? null,
+      newValues: { source: options.source, messageType: dto.messageType ?? 'TEXT' },
+    });
+
     const normalized = this.normalizeText(message);
     const transcriptConfidence = dto.messageType === 'AUDIO_TRANSCRIPT' ? dto.transcriptConfidence ?? 0.7 : 1;
     const classified = this.classifyIntent(normalized, transcriptConfidence);
@@ -689,6 +698,7 @@ export class SofiaAgentService {
           requiredHumanAction: shouldHandoff ? 'Revisar la conversación.' : null,
           auditJson: { phase: 'PHASE_4', noWhatsappRealSent: true, noOperationalMutation: true },
           createdAt: new Date().toISOString(),
+          eventId: undefined,
         },
         nextAction: commercial.nextAction,
         responseText: commercial.responseText,
@@ -759,7 +769,9 @@ export class SofiaAgentService {
       preferredPaymentMethod: this.paymentMethodFromText(normalized),
       lastProductDiscussed: matchedCatalogItem?.name ?? matchedFeaturedOffer?.name ?? matchedProducts[0]?.name ?? null,
     });
-    const aiAnalysis = await this.aiProviderFactory.analyze(
+    let aiAnalysis: Awaited<ReturnType<SofiaAIProviderFactory['analyze']>>;
+    try {
+      aiAnalysis = await this.aiProviderFactory.analyze(
       {
         conversationId: conversation.id,
         customerMessage: message,
@@ -801,7 +813,15 @@ export class SofiaAgentService {
         ruleSuggestedReply: null,
       },
       options.headers,
-    );
+      );
+    } catch (error) {
+      await this.logAiAudit('AI_REQUEST_FAILED', {
+        userId: actorId,
+        entityId: conversation.id,
+        newValues: { source: options.source, reason: this.sanitizeAiError(error) },
+      });
+      throw error;
+    }
     const safeAi = aiAnalysis.safe;
     const aiWantsHandoff = safeAi.shouldHandoff || safeAi.confidence < 0.45;
     const effectiveIntent = safeAi.mode !== 'disabled' && !safeAi.fallbackUsed ? (safeAi.intent as SofiaIntent) : classified.intent;
@@ -980,6 +1000,11 @@ export class SofiaAgentService {
         noWhatsappReal: true,
         source: options.source ?? 'SANDBOX',
       },
+      aiProviderMeta: {
+        provider: safeAi.provider,
+        mode: safeAi.mode,
+        model: this.configService.get<string>('DEEPSEEK_MODEL') ?? 'deepseek-v4-flash',
+      },
     });
 
     const result = {
@@ -1093,7 +1118,47 @@ export class SofiaAgentService {
 
     await this.repository.touchConversation(conversation.id);
 
+    void this.logAiAudit(
+      result.autoSafeDecision.status === 'BLOCKED' ? 'AI_SUGGESTION_BLOCKED' : 'AI_SUGGESTION_READY',
+      {
+        userId: actorId,
+        entityId: conversation.id,
+        newValues: {
+          source: options.source,
+          status: result.autoSafeDecision.status,
+          riskLevel: result.autoSafeDecision.riskLevel,
+          provider: result.aiProvider.provider,
+          mode: result.aiProvider.mode,
+          confidence: result.confidence,
+          autoSafeDecisionEventId: result.autoSafeDecision.eventId ?? null,
+        },
+      },
+    );
+
     return result;
+  }
+
+  private async logAiAudit(
+    action: 'AI_REQUEST_STARTED' | 'AI_REQUEST_FAILED' | 'AI_SUGGESTION_READY' | 'AI_SUGGESTION_BLOCKED',
+    input: { userId: string; entityId: string | null; newValues?: Prisma.InputJsonValue },
+  ) {
+    try {
+      await this.auditService.log({
+        userId: input.userId,
+        action,
+        module: 'sofia',
+        entity: 'sofia_ai_suggestion',
+        entityId: input.entityId ?? 'unknown',
+        newValues: input.newValues,
+      });
+    } catch {
+      // La auditoría es best-effort: nunca debe romper la sugerencia de IA en curso.
+    }
+  }
+
+  private sanitizeAiError(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return (redactSensitiveText(message) ?? '').slice(0, 240);
   }
 
   private async recordCommercialSafetyEvents(input: {
