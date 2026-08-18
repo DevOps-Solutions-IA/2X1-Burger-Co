@@ -2,6 +2,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { SecureCommandError } from './secure-command.errors';
 import type { CommandHandlerResult, CommandPolicyDefinition, CommandRecord, SecureCommandType } from './secure-command.types';
+import { DeliveryAssignmentCommandHandler } from '../delivery-operations/production/delivery-assignment-command.handler';
 import { WhatsappOutboundCommandHandler } from '../sofia/whatsapp/production/whatsapp-outbound-command.handler';
 // Plain class import: this is a TS/JS file-level import only, it does NOT declare a NestJS
 // `@Module({ imports: [...] })` edge, so it does not participate in the Nest DI module graph.
@@ -55,6 +56,7 @@ export class CommandHandlerRegistry {
   constructor(
     @Optional() private readonly moduleRef?: ModuleRef,
     @Optional() private readonly whatsappOutbound?: WhatsappOutboundCommandHandler,
+    @Optional() private readonly deliveryAssignment?: DeliveryAssignmentCommandHandler,
   ) {}
 
   definition(commandType: string): CommandPolicyDefinition {
@@ -95,6 +97,16 @@ export class CommandHandlerRegistry {
       const handler = this.resolveOrderCreationHandler();
       if (!handler) throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
       return handler.execute(command);
+    }
+    if (command.commandType === 'SOFIA_ASSIGN_DELIVERY') {
+      // Unreachable in practice today: SOFIA_ASSIGN_DELIVERY stays inside
+      // BLOCKED_TYPES with enabled:false and no receiveWhileDisabled, so
+      // CommandPolicyService rejects it at the RECEIVE stage before a command
+      // record can even be created. Wired here so the handler is a real,
+      // testable dispatch target once an owner-authorized activation phase
+      // moves this command type out of BLOCKED_TYPES.
+      if (!this.deliveryAssignment) throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');
+      return this.deliveryAssignment.execute(command);
     }
     if (command.commandType !== 'SOFIA_INTERNAL_VALIDATE') {
       throw new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED');

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DeliveryOperationsModule } from '../delivery-operations/delivery-operations.module';
 import { SofiaModule } from '../sofia/sofia.module';
 import { CommandApprovalService } from './command-approval.service';
 import { CommandAuditService } from './command-audit.service';
@@ -15,7 +16,7 @@ import { SofiaCommandRuntimeSafetyAdapter } from './runtime-safety.adapter';
 import { SecureCommandService } from './secure-command.service';
 
 @Module({
-  imports: [SofiaModule],
+  imports: [SofiaModule, DeliveryOperationsModule],
   providers: [
     SecureCommandService,
     CommandApprovalService,
