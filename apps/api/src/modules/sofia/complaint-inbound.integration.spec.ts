@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CustomerServiceCaseService } from '../customer-service/customer-service-case.service';
 import { PrismaCustomerServiceCaseRepository } from '../customer-service/persistence/prisma-customer-service-case.repository';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SofiaAgentRepository } from './repositories/sofia-agent.repository';
 import { SofiaAgentService } from './sofia-agent.service';
 
 const STOP_AFTER_COMPLAINT = new Error('STOP_AFTER_COMPLAINT_WIRING');
@@ -9,7 +10,9 @@ const STOP_AFTER_COMPLAINT = new Error('STOP_AFTER_COMPLAINT_WIRING');
 describe('Sofia complaint inbound PostgreSQL wiring', () => {
   let prisma: PrismaService;
   let conversationId: string;
+  let customerId: string | null;
   let findConversation: jest.Mock;
+  let auditLog: jest.Mock;
   let agent: SofiaAgentService;
 
   beforeAll(async () => {
@@ -26,8 +29,13 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
     await prisma.$disconnect();
   });
 
-  beforeEach(async () => {
+  async function seedConversation(withCustomer: boolean) {
     const suffix = randomUUID();
+    let seededCustomerId: string | null = null;
+    if (withCustomer) {
+      const customer = await prisma.customer.create({ data: { displayName: `Complaint customer ${suffix}` } });
+      seededCustomerId = customer.id;
+    }
     const conversation = await prisma.whatsappConversation.create({
       data: {
         phone: `complaint-${suffix}`,
@@ -35,15 +43,20 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
         providerConversationId: `complaint-${suffix}`,
         mode: 'receive_only',
         sofiaEnabled: true,
+        customerId: seededCustomerId,
       },
     });
-    conversationId = conversation.id;
+    return { conversationId: conversation.id, customerId: seededCustomerId };
+  }
 
+  function buildAgent() {
     findConversation = jest.fn().mockRejectedValue(STOP_AFTER_COMPLAINT);
+    auditLog = jest.fn().mockResolvedValue({});
     const cases = new CustomerServiceCaseService(new PrismaCustomerServiceCaseRepository(prisma));
+    const repository = new SofiaAgentRepository(prisma);
     agent = new SofiaAgentService(
       { findConversation } as never,
-      {} as never,
+      repository,
       {} as never,
       {} as never,
       {} as never,
@@ -60,11 +73,12 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
       {} as never,
       {} as never,
       cases,
-      {} as never,
+      { log: auditLog } as never,
     );
-  });
+  }
 
   afterEach(async () => {
+    jest.restoreAllMocks();
     const cases = await prisma.customerServiceCase.findMany({
       where: { conversationId },
       select: { id: true },
@@ -74,6 +88,9 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
     });
     await prisma.customerServiceCase.deleteMany({ where: { conversationId } });
     await prisma.whatsappConversation.deleteMany({ where: { id: conversationId } });
+    if (customerId) {
+      await prisma.customer.deleteMany({ where: { id: customerId } });
+    }
   });
 
   async function operationalCounts() {
@@ -114,6 +131,8 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
   }
 
   it('deduplicates the same inbound event and preserves a later complaint with identical text', async () => {
+    ({ conversationId, customerId } = await seedConversation(false));
+    buildAgent();
     const before = await operationalCounts();
 
     await processComplaint('provider-event-1');
@@ -134,6 +153,7 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
       expect.objectContaining({
         category: 'COLD_FOOD',
         status: 'HUMAN_REQUIRED',
+        customerId: null,
         version: 1,
         events: [
           expect.objectContaining({ action: 'CASE_CREATED', version: 0 }),
@@ -143,6 +163,7 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
       expect.objectContaining({
         category: 'COLD_FOOD',
         status: 'HUMAN_REQUIRED',
+        customerId: null,
         version: 1,
         events: [
           expect.objectContaining({ action: 'CASE_CREATED', version: 0 }),
@@ -152,5 +173,40 @@ describe('Sofia complaint inbound PostgreSQL wiring', () => {
     ]));
     expect(findConversation).toHaveBeenCalledTimes(3);
     expect(await operationalCounts()).toEqual(before);
+
+    // Duplicate delivery of the same provider event must not duplicate the customer-service audit trail either.
+    expect(auditLog.mock.calls.filter(([entry]) => entry.action === 'SOFIA_CUSTOMER_SERVICE_CASE_OPENED')).toHaveLength(2);
+    expect(auditLog.mock.calls.filter(([entry]) => entry.action === 'SOFIA_CUSTOMER_SERVICE_CASE_HUMAN_REQUIRED')).toHaveLength(2);
+  });
+
+  it('links the case to the CRM customer already bound to the WhatsApp conversation', async () => {
+    ({ conversationId, customerId } = await seedConversation(true));
+    buildAgent();
+
+    await processComplaint('provider-event-crm-1');
+
+    const serviceCase = await prisma.customerServiceCase.findFirstOrThrow({ where: { conversationId } });
+    expect(serviceCase.customerId).toBe(customerId);
+    expect(serviceCase.status).toBe('HUMAN_REQUIRED');
+    expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'SOFIA_CUSTOMER_SERVICE_CASE_OPENED',
+      module: 'sofia',
+      entity: 'customer_service_case',
+      entityId: serviceCase.id,
+      newValues: expect.objectContaining({ customerId }),
+    }));
+  });
+
+  it('stays resilient and still opens the case when the CRM lookup cannot resolve a customer', async () => {
+    ({ conversationId, customerId } = await seedConversation(false));
+    buildAgent();
+    // Force the CRM lookup to fail without touching the repository the rest of the wiring depends on.
+    jest.spyOn(SofiaAgentRepository.prototype, 'findConversationCustomerId').mockRejectedValueOnce(new Error('CRM_LOOKUP_UNAVAILABLE'));
+
+    await processComplaint('provider-event-crm-failure');
+
+    const serviceCase = await prisma.customerServiceCase.findFirstOrThrow({ where: { conversationId } });
+    expect(serviceCase.customerId).toBeNull();
+    expect(serviceCase.status).toBe('HUMAN_REQUIRED');
   });
 });

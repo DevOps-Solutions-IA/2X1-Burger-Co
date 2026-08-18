@@ -39,4 +39,12 @@ export class SofiaAgentRepository {
   touchConversation(conversationId: string) {
     return this.prisma.whatsappConversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   }
+
+  async findConversationCustomerId(conversationId: string): Promise<string | null> {
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      select: { customerId: true },
+    });
+    return conversation?.customerId ?? null;
+  }
 }
