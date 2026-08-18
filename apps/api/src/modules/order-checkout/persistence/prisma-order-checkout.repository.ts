@@ -105,6 +105,36 @@ export class PrismaOrderCheckoutRepository {
     });
   }
 
+  /**
+   * Read-only re-derivation of a CONFIRMED SofiaOrderDraft's authoritative version/hash chain,
+   * used by the SOFIA_CREATE_ORDER command handler to build a CreateSofiaCheckoutCommand without
+   * ever trusting caller-supplied version/hash values. Never mutates the draft or creates a
+   * checkout -- creation is always performed by `createFromSofiaDraft`, which independently
+   * re-validates every one of these fields again against the database inside its own transaction.
+   */
+  async requiredConfirmedSofiaDraftBinding(draftId: string): Promise<{
+    id: string;
+    version: number;
+    draftHash: string;
+    confirmationHash: string;
+  }> {
+    const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+    const confirmable =
+      draft?.status === SofiaOrderDraftStatus.CONFIRMED &&
+      Boolean(draft.draftHash) &&
+      Boolean(draft.confirmationHash) &&
+      Boolean(draft.confirmedAt) &&
+      Boolean(draft.expiresAt && draft.expiresAt.getTime() > Date.now()) &&
+      Boolean(draft.fulfillment);
+    if (!draft || !confirmable) checkoutConflict('SOFIA_DRAFT_NOT_CONFIRMABLE');
+    return {
+      id: draft.id,
+      version: draft.version,
+      draftHash: draft.draftHash!,
+      confirmationHash: draft.confirmationHash!,
+    };
+  }
+
   async createFromSofiaDraft(input: CreateSofiaCheckoutCommand) {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.orderCheckout.findUnique({
@@ -575,6 +605,34 @@ export class PrismaOrderCheckoutRepository {
 
   async successfulPaymentCount(checkoutId: string) {
     return this.prisma.paymentIntent.count({ where: { checkoutId, status: PaymentIntentStatus.SUCCEEDED } });
+  }
+
+  /**
+   * Resolves a stable, disabled (never loginable) system principal used solely to attribute
+   * OrderTicket.createdById when a canonical order is created from a SOFIA-originated command.
+   * Mirrors the established `inboundRecoveryActorId` pattern used by WhatsApp production recovery
+   * (see prisma-whatsapp-conversation.repository.ts) so referential integrity never depends on an
+   * admin/cashier session being active at the moment SOFIA's SecureCommand handler executes.
+   */
+  async sofiaOrderCreationSystemActor(): Promise<{ sub: string; email: string; fullName: string }> {
+    const id = 'sofia-order-creation-system';
+    const email = 'sofia-order-creation-system@system.invalid';
+    const actor = await this.prisma.user.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        email,
+        passwordHash: '!disabled-system-principal!',
+        fullName: 'SOFIA Order Creation',
+        isActive: false,
+      },
+      select: { id: true, email: true, fullName: true, isActive: true },
+    });
+    if (actor.email !== email || actor.isActive) {
+      throw new Error('SOFIA_ORDER_CREATION_ACTOR_CONFLICT');
+    }
+    return { sub: actor.id, email: actor.email, fullName: actor.fullName };
   }
 
   async markFinancialReview(checkoutId: string, reasonCode: string) {

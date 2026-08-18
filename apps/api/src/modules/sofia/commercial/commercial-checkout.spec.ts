@@ -73,6 +73,7 @@ describe('commercial intent and checkout', () => {
       new CommercialResponseValidator(),
       new SafeCommercialResponseTemplates(),
     );
+    const orderCreation = { createFromSofiaDraft: jest.fn(async () => { throw new Error('SOFIA_ORDER_CREATION_BLOCKED'); }) };
     const service = new CommercialCheckoutService(
       engine, new CommercialPolicyService(), new CommercialMetricsService(), responses, repository as never,
       { listActive: jest.fn(async () => products), getActiveById: jest.fn(async (id: string) => products.find((entry) => entry.id === id)!), findActive: jest.fn() } as never,
@@ -81,13 +82,17 @@ describe('commercial intent and checkout', () => {
       { resolve: jest.fn(async () => ({ customerId: 'c1', displayName: null, phoneMasked: '***', created: false })) } as never,
       { quote: jest.fn(async () => ({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })) } as never,
       { record: jest.fn(async () => ({ auditEventId: 'a1', timestamp: new Date().toISOString() })) } as never,
+      // Governed and disabled in every environment today (see command-handler.registry.ts,
+      // SOFIA_CREATE_ORDER `enabled: false`); confirm() must swallow this and never let it change
+      // the customer-facing DRAFT_CONFIRMED response.
+      orderCreation as never,
     );
     const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
-    return { service, repository, actor, getState: () => state };
+    return { service, repository, orderCreation, actor, getState: () => state };
   }
 
   it('builds and confirms a takeaway draft without asking known fields again', async () => {
-    const { service, repository, actor } = fixture();
+    const { service, repository, orderCreation, actor } = fixture();
     const first = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Dame dos combo 2x1, una sin cebolla, las recojo y pago allá', actor });
     expect(first.nextAction).toBe('READY_TO_CONFIRM');
     expect(first.state).toMatchObject({ fulfillment: 'TAKEAWAY', paymentPreference: 'PAY_AT_PICKUP', missingFields: [], draftVersion: 1 });
@@ -97,9 +102,16 @@ describe('commercial intent and checkout', () => {
     const confirmed = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Sí', actor });
     expect(confirmed.nextAction).toBe('DRAFT_CONFIRMED');
     expect(repository.confirmDraft).toHaveBeenCalledTimes(1);
+    // The governed bridge to the canonical order authority is attempted right after confirmation,
+    // using the SAME idempotency key shape as the legacy sofia-agent.service.ts path
+    // (`sofia-draft:<draftId>`), and its (expected, governed) failure never leaks into the
+    // customer-facing response or the confirmation state.
+    expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
+    expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledWith({ draftId: 'draft-1', idempotencyKey: 'sofia-draft:draft-1', actor });
     const replay = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Sí', actor });
     expect(replay.nextAction).toBe('DRAFT_CONFIRMED');
     expect(repository.confirmDraft).toHaveBeenCalledTimes(1);
+    expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
   });
 
   it('resolves multiple real catalog items with their local quantities', async () => {

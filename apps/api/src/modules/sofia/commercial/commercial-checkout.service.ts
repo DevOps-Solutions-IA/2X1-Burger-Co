@@ -4,6 +4,7 @@ import {
   CATALOG_READ_SERVICE,
   CUSTOMER_RESOLUTION_SERVICE,
   DELIVERY_QUOTE_SERVICE,
+  ORDER_CREATION_SERVICE,
   PRODUCT_AVAILABILITY_SERVICE,
   RECIPE_AVAILABILITY_SERVICE,
   type AuditCommandService,
@@ -11,6 +12,7 @@ import {
   type CatalogReadService,
   type CustomerResolutionService,
   type DeliveryQuoteService,
+  type OrderCreationService,
   type ProductAvailabilityService,
   type RecipeAvailabilityService,
 } from '../../../application/contracts/sofia-domain-contracts';
@@ -46,6 +48,7 @@ export class CommercialCheckoutService {
     @Inject(CUSTOMER_RESOLUTION_SERVICE) private readonly customers: CustomerResolutionService,
     @Inject(DELIVERY_QUOTE_SERVICE) private readonly deliveryQuotes: DeliveryQuoteService,
     @Inject(AUDIT_COMMAND_SERVICE) private readonly audit: AuditCommandService,
+    @Inject(ORDER_CREATION_SERVICE) private readonly orderCreation: OrderCreationService,
   ) {}
 
   async shouldHandle(conversationId: string, message: string) {
@@ -270,6 +273,22 @@ export class CommercialCheckoutService {
     await this.repository.confirmDraft({ draftId: state.draftId, expectedVersion: state.draftVersion, expectedHash: state.draftHash, confirmationHash });
     state.confirmationState = 'CONFIRMED'; state.lastQuestionPurpose = null;
     await this.persistAndAudit(state, command, 'SOFIA_DRAFT_CONFIRMED');
+    // Governed bridge to the canonical order authority: SecureCommand(SOFIA_CREATE_ORDER) ->
+    // canonical OrderCheckout -> canonical OrderTicket. Fails closed by design in every
+    // environment today (SOFIA_CREATE_ORDER remains an OWNER_ACTIVATION_GATE, `enabled: false` in
+    // command-handler.registry.ts) -- the failure is intentionally swallowed here: draft
+    // confirmation itself is never rolled back, no operational claim is made to the customer
+    // (factEnvelope keeps allowedFacts: ['DRAFT_ONLY', 'NO_OPERATIONAL_MUTATION'] unchanged below),
+    // and SecureCommand still leaves a durable, audited attempt record either way.
+    try {
+      await this.orderCreation.createFromSofiaDraft({
+        draftId: state.draftId,
+        idempotencyKey: `sofia-draft:${state.draftId}`,
+        actor: command.actor,
+      });
+    } catch {
+      // Intentionally swallowed: see comment above. No user-facing claim changes.
+    }
     return this.respond(state, state.fulfillment === 'DELIVERY' ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED', 'DRAFT_CONFIRMED');
   }
 

@@ -14,6 +14,7 @@ import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
 import { AdminPaymentReadController } from './admin-payment-read.controller';
 import { AdminPaymentReadService } from './admin-payment-read.service';
+import { SofiaCreateOrderCommandHandler } from './sofia-create-order-command.handler';
 
 @Module({
   imports: [OrdersModule],
@@ -30,6 +31,10 @@ import { AdminPaymentReadService } from './admin-payment-read.service';
     CanonicalPaymentWebhookService,
     PaymentWebhookRecoveryWorker,
     KitchenEligibilityService,
+    // Provided here (not exported to / imported by secure-command) so CommandHandlerRegistry can
+    // resolve it lazily via ModuleRef#get(..., { strict: false }) without a circular module import
+    // -- see sofia-create-order-command.handler.ts for the full explanation.
+    SofiaCreateOrderCommandHandler,
   ],
   exports: [
     OrderCheckoutService,
