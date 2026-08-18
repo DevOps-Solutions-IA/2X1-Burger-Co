@@ -8,11 +8,12 @@ import { evaluateMigrationIdentity, type AppliedMigration } from './migration-id
 // forward-compatibility bridge authorized under
 // SOFIA_AI_SUGGESTION_CORRELATION_FORWARD_COMPATIBILITY_2026-08-17.
 //
-// Migration 39 itself is NOT part of this repository/branch (by design --
-// this PR only prepares the bridge, it does not ship the migration). Rows
-// referencing it are constructed here using its known, independently
-// verified name and checksum, exactly as a runtime would see them applied
-// to a real database it does not itself contain the migration file for.
+// This suite tests the bridge in isolation: the frontier-38 inventory it
+// reconstructs must never include migration 39 itself, regardless of
+// whether migration 39 happens to exist in the working tree (it does not on
+// main; it does on the branch that ships it). Rows referencing migration 39
+// are constructed using its known, independently verified name and
+// checksum, exactly as a runtime would see them applied to a real database.
 //
 // The base-37 -> migration-38 bridge (SOFIA_MACRO_PHASE_8_CRM_DOMAIN_EXTENSION_2026-08-13)
 // is exercised in migration-identity.spec.ts and is not repeated here except
@@ -29,6 +30,7 @@ function repositoryFrontier38Inventory(): ReleaseManifest['migrationInventory'] 
   const inventory = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => name !== MIGRATION_39_NAME)
     .sort()
     .map((name) => ({
       name,
