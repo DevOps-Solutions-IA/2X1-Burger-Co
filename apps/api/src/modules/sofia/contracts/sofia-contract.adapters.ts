@@ -80,9 +80,11 @@ export class SofiaOrderDraftAdapter implements OrderDraftService {
  * Governed bridge: SofiaOrderDraft (CONFIRMED) -> SecureCommand(SOFIA_CREATE_ORDER) ->
  * canonical OrderCheckout -> canonical OrderTicket.
  *
- * Reuses only existing canonical authority (SecureCommandService, OrderCheckoutService via the
- * SOFIA_CREATE_ORDER handler, OrdersService.createFromCanonicalCheckout) -- never a parallel order
- * model. SecureCommandService is resolved lazily via ModuleRef (never constructor-injected) because
+ * Reuses only existing canonical authority (SecureCommandService, OrderCheckoutService and the
+ * canonical Orders authority, both via the SOFIA_CREATE_ORDER handler) -- never a parallel order
+ * model. This file itself never references the Orders module directly (Phase 1 architecture
+ * boundary, see domain-contracts.architecture.spec.ts): it only ever talks to SecureCommandService.
+ * SecureCommandService is resolved lazily via ModuleRef (never constructor-injected) because
  * SecureCommandModule already imports SofiaModule; SofiaModule declaring `imports:
  * [SecureCommandModule]` back would create a circular NestJS module graph. ModuleRef#get(token,
  * { strict: false }) performs a global, import-graph-independent lookup instead.
