@@ -1,6 +1,8 @@
-import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import type {
   CustomerResolutionService,
+  OrderCreationResultDto,
   OrderCreationService,
   OrderDraftCommand,
   OrderDraftDto,
@@ -9,6 +11,8 @@ import type {
   SofiaActorContext,
 } from '../../../application/contracts/sofia-domain-contracts';
 import { AuditService } from '../../audit/audit.service';
+import { SecureCommandError } from '../../secure-command/secure-command.errors';
+import { SecureCommandService } from '../../secure-command/secure-command.service';
 import { SofiaCrmService } from '../crm/sofia-crm.service';
 import { TrustedCrmCustomerResolutionCapability } from '../crm/crm-customer-resolution.capability';
 import { SofiaPaymentLinkService } from '../sofia-payment-link.service';
@@ -18,6 +22,11 @@ type DraftRecord = {
   id: string;
   status: string;
   updatedAt: Date;
+  version: number;
+  draftHash: string | null;
+  confirmationHash: string | null;
+  fulfillment: string | null;
+  expiresAt: Date | null;
   itemsSnapshot: unknown;
   missingFields: unknown;
   customerName: string | null;
@@ -67,16 +76,103 @@ export class SofiaOrderDraftAdapter implements OrderDraftService {
   }
 }
 
+/**
+ * Governed bridge: SofiaOrderDraft (CONFIRMED) -> SecureCommand(SOFIA_CREATE_ORDER) ->
+ * canonical OrderCheckout -> canonical OrderTicket.
+ *
+ * Reuses only existing canonical authority (SecureCommandService, OrderCheckoutService via the
+ * SOFIA_CREATE_ORDER handler, OrdersService.createFromCanonicalCheckout) -- never a parallel order
+ * model. SecureCommandService is resolved lazily via ModuleRef (never constructor-injected) because
+ * SecureCommandModule already imports SofiaModule; SofiaModule declaring `imports:
+ * [SecureCommandModule]` back would create a circular NestJS module graph. ModuleRef#get(token,
+ * { strict: false }) performs a global, import-graph-independent lookup instead.
+ *
+ * Fails closed at every step: an unconfirmable draft, an unavailable SecureCommandService, or a
+ * SecureCommand policy/governance rejection (which is the case in every environment today -- see
+ * ORDER_CREATION_POLICY in command-handler.registry.ts, `enabled: false` pending owner activation)
+ * all throw, and the caller (sofia-agent.service.ts / CommercialCheckoutService) never has grounds
+ * to claim an order was created.
+ */
 @Injectable()
-export class BlockedSofiaOrderCreationAdapter implements OrderCreationService {
-  constructor(private readonly sofia: SofiaService, private readonly audit: AuditService) {}
-  async createFromSofiaDraft(input: Parameters<OrderCreationService['createFromSofiaDraft']>[0]): Promise<never> {
+export class SofiaOrderCreationAdapter implements OrderCreationService {
+  constructor(
+    private readonly sofia: SofiaService,
+    private readonly audit: AuditService,
+    private readonly moduleRef: ModuleRef,
+  ) {}
+
+  async createFromSofiaDraft(input: Parameters<OrderCreationService['createFromSofiaDraft']>[0]): Promise<OrderCreationResultDto> {
     if (!/^sofia-draft:[a-zA-Z0-9_-]{8,128}$/.test(input.idempotencyKey)) {
       throw new ConflictException({ code: 'SOFIA_ORDER_IDEMPOTENCY_CONFLICT' });
     }
-    const draft = await this.sofia.findDraft(input.draftId);
-    const validVersion = draft.updatedAt.toISOString() === input.expectedDraftVersion;
-    const confirmable = draft.status === 'CONFIRMED';
+    const draft = (await this.sofia.findDraft(input.draftId)) as DraftRecord;
+    if (input.expectedDraftVersion && draft.updatedAt.toISOString() !== input.expectedDraftVersion) {
+      throw new ConflictException({ code: 'SOFIA_DRAFT_VERSION_CONFLICT' });
+    }
+    const confirmable =
+      draft.status === 'CONFIRMED' &&
+      Boolean(draft.draftHash) &&
+      Boolean(draft.confirmationHash) &&
+      Boolean(draft.fulfillment) &&
+      Boolean(draft.expiresAt) &&
+      (draft.expiresAt as Date).getTime() > Date.now();
+    if (!confirmable) {
+      await this.blockedAudit(input, 'SOFIA_DRAFT_NOT_CONFIRMABLE');
+      throw new ForbiddenException({ code: 'SOFIA_DRAFT_NOT_CONFIRMABLE' });
+    }
+
+    const commands = this.resolveSecureCommandService();
+    if (!commands) {
+      await this.blockedAudit(input, 'SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE');
+      throw new ServiceUnavailableException({ code: 'SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE' });
+    }
+
+    const commandActor = { actorId: input.actor.actorId, actorType: 'SYSTEM' as const, roles: ['system'] };
+    const received = await commands.receive({
+      commandType: 'SOFIA_CREATE_ORDER',
+      idempotencyKey: input.idempotencyKey,
+      target: { type: 'SofiaOrderDraft', id: draft.id, expectedVersion: String(draft.version) },
+      payload: {},
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+      actor: commandActor,
+      source: 'sofia_order_draft_confirmation',
+      scope: 'sofia_order_creation',
+    });
+
+    try {
+      const executed = await commands.execute({
+        commandId: received.command.id,
+        actor: commandActor,
+        claimOwner: `sofia-order-creation:${draft.id}`,
+      });
+      const payload = executed.result?.sanitizedPayload as
+        | { checkoutId: string; orderTicketId: string; orderNumber: string; replayed: boolean }
+        | undefined;
+      if (!payload?.checkoutId || !payload.orderTicketId) {
+        throw new SecureCommandError('SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE');
+      }
+      return {
+        checkoutId: payload.checkoutId,
+        orderTicketId: payload.orderTicketId,
+        orderNumber: payload.orderNumber,
+        replayed: executed.replayed || Boolean(payload.replayed),
+      };
+    } catch (error) {
+      const code = error instanceof SecureCommandError ? error.code : 'SOFIA_COMMAND_POLICY_BLOCKED';
+      await this.blockedAudit(input, code);
+      throw new ForbiddenException({ code: 'SOFIA_ORDER_CREATION_BLOCKED' });
+    }
+  }
+
+  private resolveSecureCommandService(): SecureCommandService | undefined {
+    try {
+      return this.moduleRef.get(SecureCommandService, { strict: false });
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async blockedAudit(input: Parameters<OrderCreationService['createFromSofiaDraft']>[0], reasonCode: string) {
     await this.audit.log({
       userId: input.actor.actorId,
       action: 'SOFIA_ORDER_CREATION_BLOCKED',
@@ -84,11 +180,10 @@ export class BlockedSofiaOrderCreationAdapter implements OrderCreationService {
       entity: 'sofia_order_draft',
       entityId: input.draftId,
       result: 'BLOCKED',
-      reasonCode: validVersion && confirmable ? 'SOFIA_ORDER_CREATION_BLOCKED' : 'SOFIA_DRAFT_NOT_CONFIRMABLE',
+      reasonCode,
       idempotencyKey: input.idempotencyKey,
       source: input.actor.source,
     });
-    throw new ForbiddenException({ code: validVersion && confirmable ? 'SOFIA_ORDER_CREATION_BLOCKED' : 'SOFIA_DRAFT_NOT_CONFIRMABLE' });
   }
 }
 

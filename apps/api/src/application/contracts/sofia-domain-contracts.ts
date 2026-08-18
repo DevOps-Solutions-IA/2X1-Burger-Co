@@ -131,13 +131,32 @@ export interface OrderDraftService {
   confirm(draftId: string, expectedVersion: string, actor: SofiaActorContext): Promise<OrderDraftDto>;
 }
 
+export type OrderCreationResultDto = {
+  checkoutId: string;
+  orderTicketId: string;
+  orderNumber: string;
+  replayed: boolean;
+};
+
 export interface OrderCreationService {
+  /**
+   * Governed bridge: SofiaOrderDraft (CONFIRMED) -> SecureCommand(SOFIA_CREATE_ORDER) -> canonical
+   * OrderCheckout -> canonical OrderTicket. Never creates a parallel order model. Never mutates
+   * payment, kitchen, delivery or stock state. Fails closed (throws) whenever the draft is not
+   * confirmable, SecureCommand is unavailable, or SecureCommand policy/governance blocks execution
+   * (which remains the case in every environment until an owner-authorized activation flips the
+   * SOFIA_CREATE_ORDER command policy `enabled` flag -- see command-handler.registry.ts).
+   *
+   * `expectedDraftVersion` is optional legacy-caller defense-in-depth (compared against the raw
+   * draft's updatedAt ISO timestamp when supplied); the authoritative optimistic-concurrency check
+   * is always the draft's numeric version/hash chain re-read fresh from the confirmed draft record.
+   */
   createFromSofiaDraft(input: {
     draftId: string;
-    expectedDraftVersion: string;
+    expectedDraftVersion?: string;
     idempotencyKey: string;
     actor: SofiaActorContext;
-  }): Promise<never>;
+  }): Promise<OrderCreationResultDto>;
 }
 
 export type PaymentReadDto = {

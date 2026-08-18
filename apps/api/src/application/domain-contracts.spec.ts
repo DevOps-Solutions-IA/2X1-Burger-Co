@@ -3,7 +3,8 @@ import { ProductsCatalogReadAdapter } from '../modules/products/catalog-read.ada
 import { DomainAvailabilityAdapter } from '../modules/inventory/product-availability.adapter';
 import { AuthoritativeDeliveryQuoteAdapter } from '../delivery/delivery-quote.adapter';
 import { AuthoritativeAuditCommandAdapter } from '../modules/audit/audit-command.adapter';
-import { BlockedSofiaOrderCreationAdapter, SofiaCustomerResolutionAdapter, SofiaOrderDraftAdapter, SofiaPaymentReadAdapter } from '../modules/sofia/contracts/sofia-contract.adapters';
+import { SofiaCustomerResolutionAdapter, SofiaOrderCreationAdapter, SofiaOrderDraftAdapter, SofiaPaymentReadAdapter } from '../modules/sofia/contracts/sofia-contract.adapters';
+import { SecureCommandError } from '../modules/secure-command/secure-command.errors';
 
 const actor = { actorId: 'actor-1', roles: ['admin'], source: 'SOFIA_ADMIN' as const };
 
@@ -111,24 +112,53 @@ describe('Phase 1 authoritative domain contracts', () => {
     );
   });
 
-  it('blocks order creation and produces only a blocked audit decision', async () => {
+  it('blocks order creation for a draft missing the phase-4 confirmation binding and produces only a blocked audit decision', async () => {
+    // CONFIRMED but without draftHash/confirmationHash/fulfillment/expiresAt (never reached the
+    // real phase-4 binding, e.g. the legacy pre-commercial-checkout path): must fail closed before
+    // ever touching SecureCommand.
     const draft = { id: 'draft-12345678', status: 'CONFIRMED', updatedAt: new Date('2026-01-01T00:00:00Z') };
     const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
     const audit = { log: jest.fn().mockResolvedValue({}) };
-    const adapter = new BlockedSofiaOrderCreationAdapter(sofia as never, audit as never);
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, audit as never, {} as never);
     await expect(adapter.createFromSofiaDraft({ draftId: draft.id, expectedDraftVersion: draft.updatedAt.toISOString(), idempotencyKey: 'sofia-draft:draft-12345678', actor })).rejects.toBeInstanceOf(ForbiddenException);
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SOFIA_ORDER_CREATION_BLOCKED', result: 'BLOCKED' }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SOFIA_ORDER_CREATION_BLOCKED', result: 'BLOCKED', reasonCode: 'SOFIA_DRAFT_NOT_CONFIRMABLE' }));
   });
 
   it('keeps duplicate blocked order commands free of operational side effects', async () => {
     const draft = { id: 'draft-12345678', status: 'CONFIRMED', updatedAt: new Date('2026-01-01T00:00:00Z') };
     const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
-    const adapter = new BlockedSofiaOrderCreationAdapter(sofia as never, { log: jest.fn().mockResolvedValue({}) } as never);
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, { log: jest.fn().mockResolvedValue({}) } as never, {} as never);
     const command = { draftId: draft.id, expectedDraftVersion: draft.updatedAt.toISOString(), idempotencyKey: 'sofia-draft:draft-12345678', actor };
     await expect(adapter.createFromSofiaDraft(command)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(adapter.createFromSofiaDraft(command)).rejects.toBeInstanceOf(ForbiddenException);
     expect(sofia).not.toHaveProperty('createOrderTicket');
     expect(sofia).not.toHaveProperty('createDeliveryOrder');
+  });
+
+  it('blocks order creation for a fully confirmable draft when SecureCommand governance disables SOFIA_CREATE_ORDER (owner-activation gate)', async () => {
+    const now = Date.now();
+    const draft = {
+      id: 'draft-87654321',
+      status: 'CONFIRMED',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      version: 3,
+      draftHash: 'hash-abc',
+      confirmationHash: 'confirm-abc',
+      fulfillment: 'TAKEAWAY',
+      expiresAt: new Date(now + 60_000),
+    };
+    const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
+    const audit = { log: jest.fn().mockResolvedValue({}) };
+    const receive = jest.fn().mockResolvedValue({ command: { id: 'cmd-1' }, replayed: false });
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED'));
+    const moduleRef = { get: jest.fn().mockReturnValue({ receive, execute }) };
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, audit as never, moduleRef as never);
+    await expect(
+      adapter.createFromSofiaDraft({ draftId: draft.id, idempotencyKey: 'sofia-draft:draft-87654321', actor }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(receive).toHaveBeenCalledWith(expect.objectContaining({ commandType: 'SOFIA_CREATE_ORDER', idempotencyKey: 'sofia-draft:draft-87654321' }));
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ commandId: 'cmd-1' }));
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SOFIA_ORDER_CREATION_BLOCKED', result: 'BLOCKED', reasonCode: 'SOFIA_COMMAND_POLICY_BLOCKED' }));
   });
 
   it('keeps the retired legacy payment read fail-closed and enforces role access', async () => {

@@ -30,8 +30,8 @@ import { COMMERCIAL_LANGUAGE_GENERATOR } from './commercial/response/commercial-
 import { SafeCommercialResponseTemplates } from './commercial/response/safe-commercial-response.templates';
 import { SofiaAICommercialLanguageGenerator } from './commercial/response/sofia-ai-commercial-language.generator';
 import {
-  BlockedSofiaOrderCreationAdapter,
   SofiaCustomerResolutionAdapter,
+  SofiaOrderCreationAdapter,
   SofiaOrderDraftAdapter,
   SofiaPaymentReadAdapter,
 } from './contracts/sofia-contract.adapters';
@@ -158,11 +158,11 @@ const TEST_ONLY_CONTROLLERS = process.env.NODE_ENV === 'test'
     WhatsappOutboundGateway,
     WhatsappOutboundCommandHandler,
     SofiaOrderDraftAdapter,
-    BlockedSofiaOrderCreationAdapter,
+    SofiaOrderCreationAdapter,
     SofiaCustomerResolutionAdapter,
     SofiaPaymentReadAdapter,
     { provide: ORDER_DRAFT_SERVICE, useExisting: SofiaOrderDraftAdapter },
-    { provide: ORDER_CREATION_SERVICE, useExisting: BlockedSofiaOrderCreationAdapter },
+    { provide: ORDER_CREATION_SERVICE, useExisting: SofiaOrderCreationAdapter },
     { provide: CUSTOMER_RESOLUTION_SERVICE, useExisting: SofiaCustomerResolutionAdapter },
     { provide: PAYMENT_READ_SERVICE, useExisting: SofiaPaymentReadAdapter },
   ],
