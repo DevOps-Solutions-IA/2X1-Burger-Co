@@ -61,5 +61,28 @@
     "real Bold credentials and activation",
     "automatic customer messaging activation"
   ],
-  "lastUpdated": "2026-08-12T23:41:58Z"
+  "lastUpdated": "2026-08-12T23:41:58Z",
+  "receiveOnlyCanaryEvidence": [
+    {
+      "date": "2026-08-17",
+      "gate": "receive-only WhatsApp canary with exact account binding",
+      "status": "TECHNICALLY_VALIDATED_IN_ISOLATED_LOCAL_ENVIRONMENT",
+      "notPassForFormalProgram": true,
+      "reason": "Validado en un entorno Docker aislado ad-hoc (no productivo, no el pipeline formal de canary), en la misma sesion donde se construyo el mecanismo que lo hizo posible. No se marca como PASS del programa formal sin que el owner decida si esta evidencia es suficiente o si requiere repetirse en el pipeline de canary real.",
+      "evidenceReport": ".engineering/sofia-production/evidence/2026-08-17-receive-only-canary-reconciliation/evidence-report.md",
+      "codeRef": "branch feature/sofia-qr-discovery-mode, commit c0b0e64 (no fusionada a main)",
+      "verifiedFacts": {
+        "whatsappConnectedReal": true,
+        "exactAccountBindingEnforced": true,
+        "realSendEnabled": false,
+        "autoReplyEnabled": false,
+        "autoSafeEnabled": false,
+        "outboundMessagesSentToday": 0,
+        "realInboundMessageReceivedAndAudited": true,
+        "inboundBlockedByAllowlistAsDesigned": true,
+        "productionStackModified": false,
+        "normalDevStackModified": false
+      }
+    }
+  ]
 }
