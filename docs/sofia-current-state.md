@@ -100,6 +100,19 @@ imagen, health/readiness, smoke no financiero y reconciliacion de filas.
 4. Aprobar allowlist comercial y activacion gradual de inbound Sofia.
 5. Autorizar separadamente Bold real, un destinatario de prueba, outbound WhatsApp y auto messaging.
 
+### Evidencia parcial del gate 3 (2026-08-17)
+
+El binding exacto de cuenta/sesion y una conexion Baileys real (`CONNECTED`) fueron
+validados el 2026-08-17, pero en un entorno Docker aislado local y ad-hoc, **no** en
+el pipeline formal de canary del proyecto ni en ningun entorno compartido. Envio
+real, auto-reply y auto-safe permanecieron en `false` durante toda la validacion;
+un mensaje real de un numero fuera del allowlist llego y fue bloqueado correctamente
+(`ALLOWLIST_REQUIRED`), demostrando que el pipeline receive-only funciona de punta a
+punta. Detalle completo y campos verificados en
+`.engineering/sofia-production/evidence/2026-08-17-receive-only-canary-reconciliation/evidence-report.md`.
+Esto es evidencia tecnica de que el mecanismo funciona, no una certificacion de que
+el gate 3 esta completo para el programa formal — esa decision queda para el owner.
+
 ## Owner gates
 
 - Security/privacy owner, base juridica CRM y retencion de PII.
