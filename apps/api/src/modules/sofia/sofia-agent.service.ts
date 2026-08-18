@@ -189,7 +189,42 @@ export class SofiaAgentService {
     return 'OTHER';
   }
 
+  private async resolveComplaintCustomerId(conversationId: string): Promise<string | null> {
+    try {
+      return await this.repository.findConversationCustomerId(conversationId);
+    } catch {
+      // La vinculación CRM es best-effort: nunca debe bloquear el registro de la queja.
+      return null;
+    }
+  }
+
+  private async logCustomerServiceAudit(
+    action: 'SOFIA_CUSTOMER_SERVICE_CASE_OPENED' | 'SOFIA_CUSTOMER_SERVICE_CASE_HUMAN_REQUIRED',
+    actorId: string,
+    input: { caseId: string; conversationId: string; category: string; customerId: string | null },
+  ) {
+    try {
+      await this.auditService.log({
+        userId: actorId,
+        actorType: 'SYSTEM',
+        action,
+        module: 'sofia',
+        entity: 'customer_service_case',
+        entityId: input.caseId,
+        newValues: {
+          conversationId: input.conversationId,
+          category: input.category,
+          customerId: input.customerId,
+        },
+        source: 'sofia_agent',
+      });
+    } catch {
+      // La auditoría es best-effort: nunca debe romper el registro de la queja en curso.
+    }
+  }
+
   private async recordComplaintCase(input: {
+    actorId: string;
     conversationId: string;
     sourceEventId: string;
     normalized: string;
@@ -197,18 +232,29 @@ export class SofiaAgentService {
   }) {
     const sourceReference = complaintSourceReference(input);
     const evidenceHash = createHash('sha256').update(input.message.normalize('NFKC'), 'utf8').digest('hex');
+    const category = this.complaintCategory(input.normalized);
+    const customerId = await this.resolveComplaintCustomerId(input.conversationId);
     const opened = await this.customerServiceCases.open({
-      category: this.complaintCategory(input.normalized),
+      category,
       source: 'WHATSAPP',
       sourceReference,
       idempotencyKey: `complaint:open:${sourceReference}`,
       evidenceHash,
       summary: input.message,
       conversationId: input.conversationId,
+      customerId,
       metadata: { automatedRemedyAuthorized: false },
     });
+    if (opened.state === 'CREATED') {
+      void this.logCustomerServiceAudit('SOFIA_CUSTOMER_SERVICE_CASE_OPENED', input.actorId, {
+        caseId: opened.serviceCase.id,
+        conversationId: input.conversationId,
+        category,
+        customerId,
+      });
+    }
     if (opened.serviceCase.status === 'OPEN') {
-      await this.customerServiceCases.transition({
+      const transitioned = await this.customerServiceCases.transition({
         caseId: opened.serviceCase.id,
         expectedVersion: opened.serviceCase.version,
         idempotencyKey: `complaint:human:${sourceReference}`,
@@ -216,6 +262,14 @@ export class SofiaAgentService {
         toStatus: 'HUMAN_REQUIRED',
         reasonCode: 'CUSTOMER_COMPLAINT_REQUIRES_HUMAN',
       });
+      if (transitioned.state === 'UPDATED') {
+        void this.logCustomerServiceAudit('SOFIA_CUSTOMER_SERVICE_CASE_HUMAN_REQUIRED', input.actorId, {
+          caseId: opened.serviceCase.id,
+          conversationId: input.conversationId,
+          category,
+          customerId,
+        });
+      }
     }
   }
 
@@ -585,6 +639,7 @@ export class SofiaAgentService {
     if (options.source === 'WHATSAPP' && dto.conversationId && this.isComplaint(normalized)) {
       if (!options.sourceEventId) throw new BadRequestException('El inbound WhatsApp requiere identidad de evento.');
       await this.recordComplaintCase({
+        actorId,
         conversationId: dto.conversationId,
         sourceEventId: options.sourceEventId,
         normalized,
