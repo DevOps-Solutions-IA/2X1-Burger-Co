@@ -75,19 +75,107 @@ function context(overrides: Partial<DeliveryContextResult> = {}): DeliveryContex
 
 describe('DeliveryPricingEngine enterprise pricing', () => {
   it.each(['Condados', 'La Alborada', 'Condados de la Alborada', '  CÓNDADOS   de la   ALBORADA  '])(
-    'prices local free exact alias as 0: %s',
+    'prices local free exact alias as 0, but a bare zone label alone is not address-complete (ZONE_ONLY_ADDRESS_COMPLETION): %s',
     (addressText) => {
       const result = engine.quote({ addressText });
 
       expect(result.pricingStatus).toBe('LOCAL_FREE');
       expect(result.suggestedFee).toBe(0);
       expect(result.finalFee).toBe(0);
-      expect(result.canCheckout).toBe(true);
       expect(result.requiresManualQuote).toBe(false);
       expect(result.zoneType).toBe('LOCAL_FREE');
       expect(result.zoneLabel).toBe('Condados / Alborada');
+      // A bare zone label by itself is not proof the address is complete enough for a courier -
+      // it must not silently grant free, uncontested checkout eligibility.
+      expect(result.canCheckout).toBe(false);
+      expect(result.requiresAddressCorrection).toBe(true);
+      expect(result.warnings).toContain('LOCAL_ZONE_ADDRESS_INCOMPLETE');
+      expect(result.reasonCode).toBe('LOCAL_FREE_ZONE_ADDRESS_INCOMPLETE');
     },
   );
+
+  it('grants full checkout eligibility for LOCAL_FREE once a genuine complement beyond the bare zone label is present', () => {
+    const result = engine.quote({
+      addressText: 'Alborada',
+      reference: 'casa esquinera, porton azul, frente al parque',
+    });
+
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.canCheckout).toBe(true);
+    expect(result.requiresAddressCorrection).toBe(false);
+    expect(result.warnings).not.toContain('LOCAL_ZONE_ADDRESS_INCOMPLETE');
+    expect(result.reasonCode).toBe('LOCAL_FREE_ZONE');
+  });
+
+  it('grants full checkout eligibility for LOCAL_FREE when a real geocoded point is already available on the context', () => {
+    const result = engine.quote({
+      addressText: 'Alborada',
+      context: context({
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'EXACT_ALIAS',
+        },
+        route: { attempted: false, distanceKm: null, durationMinutes: null, result: null, haversineReferenceKm: null },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.canCheckout).toBe(true);
+    expect(result.warnings).not.toContain('LOCAL_ZONE_ADDRESS_INCOMPLETE');
+  });
+
+  describe('CROSS_FIELD_BYPASS regression: the red team false positive must not grant free, uncontested checkout eligibility', () => {
+    it('does not grant LOCAL_FREE / free checkout when addressText is a real, distinct address and reference is a pure zone alias', () => {
+      const result = engine.quote({
+        addressText: 'Calle 45 #12-34, Barrio Real Distante',
+        reference: 'alborada',
+      });
+
+      expect(result.localZoneMatch?.matched).toBe(false);
+      expect(result.pricingStatus).not.toBe('LOCAL_FREE');
+      expect(result.zoneType).not.toBe('LOCAL_FREE');
+      expect(result.finalFee).not.toBe(0);
+      expect(result.canCheckout).toBe(false);
+    });
+
+    it('does not grant LOCAL_FREE when neighborhood is a pure alias but addressText independently carries a real, numbered address', () => {
+      const result = engine.quote({
+        addressText: 'Carrera 10 # 20-30',
+        neighborhood: 'Condados',
+      });
+
+      expect(result.localZoneMatch?.matched).toBe(false);
+      expect(result.pricingStatus).not.toBe('LOCAL_FREE');
+      expect(result.canCheckout).toBe(false);
+    });
+  });
+
+  describe('TRUSTED_POST_GEOCODING_ZONE_HANDLING regression: an already-available real route must not be silently overridden by the text shortcut', () => {
+    it('uses the normal AUTO_PRICED route-based path instead of the LOCAL_FREE shortcut when a real route is already resolved on the context', () => {
+      const result = engine.quote({
+        addressText: 'Alborada',
+        context: context({
+          localZoneMatch: {
+            matched: true,
+            zoneLabel: 'Alborada',
+            confidence: 'HIGH',
+            ambiguous: false,
+            reason: 'EXACT_ALIAS',
+          },
+          route: { ...context().route, distanceKm: 3.5, durationMinutes: 15 },
+        }),
+      });
+
+      expect(result.pricingStatus).toBe('AUTO_PRICED');
+      expect(result.zoneType).not.toBe('LOCAL_FREE');
+      expect(result.finalFee).toBe(8000);
+    });
+  });
 
   it.each([
     'Calle 15 #45-67 barrio condados sector industrial',

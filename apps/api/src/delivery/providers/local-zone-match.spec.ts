@@ -1,4 +1,4 @@
-import { matchLocalZone, normalizeLocalZoneText } from './local-zone-match';
+import { hasZoneAddressComplement, matchLocalZone, normalizeLocalZoneText } from './local-zone-match';
 
 describe('matchLocalZone', () => {
   describe('valid local-free address', () => {
@@ -94,6 +94,59 @@ describe('matchLocalZone', () => {
     });
   });
 
+  describe('CROSS_FIELD_BYPASS: a LOCAL_FREE match must depend on ALL supplied fields jointly, not on any single field in isolation', () => {
+    it('does NOT match the red-team false positive: a real/distinct addressText plus a pure-alias reference', () => {
+      const result = matchLocalZone({
+        addressText: 'Calle 45 #12-34, Barrio Real Distante',
+        reference: 'alborada',
+      });
+      expect(result.matched).toBe(false);
+      expect(result.ambiguous).toBe(false);
+    });
+
+    it('does NOT match when addressText is a pure alias but neighborhood carries a real, numbered address', () => {
+      const result = matchLocalZone({
+        addressText: 'Alborada',
+        neighborhood: 'Carrera 10 # 20-30',
+      });
+      expect(result.matched).toBe(false);
+    });
+
+    it('does NOT match when neighborhood is the pure alias but reference carries a numbered unit', () => {
+      const result = matchLocalZone({
+        neighborhood: 'Condados',
+        reference: 'Apto 501 torre 3',
+      });
+      expect(result.matched).toBe(false);
+    });
+
+    it('does NOT match when a non-digit street designator (no digits at all) appears in a different field than the alias', () => {
+      const result = matchLocalZone({
+        addressText: 'Carrera Real Distante',
+        reference: 'condados',
+      });
+      expect(result.matched).toBe(false);
+    });
+
+    it('does NOT match when the conflicting field is the SAME field family repeated across all three inputs except one', () => {
+      const result = matchLocalZone({
+        addressText: 'alborada',
+        neighborhood: 'alborada',
+        reference: 'Manzana 8 casa 45',
+      });
+      expect(result.matched).toBe(false);
+    });
+
+    it('DOES still match when the extra field is benign descriptive prose with no digits and no street designator (legitimate complement, not a bypass)', () => {
+      const result = matchLocalZone({
+        addressText: 'Alborada',
+        reference: 'casa esquinera, porton azul, frente al parque',
+      });
+      expect(result.matched).toBe(true);
+      expect(result.ambiguous).toBe(false);
+    });
+  });
+
   it('normalizes accents, case and punctuation before matching', () => {
     const result = matchLocalZone({ addressText: '  CÓNDADOS   de la   ALBORADA  ' });
     expect(result.matched).toBe(true);
@@ -108,5 +161,30 @@ describe('matchLocalZone', () => {
     const result = matchLocalZone({ addressText: 'Carrera 22 #10-15, Jamundí' });
     expect(result.matched).toBe(false);
     expect(result.ambiguous).toBe(false);
+  });
+});
+
+describe('hasZoneAddressComplement (ZONE_ONLY_ADDRESS_COMPLETION support)', () => {
+  it('is false for a bare zone label alone, in any single field', () => {
+    expect(hasZoneAddressComplement({ addressText: 'Alborada' })).toBe(false);
+    expect(hasZoneAddressComplement({ neighborhood: 'barrio condados' })).toBe(false);
+    expect(hasZoneAddressComplement({ reference: 'condados de la alborada' })).toBe(false);
+  });
+
+  it('is false when the bare zone label is merely repeated across multiple fields', () => {
+    expect(hasZoneAddressComplement({ addressText: 'Alborada', neighborhood: 'Alborada' })).toBe(false);
+  });
+
+  it('is true when a non-anchor field carries genuine descriptive content beyond the zone label', () => {
+    expect(
+      hasZoneAddressComplement({
+        addressText: 'Alborada',
+        reference: 'casa esquinera, porton azul, frente al parque',
+      }),
+    ).toBe(true);
+  });
+
+  it('is false when there is no input at all', () => {
+    expect(hasZoneAddressComplement({})).toBe(false);
   });
 });

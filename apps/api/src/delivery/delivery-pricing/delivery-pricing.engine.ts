@@ -1,4 +1,4 @@
-import { matchLocalZone } from '../providers/local-zone-match';
+import { hasZoneAddressComplement, matchLocalZone } from '../providers/local-zone-match';
 import type { DeliveryContextResult, LocalZoneMatchResult } from '../providers/provider-types';
 import { deliveryPricingConfig } from './delivery-pricing.config';
 import type {
@@ -34,12 +34,41 @@ export class DeliveryPricingEngine {
       });
     }
 
-    if (localZoneMatch.matched) {
+    // TRUSTED_POST_GEOCODING_ZONE_HANDLING: the bare-zone-label text shortcut is a fallback for
+    // when a real geocoding/routing attempt hasn't produced usable data — it must never silently
+    // override an already-available real route. If the context already carries a real, resolved
+    // route (geocoding + routing already ran, e.g. because the destination coordinates were
+    // already known before this quote was requested), let that real data drive normal
+    // AUTO_PRICED/coverage pricing on its own merits instead of short-circuiting to the free-zone
+    // shortcut.
+    const hasRealRoute = Boolean(
+      context?.route?.attempted && context.route.distanceKm != null && context.route.durationMinutes != null,
+    );
+
+    if (localZoneMatch.matched && !hasRealRoute) {
+      // ZONE_ONLY_ADDRESS_COMPLETION: a LOCAL_FREE zone match proves the address falls in the
+      // known free-delivery zone, but a bare zone label alone ("Alborada", "barrio Condados")
+      // is not, by itself, a complete, courier-ready address. Require a genuine complement beyond
+      // the bare zone label — either a real point already resolved for the destination, or
+      // descriptive reference content that is not itself just more zone vocabulary — before
+      // treating the address as complete enough to hand to a courier. The zone/fee decision
+      // itself is unaffected: LOCAL_FREE still always yields fee=0 for the known service area.
+      const hasRealPoint = Boolean(
+        context?.destination?.latitude != null && context?.destination?.longitude != null,
+      );
+      const hasTextComplement = hasZoneAddressComplement(request);
+      const addressComplete = hasRealPoint || hasTextComplement;
+
+      if (!addressComplete) {
+        warnings.add('LOCAL_ZONE_ADDRESS_INCOMPLETE');
+      }
+
       return baseResult({
         pricingStatus: 'LOCAL_FREE',
         suggestedFee: 0,
         finalFee: 0,
         requiresManualQuote: false,
+        addressComplete,
         confidence: localZoneMatch.confidence,
         zoneType: 'LOCAL_FREE',
         zoneLabel: 'Condados / Alborada',
@@ -59,8 +88,10 @@ export class DeliveryPricingEngine {
           },
         ],
         warnings: [...warnings],
-        reasonCode: 'LOCAL_FREE_ZONE',
-        humanMessage: 'Domicilio gratis - Condados / Alborada.',
+        reasonCode: addressComplete ? 'LOCAL_FREE_ZONE' : 'LOCAL_FREE_ZONE_ADDRESS_INCOMPLETE',
+        humanMessage: addressComplete
+          ? 'Domicilio gratis - Condados / Alborada.'
+          : 'Domicilio gratis - Condados / Alborada, pero la dirección aún no tiene suficiente detalle (referencia adicional o ubicación exacta) para entregarla al domiciliario.',
       });
     }
 
@@ -279,8 +310,16 @@ function baseResult(input: {
   manualEditReason?: string | null;
   reasonCode: string;
   humanMessage: string;
+  // ZONE_ONLY_ADDRESS_COMPLETION: only meaningful for pricingStatus === 'LOCAL_FREE'. Undefined/
+  // true means the address is considered complete (all non-LOCAL_FREE statuses already require a
+  // real resolved route/geocoding to reach AUTO_PRICED, so they are always "complete" by
+  // construction). false means the LOCAL_FREE match is a bare zone label with no real point and
+  // no descriptive complement, so it must not silently grant checkout eligibility.
+  addressComplete?: boolean;
 }): DeliveryPricingResult {
-  const canCheckout = input.pricingStatus === 'LOCAL_FREE' || input.pricingStatus === 'AUTO_PRICED';
+  const canCheckout =
+    input.pricingStatus === 'AUTO_PRICED' ||
+    (input.pricingStatus === 'LOCAL_FREE' && input.addressComplete !== false);
   const weatherImpact = {
     rainIntensity: input.weatherMode,
     surcharge: input.weatherSurcharge,
@@ -302,7 +341,10 @@ function baseResult(input: {
     finalFee: input.finalFee,
     currency: 'COP',
     canCheckout,
-    requiresAddressCorrection: input.pricingStatus === 'NEEDS_ADDRESS_CORRECTION' || input.pricingStatus === 'INVALID_INPUT',
+    requiresAddressCorrection:
+      input.pricingStatus === 'NEEDS_ADDRESS_CORRECTION' ||
+      input.pricingStatus === 'INVALID_INPUT' ||
+      (input.pricingStatus === 'LOCAL_FREE' && input.addressComplete === false),
     reasonCode: input.reasonCode,
     humanMessage: input.humanMessage,
     requiresManualQuote: input.requiresManualQuote,

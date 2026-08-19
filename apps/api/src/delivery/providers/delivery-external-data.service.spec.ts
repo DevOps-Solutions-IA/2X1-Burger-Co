@@ -365,6 +365,46 @@ describe('DeliveryExternalDataService provider architecture', () => {
     expect(result.requiresManualQuote).toBe(true);
   });
 
+  it('does not grant LOCAL_FREE (CROSS_FIELD_BYPASS regression) when addressText is a real, distinct address and reference is a pure zone alias', async () => {
+    const providers = buildProviders({
+      geocoding: {
+        geocodeAddress: jest.fn().mockResolvedValue(
+          geocodeResult({
+            matchQuality: 'EXACT',
+            confidence: 'HIGH',
+            latitude: 3.19,
+            longitude: -76.61,
+            neighborhood: 'Barrio Real Distante',
+          }),
+        ),
+      },
+    });
+
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Calle 45 #12-34, Barrio Real Distante',
+      reference: 'alborada',
+    });
+
+    expect(result.localZoneMatch.matched).toBe(false);
+    expect(providers.geocodingProvider.geocodeAddress).toHaveBeenCalledTimes(1);
+    expect(result.geocoding.attempted).toBe(true);
+  });
+
+  it('TRUSTED_POST_GEOCODING_ZONE_HANDLING: does not skip a real geocoding/routing attempt just because the text also matches the local zone alias, when destination coordinates are already known', async () => {
+    const providers = buildProviders();
+
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Alborada',
+      latitude: 3.258,
+      longitude: -76.542,
+    });
+
+    expect(result.localZoneMatch.matched).toBe(true);
+    expect(result.route.attempted).toBe(true);
+    expect(providers.routingProvider.getRoute).toHaveBeenCalledTimes(1);
+    expect(result.route.distanceKm).toBe(2.4);
+  });
+
   it('caches provider responses and avoids repeated geocoding calls', async () => {
     const providers = buildProviders();
     const service = serviceWithProviders(providers);
