@@ -23,6 +23,7 @@ import {
   type SofiaActorContext,
 } from '../../application/contracts/sofia-domain-contracts';
 import { AuditService } from '../audit/audit.service';
+import { isWithinSofiaBusinessHours } from './business-hours/sofia-business-hours.policy';
 import { redactSensitiveText } from './privacy/sofia-pii-redaction';
 import { SofiaAIProviderFactory } from './ai/sofia-ai-provider.factory';
 import { SofiaAutoSafeEngineService } from './auto-safe/sofia-auto-safe-engine.service';
@@ -95,8 +96,6 @@ type SofiaMediaSuggestion = {
 };
 
 const DELIVERY_FEE_SANDBOX = 0;
-const OPEN_HOUR = 17;
-const CLOSE_HOUR = 24;
 type HeaderMap = Record<string, string | string[] | undefined>;
 
 @Injectable()
@@ -298,14 +297,10 @@ export class SofiaAgentService {
   }
 
   private isInsideBusinessHours(nowInput?: string) {
-    const now = nowInput ? new Date(nowInput) : new Date();
-    const bogota = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Bogota',
-      hour: '2-digit',
-      hour12: false,
-    }).format(now);
-    const hour = Number(bogota);
-    return hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+    // Delegates to the single canonical SOFIA business-hours authority so the
+    // legacy conversational flow and the commercial checkout flow never
+    // diverge on what "open" means. See sofia-business-hours.policy.ts.
+    return isWithinSofiaBusinessHours(nowInput);
   }
 
   private classifyIntent(normalized: string, confidence = 1): { intent: SofiaIntent; confidence: number } {

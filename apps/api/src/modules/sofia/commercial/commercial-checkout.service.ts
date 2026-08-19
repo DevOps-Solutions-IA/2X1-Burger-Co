@@ -16,6 +16,7 @@ import {
   type ProductAvailabilityService,
   type RecipeAvailabilityService,
 } from '../../../application/contracts/sofia-domain-contracts';
+import { isWithinSofiaBusinessHours } from '../business-hours/sofia-business-hours.policy';
 import { commercialDraftHash } from './commercial-draft-hash';
 import { CommercialIntentEngine, normalizeCommercialText } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
@@ -247,6 +248,17 @@ export class CommercialCheckoutService {
   }
 
   private async confirm(state: CommercialConversationState, command: CommercialMessageCommand): Promise<CommercialTurnResult> {
+    // Business-hours gate: consumes the single canonical SOFIA business-hours
+    // authority (sofia-business-hours.policy.ts, the same schedule the legacy
+    // conversational flow already enforces). This must be the very first
+    // thing confirm() does -- while closed, no SecureCommand productive
+    // operation, no OrderCheckout call, no PaymentIntent, and no Kitchen
+    // ticket may be reached, deterministically and on every attempt
+    // (including replays and concurrent attempts). The draft itself is left
+    // untouched (still PENDING) so it can be confirmed once hours reopen.
+    if (!isWithinSofiaBusinessHours()) {
+      return this.dependencyFailure(state, command, 'SOFIA_BUSINESS_HOURS_CLOSED');
+    }
     if (state.lastQuestionPurpose !== 'CONFIRM_ORDER' || !state.draftId || !state.draftVersion || !state.draftHash || !state.expiresAt) return this.handoff(state, command, 'SOFIA_CONTEXTUAL_CONFIRMATION_INVALID');
     if (new Date(state.expiresAt) <= new Date() || (state.fulfillment === 'DELIVERY' && (!state.deliveryQuoteExpiresAt || new Date(state.deliveryQuoteExpiresAt) <= new Date()))) {
       state.confirmationState = 'EXPIRED';
