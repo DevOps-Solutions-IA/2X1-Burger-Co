@@ -922,12 +922,22 @@ export class SofiaAgentService {
         try {
           const expectedVersion = String(draft.version);
           const confirmedDraft = await this.orderDrafts.confirm(draft.id, expectedVersion, this.actorContext(actorId, options.source));
-          await this.orderCreation.createFromSofiaDraft({
+          const creationResult = await this.orderCreation.createFromSofiaDraft({
             draftId: confirmedDraft.id,
             expectedDraftVersion: confirmedDraft.version,
             idempotencyKey: `sofia-draft:${confirmedDraft.id}`,
             actor: this.actorContext(actorId, options.source),
           });
+          // AWAITING_PAYMENT is a legitimate, non-error outcome of the frozen ONLINE state
+          // machine (checkout created, Kitchen correctly deferred pending payment
+          // verification) -- it must never be reported through the same
+          // SOFIA_ORDER_CREATION_BLOCKED signal as a real policy/governance block, since
+          // nothing here was blocked. This agent does not yet act on ONLINE payment
+          // collection (sending a payment link, polling verification, etc.); it still defers
+          // to human handoff for either outcome, same as today, but with an honest reason code.
+          if (creationResult.type === 'AWAITING_PAYMENT') {
+            productiveActionBlocked = 'SOFIA_ORDER_AWAITING_PAYMENT';
+          }
         } catch {
           productiveActionBlocked = 'SOFIA_ORDER_CREATION_BLOCKED';
         }

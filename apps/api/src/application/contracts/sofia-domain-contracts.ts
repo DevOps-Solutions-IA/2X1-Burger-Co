@@ -131,21 +131,53 @@ export interface OrderDraftService {
   confirm(draftId: string, expectedVersion: string, actor: SofiaActorContext): Promise<OrderDraftDto>;
 }
 
-export type OrderCreationResultDto = {
-  checkoutId: string;
-  orderTicketId: string;
-  orderNumber: string;
-  replayed: boolean;
-};
+/**
+ * Discriminated result of a governed order-creation attempt.
+ *
+ * ORDER_CREATED: the canonical OrderTicket exists (either just created or replayed from an
+ * idempotent retry). Always carries the canonical checkoutId/orderTicketId/orderNumber.
+ *
+ * AWAITING_PAYMENT: NOT an error. The canonical OrderCheckout was created (or already existed)
+ * but Kitchen correctly refuses eligibility yet, per the frozen ONLINE state machine
+ * (CONFIRMED_DRAFT -> ORDER_CHECKOUT -> PAYMENT_INTENT -> PAYMENT_LINK -> BOLD ->
+ * AUTHORITATIVE_WEBHOOK_SUCCEEDED -> PAYMENT_VERIFIED -> KITCHEN_ELIGIBLE -> ORDER_CREATED): the
+ * online payment has not yet been authoritatively verified (or a prior payment attempt landed in
+ * PaymentIntentStatus.UNKNOWN_RESULT and needs financial reconciliation -- see
+ * KitchenEligibilityService / CheckoutPolicyService.kitchenEligible). No OrderTicket exists yet.
+ * `checkoutId` is `null` here: this adapter learns of the conflict only via the thrown
+ * KITCHEN_NOT_ELIGIBLE error surfaced by the canonical Kitchen-eligibility authority, which does
+ * not hand back the checkout id on that path. Callers must never treat AWAITING_PAYMENT as a
+ * failure, must never retry order creation blindly because of it, and must never report it as
+ * "blocked" (it is not a policy/governance block -- see SOFIA_ORDER_CREATION_BLOCKED for that).
+ */
+export type OrderCreationResultDto =
+  | {
+      type: 'ORDER_CREATED';
+      checkoutId: string;
+      orderTicketId: string;
+      orderNumber: string;
+      replayed: boolean;
+    }
+  | {
+      type: 'AWAITING_PAYMENT';
+      checkoutId: string | null;
+      reasonCode: string;
+    };
 
 export interface OrderCreationService {
   /**
    * Governed bridge: SofiaOrderDraft (CONFIRMED) -> SecureCommand(SOFIA_CREATE_ORDER) -> canonical
    * OrderCheckout -> canonical OrderTicket. Never creates a parallel order model. Never mutates
-   * payment, kitchen, delivery or stock state. Fails closed (throws) whenever the draft is not
-   * confirmable, SecureCommand is unavailable, or SecureCommand policy/governance blocks execution
-   * (which remains the case in every environment until an owner-authorized activation flips the
-   * SOFIA_CREATE_ORDER command policy `enabled` flag -- see command-handler.registry.ts).
+   * payment, kitchen, delivery or stock state.
+   *
+   * Resolves (never throws) to the discriminated `OrderCreationResultDto` for the two
+   * deterministic, non-error outcomes of the frozen state machine: ORDER_CREATED or
+   * AWAITING_PAYMENT (see the type above).
+   *
+   * Still fails closed (throws) for genuine failures: the draft is not confirmable, SecureCommand
+   * is unavailable, or SecureCommand policy/governance blocks execution (which remains the case in
+   * every environment until an owner-authorized activation flips the SOFIA_CREATE_ORDER command
+   * policy `enabled` flag -- see command-handler.registry.ts).
    *
    * `expectedDraftVersion` is optional legacy-caller defense-in-depth (compared against the raw
    * draft's updatedAt ISO timestamp when supplied); the authoritative optimistic-concurrency check

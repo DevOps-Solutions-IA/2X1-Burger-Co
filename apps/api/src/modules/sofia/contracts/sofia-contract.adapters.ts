@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import type {
   CustomerResolutionService,
@@ -94,9 +94,19 @@ export class SofiaOrderDraftAdapter implements OrderDraftService {
  * ORDER_CREATION_POLICY in command-handler.registry.ts, `enabled: false` pending owner activation)
  * all throw, and the caller (sofia-agent.service.ts / CommercialCheckoutService) never has grounds
  * to claim an order was created.
+ *
+ * One outcome downstream of the handler is NOT a failure and never throws: when the canonical
+ * Kitchen-eligibility authority (KitchenEligibilityService, via CheckoutPolicyService.kitchenEligible)
+ * rejects with `KITCHEN_NOT_ELIGIBLE` -- the frozen ONLINE state machine's expected shape while a
+ * payment has not yet been authoritatively verified (or needs financial reconciliation) -- this
+ * adapter resolves to `{ type: 'AWAITING_PAYMENT' }` instead of throwing. Every other failure still
+ * throws exactly as before.
  */
 @Injectable()
 export class SofiaOrderCreationAdapter implements OrderCreationService {
+  /** Downstream error codes that represent a legitimate, non-error AWAITING_PAYMENT outcome. */
+  private static readonly AWAITING_PAYMENT_CODES = new Set(['KITCHEN_NOT_ELIGIBLE']);
+
   constructor(
     private readonly sofia: SofiaService,
     private readonly audit: AuditService,
@@ -154,16 +164,42 @@ export class SofiaOrderCreationAdapter implements OrderCreationService {
         throw new SecureCommandError('SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE');
       }
       return {
+        type: 'ORDER_CREATED',
         checkoutId: payload.checkoutId,
         orderTicketId: payload.orderTicketId,
         orderNumber: payload.orderNumber,
         replayed: executed.replayed || Boolean(payload.replayed),
       };
     } catch (error) {
+      const awaitingPaymentCode = this.awaitingPaymentReasonCode(error);
+      if (awaitingPaymentCode) {
+        // Legitimate ONLINE-flow outcome per the frozen state machine: the checkout exists but
+        // Kitchen correctly refuses eligibility until payment is authoritatively verified (or a
+        // prior attempt needs financial reconciliation). Never a failure -- never thrown.
+        await this.awaitingPaymentAudit(input, awaitingPaymentCode);
+        return { type: 'AWAITING_PAYMENT', checkoutId: null, reasonCode: awaitingPaymentCode };
+      }
       const code = error instanceof SecureCommandError ? error.code : 'SOFIA_COMMAND_POLICY_BLOCKED';
       await this.blockedAudit(input, code);
       throw new ForbiddenException({ code: 'SOFIA_ORDER_CREATION_BLOCKED' });
     }
+  }
+
+  /**
+   * Recognizes the specific downstream Kitchen-eligibility conflict that represents a legitimate
+   * AWAITING_PAYMENT outcome rather than a real failure. Deliberately narrow: only the exact,
+   * known `KITCHEN_NOT_ELIGIBLE` HttpException code is treated this way -- everything else
+   * (including a bare SecureCommandError, an unavailable dependency, or any other conflict code)
+   * keeps failing closed via the existing SOFIA_ORDER_CREATION_BLOCKED path below.
+   */
+  private awaitingPaymentReasonCode(error: unknown): string | null {
+    if (!(error instanceof HttpException)) return null;
+    const response = error.getResponse();
+    const code =
+      typeof response === 'object' && response !== null && 'code' in response
+        ? String((response as { code?: unknown }).code)
+        : null;
+    return code && SofiaOrderCreationAdapter.AWAITING_PAYMENT_CODES.has(code) ? code : null;
   }
 
   private resolveSecureCommandService(): SecureCommandService | undefined {
@@ -182,6 +218,26 @@ export class SofiaOrderCreationAdapter implements OrderCreationService {
       entity: 'sofia_order_draft',
       entityId: input.draftId,
       result: 'BLOCKED',
+      reasonCode,
+      idempotencyKey: input.idempotencyKey,
+      source: input.actor.source,
+    });
+  }
+
+  /**
+   * Distinct from `blockedAudit`: AWAITING_PAYMENT is never a block/failure, so it is never
+   * audited with `result: 'BLOCKED'` under the `SOFIA_ORDER_CREATION_BLOCKED` action -- that would
+   * be a false claim for audit/reconciliation consumers. `NO_OP` reflects reality precisely: no
+   * OrderTicket was created by this attempt, and none should have been yet.
+   */
+  private async awaitingPaymentAudit(input: Parameters<OrderCreationService['createFromSofiaDraft']>[0], reasonCode: string) {
+    await this.audit.log({
+      userId: input.actor.actorId,
+      action: 'SOFIA_ORDER_AWAITING_PAYMENT',
+      module: 'sofia',
+      entity: 'sofia_order_draft',
+      entityId: input.draftId,
+      result: 'NO_OP',
       reasonCode,
       idempotencyKey: input.idempotencyKey,
       source: input.actor.source,

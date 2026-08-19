@@ -161,6 +161,81 @@ describe('Phase 1 authoritative domain contracts', () => {
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SOFIA_ORDER_CREATION_BLOCKED', result: 'BLOCKED', reasonCode: 'SOFIA_COMMAND_POLICY_BLOCKED' }));
   });
 
+  it('resolves the ORDER_CREATED branch of the discriminated result contract on a successful command execution', async () => {
+    const now = Date.now();
+    const draft = {
+      id: 'draft-order-created-1',
+      status: 'CONFIRMED',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      version: 1,
+      draftHash: 'hash-abc',
+      confirmationHash: 'confirm-abc',
+      fulfillment: 'TAKEAWAY',
+      expiresAt: new Date(now + 60_000),
+    };
+    const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
+    const audit = { log: jest.fn().mockResolvedValue({}) };
+    const receive = jest.fn().mockResolvedValue({ command: { id: 'cmd-order-created' }, replayed: false });
+    const execute = jest.fn().mockResolvedValue({
+      replayed: false,
+      result: { sanitizedPayload: { checkoutId: 'checkout-1', orderTicketId: 'order-1', orderNumber: 'N-001', replayed: false } },
+    });
+    const moduleRef = { get: jest.fn().mockReturnValue({ receive, execute }) };
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, audit as never, moduleRef as never);
+    const result = await adapter.createFromSofiaDraft({ draftId: draft.id, idempotencyKey: `sofia-draft:${draft.id}`, actor });
+    expect(result).toEqual({ type: 'ORDER_CREATED', checkoutId: 'checkout-1', orderTicketId: 'order-1', orderNumber: 'N-001', replayed: false });
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('resolves the AWAITING_PAYMENT branch instead of throwing when Kitchen defers eligibility for an unverified online payment', async () => {
+    const now = Date.now();
+    const draft = {
+      id: 'draft-awaiting-payment-1',
+      status: 'CONFIRMED',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      version: 1,
+      draftHash: 'hash-abc',
+      confirmationHash: 'confirm-abc',
+      fulfillment: 'DELIVERY',
+      expiresAt: new Date(now + 60_000),
+    };
+    const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
+    const audit = { log: jest.fn().mockResolvedValue({}) };
+    const receive = jest.fn().mockResolvedValue({ command: { id: 'cmd-awaiting-payment' }, replayed: false });
+    const execute = jest.fn().mockRejectedValue(new ConflictException({ code: 'KITCHEN_NOT_ELIGIBLE' }));
+    const moduleRef = { get: jest.fn().mockReturnValue({ receive, execute }) };
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, audit as never, moduleRef as never);
+    const result = await adapter.createFromSofiaDraft({ draftId: draft.id, idempotencyKey: `sofia-draft:${draft.id}`, actor });
+    expect(result).toEqual({ type: 'AWAITING_PAYMENT', checkoutId: null, reasonCode: 'KITCHEN_NOT_ELIGIBLE' });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'SOFIA_ORDER_AWAITING_PAYMENT', result: 'NO_OP', reasonCode: 'KITCHEN_NOT_ELIGIBLE' }),
+    );
+  });
+
+  it('still fails closed (does not misclassify as AWAITING_PAYMENT) for an unrelated conflict code', async () => {
+    const now = Date.now();
+    const draft = {
+      id: 'draft-other-conflict-1',
+      status: 'CONFIRMED',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+      version: 1,
+      draftHash: 'hash-abc',
+      confirmationHash: 'confirm-abc',
+      fulfillment: 'TAKEAWAY',
+      expiresAt: new Date(now + 60_000),
+    };
+    const sofia = { findDraft: jest.fn().mockResolvedValue(draft) };
+    const audit = { log: jest.fn().mockResolvedValue({}) };
+    const receive = jest.fn().mockResolvedValue({ command: { id: 'cmd-other-conflict' }, replayed: false });
+    const execute = jest.fn().mockRejectedValue(new ConflictException({ code: 'CHECKOUT_PAYMENT_COMBINATION_INVALID' }));
+    const moduleRef = { get: jest.fn().mockReturnValue({ receive, execute }) };
+    const adapter = new SofiaOrderCreationAdapter(sofia as never, audit as never, moduleRef as never);
+    await expect(
+      adapter.createFromSofiaDraft({ draftId: draft.id, idempotencyKey: `sofia-draft:${draft.id}`, actor }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'SOFIA_ORDER_CREATION_BLOCKED', result: 'BLOCKED' }));
+  });
+
   it('keeps the retired legacy payment read fail-closed and enforces role access', async () => {
     const payments = { getOperationalLink: jest.fn(() => { throw new GoneException({ code: 'SOFIA_LEGACY_PAYMENT_FLOW_RETIRED' }); }) };
     const adapter = new SofiaPaymentReadAdapter(payments as never);
