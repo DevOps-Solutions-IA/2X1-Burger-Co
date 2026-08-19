@@ -9,7 +9,6 @@ import { WhatsappOutboundCommandHandler } from '../sofia/whatsapp/production/wha
 import { WhatsappOutboundGateway } from '../sofia/whatsapp/production/whatsapp-outbound.gateway';
 import { SofiaRuntimeSafetyService } from '../sofia/runtime-safety/sofia-runtime-safety.service';
 import {
-  SecureCommandExecutionAdapter,
   SecureCommandNotificationAdapter,
   WhatsappNotificationDispatchPolicyAdapter,
   type NotificationSecureCommandPort,
@@ -45,7 +44,6 @@ describe('Wave 2B supervised harness: WhatsApp outbound chain, full pipeline (re
   let outbox: NotificationOutboxService;
   let materializer: PrismaNotificationOutboundMaterializer;
   let commands: SecureCommandNotificationAdapter;
-  let execution: SecureCommandExecutionAdapter;
   let executor: NotificationCommandExecutionService;
   let secureCommands: SecureCommandService;
   let commandHandler: WhatsappOutboundCommandHandler;
@@ -69,7 +67,6 @@ describe('Wave 2B supervised harness: WhatsApp outbound chain, full pipeline (re
     dispatchPolicy = app.get(WhatsappNotificationDispatchPolicyAdapter);
     runtimeSafety = app.get(SofiaRuntimeSafetyService);
     commands = app.get(SecureCommandNotificationAdapter);
-    execution = app.get(SecureCommandExecutionAdapter);
     executor = app.get(NotificationCommandExecutionService);
   });
 
