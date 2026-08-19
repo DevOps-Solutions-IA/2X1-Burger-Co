@@ -318,10 +318,21 @@ describe('Phase 5 canonical checkout integration', () => {
     const command = { rawPayload: payload, rawBody, headers: { 'x-bold-signature': signature, 'x-bold-merchant-id': 'merchant-1' } };
     await expect(webhooks.processBold(command)).resolves.toMatchObject({ processedStatus: 'PROCESSED', paymentStatus: 'SUCCEEDED' });
     await expect(webhooks.processBold(command)).resolves.toMatchObject({ processedStatus: 'DUPLICATE_REPLAY' });
-    expect((await prisma.orderCheckout.findUniqueOrThrow({ where: { id: created.id } })).status).toBe('KITCHEN_ELIGIBLE');
+    // PK3 (Webhook -> Kitchen consequence): the SUCCEEDED webhook itself now closes the loop into
+    // the canonical OrderTicket authority -- the checkout is no longer left parked at
+    // KITCHEN_ELIGIBLE waiting for a separate call.
+    const checkoutAfterWebhook = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: created.id } });
+    expect(checkoutAfterWebhook.status).toBe('ORDER_CREATED');
+    expect(checkoutAfterWebhook.orderTicketId).not.toBeNull();
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: created.id } } })).toBe(1);
     expect(await prisma.paymentTransition.count({ where: { paymentIntentId: prepared.paymentIntent.id, toStatus: 'SUCCEEDED' } })).toBe(1);
+    // Idempotent replay of the same consequence must resolve to the exact same OrderTicket, never
+    // a second/parallel one.
     const order = await kitchen.createOrderTicket(created.id, actor);
+    expect(order.replayed).toBe(true);
+    expect(order.order.id).toBe(checkoutAfterWebhook.orderTicketId);
     expect(order.order.type).toBe(OrderTicketType.DELIVERY);
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: created.id } } })).toBe(1);
     expect(await prisma.inventoryMovement.count()).toBe(0);
   });
 

@@ -28,7 +28,22 @@ export class KitchenEligibilityService {
       };
     }
     const checkout = await this.evaluateAndMarkAuthorized(checkoutId, actorId);
-    return { state: 'APPLIED' as const, checkout };
+    // PK3 (Webhook -> Kitchen consequence): reuses OrdersService.createFromCanonicalCheckout
+    // verbatim -- never a second/parallel order creator. That authority is itself idempotent and
+    // lock-guarded (`SELECT ... FOR UPDATE` on order_checkouts, `orderTicketId: null` in its WHERE
+    // clause), so replaying this method for the same checkout -- duplicate webhook redelivery,
+    // concurrent webhook processing, or crash-recovery replay -- always converges on exactly one
+    // OrderTicket. Attributed to the same stable, disabled system principal
+    // (sofiaOrderCreationSystemActor) SofiaCreateOrderCommandHandler already uses for the
+    // OFFLINE/synchronous path, since no human/admin session is active when a Bold webhook arrives.
+    const actor = await this.systemActor();
+    const result = await this.orders.createFromCanonicalCheckout(checkoutId, actor);
+    return {
+      state: 'APPLIED' as const,
+      checkout,
+      order: result.order,
+      replayed: Boolean(result.replayed),
+    };
   }
 
   async evaluateAndMark(checkoutId: string, actorId: string | null) {
@@ -65,5 +80,23 @@ export class KitchenEligibilityService {
     await this.gate.assertEnabled('ORDER_CREATION');
     await this.evaluateAndMark(checkoutId, actor.sub);
     return this.orders.createFromCanonicalCheckout(checkoutId, actor);
+  }
+
+  /**
+   * Mirrors SofiaCreateOrderCommandHandler.systemActor(): resolves the same stable, disabled
+   * (never loginable) system principal used to attribute OrderTicket.createdById when the
+   * canonical order is created as the automatic consequence of an authoritatively verified
+   * webhook, rather than a live admin/cashier session.
+   */
+  private async systemActor(): Promise<AuthUser> {
+    const resolved = await this.repository.sofiaOrderCreationSystemActor();
+    return {
+      sub: resolved.sub,
+      email: resolved.email,
+      fullName: resolved.fullName,
+      sessionVersion: 0,
+      roles: ['system'],
+      permissions: [],
+    };
   }
 }

@@ -64,6 +64,10 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     actorId = (await prisma.user.findUniqueOrThrow({
       where: { email: 'admin@2x1burgerco.local' },
     })).id;
+    // PK3: the SUCCEEDED webhook consequence now closes the loop into
+    // OrdersService.createFromCanonicalCheckout, which -- like every other order-creating path in
+    // this codebase -- requires an open cash session.
+    await prisma.cashSession.create({ data: { openedById: actorId, openingAmount: 0 } });
   });
 
   function service(
@@ -83,7 +87,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     });
   }
 
-  async function preparedWebhook(label: string) {
+  async function preparedWebhook(label: string, options: { dataStatus?: string } = {}) {
     const product = await prisma.product.findFirst({ where: { isActive: true } })
       ?? await (async () => {
         const category = await prisma.category.findFirst()
@@ -158,7 +162,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       id: `event-${label}`,
       type: 'PAYMENT',
       data: {
-        status: 'APPROVED',
+        status: options.dataStatus ?? 'APPROVED',
         payment_id: `provider-payment-${label}`,
         reference: `checkout_${prepared.paymentIntent.id}`,
         metadata: { reference: `checkout_${prepared.paymentIntent.id}` },
@@ -222,9 +226,15 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     })).toBe(1);
     expect(await prisma.paymentIntent.count({ where: { checkoutId: input.checkoutId } })).toBe(1);
     expect(await prisma.paymentLink.count({ where: { paymentIntentId: input.intentId } })).toBe(1);
+    // PK3: the SUCCEEDED webhook's consequence -- KitchenEligibility -> canonical OrderTicket --
+    // must converge on exactly one OrderTicket no matter how many times the claim/recovery/replay
+    // path above re-entered this checkout.
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: input.checkoutId } } })).toBe(1);
     const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: input.checkoutId } });
-    expect(checkout.status).toBe('KITCHEN_ELIGIBLE');
-    expect(checkout.orderTicketId).toBeNull();
+    expect(checkout.status).toBe('ORDER_CREATED');
+    expect(checkout.orderTicketId).not.toBeNull();
+    const order = await prisma.orderTicket.findUniqueOrThrow({ where: { id: checkout.orderTicketId! } });
+    expect(order.createdById).toBe('sofia-order-creation-system');
     if (input.expectedCheckoutVersion != null) expect(checkout.version).toBe(input.expectedCheckoutVersion);
     if (input.expectedKitchenEligibleAt !== undefined) {
       expect(checkout.kitchenEligibleAt?.getTime() ?? null).toBe(input.expectedKitchenEligibleAt?.getTime() ?? null);
@@ -325,14 +335,20 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       });
 
       process.env.PHASE5_KITCHEN_ENABLED = 'true';
-      await expect(kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null))
-        .resolves.toMatchObject({ state: 'APPLIED' });
-      await expect(kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null))
-        .resolves.toMatchObject({ state: 'APPLIED' });
+      const first = await kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null);
+      expect(first).toMatchObject({ state: 'APPLIED', replayed: false });
+      // Replaying the same consequence (e.g. a second webhook checkpoint pass) must resolve to the
+      // exact same OrderTicket, never a second one -- OrdersService.createFromCanonicalCheckout is
+      // itself idempotent (locked, `orderTicketId: null` in its WHERE clause).
+      const second = await kitchen.continueAfterVerifiedPayment(prepared.checkout.id, null);
+      expect(second).toMatchObject({ state: 'APPLIED', replayed: true });
+      expect(second.order?.id).toBe(first.order?.id);
 
       const resumed = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
-      expect(resumed).toMatchObject({ status: 'KITCHEN_ELIGIBLE' });
+      expect(resumed).toMatchObject({ status: 'ORDER_CREATED' });
       expect(resumed.kitchenEligibleAt).not.toBeNull();
+      expect(resumed.orderTicketId).not.toBeNull();
+      expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(1);
       expect(await prisma.paymentTransition.count({
         where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
       })).toBe(1);
@@ -342,7 +358,7 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     }
   });
 
-  it('recovers after kitchen commit and before deterministic result without a duplicate kitchen effect', async () => {
+  it('recovers after kitchen commit and before deterministic result without a duplicate kitchen effect or a duplicate OrderTicket', async () => {
     const prepared = await preparedWebhook('after-kitchen');
     const crashingRepository = proxy(repository, {
       completeWebhookClaim: async () => {
@@ -354,8 +370,12 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
     await expect(service(crashingRepository).processBold(prepared.command))
       .rejects.toThrow(SimulatedProcessCrash);
     const afterCrash = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
-    expect(afterCrash.status).toBe('KITCHEN_ELIGIBLE');
+    // PK3: order creation happens inside continueAfterVerifiedPayment, which fully committed before
+    // the simulated crash point (completeWebhookClaim) -- so the OrderTicket already exists.
+    expect(afterCrash.status).toBe('ORDER_CREATED');
     expect(afterCrash.kitchenEligibleAt).not.toBeNull();
+    expect(afterCrash.orderTicketId).not.toBeNull();
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(1);
     expect(await prisma.paymentWebhookEvent.findUniqueOrThrow({
       where: { provider_eventId: { provider: 'BOLD', eventId: 'event-after-kitchen' } },
     })).toMatchObject({ processedStatus: 'DOWNSTREAM_APPLIED', deterministicResult: null });
@@ -375,6 +395,10 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       expectedCheckoutVersion: afterCrash.version,
       expectedKitchenEligibleAt: afterCrash.kitchenEligibleAt,
     });
+    // The replay above must not have created a second OrderTicket for the same checkout.
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(1);
+    const finalCheckout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(finalCheckout.orderTicketId).toBe(afterCrash.orderTicketId);
   });
 
   it('does not reclaim an active lease and reclaims it after expiry with one winner', async () => {
@@ -439,5 +463,140 @@ describe('Phase 6 PostgreSQL payment webhook fault recovery', () => {
       where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
     })).toBe(0);
     expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('DUPLICATE_WEBHOOK_SINGLE_TICKET: redelivering the exact same event produces exactly one OrderTicket', async () => {
+    const prepared = await preparedWebhook('duplicate-webhook');
+
+    const first = await service().processBold(prepared.command);
+    expect(first).toMatchObject({ processedStatus: 'PROCESSED', paymentStatus: PaymentIntentStatus.SUCCEEDED });
+
+    // Real-world provider redelivery: identical eventId, identical payload, sent again.
+    const second = await service().processBold(prepared.command);
+    expect(second).toMatchObject({
+      processedStatus: 'DUPLICATE_REPLAY',
+      paymentIntentId: prepared.intentId,
+      paymentStatus: PaymentIntentStatus.SUCCEEDED,
+    });
+
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+    })).toBe(1);
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(1);
+    const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(checkout.status).toBe('ORDER_CREATED');
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('CONCURRENT_WEBHOOK_SINGLE_TICKET: N truly concurrent deliveries of the same event produce exactly one OrderTicket', async () => {
+    const prepared = await preparedWebhook('concurrent-webhook');
+
+    const outcomes = await Promise.allSettled([
+      service().processBold(prepared.command),
+      service().processBold(prepared.command),
+      service().processBold(prepared.command),
+    ]);
+
+    // Every settled outcome must be financially safe: either the real processing result, a
+    // deterministic replay, or a rejection because another attempt's lease was active -- never a
+    // second/duplicate financial transition.
+    for (const outcome of outcomes) {
+      if (outcome.status === 'fulfilled') {
+        expect(['PROCESSED', 'DUPLICATE_REPLAY']).toContain(outcome.value.processedStatus);
+      } else {
+        expect(outcome.reason).toMatchObject({
+          response: expect.objectContaining({ code: 'PAYMENT_WEBHOOK_PROCESSING_ACTIVE' }),
+        });
+      }
+    }
+
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+    })).toBe(1);
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(1);
+    const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(checkout.status).toBe('ORDER_CREATED');
+    expect(prepared.providerCreateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('FINANCIAL_REVIEW_REQUIRED: a second successful payment on the same checkout blocks Kitchen and creates no OrderTicket', async () => {
+    const prepared = await preparedWebhook('financial-review');
+    // Simulate a second, independently-successful PaymentIntent attempt already existing for this
+    // checkout (e.g. a stale retried attempt that also got authoritatively approved) -- never
+    // fabricated inside CanonicalPaymentWebhookService itself, only as the real repository/DB state
+    // it must react to.
+    await prisma.paymentIntent.create({
+      data: {
+        checkoutId: prepared.checkout.id,
+        attemptNumber: 2,
+        idempotencyKey: 'phase6-fault-intent-financial-review-2',
+        provider: 'BOLD',
+        amount: prepared.checkout.total,
+        currency: 'COP',
+        status: PaymentIntentStatus.SUCCEEDED,
+        providerPaymentId: 'provider-payment-financial-review-shadow',
+        providerAccountHash: prepared.command.headers['x-bold-merchant-id'] as string,
+      },
+    });
+
+    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
+      processedStatus: 'FINANCIAL_REVIEW_REQUIRED',
+      paymentIntentId: prepared.intentId,
+      paymentStatus: PaymentIntentStatus.SUCCEEDED,
+    });
+
+    const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(checkout.status).toBe('FINANCIAL_REVIEW_REQUIRED');
+    expect(checkout.orderTicketId).toBeNull();
+    expect(checkout.kitchenEligibleAt).toBeNull();
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(0);
+  });
+
+  it('UNKNOWN_RESULT: a still-inconclusive webhook on an already-UNKNOWN_RESULT intent never opens Kitchen or creates an OrderTicket', async () => {
+    const prepared = await preparedWebhook('unknown-result', { dataStatus: 'PROCESSING' });
+    // Simulate the real precondition (e.g. provider communication timeout during startBoldPayment)
+    // that leaves the PaymentIntent as UNKNOWN_RESULT before any webhook has resolved it.
+    const before = await prisma.paymentIntent.findUniqueOrThrow({ where: { id: prepared.intentId } });
+    await prisma.paymentIntent.update({
+      where: { id: prepared.intentId },
+      data: { status: PaymentIntentStatus.UNKNOWN_RESULT, version: { increment: 1 } },
+    });
+
+    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
+      processedStatus: 'DUPLICATE_REPLAY',
+      paymentIntentId: prepared.intentId,
+      paymentStatus: PaymentIntentStatus.UNKNOWN_RESULT,
+    });
+
+    const intent = await prisma.paymentIntent.findUniqueOrThrow({ where: { id: prepared.intentId } });
+    expect(intent.status).toBe(PaymentIntentStatus.UNKNOWN_RESULT);
+    expect(intent.version).toBe(before.version + 1); // only the direct DB mutation above, no webhook transition
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.SUCCEEDED },
+    })).toBe(0);
+    const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(checkout.status).toBe('PAYMENT_PENDING');
+    expect(checkout.orderTicketId).toBeNull();
+    expect(checkout.kitchenEligibleAt).toBeNull();
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(0);
+  });
+
+  it('FAILED: a declined webhook never opens Kitchen or creates an OrderTicket', async () => {
+    const prepared = await preparedWebhook('failed-webhook', { dataStatus: 'REJECTED' });
+
+    await expect(service().processBold(prepared.command)).resolves.toMatchObject({
+      processedStatus: 'PROCESSED',
+      paymentIntentId: prepared.intentId,
+      paymentStatus: PaymentIntentStatus.FAILED,
+    });
+
+    expect(await prisma.paymentTransition.count({
+      where: { paymentIntentId: prepared.intentId, toStatus: PaymentIntentStatus.FAILED },
+    })).toBe(1);
+    const checkout = await prisma.orderCheckout.findUniqueOrThrow({ where: { id: prepared.checkout.id } });
+    expect(checkout.status).toBe('PAYMENT_PENDING');
+    expect(checkout.orderTicketId).toBeNull();
+    expect(checkout.kitchenEligibleAt).toBeNull();
+    expect(await prisma.orderTicket.count({ where: { orderCheckout: { id: prepared.checkout.id } } })).toBe(0);
   });
 });

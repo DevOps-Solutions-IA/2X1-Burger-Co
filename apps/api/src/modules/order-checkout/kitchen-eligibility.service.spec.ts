@@ -9,10 +9,12 @@ describe('KitchenEligibilityService payment continuation', () => {
       paymentPreference: SofiaPaymentPreference.ONLINE,
       paymentIntents: [{ status: PaymentIntentStatus.SUCCEEDED }],
     };
+    const systemActor = { sub: 'sofia-order-creation-system', email: 'sofia-order-creation-system@system.invalid', fullName: 'SOFIA Order Creation' };
     const repository = {
       requiredCheckout: jest.fn().mockResolvedValue(checkout),
       successfulPaymentCount: jest.fn().mockResolvedValue(1),
       markKitchenEligible: jest.fn().mockResolvedValue({ ...checkout, status: 'KITCHEN_ELIGIBLE' }),
+      sofiaOrderCreationSystemActor: jest.fn().mockResolvedValue(systemActor),
     };
     const policy = { kitchenEligible: jest.fn().mockReturnValue(true) };
     const gate = {
@@ -22,14 +24,17 @@ describe('KitchenEligibilityService payment continuation', () => {
       assertEnabled: jest.fn().mockResolvedValue(undefined),
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const orders = {
+      createFromCanonicalCheckout: jest.fn().mockResolvedValue({ order: { id: 'order-1', number: 'T-1' }, replayed: false }),
+    };
     const service = new KitchenEligibilityService(
       repository as never,
       policy as never,
       gate as never,
-      {} as never,
+      orders as never,
       audit as never,
     );
-    return { service, repository, policy, gate, audit };
+    return { service, repository, policy, gate, audit, orders, systemActor };
   }
 
   it('defers without mutation while the independent kitchen gate is disabled', async () => {
@@ -61,5 +66,34 @@ describe('KitchenEligibilityService payment continuation', () => {
       action: 'CHECKOUT_KITCHEN_ELIGIBLE',
       entityId: 'checkout-1',
     }));
+  });
+
+  it('closes the loop into the canonical OrderTicket authority using the resolved SOFIA system actor, never a parallel creator', async () => {
+    const { service, repository, orders, systemActor } = harness();
+    await service.continueAfterVerifiedPayment('checkout-1', null); // consumes the DEFERRED_DISABLED mock call
+
+    const result = await service.continueAfterVerifiedPayment('checkout-1', null);
+
+    expect(repository.sofiaOrderCreationSystemActor).toHaveBeenCalledTimes(1);
+    expect(orders.createFromCanonicalCheckout).toHaveBeenCalledTimes(1);
+    expect(orders.createFromCanonicalCheckout).toHaveBeenCalledWith('checkout-1', expect.objectContaining({
+      sub: systemActor.sub,
+      email: systemActor.email,
+      roles: ['system'],
+    }));
+    // Order creation must never happen before the checkout is actually marked eligible.
+    const markCallOrder = repository.markKitchenEligible.mock.invocationCallOrder[0]!;
+    const createCallOrder = orders.createFromCanonicalCheckout.mock.invocationCallOrder[0]!;
+    expect(markCallOrder).toBeLessThan(createCallOrder);
+    expect(result).toMatchObject({ state: 'APPLIED', order: { id: 'order-1', number: 'T-1' }, replayed: false });
+  });
+
+  it('never invokes order creation while the kitchen gate is independently disabled', async () => {
+    const { service, orders, repository } = harness();
+
+    await service.continueAfterVerifiedPayment('checkout-1', null);
+
+    expect(orders.createFromCanonicalCheckout).not.toHaveBeenCalled();
+    expect(repository.sofiaOrderCreationSystemActor).not.toHaveBeenCalled();
   });
 });
