@@ -89,6 +89,21 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
     },
   );
 
+  it.each([
+    'Calle 15 #45-67 barrio condados sector industrial',
+    'Carrera 10 con 20 apto 302 condados',
+    'Manzana 5 casa 12 alborada etapa 2',
+  ])('does not grant LOCAL_FREE for an alias embedded in an otherwise unrelated/invalid address: %s', (addressText) => {
+    const result = engine.quote({ addressText });
+
+    expect(result.pricingStatus).not.toBe('LOCAL_FREE');
+    expect(result.zoneType).not.toBe('LOCAL_FREE');
+    // Without a resolved context (no geocoding/route performed in this unit test), the engine
+    // must fail closed instead of inventing a fee - it must never fall back to the free-zone fee.
+    expect(result.finalFee).not.toBe(0);
+    expect(result.localZoneMatch?.matched).toBe(false);
+  });
+
   it.each(['cerca de alborada', 'por alborada', 'vía alborada'])('requires address correction for ambiguous local text: %s', (addressText) => {
     const result = engine.quote({ addressText });
 

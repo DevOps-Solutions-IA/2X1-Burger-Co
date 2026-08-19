@@ -2866,6 +2866,23 @@ describe('Critical business flows', () => {
     expect(ambiguous.body.warnings).toContain('LOCAL_ZONE_AMBIGUOUS');
   });
 
+  it('does not let an arbitrary/invalid address bypass geocoding and get a free fee merely by containing a Condados/Alborada alias', async () => {
+    const { accessToken } = await login();
+
+    const embedded = await request(app.getHttpServer())
+      .post('/delivery-pricing/estimate')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        orderSubtotal: 25000,
+        addressText: 'Calle 15 #45-67 barrio condados sector industrial, casa de dos pisos',
+      })
+      .expect(200);
+
+    expect(embedded.body.pricingStatus).not.toBe('LOCAL_FREE');
+    expect(embedded.body.finalFee).not.toBe(0);
+    expect(embedded.body.zoneType).not.toBe('LOCAL_FREE');
+  });
+
   it('checkout uses backend delivery pricing and blocks arbitrary frontend deliveryFee injection', async () => {
     const { accessToken } = await login();
     const burger = await prisma.product.findUniqueOrThrow({

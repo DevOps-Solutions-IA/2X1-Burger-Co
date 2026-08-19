@@ -53,7 +53,7 @@ describe('commercial intent and checkout', () => {
     expect(commercialDraftHash(facts)).not.toBe(commercialDraftHash({ ...facts, total: 51000 }));
   });
 
-  function fixture() {
+  function fixture(overrides: { quote?: jest.Mock } = {}) {
     let state: CommercialConversationState | null = null;
     let draft: { id: string; version: number; draftHash: string; expiresAt: Date; status?: string } | null = null;
     const repository = {
@@ -74,13 +74,14 @@ describe('commercial intent and checkout', () => {
       new SafeCommercialResponseTemplates(),
     );
     const orderCreation = { createFromSofiaDraft: jest.fn(async () => { throw new Error('SOFIA_ORDER_CREATION_BLOCKED'); }) };
+    const quote = overrides.quote ?? jest.fn(async () => ({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true }));
     const service = new CommercialCheckoutService(
       engine, new CommercialPolicyService(), new CommercialMetricsService(), responses, repository as never,
       { listActive: jest.fn(async () => products), getActiveById: jest.fn(async (id: string) => products.find((entry) => entry.id === id)!), findActive: jest.fn() } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString() })) } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [{ ingredientId: 'i1', name: 'Cebolla' }] })) } as never,
       { resolve: jest.fn(async () => ({ customerId: 'c1', displayName: null, phoneMasked: '***', created: false })) } as never,
-      { quote: jest.fn(async () => ({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })) } as never,
+      { quote } as never,
       { record: jest.fn(async () => ({ auditEventId: 'a1', timestamp: new Date().toISOString() })) } as never,
       // Governed and disabled in every environment today (see command-handler.registry.ts,
       // SOFIA_CREATE_ORDER `enabled: false`); confirm() must swallow this and never let it change
@@ -88,7 +89,7 @@ describe('commercial intent and checkout', () => {
       orderCreation as never,
     );
     const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
-    return { service, repository, orderCreation, actor, getState: () => state };
+    return { service, repository, orderCreation, actor, quote, getState: () => state };
   }
 
   it('builds and confirms a takeaway draft without asking known fields again', async () => {
@@ -130,6 +131,60 @@ describe('commercial intent and checkout', () => {
     expect(result.state).toMatchObject({ fulfillment: 'DELIVERY', paymentPreference: 'CASH_ON_DELIVERY', missingFields: [] });
     expect(result.state).toMatchObject({ subtotal: 50000, deliveryFee: 5000, total: 55000, deliveryQuoteAuditId: 'q1' });
     expect(repository.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ deliveryFee: 5000, deliveryQuoteAuditId: 'q1', deliveryQuoteVersion: 1 }));
+  });
+
+  it('rejects a delivery draft when the authoritative quote is missing an auditId', async () => {
+    const quote = jest.fn(async () => ({ auditId: null, status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true }));
+    const { service, repository, actor } = fixture({ quote });
+    await expect(
+      service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame dos combo 2x1 a la Carrera 10 # 20 y pago cuando llegue', actor }),
+    ).rejects.toMatchObject({ response: { code: 'SOFIA_DELIVERY_QUOTE_REQUIRED' } });
+    expect(repository.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it('does not honor an expired delivery quote and forces a fresh authoritative quote before confirming', async () => {
+    const quote = jest.fn()
+      .mockResolvedValueOnce({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })
+      .mockResolvedValueOnce({ auditId: 'q2', status: 'AUTO_PRICED', finalFee: 7000, currency: 'COP', distanceKm: 6, estimatedMinutes: 30, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true });
+    const { service, repository, actor, getState } = fixture({ quote });
+
+    const drafted = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame dos combo 2x1 a la Carrera 10 # 20 y pago cuando llegue', actor });
+    expect(drafted.state.deliveryQuoteAuditId).toBe('q1');
+    expect(drafted.state.deliveryFee).toBe(5000);
+
+    // Simulate the delivery quote (not the whole draft) having aged past its TTL - the fee is no
+    // longer trustworthy and must never be silently honored at confirmation time.
+    const state = getState()!;
+    state.deliveryQuoteExpiresAt = new Date(Date.now() - 1000).toISOString();
+
+    const confirmed = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Sí', actor });
+
+    expect(quote).toHaveBeenCalledTimes(2);
+    expect(confirmed.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+    expect(confirmed.nextAction).toBe('READY_TO_CONFIRM');
+    expect(confirmed.state.confirmationState).toBe('PENDING');
+    expect(confirmed.state.deliveryQuoteAuditId).toBe('q2');
+    expect(confirmed.state.deliveryFee).toBe(7000);
+    // The stale quote must never reach draft confirmation.
+    expect(repository.confirmDraft).not.toHaveBeenCalled();
+  });
+
+  it('re-quotes on every draft-affecting turn instead of trusting a cached/duplicate quote (no stale reuse across duplicate requests)', async () => {
+    const quote = jest.fn()
+      .mockResolvedValueOnce({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })
+      .mockResolvedValueOnce({ auditId: 'q2', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true });
+    const { service, repository, actor } = fixture({ quote });
+
+    const first = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago cuando llegue', actor });
+    expect(first.state.deliveryQuoteAuditId).toBe('q1');
+
+    // Same address, same fulfillment, repeated verbatim - a duplicate quote request. It must still
+    // be re-verified against the authoritative pricing engine (new audit trail entry), never
+    // silently reused/replayed as if it were still the same approved quote.
+    const duplicate = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago cuando llegue', actor });
+    expect(duplicate.state.deliveryQuoteAuditId).toBe('q2');
+    expect(quote).toHaveBeenCalledTimes(2);
+    expect(repository.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({ deliveryQuoteAuditId: 'q2', version: expect.any(Number) }));
   });
 
   it('asks only for a genuinely missing payment preference', async () => {

@@ -299,6 +299,51 @@ describe('DeliveryExternalDataService provider architecture', () => {
     expect(result.localZoneMatch.matched).toBe(false);
   });
 
+  it('does not let an alias embedded in a full address bypass geocoding (real geocoding runs instead)', async () => {
+    const providers = buildProviders({
+      geocoding: {
+        geocodeAddress: jest.fn().mockResolvedValue(
+          geocodeResult({
+            matchQuality: 'EXACT',
+            confidence: 'HIGH',
+            latitude: 3.19,
+            longitude: -76.61,
+            neighborhood: 'Lejos de Condados',
+          }),
+        ),
+      },
+    });
+
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Calle 15 #45-67 barrio condados sector industrial, muy lejos del local',
+    });
+
+    expect(result.localZoneMatch.matched).toBe(false);
+    expect(providers.geocodingProvider.geocodeAddress).toHaveBeenCalledTimes(1);
+    expect(result.geocoding.attempted).toBe(true);
+    expect(result.destination.latitude).toBe(3.19);
+    expect(result.destination.longitude).toBe(-76.61);
+  });
+
+  it('does not call external providers or grant LOCAL_FREE when DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false and the address is a full address embedding the alias', async () => {
+    const providers = buildProviders();
+    const service = DeliveryExternalDataService.createForTesting({
+      ...providers,
+      cache: new InMemoryExternalCache(),
+      providersEnabled: false,
+      origin,
+    });
+
+    const result = await service.resolveDeliveryContext({
+      addressText: 'Carrera 10 con 20 apto 302 condados',
+    });
+
+    expect(result.localZoneMatch.matched).toBe(false);
+    expect(providers.geocodingProvider.geocodeAddress).not.toHaveBeenCalled();
+    expect(result.warnings).toContain('EXTERNAL_PROVIDERS_DISABLED');
+    expect(result.requiresManualQuote).toBe(true);
+  });
+
   it('requires manual quote when every external provider fails', async () => {
     const providers = buildProviders({
       geocoding: {
