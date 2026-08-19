@@ -3,11 +3,14 @@ import { SecureCommandModule } from '../secure-command/secure-command.module';
 import { SofiaModule } from '../sofia/sofia.module';
 import { NotificationOutboxService } from './notification-outbox.service';
 import {
+  NotificationCommandExecutionPort,
   NotificationDispatchPolicyPort,
   NotificationSecureCommandPort,
+  SecureCommandExecutionAdapter,
   SecureCommandNotificationAdapter,
   WhatsappNotificationDispatchPolicyAdapter,
 } from './notification-dispatch.ports';
+import { NotificationCommandExecutionService } from './notification-command-execution.service';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
 import {
   NotificationOutboundMaterializer,
@@ -26,11 +29,14 @@ import { PrismaNotificationIntentRepository } from './persistence/prisma-notific
   providers: [
     NotificationOutboxService,
     NotificationIntentConsumerService,
+    NotificationCommandExecutionService,
     NotificationOutboxWorker,
     WhatsappNotificationDispatchPolicyAdapter,
     SecureCommandNotificationAdapter,
+    SecureCommandExecutionAdapter,
     { provide: NotificationDispatchPolicyPort, useExisting: WhatsappNotificationDispatchPolicyAdapter },
     { provide: NotificationSecureCommandPort, useExisting: SecureCommandNotificationAdapter },
+    { provide: NotificationCommandExecutionPort, useExisting: SecureCommandExecutionAdapter },
     PrismaNotificationOutboundMaterializer,
     { provide: NotificationOutboundMaterializer, useExisting: PrismaNotificationOutboundMaterializer },
     PrismaNotificationReconciliationObserver,
@@ -38,6 +44,6 @@ import { PrismaNotificationIntentRepository } from './persistence/prisma-notific
     PrismaNotificationIntentRepository,
     { provide: NotificationIntentRepository, useExisting: PrismaNotificationIntentRepository },
   ],
-  exports: [NotificationOutboxService, NotificationIntentConsumerService],
+  exports: [NotificationOutboxService, NotificationIntentConsumerService, NotificationCommandExecutionService],
 })
 export class NotificationsModule {}

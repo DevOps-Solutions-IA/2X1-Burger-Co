@@ -2,9 +2,11 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs
 import { ConfigService } from '@nestjs/config';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { NotificationCommandExecutionService } from './notification-command-execution.service';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
 import { NotificationOutboxService } from './notification-outbox.service';
 import { NotificationReconciliationObserver } from './notification-reconciliation-observer';
+import type { NotificationReconciliationCandidate } from './persistence/notification-intent.repository';
 
 const DEFAULT_INTERVAL_MS = 1_000;
 const DEFAULT_BATCH_SIZE = 25;
@@ -23,6 +25,7 @@ export class NotificationOutboxWorker implements OnModuleInit, OnApplicationShut
     private readonly consumer: NotificationIntentConsumerService,
     private readonly outbox: NotificationOutboxService,
     private readonly observer: NotificationReconciliationObserver,
+    private readonly executor: NotificationCommandExecutionService,
   ) {}
 
   onModuleInit(): void {
@@ -56,10 +59,28 @@ export class NotificationOutboxWorker implements OnModuleInit, OnApplicationShut
   private async executeCycle(now: Date): Promise<void> {
     await this.runStage('NOTIFICATION_CLAIM_STAGE_FAILED', () =>
       this.consumer.drainOnce(this.workerIdentity, now, DEFAULT_BATCH_SIZE));
-    await this.runStage('NOTIFICATION_RECONCILIATION_STAGE_FAILED', async () => {
-      const candidates = await this.outbox.findReconciliationCandidates(now, DEFAULT_BATCH_SIZE, false);
+
+    // Fetched once and partitioned below so the dispatch stage (which actually invokes
+    // SecureCommandService.execute() via NotificationCommandExecutionService, for
+    // COMMAND_PENDING intents) and the reconciliation stage (which only ever reads
+    // already-settled DISPATCHED/UNKNOWN_RESULT evidence -- it never itself calls execute())
+    // act on one consistent snapshot instead of two independently-racing queries.
+    const candidates = await this.runStageValue(
+      'NOTIFICATION_RECONCILIATION_CANDIDATES_FAILED',
+      () => this.outbox.findReconciliationCandidates(now, DEFAULT_BATCH_SIZE, false),
+      [] as readonly NotificationReconciliationCandidate[],
+    );
+
+    await this.runStage('NOTIFICATION_DISPATCH_STAGE_FAILED', async () => {
       for (const candidate of candidates) {
-        if (!candidate.secureCommandId) continue;
+        if (candidate.status !== 'COMMAND_PENDING' || !candidate.secureCommandId) continue;
+        await this.runStage('NOTIFICATION_DISPATCH_CANDIDATE_FAILED', () => this.executor.dispatch(candidate, now));
+      }
+    });
+
+    await this.runStage('NOTIFICATION_RECONCILIATION_STAGE_FAILED', async () => {
+      for (const candidate of candidates) {
+        if (!candidate.secureCommandId || candidate.status === 'COMMAND_PENDING') continue;
         await this.runStage('NOTIFICATION_RECONCILIATION_CANDIDATE_FAILED', async () => {
           const evidence = await this.observer.observe(candidate);
           await this.consumer.reconcile({
@@ -84,6 +105,15 @@ export class NotificationOutboxWorker implements OnModuleInit, OnApplicationShut
       await operation();
     } catch {
       this.logger.error(code);
+    }
+  }
+
+  private async runStageValue<T>(code: string, operation: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await operation();
+    } catch {
+      this.logger.error(code);
+      return fallback;
     }
   }
 

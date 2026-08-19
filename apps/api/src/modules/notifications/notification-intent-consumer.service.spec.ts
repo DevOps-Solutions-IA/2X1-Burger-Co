@@ -5,10 +5,12 @@ import {
   type NotificationIntent,
 } from '@prisma/client';
 import {
+  SecureCommandExecutionAdapter,
   SecureCommandNotificationAdapter,
   WhatsappNotificationDispatchPolicyAdapter,
 } from './notification-dispatch.ports';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
+import { SecureCommandError, UnknownCommandResultError } from '../secure-command/secure-command.errors';
 
 const now = new Date('2026-08-08T12:00:00.000Z');
 const commandFacts = Object.freeze({
@@ -305,6 +307,85 @@ describe('SecureCommandNotificationAdapter', () => {
       },
     }));
     expect(adapter).not.toHaveProperty('execute');
+  });
+});
+
+describe('SecureCommandExecutionAdapter', () => {
+  it('is the sole call site that invokes SecureCommandService.execute() for notifications', async () => {
+    const execute = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, result: null, replayed: false });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' });
+
+    expect(execute).toHaveBeenCalledWith({
+      commandId: 'command-1',
+      actor: { actorId: 'notification-outbox', actorType: 'SYSTEM', roles: ['system'] },
+      claimOwner: 'notification-dispatch:notification-1',
+    });
+  });
+
+  it('reports a fresh success as DISPATCHED with replayed=false', async () => {
+    const execute = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, result: null, replayed: false });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'DISPATCHED', replayed: false });
+  });
+
+  it('reports a replayed SUCCEEDED result as DISPATCHED with replayed=true', async () => {
+    const execute = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, result: null, replayed: true });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'DISPATCHED', replayed: true });
+  });
+
+  it('classifies the durable disabled-policy block as BLOCKED/COMMAND_REJECTED without ever reaching the handler', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_APPROVAL_REQUIRED'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED' });
+  });
+
+  it('classifies SOFIA_COMMAND_POLICY_BLOCKED as BLOCKED/COMMAND_REJECTED', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'SOFIA_COMMAND_POLICY_BLOCKED' });
+  });
+
+  it('classifies a dependency-unavailable execute() failure as BLOCKED/RESULT_UNKNOWN, never assumed FAILED', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE' });
+  });
+
+  it('classifies an UnknownCommandResultError as BLOCKED/RESULT_UNKNOWN, never assumed sent or failed', async () => {
+    const execute = jest.fn().mockRejectedValue(new UnknownCommandResultError('WHATSAPP_UNKNOWN_RESULT'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'WHATSAPP_UNKNOWN_RESULT' });
+  });
+
+  it('reports a concurrently-claimed command as RUNNING so the caller skips instead of retrying blindly', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_ALREADY_RUNNING'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'RUNNING' });
+  });
+
+  it('never swallows an unrecognized error type', async () => {
+    const execute = jest.fn().mockRejectedValue(new Error('unexpected'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .rejects.toThrow('unexpected');
   });
 });
 
