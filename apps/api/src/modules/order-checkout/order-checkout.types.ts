@@ -67,6 +67,24 @@ export type CreateOnlinePaymentCommand = {
   actorId: string;
 };
 
+/**
+ * PK5 TOCTOU remediation (see
+ * .engineering/sofia-production/remediation/payment-toctou/00-design.md) — contract only,
+ * scaffolding for P1. The repository's `createPaymentIntent` transaction must invoke this
+ * callback immediately after taking the `order_checkouts` row lock and re-reading fresh
+ * checkout + PaymentIntent state under that lock, and before any create — never against a
+ * pre-transaction read. Implementation of the call site and of the fresh re-read is P1's,
+ * not scaffolded here.
+ */
+export type PaymentIntentRelinkPolicy = (
+  checkout: { status: OrderCheckoutStatus; expiresAt: Date | null },
+  paymentIntents: readonly {
+    idempotencyKey: string;
+    status: PaymentIntentStatus;
+    expiresAt: Date | null;
+  }[],
+) => void;
+
 export type PaymentIntentView = {
   id: string;
   checkoutId: string;
