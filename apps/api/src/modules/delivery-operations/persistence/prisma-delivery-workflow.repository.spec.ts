@@ -30,11 +30,14 @@ describe('PrismaDeliveryWorkflowRepository', () => {
     replay?: Record<string, unknown> | null;
     order?: typeof order | null;
     changed?: number;
+    createError?: Error;
   } = {}) {
     const tx = {
       deliveryWorkflowEvent: {
         findUnique: jest.fn().mockResolvedValue(overrides.replay ?? null),
-        create: jest.fn().mockImplementation(async ({ data }) => data),
+        create: overrides.createError
+          ? jest.fn().mockRejectedValue(overrides.createError)
+          : jest.fn().mockImplementation(async ({ data }) => data),
       },
       orderTicket: {
         findUnique: jest.fn().mockResolvedValue(
@@ -171,5 +174,53 @@ describe('PrismaDeliveryWorkflowRepository', () => {
         where: expect.objectContaining({ deliveryWorkflowStatus: null }),
       }),
     );
+  });
+
+  it('rejects a same-status resubmission that targets a different rider instead of silently stealing the assignment', async () => {
+    const { repository, tx } = harness();
+    const noOpForDifferentRider = jest.fn().mockReturnValue({ allowed: true, noOp: true });
+
+    await expect(
+      repository.transition(
+        {
+          ...input,
+          toStatus: DeliveryWorkflowStatus.ASSIGNED,
+          assignedRiderId: 'rider-2',
+        },
+        noOpForDifferentRider,
+      ),
+    ).rejects.toEqual(new DeliveryWorkflowError('RIDER_ALREADY_ASSIGNED'));
+    expect(tx.orderTicket.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryWorkflowEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('still treats a same-status resubmission by the already-assigned rider as an idempotent no-op', async () => {
+    const { repository, tx } = harness();
+    const noOpForSameRider = jest.fn().mockReturnValue({ allowed: true, noOp: true });
+
+    await expect(
+      repository.transition(
+        {
+          ...input,
+          toStatus: DeliveryWorkflowStatus.ASSIGNED,
+          assignedRiderId: 'rider-1',
+        },
+        noOpForSameRider,
+      ),
+    ).resolves.toMatchObject({ state: 'NO_OP' });
+    expect(tx.orderTicket.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryWorkflowEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('propagates a failure that occurs after the conditional update but before the event is durably appended, instead of reporting a false success (simulated process crash mid-transition)', async () => {
+    const crash = new Error('connection terminated unexpectedly');
+    const { repository, tx } = harness({ createError: crash });
+
+    await expect(repository.transition(input, allow)).rejects.toBe(crash);
+    expect(tx.orderTicket.updateMany).toHaveBeenCalledTimes(1);
+    // The whole sequence runs inside a single prisma.$transaction callback:
+    // a throw here means Prisma rolls back the preceding updateMany too, so
+    // no half-applied state (new status persisted, no matching event) can
+    // ever be observed after a crash/error at this point.
   });
 });

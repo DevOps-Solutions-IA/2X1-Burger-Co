@@ -62,19 +62,29 @@ export class PrismaDeliveryWorkflowRepository extends DeliveryWorkflowRepository
           if (!decision.allowed) throw new DeliveryWorkflowError(decision.reason);
 
           // A persisted null state is initialized as PENDING_ASSIGNMENT, not treated as a no-op.
-          if (
-            decision.noOp
-            && order.deliveryWorkflowStatus !== null
-            && (input.assignedRiderId === undefined || input.assignedRiderId === order.assignedRiderId)
-          ) {
-            return {
-              state: 'NO_OP',
-              orderTicketId: order.id,
-              fromStatus: order.deliveryWorkflowStatus,
-              toStatus: input.toStatus,
-              version: order.deliveryWorkflowVersion,
-              idempotencyKey: input.idempotencyKey,
-            };
+          if (decision.noOp && order.deliveryWorkflowStatus !== null) {
+            const riderUnchanged =
+              input.assignedRiderId === undefined || input.assignedRiderId === order.assignedRiderId;
+            if (riderUnchanged) {
+              return {
+                state: 'NO_OP',
+                orderTicketId: order.id,
+                fromStatus: order.deliveryWorkflowStatus,
+                toStatus: input.toStatus,
+                version: order.deliveryWorkflowVersion,
+                idempotencyKey: input.idempotencyKey,
+              };
+            }
+            // Same-status resubmission (current === next) that targets a
+            // *different* rider than the one already on the order is not an
+            // idempotent replay: it is a conflicting/duplicate assignment
+            // attempt (e.g. a second rider or a stale caller trying to take
+            // over an order that is already ASSIGNED/IN_TRANSIT). The policy
+            // layer only compares status enums and cannot see rider
+            // identity, so this must fail closed here instead of silently
+            // falling through to the mutation below and overwriting the
+            // existing rider.
+            throw new DeliveryWorkflowError('RIDER_ALREADY_ASSIGNED');
           }
 
           const nextVersion = order.deliveryWorkflowVersion + 1;

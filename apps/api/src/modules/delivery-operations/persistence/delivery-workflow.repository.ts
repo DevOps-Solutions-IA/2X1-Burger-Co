@@ -63,7 +63,8 @@ export type DeliveryWorkflowErrorCode =
   | 'NOT_DELIVERY_FULFILLMENT'
   | 'ORDER_NOT_READY'
   | 'RIDER_REQUIRED'
-  | 'RIDER_MUST_BE_CLEARED';
+  | 'RIDER_MUST_BE_CLEARED'
+  | 'RIDER_ALREADY_ASSIGNED';
 
 export class DeliveryWorkflowError extends Error {
   constructor(public readonly code: DeliveryWorkflowErrorCode) {
