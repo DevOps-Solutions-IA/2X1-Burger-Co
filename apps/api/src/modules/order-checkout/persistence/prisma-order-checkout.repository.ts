@@ -569,6 +569,89 @@ export class PrismaOrderCheckoutRepository {
     });
   }
 
+  /**
+   * PK4 (Recovery / Expiration): read-only candidate scan for PaymentExpirationWorker. Indexed by
+   * the pre-existing `[status, expiresAt]` index on payment_intents -- no migration required.
+   * Callers must re-fetch and re-validate (via findPaymentIntent + transitionPayment's own
+   * version/lock guard) before mutating; this method never mutates.
+   */
+  async findExpirablePaymentIntentIds(now: Date, limit: number): Promise<string[]> {
+    const boundedLimit = Math.max(1, Math.min(limit, 200));
+    const rows = await this.prisma.paymentIntent.findMany({
+      where: {
+        status: { in: [PaymentIntentStatus.CREATED, PaymentIntentStatus.LINK_READY, PaymentIntentStatus.PENDING] },
+        expiresAt: { lte: now },
+      },
+      orderBy: { expiresAt: 'asc' },
+      take: boundedLimit,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * PK4 (Recovery / Expiration): housekeeping-only status flip for stale PaymentLink rows past
+   * their TTL. PaymentLink.status is never consulted by any financial-authority decision (the
+   * financial-relevant expiry check is always the read-time `expiresAt` comparison already used by
+   * findActivePaymentLink / resolvePaymentLink), so this is a plain unversioned bulk update -- safe
+   * under concurrency, no optimistic-lock/idempotency-key machinery required.
+   */
+  async expireStalePaymentLinks(now: Date, limit: number): Promise<number> {
+    const boundedLimit = Math.max(1, Math.min(limit, 200));
+    const stale = await this.prisma.paymentLink.findMany({
+      where: { status: { in: [PaymentLinkStatus.ACTIVE, PaymentLinkStatus.OPENED] }, expiresAt: { lte: now } },
+      orderBy: { expiresAt: 'asc' },
+      take: boundedLimit,
+      select: { id: true },
+    });
+    if (stale.length === 0) return 0;
+    const result = await this.prisma.paymentLink.updateMany({
+      where: { id: { in: stale.map((row) => row.id) } },
+      data: { status: PaymentLinkStatus.EXPIRED },
+    });
+    return result.count;
+  }
+
+  /**
+   * PK4 (Recovery / Expiration): read-only candidate scan for checkouts that never converged to a
+   * successful payment within their own window. Indexed by the pre-existing `[status, expiresAt]`
+   * index on order_checkouts.
+   */
+  async findExpirableCheckoutIds(now: Date, limit: number): Promise<string[]> {
+    const boundedLimit = Math.max(1, Math.min(limit, 200));
+    const rows = await this.prisma.orderCheckout.findMany({
+      where: { status: OrderCheckoutStatus.PAYMENT_PENDING, expiresAt: { lte: now } },
+      orderBy: { expiresAt: 'asc' },
+      take: boundedLimit,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * PK4 (Recovery / Expiration): version-guarded, re-validated-under-lock transition of a
+   * PAYMENT_PENDING checkout to EXPIRED once its own deadline has passed. Mirrors the
+   * lock-then-conditional-updateMany pattern already used by markKitchenEligible /
+   * markCheckoutPaymentVerified. Never fires if the checkout has since moved on (KITCHEN_ELIGIBLE,
+   * ORDER_CREATED, FINANCIAL_REVIEW_REQUIRED, ...) -- the `status: PAYMENT_PENDING` filter inside
+   * the version-guarded updateMany makes that race safe.
+   */
+  async expireCheckoutPaymentPending(checkoutId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "order_checkouts" WHERE id = ${checkoutId} FOR UPDATE`;
+      const checkout = await tx.orderCheckout.findUnique({ where: { id: checkoutId } });
+      if (!checkout) checkoutNotFound();
+      if (checkout.status !== OrderCheckoutStatus.PAYMENT_PENDING) checkoutConflict('CHECKOUT_NOT_PAYABLE');
+      if (!checkout.expiresAt || checkout.expiresAt.getTime() > Date.now()) checkoutConflict('CHECKOUT_NOT_PAYABLE');
+      const updated = await tx.orderCheckout.updateMany({
+        where: { id: checkout.id, version: checkout.version, status: OrderCheckoutStatus.PAYMENT_PENDING },
+        data: { status: OrderCheckoutStatus.EXPIRED, version: { increment: 1 } },
+      });
+      if (updated.count !== 1) checkoutConflict('CHECKOUT_NOT_PAYABLE');
+      return tx.orderCheckout.findUniqueOrThrow({ where: { id: checkout.id } });
+    });
+  }
+
   async markKitchenEligible(checkoutId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "order_checkouts" WHERE id = ${checkoutId} FOR UPDATE`;
