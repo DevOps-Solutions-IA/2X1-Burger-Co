@@ -133,7 +133,8 @@ export class DeliveryAssignmentCommandHandler {
       if (error instanceof DeliveryWorkflowError) {
         if (
           error.code === 'STALE_DELIVERY_WORKFLOW_VERSION' ||
-          error.code === 'DELIVERY_WORKFLOW_IDEMPOTENCY_CONFLICT'
+          error.code === 'DELIVERY_WORKFLOW_IDEMPOTENCY_CONFLICT' ||
+          error.code === 'RIDER_ALREADY_ASSIGNED'
         ) {
           throw new ConflictException({ code: error.code });
         }
