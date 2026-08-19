@@ -11,11 +11,12 @@ const strongAliases = [
 
 const ambiguousPrefixes = ['cerca de ', 'por ', 'cerca a ', 'al lado de ', 'via '];
 
-// Connector/filler words that may surround a bare zone reference (e.g. "barrio Condados",
-// "sector la Alborada") without turning the text into an independently-addressable location
-// that needs real geocoding. Deliberately does NOT include street/unit designators (calle,
-// carrera, casa, manzana, apto, etc.) \u2014 those indicate a specific address, not a zone label.
-const zoneFillerWords = new Set([
+// Closed vocabulary for a bare local-zone reference: the alias words themselves plus purely
+// structural/connector words that only ever compose a zone label (e.g. "barrio Condados",
+// "sector la Alborada"), never an independently-addressable location. Deliberately does NOT
+// include street/unit designators (calle, carrera, casa, manzana, apto, etc.), nor any other
+// semantic word \u2014 those indicate a specific address or unrelated prose, not a zone label.
+const zoneVocabulary = new Set([
   'condados',
   'alborada',
   'de',
@@ -28,19 +29,20 @@ const zoneFillerWords = new Set([
   'urbanizacion',
 ]);
 
-// A local-zone alias must appear as (effectively) the whole candidate text to be trusted as a
-// deterministic, no-geocoding-required zone match. This blocks an arbitrary, otherwise
+// A local-zone alias must be trusted as a deterministic, no-geocoding-required zone match only
+// when EVERY token of the candidate text belongs to the closed zone vocabulary above \u2014 not
+// merely when "few enough" extra words are present. This blocks an arbitrary, otherwise
 // invalid/unparseable address from becoming checkout-eligible merely because it happens to
 // contain the alias token somewhere inside a longer, unrelated string (e.g. street number,
-// apartment, distant reference). Anything with digits (street/house/unit numbers) or more than
-// a couple of unrelated extra words is treated as a real address and must go through normal
-// geocoding + coverage + pricing instead of the free-zone shortcut.
-const MAX_EXTRA_ZONE_WORDS = 2;
-
-function isBareZoneReference(candidate: string): boolean {
+// apartment, distant reference, or any surrounding prose at all \u2014 "vivo en alborada", "casa
+// alborada", "calle alborada" all fail because "vivo"/"en"/"casa"/"calle" are not zone
+// vocabulary). Anything containing digits, or any single token outside this whitelist, is
+// treated as a real/unrelated address and must go through normal geocoding + coverage +
+// pricing instead of the free-zone shortcut.
+function isPureZoneReference(candidate: string): boolean {
   if (/\d/.test(candidate)) return false;
-  const extraWords = candidate.split(' ').filter((word) => word && !zoneFillerWords.has(word));
-  return extraWords.length <= MAX_EXTRA_ZONE_WORDS;
+  const tokens = candidate.split(' ').filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => zoneVocabulary.has(token));
 }
 
 export function normalizeLocalZoneText(value: string | null | undefined) {
@@ -88,7 +90,7 @@ export function matchLocalZone(input: {
 
   for (const candidate of candidates) {
     const matchedAlias = strongAliases.find((alias) => candidate.includes(alias));
-    if (matchedAlias && isBareZoneReference(candidate)) {
+    if (matchedAlias && isPureZoneReference(candidate)) {
       return {
         matched: true,
         zoneLabel: matchedAlias.includes('condados') ? 'Condados de la Alborada' : 'Alborada',

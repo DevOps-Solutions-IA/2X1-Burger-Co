@@ -12,14 +12,50 @@ describe('matchLocalZone', () => {
       },
     );
 
-    it.each(['vivo en alborada', 'barrio condados', 'sector la alborada'])(
-      'matches a short, digit-free zone reference with minimal filler: %s',
-      (addressText) => {
-        const result = matchLocalZone({ addressText });
-        expect(result.matched).toBe(true);
-        expect(result.confidence).toBe('MEDIUM');
-      },
-    );
+    it.each([
+      'barrio condados',
+      'sector la alborada',
+      'la alborada',
+      'barrio alborada',
+      'barrio condados',
+      'urbanizacion condados',
+      'sector la alborada',
+      'condados de la alborada',
+    ])('matches a bare zone reference composed only of alias + structural zone vocabulary: %s', (addressText) => {
+      const result = matchLocalZone({ addressText });
+      expect(result.matched).toBe(true);
+      expect(result.ambiguous).toBe(false);
+    });
+  });
+
+  describe('LOCAL_FREE must NOT match arbitrary prose around an alias (residual bypass regression)', () => {
+    it.each([
+      'vivo en alborada',
+      'pedido alborada urgente',
+      'entrega condados rapido',
+      'mandalo a alborada',
+      'direccion alborada',
+      'cliente en condados',
+      'casa alborada',
+      'calle alborada',
+      'carrera condados',
+      'manzana alborada',
+      'apto condados',
+    ])('does NOT match: %s', (addressText) => {
+      const result = matchLocalZone({ addressText });
+      expect(result.matched).toBe(false);
+    });
+
+    it.each([
+      'xxxxx alborada yyyy',
+      'alborada centro',
+      'condados norte',
+      'cerca del alborada gigante',
+      'este es un texto largo sin relacion que menciona alborada de pasada nada mas',
+    ])('does NOT match arbitrary non-whitelisted prose containing the alias: %s', (addressText) => {
+      const result = matchLocalZone({ addressText });
+      expect(result.matched).toBe(false);
+    });
   });
 
   describe('ambiguous alias text', () => {
