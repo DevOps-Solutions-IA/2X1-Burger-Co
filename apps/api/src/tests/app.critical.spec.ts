@@ -8,6 +8,10 @@ import { DeliveryPricingService } from '../delivery/delivery-pricing/delivery-pr
 import { WhatsappService } from '../modules/whatsapp/whatsapp.service';
 import { SofiaWhatsappService } from '../modules/sofia/sofia-whatsapp.service';
 import { Prisma, SaleChannel, SaleStatus } from '@prisma/client';
+import {
+  DELIVERY_QUOTE_SERVICE,
+  type DeliveryQuoteService,
+} from '../application/contracts/sofia-domain-contracts';
 
 type CatalogAuditValues = {
   _audit: {
@@ -37,6 +41,7 @@ describe('Critical business flows', () => {
   let deliveryPricingService: DeliveryPricingService;
   let whatsappService: WhatsappService;
   let sofiaWhatsappService: SofiaWhatsappService;
+  let sofiaDeliveryQuoteService: DeliveryQuoteService;
   let loginAttempt = 0;
 
   beforeAll(async () => {
@@ -60,6 +65,7 @@ describe('Critical business flows', () => {
     deliveryPricingService = app.get(DeliveryPricingService);
     whatsappService = app.get(WhatsappService);
     sofiaWhatsappService = app.get(SofiaWhatsappService);
+    sofiaDeliveryQuoteService = app.get(DELIVERY_QUOTE_SERVICE);
   });
 
   afterAll(async () => {
@@ -3003,6 +3009,107 @@ describe('Critical business flows', () => {
         payments: [{ paymentMethodId: paymentCash.id, amount: 27000 }],
       })
       .expect(400);
+  });
+
+  it('SOFIA commercial checkout and legacy POS checkout agree on every red-team address string (single-authority parity)', async () => {
+    // SOFIA Address Remediation — MANDATORY RULE 3/4: "commercial-checkout (SOFIA) and legacy POS
+    // checkout must never implement diverging rules." Two prior remediation rounds were broken by
+    // an automated red team feeding a real place name / city / prose (never on any fixed denylist)
+    // as a "complement" alongside the "alborada"/"condados" zone alias, and by a fullwidth
+    // (non-ASCII) digit meant to slip past a bare `/\d/` check. This test drives BOTH the exact
+    // authoritative service SOFIA's commercial-checkout.service.ts consumes
+    // (`DELIVERY_QUOTE_SERVICE` -> `AuthoritativeDeliveryQuoteAdapter`, unmocked, real engine) and
+    // the legacy POS `/orders` + `/orders/:id/checkout` HTTP path, with the SAME red-team strings,
+    // and asserts IDENTICAL accept/reject.
+    //
+    // Both production entrypoints only carry a single free-text field into the pricing request
+    // (SOFIA: `addressText` from WhatsApp conversation `state.address`; legacy POS:
+    // `deliveryReference`, mapped to BOTH `addressText` and `reference` — see
+    // `orders.service.ts::resolveDeliverySnapshot`), so the red-team payloads combine the zone
+    // alias and the adversarial complement in that one field, matching the real attack surface of
+    // each entrypoint exactly.
+    const redTeamBlockedReferences = [
+      'alborada Bogota Chapinero',
+      'alborada Medellin',
+      'alborada Barrio Real Distante',
+      'alborada frente Cartagena',
+      'alborada casa ４５',
+    ];
+
+    const { accessToken } = await login();
+    const burger = await prisma.product.findUniqueOrThrow({ where: { code: 'HAMB-2X1' } });
+    const paymentCash = await prisma.paymentMethod.findUniqueOrThrow({ where: { code: 'cash' } });
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    for (const [index, addressText] of redTeamBlockedReferences.entries()) {
+      // SOFIA path: exact same DI-resolved service commercial-checkout.service.ts calls at its
+      // canCheckout gate (line ~210), real engine, no mocks.
+      const sofiaQuote = await sofiaDeliveryQuoteService.quote({
+        addressText,
+        orderSubtotal: 20000,
+        actor: { actorId: 'test-actor', roles: ['SOFIA'], source: 'SOFIA_SANDBOX' },
+      });
+      expect(sofiaQuote.canCheckout).toBe(false);
+
+      // Legacy POS path: same string as the sole deliveryReference field.
+      const legacyOrder = await request(app.getHttpServer())
+        .post('/orders')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'DELIVERY',
+          customerName: 'Cliente Red Team',
+          customerPhone: `310000${String(9000 + index)}`,
+          deliveryReference: addressText,
+          items: [{ productId: burger.id, quantity: 1 }],
+        })
+        .expect(201);
+
+      // Both authorities must agree the address is not complete/checkout-eligible: SOFIA's
+      // canCheckout=false, and legacy POS's checkout must be structurally blocked (400), never a
+      // list of known-bad strings — MANDATORY RULE 6.
+      await request(app.getHttpServer())
+        .post(`/orders/${legacyOrder.body.id}/checkout`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }] })
+        .expect(400);
+    }
+
+    // Positive control: a zone alias PLUS a genuine, courier-actionable complement (closed
+    // positive vocabulary — RULE 10) must be accepted identically by both paths.
+    const legitimateReference = 'alborada casa azul frente al parque';
+
+    const sofiaLegitimateQuote = await sofiaDeliveryQuoteService.quote({
+      addressText: legitimateReference,
+      orderSubtotal: 20000,
+      actor: { actorId: 'test-actor', roles: ['SOFIA'], source: 'SOFIA_SANDBOX' },
+    });
+    expect(sofiaLegitimateQuote.canCheckout).toBe(true);
+
+    const legitimateOrder = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Cliente Real Zona Libre',
+        customerPhone: '3100009999',
+        deliveryReference: legitimateReference,
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    expect(legitimateOrder.body.deliveryPricingStatus).toBe('LOCAL_FREE');
+    expect(legitimateOrder.body.deliveryRequiresManualQuote).toBe(false);
+
+    await request(app.getHttpServer())
+      .post(`/orders/${legitimateOrder.body.id}/checkout`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }] })
+      .expect(201);
   });
 
   it('rejects direct delivery sale injection without backend-priced order ticket', async () => {
