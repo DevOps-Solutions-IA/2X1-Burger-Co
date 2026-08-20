@@ -59,6 +59,19 @@
  */
 
 import type { DeliveryCheckoutAuthorization } from './delivery-pricing.types';
+import {
+  hasUnicodeDigit,
+  isZoneOnlyReferenceStructurallyComplete,
+  normalizeStructuralAddressText,
+  type ZoneAddressCompletenessInput,
+} from '../providers/local-zone-match';
+
+// Re-exported so existing callers (delivery-pricing.engine.ts) keep importing these from this
+// file unchanged. The REAL implementations live in local-zone-match.ts (A1/A2 ownership this
+// round — see that file for the full RULE 7/8/9/10 design) to keep this file's normalization and
+// completeness logic as ONE canonical implementation, never two that could silently drift apart.
+export { hasUnicodeDigit, isZoneOnlyReferenceStructurallyComplete, normalizeStructuralAddressText };
+export type { ZoneAddressCompletenessInput };
 
 export type DeliveryCheckoutAuthorizationInput = {
   /** The submitted address/zone reference is structurally valid: not ambiguous, not missing, not
@@ -106,85 +119,6 @@ export function deriveCheckoutAuthorization(input: DeliveryCheckoutAuthorization
     deliveryFeeResolved: input.deliveryFeeResolved,
     canCheckout,
   };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Unicode-safe text utilities (RULES 7 & 8). These are mechanical/foundational helpers, not the
-// zone-matching "algorithm" itself (that remains A1/A2 scope in local-zone-match.ts). Both the
-// zone-vocabulary matcher and any structural ADDRESS_COMPLETE check SHOULD normalize through
-// `normalizeStructuralAddressText` so they never disagree about what a candidate string "is".
-// ---------------------------------------------------------------------------------------------
-
-/**
- * RULE 8: Unicode-digit-aware check. Round 2's fix used a bare `/\d/` (ASCII `0-9` only) and was
- * broken by fullwidth digits (U+FF10-FF19, e.g. "Casa ４５") and other Unicode decimal-digit
- * blocks (e.g. Arabic-Indic U+0660-0669). `\p{Nd}` matches the full Unicode "Decimal_Number"
- * category, covering all of those. Use this — never a bare `/\d/` — anywhere a "does this text
- * contain a house/street number" signal is needed.
- */
-export function hasUnicodeDigit(text: string): boolean {
-  return /\p{Nd}/u.test(text);
-}
-
-/**
- * RULE 7: Unicode-safe normalization for structural address/zone-reference comparison.
- *
- * Applies NFKC first (canonicalizes *compatibility* variants — fullwidth Latin letters/digits,
- * ligatures, etc. — which plain NFD+diacritic-strip does NOT do and which was one of the gaps the
- * red team exploited), THEN strips combining diacritical marks, THEN lowercases and collapses
- * whitespace/punctuation to single spaces.
- */
-export function normalizeStructuralAddressText(value: string | null | undefined): string {
-  return (value ?? '')
-    .normalize('NFKC')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// ---------------------------------------------------------------------------------------------
-// ADDRESS_COMPLETE structural check — INTERFACE + FAIL-CLOSED SCAFFOLD ONLY.
-//
-// TODO(A1/A2 — this is the matching/validation ALGORITHM, explicitly out of A0 scope):
-// Implement the real positive/structural "is this a courier-actionable, complete reference"
-// check here (or wire an equivalent implementation from local-zone-match.ts into this function),
-// replacing the placeholder body below. Requirements per CLAUDE.md mandatory rules for this round:
-//
-//   - RULE 10 (the core fix): define what a valid, COMPLETE zone-only reference IS via a closed,
-//     positive vocabulary, applied token-by-token — do NOT define it as "doesn't contain a bad
-//     word". A bare zone alias ("Alborada", "barrio Condados") is zoneMatched=true but
-//     addressComplete=false; the moment any token, IN ANY of the supplied candidate fields
-//     (addressText, neighborhood, reference — not just the field the alias was found in; that
-//     per-field blind spot is exactly how both prior rounds were broken), does not belong to that
-//     closed vocabulary, addressComplete must be evaluated as false for the *zone-only* shortcut —
-//     fall through to normal geocoding instead of guessing that it's a "safe complement".
-//   - RULE 7/8: normalize every candidate via `normalizeStructuralAddressText` above and check
-//     digits via `hasUnicodeDigit` above (or `\p{Nd}` directly) — not a bare `/\d/`.
-//   - RULE 9: no growing denylist of forbidden words as the primary authority. A denylist may be
-//     used only as defense-in-depth *in addition to* the positive structural check above, never as
-//     a substitute for it.
-//
-// FAIL-CLOSED PLACEHOLDER: until the real check lands, this returns `false` unconditionally. That
-// is intentional and safe: it means a bare/short-circuited zone-only match can NEVER be treated as
-// address-complete purely from text, closing MANDATORY RULE 6 ("structurally impossible, not just
-// tested against known-bad strings") today, even before the smarter positive matcher exists. The
-// cost is that every zone match currently requires either a real geocoded point (see
-// TRUSTED_POST_GEOCODING handling in delivery-pricing.engine.ts / delivery-external-data.service.ts)
-// or a future real implementation of this function to be considered checkout-eligible. Do not "fix"
-// failing tests by loosening this default without implementing the real structural check.
-// ---------------------------------------------------------------------------------------------
-
-export type ZoneAddressCompletenessInput = {
-  addressText?: string | null;
-  neighborhood?: string | null;
-  reference?: string | null;
-};
-
-export function isZoneOnlyReferenceStructurallyComplete(_input: ZoneAddressCompletenessInput): boolean {
-  return false;
 }
 
 // ---------------------------------------------------------------------------------------------
