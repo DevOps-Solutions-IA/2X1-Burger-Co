@@ -42,6 +42,7 @@ import { SalesService } from '../sales/sales.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { TablesService } from '../tables/tables.service';
 import { DeliveryPricingService } from '../../delivery/delivery-pricing/delivery-pricing.service';
+import { deriveCheckoutAuthorizationFromOrderSnapshot } from '../../delivery/delivery-pricing/delivery-checkout-authorization';
 import { CheckoutOrderTicketDto } from './dto/checkout-order-ticket.dto';
 import { AssignDeliveryRiderDto } from './dto/assign-delivery-rider.dto';
 import { ClaimOrderTicketDto } from './dto/claim-order-ticket.dto';
@@ -3439,20 +3440,29 @@ export class OrdersService {
       return;
     }
 
-    const status = order.deliveryPricingStatus;
-    const canCheckout = status === 'LOCAL_FREE' || status === 'AUTO_PRICED';
     const fee = order.deliveryFee == null ? null : Number(order.deliveryFee);
     const hasCalculationSnapshot =
       Boolean(order.deliveryCalculationVersion?.trim()) &&
       order.deliveryPricingBreakdown != null;
 
-    if (
-      !canCheckout ||
-      !hasCalculationSnapshot ||
-      order.deliveryRequiresManualQuote ||
-      fee == null ||
-      !Number.isFinite(fee)
-    ) {
+    // SOFIA Address Remediation — single source of truth. This MUST reconstruct the canonical
+    // checkout-authorization contract via deriveCheckoutAuthorizationFromOrderSnapshot() (the same
+    // pure function DeliveryPricingEngine uses at live-quote time, via
+    // deriveCheckoutAuthorization()) rather than re-deriving its own notion of "can checkout" from
+    // deliveryPricingStatus. A LOCAL_FREE zone match with an incomplete address is never sufficient
+    // by itself — see delivery-checkout-authorization.ts and CLAUDE.md mandatory rules 1/2/6.
+    const authorization = deriveCheckoutAuthorizationFromOrderSnapshot({
+      deliveryPricingStatus: order.deliveryPricingStatus,
+      deliveryRequiresManualQuote: order.deliveryRequiresManualQuote,
+      deliveryFee: fee,
+      hasCalculationSnapshot,
+    });
+
+    // Deliberately no additional/parallel checks here: authorization.canCheckout already folds in
+    // hasCalculationSnapshot, deliveryRequiresManualQuote and fee validity (see
+    // deriveCheckoutAuthorizationFromOrderSnapshot). Re-testing those fields independently here
+    // would recreate exactly the "diverging parallel rule" failure mode this remediation closes.
+    if (!authorization.canCheckout) {
       throw new BadRequestException('El domicilio requiere una tarifa automática válida antes de cobrar.');
     }
   }

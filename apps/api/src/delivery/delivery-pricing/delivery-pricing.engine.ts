@@ -1,6 +1,7 @@
 import { matchLocalZone } from '../providers/local-zone-match';
 import type { DeliveryContextResult, LocalZoneMatchResult } from '../providers/provider-types';
 import { deliveryPricingConfig } from './delivery-pricing.config';
+import { deriveCheckoutAuthorization, isZoneOnlyReferenceStructurallyComplete } from './delivery-checkout-authorization';
 import type {
   DeliveryPricingBreakdownItem,
   DeliveryPricingRequest,
@@ -35,11 +36,27 @@ export class DeliveryPricingEngine {
     }
 
     if (localZoneMatch.matched) {
+      // MANDATORY RULE 1/2: a LOCAL_FREE zone match proves the address falls in the known free
+      // zone (pricing-relevant, fee=0), but never by itself proves the address is COMPLETE enough
+      // for a courier to reach it. addressComplete must be independently proven — either by a real
+      // already-resolved geocoded point (TRUSTED_POST_GEOCODING_ZONE_HANDLING: real coordinates
+      // always outrank the text shortcut) or by the structural zone-completion check owned by
+      // A1/A2 (see delivery-checkout-authorization.ts — currently a fail-closed placeholder).
+      const hasRealPoint = Boolean(context?.destination.latitude != null && context?.destination.longitude != null);
+      const addressComplete = hasRealPoint || isZoneOnlyReferenceStructurallyComplete(request);
+      if (!addressComplete) {
+        warnings.add('LOCAL_ZONE_ADDRESS_INCOMPLETE');
+      }
+
       return baseResult({
         pricingStatus: 'LOCAL_FREE',
         suggestedFee: 0,
         finalFee: 0,
-        requiresManualQuote: false,
+        // Persisted onto the order (deliveryRequiresManualQuote) precisely so a bare zone-only
+        // match can never silently become checkout-eligible downstream once this quote is snapshotted
+        // onto an OrderTicket — see deriveCheckoutAuthorizationFromOrderSnapshot() and
+        // orders.service.ts::assertDeliveryCheckoutAllowed.
+        requiresManualQuote: !addressComplete,
         confidence: localZoneMatch.confidence,
         zoneType: 'LOCAL_FREE',
         zoneLabel: 'Condados / Alborada',
@@ -59,8 +76,14 @@ export class DeliveryPricingEngine {
           },
         ],
         warnings: [...warnings],
-        reasonCode: 'LOCAL_FREE_ZONE',
-        humanMessage: 'Domicilio gratis - Condados / Alborada.',
+        reasonCode: addressComplete ? 'LOCAL_FREE_ZONE' : 'LOCAL_FREE_ZONE_ADDRESS_INCOMPLETE',
+        humanMessage: addressComplete
+          ? 'Domicilio gratis - Condados / Alborada.'
+          : 'Domicilio gratis - Condados / Alborada, pero falta una dirección completa (referencia exacta o ubicación) para que el domiciliario pueda llegar.',
+        addressValid: true,
+        addressComplete,
+        zoneMatched: true,
+        coverageAllowed: true,
       });
     }
 
@@ -165,6 +188,12 @@ export class DeliveryPricingEngine {
         status: 'OUT_OF_COVERAGE',
         reasonCode: 'OUT_OF_COVERAGE',
         humanMessage: 'La dirección queda fuera de la cobertura automática de domicilios.',
+        // A real geocoded route was resolved (we know exactly where this is) — it is simply
+        // outside configured coverage. Distinct from every other blocked branch, where the
+        // address itself hasn't been proven valid/complete.
+        addressValid: true,
+        addressComplete: true,
+        coverageAllowed: false,
       });
     }
 
@@ -221,6 +250,13 @@ export class DeliveryPricingEngine {
       warnings: [...warnings],
       reasonCode: 'AUTO_PRICED',
       humanMessage: 'Tarifa de domicilio calculada automáticamente.',
+      // A real point was geocoded and a real route was resolved with sufficient confidence to
+      // reach this branch (see the confidence/LOW and coordinates-missing gates above) — this is
+      // the canonical "everything checked out for real" case.
+      addressValid: true,
+      addressComplete: true,
+      zoneMatched: false,
+      coverageAllowed: true,
     });
   }
 
@@ -232,6 +268,13 @@ export class DeliveryPricingEngine {
     status: DeliveryPricingResult['pricingStatus'];
     reasonCode: string;
     humanMessage: string;
+    // Fail-closed defaults (false): every blocked branch is "not (yet) proven" by default. Only
+    // override these when a branch has genuinely, independently proven one of these facts true
+    // despite still being blocked overall (e.g. OUT_OF_COVERAGE knows the address is valid and
+    // complete — it's simply too far).
+    addressValid?: boolean;
+    addressComplete?: boolean;
+    coverageAllowed?: boolean;
   }): DeliveryPricingResult {
     return baseResult({
       pricingStatus: input.status,
@@ -253,6 +296,10 @@ export class DeliveryPricingEngine {
       warnings: [...input.warnings],
       reasonCode: input.reasonCode,
       humanMessage: input.humanMessage,
+      addressValid: input.addressValid ?? false,
+      addressComplete: input.addressComplete ?? false,
+      zoneMatched: false,
+      coverageAllowed: input.coverageAllowed ?? false,
     });
   }
 }
@@ -279,8 +326,23 @@ function baseResult(input: {
   manualEditReason?: string | null;
   reasonCode: string;
   humanMessage: string;
+  // Canonical checkout-authorization inputs — see delivery-checkout-authorization.ts. Every call
+  // site must set these explicitly and honestly; there is no implicit/legacy fallback path left,
+  // so `canCheckout` can only ever be `true` when every gating flag was affirmatively proven.
+  addressValid: boolean;
+  addressComplete: boolean;
+  zoneMatched: boolean;
+  coverageAllowed: boolean;
 }): DeliveryPricingResult {
-  const canCheckout = input.pricingStatus === 'LOCAL_FREE' || input.pricingStatus === 'AUTO_PRICED';
+  const deliveryFeeResolved = input.finalFee != null && Number.isFinite(input.finalFee);
+  const checkoutAuthorization = deriveCheckoutAuthorization({
+    addressValid: input.addressValid,
+    addressComplete: input.addressComplete,
+    zoneMatched: input.zoneMatched,
+    coverageAllowed: input.coverageAllowed,
+    deliveryFeeResolved,
+  });
+  const canCheckout = checkoutAuthorization.canCheckout;
   const weatherImpact = {
     rainIntensity: input.weatherMode,
     surcharge: input.weatherSurcharge,
@@ -302,6 +364,7 @@ function baseResult(input: {
     finalFee: input.finalFee,
     currency: 'COP',
     canCheckout,
+    checkoutAuthorization,
     requiresAddressCorrection: input.pricingStatus === 'NEEDS_ADDRESS_CORRECTION' || input.pricingStatus === 'INVALID_INPUT',
     reasonCode: input.reasonCode,
     humanMessage: input.humanMessage,

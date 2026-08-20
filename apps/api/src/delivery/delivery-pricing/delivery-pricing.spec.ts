@@ -74,20 +74,63 @@ function context(overrides: Partial<DeliveryContextResult> = {}): DeliveryContex
 }
 
 describe('DeliveryPricingEngine enterprise pricing', () => {
+  // SOFIA Address Remediation (MANDATORY RULE 1/2/6): a bare zone alias with NO other context —
+  // no real geocoded point, no proven address complement — still prices the known free zone at 0
+  // (zoneMatched=true), but must NEVER be checkout-eligible by itself: a courier cannot be
+  // dispatched to "Alborada" with nothing else. This is the exact false-positive both prior
+  // remediation rounds failed to close for real (the fix stayed in-memory but never survived
+  // persistence onto the order). See delivery-checkout-authorization.ts.
   it.each(['Condados', 'La Alborada', 'Condados de la Alborada', '  CÓNDADOS   de la   ALBORADA  '])(
-    'prices local free exact alias as 0: %s',
+    'prices local free exact alias as 0 but blocks checkout until the address is complete: %s',
     (addressText) => {
       const result = engine.quote({ addressText });
 
       expect(result.pricingStatus).toBe('LOCAL_FREE');
       expect(result.suggestedFee).toBe(0);
       expect(result.finalFee).toBe(0);
-      expect(result.canCheckout).toBe(true);
-      expect(result.requiresManualQuote).toBe(false);
       expect(result.zoneType).toBe('LOCAL_FREE');
       expect(result.zoneLabel).toBe('Condados / Alborada');
+      expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+      expect(result.checkoutAuthorization.addressComplete).toBe(false);
+      expect(result.canCheckout).toBe(false);
+      expect(result.checkoutAuthorization.canCheckout).toBe(false);
+      expect(result.requiresManualQuote).toBe(true);
+      expect(result.warnings).toContain('LOCAL_ZONE_ADDRESS_INCOMPLETE');
     },
   );
+
+  it.each(['Condados', 'La Alborada'])(
+    'prices local free alias as checkout-eligible once a real geocoded point is already known (TRUSTED_POST_GEOCODING_ZONE_HANDLING): %s',
+    (addressText) => {
+      const result = engine.quote({
+        addressText,
+        context: context({
+          localZoneMatch: { matched: true, zoneLabel: 'Alborada', confidence: 'HIGH', ambiguous: false, reason: 'test' },
+        }),
+      });
+
+      expect(result.pricingStatus).toBe('LOCAL_FREE');
+      expect(result.finalFee).toBe(0);
+      expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+      expect(result.checkoutAuthorization.addressComplete).toBe(true);
+      expect(result.canCheckout).toBe(true);
+      expect(result.checkoutAuthorization.canCheckout).toBe(true);
+      expect(result.requiresManualQuote).toBe(false);
+    },
+  );
+
+  it('reports a full DeliveryCheckoutAuthorization breakdown, not just the final AND, for an incomplete zone-only match', () => {
+    const result = engine.quote({ addressText: 'Alborada' });
+
+    expect(result.checkoutAuthorization).toEqual({
+      addressValid: true,
+      addressComplete: false,
+      zoneMatched: true,
+      coverageAllowed: true,
+      deliveryFeeResolved: true,
+      canCheckout: false,
+    });
+  });
 
   it.each(['cerca de alborada', 'por alborada', 'vía alborada'])('requires address correction for ambiguous local text: %s', (addressText) => {
     const result = engine.quote({ addressText });

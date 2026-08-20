@@ -2837,6 +2837,9 @@ describe('Critical business flows', () => {
   it('delivery pricing endpoint handles local free and ambiguous local text safely', async () => {
     const { accessToken } = await login();
 
+    // SOFIA Address Remediation (MANDATORY RULE 1/2/6): a bare zone alias with no other address
+    // detail still prices the free zone at 0 (zoneMatched), but must NOT be checkout-eligible by
+    // itself — a courier cannot be dispatched to "Condados de la Alborada" with nothing else.
     const localFree = await request(app.getHttpServer())
       .post('/delivery-pricing/estimate')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -2848,7 +2851,37 @@ describe('Critical business flows', () => {
 
     expect(localFree.body.pricingStatus).toBe('LOCAL_FREE');
     expect(localFree.body.finalFee).toBe(0);
-    expect(localFree.body.requiresManualQuote).toBe(false);
+    expect(localFree.body.requiresManualQuote).toBe(true);
+    expect(localFree.body.canCheckout).toBe(false);
+    expect(localFree.body.checkoutAuthorization).toMatchObject({
+      zoneMatched: true,
+      addressComplete: false,
+      canCheckout: false,
+    });
+
+    // The same zone alias, but with a real geocoded point already attached (e.g. a WhatsApp live
+    // location pin), IS checkout-eligible: the address is complete because we know exactly where
+    // it is, even though it still prices as the free zone.
+    const localFreeWithPoint = await request(app.getHttpServer())
+      .post('/delivery-pricing/estimate')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        orderSubtotal: 25000,
+        addressText: 'Condados de la Alborada',
+        latitude: 3.2556,
+        longitude: -76.5417,
+      })
+      .expect(200);
+
+    expect(localFreeWithPoint.body.pricingStatus).toBe('LOCAL_FREE');
+    expect(localFreeWithPoint.body.finalFee).toBe(0);
+    expect(localFreeWithPoint.body.requiresManualQuote).toBe(false);
+    expect(localFreeWithPoint.body.canCheckout).toBe(true);
+    expect(localFreeWithPoint.body.checkoutAuthorization).toMatchObject({
+      zoneMatched: true,
+      addressComplete: true,
+      canCheckout: true,
+    });
 
     const ambiguous = await request(app.getHttpServer())
       .post('/delivery-pricing/estimate')
@@ -2881,6 +2914,41 @@ describe('Critical business flows', () => {
       .send({ openingAmount: 0 })
       .expect(201);
 
+    // SOFIA Address Remediation (MANDATORY RULE 1/2/6): a LOCAL_FREE zone match with NO other
+    // address detail (bare "Condados de la Alborada", no real point) must NOT be checkout-eligible
+    // — this is the exact false positive both prior remediation rounds failed to close for real,
+    // because the fix never survived persistence onto the order row. orders.service.ts must block
+    // checkout here via the same canonical authority the live quote used
+    // (deriveCheckoutAuthorizationFromOrderSnapshot / deriveCheckoutAuthorization).
+    const incompleteLocalFreeOrder = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Cliente Local Incompleto',
+        customerPhone: '3100000003',
+        deliveryReference: 'Condados de la Alborada',
+        deliveryFee: 7000,
+        deliveryFeeEditReason: 'Intento de inyección legacy',
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    expect(incompleteLocalFreeOrder.body.deliveryPricingStatus).toBe('LOCAL_FREE');
+    expect(Number(incompleteLocalFreeOrder.body.deliveryFee)).toBe(0);
+    expect(incompleteLocalFreeOrder.body.deliveryRequiresManualQuote).toBe(true);
+
+    await request(app.getHttpServer())
+      .post(`/orders/${incompleteLocalFreeOrder.body.id}/checkout`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }],
+      })
+      .expect(400);
+
+    // The same free zone, but WITH a real geocoded point already attached (e.g. a live location
+    // pin captured at order-creation time), IS checkout-eligible: the address is complete because
+    // the exact destination is known, even though it still prices as the free zone.
     const localFreeOrder = await request(app.getHttpServer())
       .post('/orders')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -2889,6 +2957,8 @@ describe('Critical business flows', () => {
         customerName: 'Cliente Local',
         customerPhone: '3100000001',
         deliveryReference: 'Condados de la Alborada',
+        deliveryLatitude: 3.2556,
+        deliveryLongitude: -76.5417,
         deliveryFee: 7000,
         deliveryFeeEditReason: 'Intento de inyección legacy',
         items: [{ productId: burger.id, quantity: 1 }],
@@ -2897,6 +2967,7 @@ describe('Critical business flows', () => {
 
     expect(localFreeOrder.body.deliveryPricingStatus).toBe('LOCAL_FREE');
     expect(Number(localFreeOrder.body.deliveryFee)).toBe(0);
+    expect(localFreeOrder.body.deliveryRequiresManualQuote).toBe(false);
 
     const localCheckout = await request(app.getHttpServer())
       .post(`/orders/${localFreeOrder.body.id}/checkout`)

@@ -94,7 +94,32 @@ export class DeliveryExternalDataService {
     let geocodingAttempted = false;
     let geocodingResult: GeocodeResult | null = this.locationGeocodingResult(request, destination);
 
-    if (localZoneMatch.matched || localZoneMatch.ambiguous) {
+    if (localZoneMatch.ambiguous) {
+      return this.buildContextResult({
+        origin,
+        destination,
+        geocodingAttempted,
+        geocodingResult,
+        routeAttempted: false,
+        routeResult: null,
+        haversineReferenceKm: null,
+        weatherAttempted: false,
+        weatherResult: null,
+        localZoneMatch,
+        warnings,
+      });
+    }
+
+    // TRUSTED_POST_GEOCODING_ZONE_HANDLING: the bare-zone-label text shortcut is only a fallback
+    // for when no real point is already available. If the destination already carries real
+    // coordinates at this point (e.g. a client-supplied/already-geocoded location, such as a
+    // WhatsApp live-location pin), do not silently skip routing in favor of the text shortcut —
+    // fall through to the normal geocoding/routing/pricing pipeline below so the already-available
+    // real point drives the result (and DeliveryPricingEngine's ADDRESS_COMPLETE determination) on
+    // its own merits. localZoneMatch stays attached to the returned context either way, so the
+    // engine still knows this is a zone-matched (fee-relevant) address even when it goes through
+    // the full pipeline.
+    if (localZoneMatch.matched && !hasDestinationCoordinates(destination)) {
       return this.buildContextResult({
         origin,
         destination,
