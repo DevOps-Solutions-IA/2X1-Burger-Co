@@ -299,6 +299,53 @@ describe('DeliveryExternalDataService provider architecture', () => {
     expect(result.localZoneMatch.matched).toBe(false);
   });
 
+  // SOFIA Address Remediation (TRUSTED_POST_GEOCODING_ZONE_HANDLING) — the ONE mechanism from the
+  // prior remediation rounds that passed both automated red-team rounds cleanly and must be
+  // preserved/re-verified this round: a zone-alias text match ("Alborada") is only a fallback used
+  // when NO real point is already known. If the caller already supplies real coordinates alongside
+  // the alias text (e.g. a WhatsApp live-location pin, or a client-side map pick), the service must
+  // NOT take the bare-text zone shortcut — it must fall through to the normal
+  // geocoding/routing/weather pipeline and let the real point drive routing + DeliveryPricingEngine's
+  // ADDRESS_COMPLETE determination on its own merits, exactly like any other resolved destination.
+  it('falls through to the real routing/weather pipeline instead of the bare zone-text shortcut when real coordinates are already known (TRUSTED_POST_GEOCODING_ZONE_HANDLING)', async () => {
+    const providers = buildProviders();
+
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Alborada',
+      latitude: 3.258,
+      longitude: -76.542,
+    });
+
+    // The zone match is still surfaced (fee-relevant metadata for the pricing engine) ...
+    expect(result.localZoneMatch.matched).toBe(true);
+    // ... but it did NOT short-circuit the pipeline: real routing/weather were actually attempted
+    // and resolved against the real point, exactly as for any other already-geocoded destination.
+    expect(result.route.attempted).toBe(true);
+    expect(result.route.distanceKm).toBe(2.4);
+    expect(result.route.durationMinutes).toBe(9);
+    expect(result.weather.attempted).toBe(true);
+    expect(providers.routingProvider.getRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationLatitude: 3.258, destinationLongitude: -76.542 }),
+    );
+    expect(result.destination.latitude).toBe(3.258);
+    expect(result.destination.longitude).toBe(-76.542);
+    expect(result.requiresManualQuote).toBe(false);
+  });
+
+  it('still applies the bare zone-text shortcut (no routing/weather attempted) when no real coordinates are supplied alongside the alias', async () => {
+    const providers = buildProviders();
+
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Alborada',
+    });
+
+    expect(result.localZoneMatch.matched).toBe(true);
+    expect(result.route.attempted).toBe(false);
+    expect(result.weather.attempted).toBe(false);
+    expect(providers.routingProvider.getRoute).not.toHaveBeenCalled();
+    expect(providers.weatherProvider.getCurrentWeather).not.toHaveBeenCalled();
+  });
+
   it('requires manual quote when every external provider fails', async () => {
     const providers = buildProviders({
       geocoding: {
@@ -328,6 +375,69 @@ describe('DeliveryExternalDataService provider architecture', () => {
     await service.resolveDeliveryContext({ addressText: 'Carrera 22, Jamundí' });
 
     expect(providers.geocodingProvider.geocodeAddress).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DeliveryExternalDataService -> DeliveryPricingEngine end-to-end checkout authorization', () => {
+  // SOFIA Address Remediation — end-to-end proof (not just hand-built engine fixtures) that a real
+  // DeliveryExternalDataService.resolveDeliveryContext() context, fed straight into
+  // DeliveryPricingEngine.quote(), produces the correct CAN_CHECKOUT for the
+  // TRUSTED_POST_GEOCODING_ZONE_HANDLING scenario and leaves a normal AUTO_PRICED (non-zone)
+  // address entirely unaffected by the zone-coverage wiring.
+  const engine = new DeliveryPricingEngine();
+
+  it('grants CAN_CHECKOUT for a zone-alias address once a real geocoded/pinned point is already known', async () => {
+    const service = serviceWithProviders();
+    const request = { addressText: 'Alborada', latitude: 3.258, longitude: -76.542 };
+
+    const context = await service.resolveDeliveryContext(request);
+    const result = engine.quote({ ...request, context });
+
+    expect(context.localZoneMatch.matched).toBe(true);
+    expect(context.route.attempted).toBe(true);
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+    expect(result.checkoutAuthorization.addressComplete).toBe(true);
+    expect(result.checkoutAuthorization.coverageAllowed).toBe(true);
+    expect(result.checkoutAuthorization.deliveryFeeResolved).toBe(true);
+    expect(result.checkoutAuthorization.canCheckout).toBe(true);
+    expect(result.canCheckout).toBe(true);
+  });
+
+  it('blocks CAN_CHECKOUT for a bare zone-alias address with no real point and no structurally-complete complement', async () => {
+    const service = serviceWithProviders();
+    const request = { addressText: 'Alborada' };
+
+    const context = await service.resolveDeliveryContext(request);
+    const result = engine.quote({ ...request, context });
+
+    expect(context.localZoneMatch.matched).toBe(true);
+    expect(context.route.attempted).toBe(false);
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+    expect(result.checkoutAuthorization.addressComplete).toBe(false);
+    expect(result.checkoutAuthorization.canCheckout).toBe(false);
+    expect(result.canCheckout).toBe(false);
+  });
+
+  it('leaves a normal AUTO_PRICED (non-zone) address unaffected by the zone-coverage wiring', async () => {
+    const service = serviceWithProviders();
+    const request = { addressText: 'Carrera 22, Jamundí' };
+
+    const context = await service.resolveDeliveryContext(request);
+    const result = engine.quote({ ...request, context });
+
+    expect(context.localZoneMatch.matched).toBe(false);
+    expect(result.pricingStatus).toBe('AUTO_PRICED');
+    expect(result.checkoutAuthorization.zoneMatched).toBe(false);
+    expect(result.checkoutAuthorization.addressComplete).toBe(true);
+    expect(result.checkoutAuthorization.coverageAllowed).toBe(true);
+    expect(result.checkoutAuthorization.deliveryFeeResolved).toBe(true);
+    expect(result.checkoutAuthorization.canCheckout).toBe(true);
+    expect(result.canCheckout).toBe(true);
+    expect(result.finalFee).toBeGreaterThan(0);
   });
 });
 
