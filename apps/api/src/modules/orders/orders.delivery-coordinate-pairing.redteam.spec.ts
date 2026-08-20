@@ -1,9 +1,7 @@
 /**
- * A6 RED TEAM — independent finding, adjacent to spatial-authority bypass (not part of A5's
- * round-4 diff; this defect lives in `orders.service.ts::resolveDeliverySnapshot`, which A5's
- * diff does not touch).
+ * A6 RED TEAM finding (round 4) — FIXED in round 4's final closure (A7).
  *
- * `resolveDeliverySnapshot` (orders.service.ts:4610) merges an incoming delivery coordinate
+ * `resolveDeliverySnapshot` (orders.service.ts:4610) used to merge an incoming delivery coordinate
  * update with the ORDER'S EXISTING persisted coordinate independently per axis:
  *
  *   const explicitLatitude = input.latitude ?? null;
@@ -115,7 +113,7 @@ describe('A6 RED TEAM: legacy POS partial coordinate update pairs a NEW axis wit
     await prisma.$disconnect();
   });
 
-  it('FINDING 2: a same-reference-text partial coordinate update fabricates a point that was never independently geocoded, and prices delivery against it', async () => {
+  it('FINDING 2 — FIXED: a same-reference-text partial coordinate update no longer fabricates a hybrid point; the atomic pair is preserved from whichever single source is complete', async () => {
     const reference = 'casa esquinera azul barrio alborada';
 
     // Turn 1: real order with a full, coherent, trusted coordinate pair 42km away — correctly not
@@ -159,18 +157,18 @@ describe('A6 RED TEAM: legacy POS partial coordinate update pairs a NEW axis wit
       },
     });
 
-    // The persisted point is now a hybrid: NEW latitude + OLD longitude — a coordinate pair that
-    // was never geocoded, pinned, or confirmed together as a single real point.
-    expect(Number(second.deliveryLatitude)).toBeCloseTo(NEAR_LATITUDE, 5);
-    expect(Number(second.deliveryLongitude)).toBeCloseTo(TRUE_FAR_LONGITUDE, 5); // stale axis leaked through
+    // FIXED (round 4 closure): the incomplete new pair (latitude only) is rejected outright, and the
+    // system falls back to the last known COHERENT pair (both axes from the same prior resolution)
+    // rather than mixing a fresh axis with a stale one.
+    expect(Number(second.deliveryLatitude)).toBeCloseTo(TRUE_FAR_LATITUDE, 5);
+    expect(Number(second.deliveryLongitude)).toBeCloseTo(TRUE_FAR_LONGITUDE, 5);
 
-    // Prove the routing provider was actually queried against this exact fabricated hybrid pair
-    // (not against the true far point, not against a clean near point) — i.e. the engine trusted
-    // it as a real, coherent, already-resolved destination.
+    // Prove the fabricated hybrid pair (NEW latitude + OLD longitude) was never queried at all —
+    // the engine never trusted a coordinate pair that wasn't atomically sourced.
     const calls = (routingProvider.getRoute as jest.Mock).mock.calls as Array<[{ destinationLatitude: number; destinationLongitude: number }]>;
     const hybridCall = calls.find(
       ([req]) => Math.abs(req.destinationLatitude - NEAR_LATITUDE) < 1e-6 && Math.abs(req.destinationLongitude - TRUE_FAR_LONGITUDE) < 1e-6,
     );
-    expect(hybridCall).toBeDefined();
+    expect(hybridCall).toBeUndefined();
   });
 });

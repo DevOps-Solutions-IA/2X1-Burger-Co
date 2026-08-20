@@ -206,7 +206,13 @@ export class CommercialCheckoutService {
     const subtotal = state.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     let deliveryFee = 0, deliveryQuoteAuditId: string | null = null, deliveryQuoteVersion: number | null = null, deliveryQuoteExpiresAt: Date | null = null;
     if (state.fulfillment === 'DELIVERY') {
-      const quote = await this.deliveryQuotes.quote({ addressText: state.address!, orderSubtotal: subtotal, actor: command.actor });
+      const quote = await this.deliveryQuotes.quote({
+        addressText: state.address!,
+        latitude: state.location?.latitude,
+        longitude: state.location?.longitude,
+        orderSubtotal: subtotal,
+        actor: command.actor,
+      });
       if (!quote.canCheckout || quote.finalFee === null || !quote.auditId) throw new BadRequestException({ code: 'SOFIA_DELIVERY_QUOTE_REQUIRED', reasonCode: quote.reasonCode });
       deliveryFee = quote.finalFee; deliveryQuoteAuditId = quote.auditId;
       deliveryQuoteVersion = Number(quote.calculationVersion.match(/v(\d+)$/)?.[1] ?? 0) || null;

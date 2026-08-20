@@ -4661,19 +4661,27 @@ export class OrdersService {
       existingAddress != null &&
       normalizedAddress !== existingAddress;
 
+    // Coordinates are only ever trusted as an atomic (latitude, longitude) pair -- never mixed
+    // from two different sources. Independently falling back per-axis (explicit lat + stale
+    // existing lng, or vice versa) can fabricate a hybrid point that was never actually geocoded
+    // as a coherent location, yet would be treated downstream as a single "already resolved"
+    // trusted spatial point.
     const explicitLatitude = input.latitude ?? null;
     const explicitLongitude = input.longitude ?? null;
-    const existingLatitude =
+    const hasExplicitPair = explicitLatitude != null && explicitLongitude != null;
+
+    const existingLatitudeRaw =
       !referenceChanged && input.existing?.deliveryLatitude != null
         ? Number(input.existing.deliveryLatitude)
         : null;
-    const existingLongitude =
+    const existingLongitudeRaw =
       !referenceChanged && input.existing?.deliveryLongitude != null
         ? Number(input.existing.deliveryLongitude)
         : null;
+    const hasExistingPair = existingLatitudeRaw != null && existingLongitudeRaw != null;
 
-    const latitude = explicitLatitude ?? existingLatitude;
-    const longitude = explicitLongitude ?? existingLongitude;
+    const latitude = hasExplicitPair ? explicitLatitude : hasExistingPair ? existingLatitudeRaw : null;
+    const longitude = hasExplicitPair ? explicitLongitude : hasExistingPair ? existingLongitudeRaw : null;
     const pricing = await this.deliveryPricingService.estimate({
       addressText: rawReference,
       reference: rawReference,

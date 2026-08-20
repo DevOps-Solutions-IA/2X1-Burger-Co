@@ -145,17 +145,17 @@ describe('A6 RED TEAM: SOFIA commercial-checkout drops trusted live-location bef
     expect(result.state.location).toEqual({ latitude: FAR_LATITUDE, longitude: FAR_LONGITUDE });
     expect(result.state.fulfillment).toBe('DELIVERY');
 
-    // ...but the actual call to the delivery pricing authority never carries it.
+    // FIXED (round 4 closure): the actual call to the delivery pricing authority now carries it.
     expect(quote).toHaveBeenCalledTimes(1);
     const callArgs = quote.mock.calls[0]![0];
-    expect(callArgs.latitude).toBeUndefined();
-    expect(callArgs.longitude).toBeUndefined();
-    // This is the vulnerability: DeliveryQuoteService.quote() explicitly supports latitude/longitude
-    // (sofia-domain-contracts.ts DeliveryQuoteService), the customer supplied a real, trusted,
-    // already-resolved point, and it was silently discarded before reaching pricing.
+    expect(callArgs.latitude).toBe(FAR_LATITUDE);
+    expect(callArgs.longitude).toBe(FAR_LONGITUDE);
+    // Regression guard for the original finding: DeliveryQuoteService.quote() explicitly supports
+    // latitude/longitude (sofia-domain-contracts.ts DeliveryQuoteService); a real, trusted,
+    // already-resolved customer point must never be silently discarded before reaching pricing.
   });
 
-  it('FINDING 1 IMPACT (end-to-end, real engine): a customer 42km away with "alborada" in the address text still gets LOCAL_FREE / fee=0 / canCheckout=true through the REAL commercial-checkout + REAL pricing engine because the real point never arrives', async () => {
+  it('FINDING 1 IMPACT — FIXED (end-to-end, real engine): a customer 42km away with "alborada" in the address text no longer gets LOCAL_FREE / fee=0 / canCheckout=true, because the real point now reaches the pricing engine and TRUSTED_SPATIAL_DATA_OVERRIDES_TEXT applies', async () => {
     const externalDataService = DeliveryExternalDataService.createForTesting({
       providersEnabled: true,
       origin,
@@ -188,7 +188,7 @@ describe('A6 RED TEAM: SOFIA commercial-checkout drops trusted live-location bef
     // Same turn: the customer shares a live WhatsApp location 42km from the store and asks for
     // delivery, paying on arrival. No street address is retyped — the previously-confirmed
     // zone-only reference is reused, exactly as SOFIA is designed to do.
-    const result = await service.process({
+    const processPromise = service.process({
       conversationId: 'conv-redteam-2',
       phone: '573001112244',
       message: 'Mándeme un combo 2x1 de domicilio y pago cuando llegue',
@@ -196,19 +196,21 @@ describe('A6 RED TEAM: SOFIA commercial-checkout drops trusted live-location bef
       location: { latitude: FAR_LATITUDE, longitude: FAR_LONGITUDE },
     });
 
-    // Prove the real routing provider (42km) was never even consulted for this order, because the
-    // real point never made it past the SOFIA call boundary.
-    const routingProviderMock = (externalDataService as unknown as { routingProvider: RoutingProvider }).routingProvider;
-    expect((routingProviderMock.getRoute as jest.Mock)).not.toHaveBeenCalled();
+    // FIXED (round 4 closure): the real point now reaches the engine, so the checkout is correctly
+    // rejected instead of silently granted for free 42km away — quote.canCheckout=false throws
+    // SOFIA_DELIVERY_QUOTE_REQUIRED (commercial-checkout.service.ts:216), exactly as it already does
+    // for any other genuinely out-of-coverage address.
+    await expect(processPromise).rejects.toMatchObject({
+      response: { code: 'SOFIA_DELIVERY_QUOTE_REQUIRED' },
+    });
 
-    // The customer-facing, checkout-eligible outcome: free delivery and a confirmable draft,
-    // despite the customer's own shared live location being 42km from the store — the exact
-    // "REMAINING CRITICAL" scenario this round was chartered to close, still fully open on SOFIA.
-    expect(result.nextAction).toBe('READY_TO_CONFIRM');
-    expect(result.state.deliveryFee).toBe(0);
-    expect(result.state.total).toBe(25000);
+    // Prove the real routing provider WAS consulted this time — the real point made it past the
+    // SOFIA call boundary and drove an actual distance computation, not a text shortcut.
+    const routingProviderMock = (externalDataService as unknown as { routingProvider: RoutingProvider }).routingProvider;
+    expect((routingProviderMock.getRoute as jest.Mock)).toHaveBeenCalled();
+
     const quoteResult = await quoteSpy.mock.results[0]!.value;
-    expect(quoteResult.status).toBe('LOCAL_FREE');
-    expect(quoteResult.canCheckout).toBe(true);
+    expect(quoteResult.canCheckout).toBe(false);
+    expect(quoteResult.status).not.toBe('LOCAL_FREE');
   });
 });
