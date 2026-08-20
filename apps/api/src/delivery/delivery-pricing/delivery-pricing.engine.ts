@@ -22,6 +22,21 @@ export class DeliveryPricingEngine {
     const scheduleMode = resolveScheduleMode(request.scheduleMode, request.requestedAt);
     const weatherMode = resolveWeatherMode(request.weatherMode, context);
 
+    // SOFIA Address Remediation (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS). A real,
+    // already-resolved geocoded/pinned point for the destination is authoritative over a textual
+    // zone alias ("alborada"). No real geofence/polygon/radius authority for Condados/Alborada
+    // exists anywhere in this codebase today (grepped: config, constants, admin data, Prisma
+    // models — the only match, `modules/orders/delivery-zones.ts`, is an explicitly-inactive
+    // legacy file no longer wired into pricing) — so there is no way to spatially PROVE a real
+    // point belongs to the free zone. Per the owner-mandated decision table, once a real point is
+    // known, a bare textual alias must therefore never grant LOCAL_FREE/coverageAllowed/fee=0 by
+    // itself: the address must flow through the exact same real distance/coverage/pricing logic
+    // below as any other destination, "as if no zone alias were present at all". `localZoneMatch`
+    // stays attached to the returned result either way (informational only — see MANDATORY RULE
+    // 1/2 and delivery-checkout-authorization.ts), so downstream consumers/audits can still see
+    // that the text matched even when spatial truth took the address elsewhere.
+    const hasRealPoint = Boolean(context?.destination.latitude != null && context?.destination.longitude != null);
+
     if (localZoneMatch.ambiguous) {
       warnings.add('LOCAL_ZONE_AMBIGUOUS');
       return this.blockedResult({
@@ -35,15 +50,14 @@ export class DeliveryPricingEngine {
       });
     }
 
-    if (localZoneMatch.matched) {
+    if (localZoneMatch.matched && !hasRealPoint) {
       // MANDATORY RULE 1/2: a LOCAL_FREE zone match proves the address falls in the known free
       // zone (pricing-relevant, fee=0), but never by itself proves the address is COMPLETE enough
-      // for a courier to reach it. addressComplete must be independently proven — either by a real
-      // already-resolved geocoded point (TRUSTED_POST_GEOCODING_ZONE_HANDLING: real coordinates
-      // always outrank the text shortcut) or by the structural zone-completion check owned by
-      // A1/A2 (see delivery-checkout-authorization.ts — currently a fail-closed placeholder).
-      const hasRealPoint = Boolean(context?.destination.latitude != null && context?.destination.longitude != null);
-      const addressComplete = hasRealPoint || isZoneOnlyReferenceStructurallyComplete(request);
+      // for a courier to reach it. This branch is now reachable ONLY when no real point is known
+      // (see `hasRealPoint` above/TRUSTED_SPATIAL_DATA guard) — addressComplete must be
+      // independently proven by the structural zone-completion check owned by A1/A2 (see
+      // local-zone-match.ts::isZoneOnlyReferenceStructurallyComplete).
+      const addressComplete = isZoneOnlyReferenceStructurallyComplete(request);
       if (!addressComplete) {
         warnings.add('LOCAL_ZONE_ADDRESS_INCOMPLETE');
       }
@@ -100,9 +114,7 @@ export class DeliveryPricingEngine {
       });
     }
 
-    const hasInput =
-      hasAnyDestinationInput(request) ||
-      (context?.destination.latitude != null && context.destination.longitude != null);
+    const hasInput = hasAnyDestinationInput(request) || hasRealPoint;
     if (!hasInput) {
       warnings.add('DESTINATION_MISSING');
       return this.blockedResult({
@@ -252,10 +264,15 @@ export class DeliveryPricingEngine {
       humanMessage: 'Tarifa de domicilio calculada automáticamente.',
       // A real point was geocoded and a real route was resolved with sufficient confidence to
       // reach this branch (see the confidence/LOW and coordinates-missing gates above) — this is
-      // the canonical "everything checked out for real" case.
+      // the canonical "everything checked out for real" case. `zoneMatched` reflects the textual
+      // match honestly (informational only — see MANDATORY RULE 1/2): this branch is reachable
+      // with `localZoneMatch.matched === true` precisely when TRUSTED_SPATIAL_DATA overrode a
+      // textual "alborada"/"condados" alias that a real point did not spatially corroborate
+      // (no geofence authority exists — see A5 discovery notes above `hasRealPoint`). It never
+      // implies coverage/fee=0 — those are computed for real above, from the actual route.
       addressValid: true,
       addressComplete: true,
-      zoneMatched: false,
+      zoneMatched: localZoneMatch.matched,
       coverageAllowed: true,
     });
   }
@@ -298,7 +315,11 @@ export class DeliveryPricingEngine {
       humanMessage: input.humanMessage,
       addressValid: input.addressValid ?? false,
       addressComplete: input.addressComplete ?? false,
-      zoneMatched: false,
+      // Honest/informational reflection of the textual match (never part of the canCheckout gate
+      // — see deriveCheckoutAuthorization). A blocked OUT_OF_COVERAGE result can now legitimately
+      // carry zoneMatched=true when a real point 42km away still had "alborada" in the text: the
+      // alias never overrides the real coverage/distance verdict computed above.
+      zoneMatched: input.localZoneMatch.matched,
       coverageAllowed: input.coverageAllowed ?? false,
     });
   }

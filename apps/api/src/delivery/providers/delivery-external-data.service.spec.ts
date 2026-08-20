@@ -386,7 +386,14 @@ describe('DeliveryExternalDataService -> DeliveryPricingEngine end-to-end checko
   // address entirely unaffected by the zone-coverage wiring.
   const engine = new DeliveryPricingEngine();
 
-  it('grants CAN_CHECKOUT for a zone-alias address once a real geocoded/pinned point is already known', async () => {
+  // SOFIA Address Remediation (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS). SUPERSEDES the
+  // pre-A5 expectation of this test: a real pinned point is no longer trusted to be "in the free
+  // zone" merely because a zone-alias text also matched. No real geofence/polygon authority for
+  // Condados/Alborada exists in this codebase (see A5 report) — so once a real point is known, it
+  // must flow through the SAME real distance/coverage pricing as any other destination. CAN_CHECKOUT
+  // is still correctly granted here (the mocked route is a real, in-coverage 2.4km/9min trip) —
+  // just via AUTO_PRICED with a real non-zero fee, never via the LOCAL_FREE text shortcut.
+  it('grants CAN_CHECKOUT via real AUTO_PRICED distance pricing (never the LOCAL_FREE text shortcut) once a real geocoded/pinned point is already known', async () => {
     const service = serviceWithProviders();
     const request = { addressText: 'Alborada', latitude: 3.258, longitude: -76.542 };
 
@@ -395,14 +402,36 @@ describe('DeliveryExternalDataService -> DeliveryPricingEngine end-to-end checko
 
     expect(context.localZoneMatch.matched).toBe(true);
     expect(context.route.attempted).toBe(true);
-    expect(result.pricingStatus).toBe('LOCAL_FREE');
-    expect(result.finalFee).toBe(0);
+    expect(context.route.distanceKm).toBe(2.4);
+    expect(result.pricingStatus).toBe('AUTO_PRICED');
+    expect(result.finalFee).toBeGreaterThan(0);
     expect(result.checkoutAuthorization.zoneMatched).toBe(true);
     expect(result.checkoutAuthorization.addressComplete).toBe(true);
     expect(result.checkoutAuthorization.coverageAllowed).toBe(true);
     expect(result.checkoutAuthorization.deliveryFeeResolved).toBe(true);
     expect(result.checkoutAuthorization.canCheckout).toBe(true);
     expect(result.canCheckout).toBe(true);
+  });
+
+  it('blocks CAN_CHECKOUT for a zone-alias address when the real pinned point is genuinely far outside coverage (the reported 42km bug)', async () => {
+    const providers = buildProviders({
+      routing: { getRoute: jest.fn().mockResolvedValue(routeResult({ distanceKm: 42, durationMinutes: 70 })) },
+    });
+    const service = serviceWithProviders(providers);
+    const request = { addressText: 'Alborada', latitude: 3.258, longitude: -76.542 };
+
+    const context = await service.resolveDeliveryContext(request);
+    const result = engine.quote({ ...request, context });
+
+    expect(context.localZoneMatch.matched).toBe(true);
+    expect(context.route.distanceKm).toBe(42);
+    expect(result.pricingStatus).toBe('OUT_OF_COVERAGE');
+    expect(result.pricingStatus).not.toBe('LOCAL_FREE');
+    expect(result.finalFee).toBeNull();
+    expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+    expect(result.checkoutAuthorization.coverageAllowed).toBe(false);
+    expect(result.checkoutAuthorization.canCheckout).toBe(false);
+    expect(result.canCheckout).toBe(false);
   });
 
   it('blocks CAN_CHECKOUT for a bare zone-alias address with no real point and no structurally-complete complement', async () => {

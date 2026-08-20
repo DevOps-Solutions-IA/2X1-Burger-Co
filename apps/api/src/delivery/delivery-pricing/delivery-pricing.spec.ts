@@ -99,8 +99,19 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
     },
   );
 
+  // SOFIA Address Remediation (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS). SUPERSEDES the
+  // pre-A5 expectation of this test (which asserted LOCAL_FREE/fee=0/canCheckout=true purely
+  // because a real point was "already known", regardless of where that real point actually was).
+  // That was the exact bug this round fixes: no real geofence/polygon authority for
+  // Condados/Alborada exists anywhere in this codebase (see A5 report), so a real point can never
+  // be spatially PROVEN to belong to the free zone — it must flow through the SAME real
+  // distance/coverage/pricing logic as any other destination once known, "as if no zone alias were
+  // present at all" (owner-mandated decision table CASE 2B). The default `context()` fixture's
+  // route (3.5km, inside maxAutoDistanceKm=8) therefore now yields a real AUTO_PRICED fee, not a
+  // free LOCAL_FREE shortcut. `zoneMatched` still honestly reports the text matched (informational
+  // only — MANDATORY RULE 1/2) even though it did not drive the pricing/coverage outcome.
   it.each(['Condados', 'La Alborada'])(
-    'prices local free alias as checkout-eligible once a real geocoded point is already known (TRUSTED_POST_GEOCODING_ZONE_HANDLING): %s',
+    'prices a zone-alias address through NORMAL distance pricing (not LOCAL_FREE) once a real point is already known and no geofence proves zone membership: %s',
     (addressText) => {
       const result = engine.quote({
         addressText,
@@ -109,15 +120,32 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
         }),
       });
 
-      expect(result.pricingStatus).toBe('LOCAL_FREE');
-      expect(result.finalFee).toBe(0);
+      expect(result.pricingStatus).toBe('AUTO_PRICED');
+      expect(result.finalFee).toBeGreaterThan(0);
       expect(result.checkoutAuthorization.zoneMatched).toBe(true);
       expect(result.checkoutAuthorization.addressComplete).toBe(true);
+      expect(result.checkoutAuthorization.coverageAllowed).toBe(true);
       expect(result.canCheckout).toBe(true);
       expect(result.checkoutAuthorization.canCheckout).toBe(true);
       expect(result.requiresManualQuote).toBe(false);
     },
   );
+
+  it('blocks a zone-alias address from ever reaching LOCAL_FREE when a real point 42km away is already known (TRUSTED_SPATIAL_DATA)', () => {
+    const result = engine.quote({
+      addressText: 'Alborada',
+      context: context({
+        localZoneMatch: { matched: true, zoneLabel: 'Alborada', confidence: 'HIGH', ambiguous: false, reason: 'test' },
+        route: { ...context().route, distanceKm: 42, durationMinutes: 70 },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('OUT_OF_COVERAGE');
+    expect(result.finalFee).toBeNull();
+    expect(result.checkoutAuthorization.zoneMatched).toBe(true);
+    expect(result.checkoutAuthorization.coverageAllowed).toBe(false);
+    expect(result.canCheckout).toBe(false);
+  });
 
   it('reports a full DeliveryCheckoutAuthorization breakdown, not just the final AND, for an incomplete zone-only match', () => {
     const result = engine.quote({ addressText: 'Alborada' });
@@ -298,7 +326,11 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
 
   it('does not call Google-priced route or apply rain surcharge for LOCAL_FREE even when weather context says rain', () => {
     const result = engine.quote({
-      addressText: 'Condados de la Alborada',
+      // Genuine complement content ("casa azul") beyond the bare alias is required for
+      // addressComplete under the structural check (isZoneOnlyReferenceStructurallyComplete) now
+      // that no real point is present to short-circuit it — a bare alias alone is never complete
+      // (MANDATORY RULE 1/2, see CASE 8 of the A5 test matrix).
+      addressText: 'Condados de la Alborada casa azul',
       context: context({
         localZoneMatch: {
           matched: true,
@@ -307,6 +339,12 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
           ambiguous: false,
           reason: 'EXACT_ALIAS',
         },
+        // SOFIA Address Remediation (A5): no real point known for this case — this is a genuine
+        // bare zone-only-text match (TRUSTED_SPATIAL_DATA does not apply, since no real coordinate
+        // exists to override the text with). Overriding the context() fixture's default real
+        // destination is required so this test actually exercises the LOCAL_FREE branch instead
+        // of falling through to real distance pricing (see `hasRealPoint` in the engine).
+        destination: { ...context().destination, latitude: null, longitude: null },
         geocoding: {
           attempted: false,
           result: null,

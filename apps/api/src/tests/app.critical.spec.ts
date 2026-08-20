@@ -2865,9 +2865,16 @@ describe('Critical business flows', () => {
       canCheckout: false,
     });
 
-    // The same zone alias, but with a real geocoded point already attached (e.g. a WhatsApp live
-    // location pin), IS checkout-eligible: the address is complete because we know exactly where
-    // it is, even though it still prices as the free zone.
+    // SOFIA Address Remediation (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS). SUPERSEDES the
+    // pre-A5 expectation of this sub-case: the same zone alias, WITH a real geocoded point already
+    // attached, is no longer trusted to be "in the free zone" merely because the text also
+    // matched — no real geofence/polygon authority for Condados/Alborada exists in this codebase
+    // (see A5 report), so a real point must flow through the SAME real distance/coverage pricing
+    // as any other destination. This test environment also runs with external routing providers
+    // disabled and no configured delivery origin (setup-env.ts), so the real point correctly fails
+    // closed here (PROVIDER_UNAVAILABLE) rather than silently defaulting to LOCAL_FREE from the
+    // alias text alone — see spatial-authority-parity.spec.ts for the full distance-based decision
+    // table (AUTO_PRICED/OUT_OF_COVERAGE) proven with controllable provider doubles.
     const localFreeWithPoint = await request(app.getHttpServer())
       .post('/delivery-pricing/estimate')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -2879,14 +2886,13 @@ describe('Critical business flows', () => {
       })
       .expect(200);
 
-    expect(localFreeWithPoint.body.pricingStatus).toBe('LOCAL_FREE');
-    expect(localFreeWithPoint.body.finalFee).toBe(0);
-    expect(localFreeWithPoint.body.requiresManualQuote).toBe(false);
-    expect(localFreeWithPoint.body.canCheckout).toBe(true);
+    expect(localFreeWithPoint.body.pricingStatus).not.toBe('LOCAL_FREE');
+    expect(localFreeWithPoint.body.finalFee).toBeNull();
+    expect(localFreeWithPoint.body.canCheckout).toBe(false);
     expect(localFreeWithPoint.body.checkoutAuthorization).toMatchObject({
       zoneMatched: true,
-      addressComplete: true,
-      canCheckout: true,
+      addressComplete: false,
+      canCheckout: false,
     });
 
     const ambiguous = await request(app.getHttpServer())
@@ -2952,10 +2958,17 @@ describe('Critical business flows', () => {
       })
       .expect(400);
 
-    // The same free zone, but WITH a real geocoded point already attached (e.g. a live location
-    // pin captured at order-creation time), IS checkout-eligible: the address is complete because
-    // the exact destination is known, even though it still prices as the free zone.
-    const localFreeOrder = await request(app.getHttpServer())
+    // SOFIA Address Remediation (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS). SUPERSEDES the
+    // pre-A5 expectation of this sub-case: the same zone alias, WITH a real geocoded point already
+    // attached, is no longer trusted to be "in the free zone" merely because the text also
+    // matched — no real geofence/polygon authority for Condados/Alborada exists in this codebase
+    // (see A5 report), so a real point must flow through the SAME real distance/coverage pricing
+    // as any other destination, never the LOCAL_FREE text shortcut. This test environment runs
+    // with external routing providers disabled and no configured delivery origin (setup-env.ts),
+    // so the real point correctly fails closed (PROVIDER_UNAVAILABLE) and checkout stays blocked —
+    // see spatial-authority-parity.spec.ts for the full distance-based decision table
+    // (AUTO_PRICED/OUT_OF_COVERAGE) proven with controllable provider doubles.
+    const realPointOrder = await request(app.getHttpServer())
       .post('/orders')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
@@ -2971,19 +2984,17 @@ describe('Critical business flows', () => {
       })
       .expect(201);
 
-    expect(localFreeOrder.body.deliveryPricingStatus).toBe('LOCAL_FREE');
-    expect(Number(localFreeOrder.body.deliveryFee)).toBe(0);
-    expect(localFreeOrder.body.deliveryRequiresManualQuote).toBe(false);
+    expect(realPointOrder.body.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(Number(realPointOrder.body.deliveryFee)).toBe(0);
+    expect(realPointOrder.body.deliveryRequiresManualQuote).toBe(true);
 
-    const localCheckout = await request(app.getHttpServer())
-      .post(`/orders/${localFreeOrder.body.id}/checkout`)
+    await request(app.getHttpServer())
+      .post(`/orders/${realPointOrder.body.id}/checkout`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
         payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }],
       })
-      .expect(201);
-
-    expect(Number(localCheckout.body.sale.deliveryFee)).toBe(0);
+      .expect(400);
 
     const blockedOrder = await request(app.getHttpServer())
       .post('/orders')
@@ -3110,6 +3121,69 @@ describe('Critical business flows', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }] })
       .expect(201);
+  });
+
+  it('SOFIA and legacy POS both refuse LOCAL_FREE from a zone-alias text once real coordinates are attached (A5 — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS, single-authority parity)', async () => {
+    // SOFIA Address Remediation Round 4 / A5. Reproduces, end-to-end through both real production
+    // entrypoints (real DI-resolved services, real HTTP, real DB persistence — no mocks), the exact
+    // reported bug class: a textual zone alias ("alborada") attached alongside a real, already-known
+    // destination point must never by itself grant LOCAL_FREE/coverageAllowed/fee=0/canCheckout=true.
+    // No real geofence/polygon authority for Condados/Alborada exists in this codebase (see A5
+    // report `SPATIAL_AUTHORITY_DISCOVERY`), and this test environment runs with external routing
+    // providers disabled (`DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false`, see setup-env.ts) — so a real
+    // point can never be spatially corroborated here, which is itself the correct FAIL-CLOSED
+    // outcome per MANDATORY RULE 5 (CLAUDE.md section 5) and per CASE 2/15 of the A5 decision table:
+    // "routing provider unavailable with trusted coordinates present -> fail-closed, never silently
+    // LOCAL_FREE from alias alone." (The full distance-based AUTO_PRICED/OUT_OF_COVERAGE branches of
+    // the decision table — reachable only with a real routing provider response — are proven with
+    // controllable provider doubles in delivery-pricing/spatial-authority-parity.spec.ts, which
+    // drives these exact same two entrypoint shapes.)
+    const { accessToken } = await login();
+    const burger = await prisma.product.findUniqueOrThrow({ where: { code: 'HAMB-2X1' } });
+    const paymentCash = await prisma.paymentMethod.findUniqueOrThrow({ where: { code: 'cash' } });
+
+    await request(app.getHttpServer())
+      .post('/cash-register/open')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ openingAmount: 0 })
+      .expect(201);
+
+    // SOFIA path: same DI-resolved DELIVERY_QUOTE_SERVICE commercial-checkout.service.ts consumes,
+    // real engine, no mocks — zone-alias text PLUS a real destination point attached.
+    const sofiaQuote = await sofiaDeliveryQuoteService.quote({
+      addressText: 'alborada',
+      latitude: 3.258,
+      longitude: -76.542,
+      orderSubtotal: 20000,
+      actor: { actorId: 'test-actor', roles: ['SOFIA'], source: 'SOFIA_SANDBOX' },
+    });
+    expect(sofiaQuote.status).not.toBe('LOCAL_FREE');
+    expect(sofiaQuote.canCheckout).toBe(false);
+
+    // Legacy POS path: same zone-alias text as deliveryReference PLUS the same real destination
+    // point via deliveryLatitude/deliveryLongitude (create-order-ticket.dto.ts).
+    const legacyOrder = await request(app.getHttpServer())
+      .post('/orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        type: 'DELIVERY',
+        customerName: 'Cliente Punto Real Lejano',
+        customerPhone: '3100008001',
+        deliveryReference: 'alborada',
+        deliveryLatitude: 3.258,
+        deliveryLongitude: -76.542,
+        items: [{ productId: burger.id, quantity: 1 }],
+      })
+      .expect(201);
+
+    expect(legacyOrder.body.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(Number(legacyOrder.body.deliveryFee)).toBe(0);
+
+    await request(app.getHttpServer())
+      .post(`/orders/${legacyOrder.body.id}/checkout`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ payments: [{ paymentMethodId: paymentCash.id, amount: 20000 }] })
+      .expect(400);
   });
 
   it('rejects direct delivery sale injection without backend-priced order ticket', async () => {
