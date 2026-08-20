@@ -329,6 +329,11 @@ describe('Phase 7 payment/checkout expiration and re-link policy', () => {
       idempotencyKey: 'phase7-intent-no-second-success-bypass',
       provider: 'BOLD' as never,
       expiresAt: new Date(Date.now() + 20 * 60_000),
+      // Deliberately a no-op: this call simulates a caller that bypasses
+      // PaymentOrchestrationService.assertRelinkAllowed entirely (see comment above), so the
+      // relink policy itself must not be what blocks it -- the downstream financial safety net
+      // (successfulPaymentCount / markFinancialReview) is what this test is actually exercising.
+      relinkPolicy: () => {},
     });
     const firstAccountHash = (await prisma.paymentIntent.findUniqueOrThrow({ where: { id: prepared.paymentIntent.id } })).providerAccountHash;
     // Real webhook evidence can only ever transition PENDING -> SUCCEEDED (assertPaymentTransition

@@ -11,7 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { BoldPaymentProvider } from '../sofia/payments/bold-payment.provider';
 import { CheckoutPolicyService } from './checkout-policy.service';
 import { checkoutConflict } from './order-checkout.errors';
-import type { CreateOnlinePaymentCommand, PaymentIntentView } from './order-checkout.types';
+import type { CreateOnlinePaymentCommand, PaymentIntentRelinkPolicy, PaymentIntentView } from './order-checkout.types';
 import { PaymentPublicReferenceService } from './payment-public-reference.service';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
@@ -35,7 +35,16 @@ export class PaymentOrchestrationService {
     if (checkout.paymentPreference !== SofiaPaymentPreference.ONLINE) {
       checkoutConflict('CHECKOUT_PAYMENT_COMBINATION_INVALID');
     }
-    this.assertRelinkAllowed(checkout, checkout.paymentIntents, input.idempotencyKey);
+    // PK5 TOCTOU remediation: the "at most one active/blocked attempt" check must run against
+    // fresh, locked state, not this pre-transaction `checkout.paymentIntents` read (which can be
+    // stale by the time the transaction below actually acquires the row lock). The policy is
+    // passed as a callback so the repository's `createPaymentIntent` transaction can invoke it
+    // immediately after the `FOR UPDATE` lock + a fresh `PaymentIntent` re-read, before the
+    // (provider, idempotencyKey) replay lookup and before creating a new intent. There is no
+    // pre-transaction call here anymore -- keeping one as a "fast path" would reintroduce the same
+    // race for any caller whose stale read happens to pass it.
+    const relinkPolicy: PaymentIntentRelinkPolicy = (lockedCheckout, currentPaymentIntents) =>
+      this.assertRelinkAllowed(lockedCheckout, currentPaymentIntents, input.idempotencyKey);
     const expiresAt = new Date(Date.now() + this.paymentTtlMinutes() * 60_000);
     const intent = await withBoundedTransactionRetry(() =>
       this.repository.createPaymentIntent({
@@ -43,6 +52,7 @@ export class PaymentOrchestrationService {
         idempotencyKey: input.idempotencyKey,
         provider: PaymentIntentProvider.BOLD,
         expiresAt,
+        relinkPolicy,
       }),
     );
     const existingLink = await this.repository.findActivePaymentLink(intent.id);
