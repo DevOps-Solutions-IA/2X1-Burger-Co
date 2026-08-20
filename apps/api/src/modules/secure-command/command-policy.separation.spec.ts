@@ -70,6 +70,57 @@ describe('Secure command approval separation of duties', () => {
     )).resolves.toMatchObject({ active: true });
   });
 
+  it('rejects self-approval for an operational command even when the actor holds admin AND supervisor roles (admin/role overlap does not override separation)', async () => {
+    // No mockResolvedValueOnce queued here on purpose: the identity check must short-circuit
+    // before any role/permission lookup, so holding every eligible-approver role simultaneously
+    // cannot substitute for a distinct approver. If this ever started consulting authorization
+    // first, the assertion below on `not.toHaveBeenCalled()` would catch it.
+    await expect(policy.assertApproverAllowed(
+      command(operationalDefinition, 'requester-2'),
+      { actorId: 'requester-2', actorType: 'USER', roles: ['admin', 'supervisor'] },
+    )).rejects.toMatchObject({ code: 'SOFIA_COMMAND_APPROVAL_INVALID' });
+    expect(repository.actorAuthorization).not.toHaveBeenCalled();
+  });
+
+  it('rejects self-approval for an operational command when the actor would otherwise be eligible via a granular permission (not admin/supervisor role)', async () => {
+    await expect(policy.assertApproverAllowed(
+      command(operationalDefinition, 'requester-3'),
+      { actorId: 'requester-3', actorType: 'USER', roles: [] },
+    )).rejects.toMatchObject({ code: 'SOFIA_COMMAND_APPROVAL_INVALID' });
+    expect(repository.actorAuthorization).not.toHaveBeenCalled();
+  });
+
+  it('honors requireSeparation:false to intentionally bypass the self-approver identity check (the exact flag revoke() uses)', async () => {
+    // This documents, at the unit level, precisely what CommandApprovalService.revoke() relies
+    // on: with requireSeparation:false the same-actor identity block is skipped entirely. Safety
+    // against this being turned into a separation-of-duties bypass therefore depends on revoke()
+    // never re-opening the command for re-approval -- verified independently in the DB-backed
+    // command-approval.separation-of-duties.spec.ts terminality tests.
+    (repository.actorAuthorization as jest.Mock).mockResolvedValueOnce({
+      active: true,
+      roles: ['admin'],
+      permissions: [],
+    });
+    await expect(policy.assertApproverAllowed(
+      command(operationalDefinition, 'requester-1'),
+      { actorId: 'requester-1', actorType: 'USER', roles: ['admin'] },
+      { requireSeparation: false },
+    )).resolves.toMatchObject({ active: true, roles: ['admin'] });
+  });
+
+  it('still requires an eligible role/permission when requireSeparation:false only waives the identity check', async () => {
+    (repository.actorAuthorization as jest.Mock).mockResolvedValueOnce({
+      active: true,
+      roles: ['cashier'],
+      permissions: [],
+    });
+    await expect(policy.assertApproverAllowed(
+      command(operationalDefinition, 'requester-1'),
+      { actorId: 'requester-1', actorType: 'USER', roles: ['cashier'] },
+      { requireSeparation: false },
+    )).rejects.toMatchObject({ code: 'SOFIA_COMMAND_APPROVAL_INVALID' });
+  });
+
   it('preserves SYSTEM actor attribution in command audit evidence', () => {
     const audit = new CommandAuditService({} as never);
     const evidence = audit.evidence({
