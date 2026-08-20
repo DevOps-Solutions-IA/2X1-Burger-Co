@@ -114,20 +114,28 @@ export type CanonicalWebhookResult = {
 
 /**
  * P4 lease-timezone remediation (see
- * .engineering/sofia-production/remediation/payment-lease-timezone/00-design.md) — contract
- * only, scaffolding for P5. Every write of `PaymentWebhookEvent.processingLeaseExpiresAt` (and
- * `nextRetryAt`, written alongside it in every affected statement) MUST go exclusively through
- * the typed Prisma Client — never a raw `$executeRaw`/`$queryRaw` bind parameter, never a
- * SQL-side `CURRENT_TIMESTAMP` comparison. This project's Prisma query engine serializes a bare
- * JS `Date` bound into raw SQL using the Postgres *session's* `TimeZone` setting when writing to
- * a "timestamp without time zone" column, while the typed Prisma Client always
- * serializes/compares `DateTime` values using a UTC-normalized, session-timezone-independent
- * representation — empirically verified (see design doc §1.1–§2) to be the only combination that
- * is correct under a non-UTC session across every read/write/compare path in
- * `prisma-order-checkout.repository.ts`. Implementation (wiring this into `claimWebhookEvidence`,
- * `claimRecoverableWebhook`, `advanceWebhookCheckpoint`, `completeWebhookClaim`,
- * `assertWebhookClaimOwned`, `renewWebhookClaim`, `failWebhookClaim`,
- * `findRecoverableWebhookIds`) is P5's job; this type is not imported/used anywhere yet.
+ * .engineering/sofia-production/remediation/payment-lease-timezone/00-design.md) — the
+ * CANONICAL_TEMPORAL_AUTHORITY contract: every write of `PaymentWebhookEvent.
+ * processingLeaseExpiresAt` (and `nextRetryAt`, written alongside it in every affected
+ * statement) MUST go exclusively through the typed Prisma Client — never a raw
+ * `$executeRaw`/`$queryRaw` bind parameter, never a SQL-side `CURRENT_TIMESTAMP` comparison.
+ * This project's Prisma query engine serializes a bare JS `Date` bound into raw SQL using the
+ * Postgres *session's* `TimeZone` setting when writing to a "timestamp without time zone"
+ * column, while the typed Prisma Client always serializes/compares `DateTime` values using a
+ * UTC-normalized, session-timezone-independent representation — empirically verified (design
+ * doc §1.1–§2) to be the only combination correct under a non-UTC session across every
+ * read/write/compare path.
+ *
+ * P5 (round 5) implemented this directly inline in every affected method of
+ * `prisma-order-checkout.repository.ts` (`claimWebhookEvidence`, `claimRecoverableWebhook`,
+ * `advanceWebhookCheckpoint`, `completeWebhookClaim`, `assertWebhookClaimOwned`,
+ * `renewWebhookClaim`, `failWebhookClaim`, `findRecoverableWebhookIds`) rather than centralizing
+ * through this standalone type: every affected statement writes the lease fields together with
+ * other fields (`processedStatus`, `processingAttempts`, `resultCode`, ...) that must change
+ * atomically in the same `update`/`updateMany` call, and this type's narrow shape can't express
+ * that without either a second round trip (breaking atomicity) or an intersection type per call
+ * site (no real gain over inline `data:` literals). Kept as a documented reference for the
+ * minimal always-together field set; not imported anywhere.
  */
 export type WebhookLeaseTypedWrite = {
   processingLeaseOwnerHash: string | null;

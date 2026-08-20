@@ -166,15 +166,22 @@ export class OperationalBacklogService {
               WHERE processed_at IS NULL
                 AND processed_status IN ('RECEIVED', 'PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
             )::bigint AS "webhookActive",
+            -- payment_webhook_events.{next_retry_at,processing_lease_expires_at} are naive
+            -- TIMESTAMP(3); the repository writes them exclusively via the typed Prisma Client
+            -- (UTC-normalized, session-timezone-independent — see .engineering/sofia-production/
+            -- remediation/payment-lease-timezone/00-design.md). A raw bind-param compare against
+            -- ${now} without this AT TIME ZONE cast is session-timezone-sensitive and gives WRONG
+            -- results against typed-written values (empirically verified: undercounts expired
+            -- leases / retry-ready webhooks under a non-UTC Postgres session). Do not remove.
             COUNT(*) FILTER (
               WHERE processed_at IS NULL AND processed_status = 'FAILED' AND retryable = TRUE
-                AND (next_retry_at IS NULL OR next_retry_at <= ${now})
+                AND (next_retry_at IS NULL OR (next_retry_at AT TIME ZONE 'UTC') <= ${now})
             )::bigint AS "webhookRetryReady",
             COUNT(*) FILTER (
               WHERE processed_at IS NULL
                 AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
                 AND processing_lease_expires_at IS NOT NULL
-                AND processing_lease_expires_at <= ${now}
+                AND (processing_lease_expires_at AT TIME ZONE 'UTC') <= ${now}
             )::bigint AS "webhookExpiredLeases",
             COUNT(*) FILTER (WHERE processed_status = 'FINANCIAL_REVIEW_REQUIRED')::bigint AS "webhookFinancialReview",
             COUNT(*) FILTER (

@@ -811,16 +811,21 @@ export class PrismaOrderCheckoutRepository {
             processedAt: null,
           },
         });
-        await tx.$executeRaw`
-          UPDATE payment_webhook_events
-          SET processing_attempts = 1,
-              processing_lease_owner_hash = ${input.leaseOwnerHash},
-              processing_lease_expires_at = ${input.leaseExpiresAt},
-              retryable = false,
-              next_retry_at = NULL,
-              last_error_code = NULL
-          WHERE id = ${created.id}
-        `;
+        // CANONICAL_TEMPORAL_AUTHORITY: processing_lease_expires_at / next_retry_at are naive
+        // TIMESTAMP(3) columns; only the typed Prisma Client's UTC-normalized serialization is
+        // session-timezone-independent (see .engineering/sofia-production/remediation/
+        // payment-lease-timezone/00-design.md). Never write these via raw $executeRaw again.
+        await tx.paymentWebhookEvent.update({
+          where: { id: created.id },
+          data: {
+            processingAttempts: 1,
+            processingLeaseOwnerHash: input.leaseOwnerHash,
+            processingLeaseExpiresAt: input.leaseExpiresAt,
+            retryable: false,
+            nextRetryAt: null,
+            lastErrorCode: null,
+          },
+        });
         return {
           state: 'CLAIMED',
           webhookId: created.id,
@@ -871,38 +876,40 @@ export class PrismaOrderCheckoutRepository {
         return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'NOT_RETRYABLE' };
       }
       if (existing.processingAttempts >= input.maxAttempts) {
-        await tx.$executeRaw`
-          UPDATE payment_webhook_events
-          SET processed_status = 'FAILED',
-              processed_at = CURRENT_TIMESTAMP,
-              processing_lease_owner_hash = NULL,
-              processing_lease_expires_at = NULL,
-              retryable = false,
-              next_retry_at = NULL,
-              result_code = 'PROCESSING_ATTEMPTS_EXHAUSTED',
-              last_error_code = COALESCE(last_error_code, 'PROCESSING_ATTEMPTS_EXHAUSTED')
-          WHERE id = ${existing.id}
-        `;
+        // See CANONICAL_TEMPORAL_AUTHORITY note above: typed client only for lease/retry fields.
+        // processed_status/last_error_code CASE/COALESCE logic is evaluated in TS off `existing`,
+        // which was read under the row lock (`FOR UPDATE`) held by this same transaction — safe.
+        await tx.paymentWebhookEvent.update({
+          where: { id: existing.id },
+          data: {
+            processedStatus: 'FAILED',
+            processedAt: new Date(),
+            processingLeaseOwnerHash: null,
+            processingLeaseExpiresAt: null,
+            retryable: false,
+            nextRetryAt: null,
+            resultCode: 'PROCESSING_ATTEMPTS_EXHAUSTED',
+            lastErrorCode: existing.lastErrorCode ?? 'PROCESSING_ATTEMPTS_EXHAUSTED',
+          },
+        });
         return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'ATTEMPTS_EXHAUSTED' };
       }
 
       const attempt = existing.processingAttempts + 1;
-      await tx.$executeRaw`
-        UPDATE payment_webhook_events
-        SET processed_status = CASE
-              WHEN processed_status = 'FAILED' THEN 'PROCESSING'
-              ELSE processed_status
-            END,
-            processed_at = NULL,
-            payment_intent_id = COALESCE(payment_intent_id, ${input.paymentIntentId ?? null}),
-            processing_attempts = ${attempt},
-            processing_lease_owner_hash = ${input.leaseOwnerHash},
-            processing_lease_expires_at = ${input.leaseExpiresAt},
-            retryable = false,
-            next_retry_at = NULL,
-            last_error_code = NULL
-        WHERE id = ${existing.id}
-      `;
+      await tx.paymentWebhookEvent.update({
+        where: { id: existing.id },
+        data: {
+          processedStatus: existing.processedStatus === 'FAILED' ? 'PROCESSING' : existing.processedStatus,
+          processedAt: null,
+          paymentIntentId: existing.paymentIntentId ?? input.paymentIntentId ?? null,
+          processingAttempts: attempt,
+          processingLeaseOwnerHash: input.leaseOwnerHash,
+          processingLeaseExpiresAt: input.leaseExpiresAt,
+          retryable: false,
+          nextRetryAt: null,
+          lastErrorCode: null,
+        },
+      });
       return {
         state: 'CLAIMED',
         webhookId: existing.id,
@@ -915,30 +922,42 @@ export class PrismaOrderCheckoutRepository {
 
   async findRecoverableWebhookIds(now: Date, limit: number, maxAttempts: number): Promise<string[]> {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
-    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id
-      FROM payment_webhook_events
-      WHERE signature_valid = TRUE
-        AND payment_intent_id IS NOT NULL
-        AND deterministic_result IS NULL
-        AND processed_at IS NULL
-        AND processing_attempts > 0
-        AND processing_attempts <= ${maxAttempts}
-        AND (
-          (
-            processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
-            AND (processing_lease_expires_at IS NULL OR processing_lease_expires_at <= ${now})
-          )
-          OR (
-            processed_status = 'FAILED'
-            AND retryable = TRUE
-            AND (next_retry_at IS NULL OR next_retry_at <= ${now})
-          )
-        )
-      ORDER BY COALESCE(next_retry_at, processing_lease_expires_at, received_at), received_at
-      LIMIT ${boundedLimit}
-    `;
-    return rows.map((row) => row.id);
+    // CANONICAL_TEMPORAL_AUTHORITY: typed Prisma Client only (see claimWebhookEvidence above).
+    // `ORDER BY COALESCE(...)` has no typed-client equivalent, so the COALESCE sort key is
+    // computed in TS after a typed `findMany` fetch of every matching row, then truncated to
+    // `boundedLimit`. `deterministicResult: { equals: Prisma.DbNull }` is the verified (pinned
+    // @prisma/client 6.19.2) typed-filter form of `deterministic_result IS NULL` on a nullable
+    // Json column — a bare `null` is NOT equivalent for Json? fields in this Prisma version.
+    const eligibleStatuses = ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'];
+    const candidates = await this.prisma.paymentWebhookEvent.findMany({
+      where: {
+        signatureValid: true,
+        paymentIntentId: { not: null },
+        deterministicResult: { equals: Prisma.DbNull },
+        processedAt: null,
+        processingAttempts: { gt: 0, lte: maxAttempts },
+        OR: [
+          {
+            processedStatus: { in: eligibleStatuses },
+            OR: [{ processingLeaseExpiresAt: null }, { processingLeaseExpiresAt: { lte: now } }],
+          },
+          {
+            processedStatus: 'FAILED',
+            retryable: true,
+            OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
+          },
+        ],
+      },
+      select: { id: true, nextRetryAt: true, processingLeaseExpiresAt: true, receivedAt: true },
+    });
+    const sortKey = (row: (typeof candidates)[number]) =>
+      (row.nextRetryAt ?? row.processingLeaseExpiresAt ?? row.receivedAt).getTime();
+    candidates.sort((a, b) => {
+      const keyDiff = sortKey(a) - sortKey(b);
+      if (keyDiff !== 0) return keyDiff;
+      return a.receivedAt.getTime() - b.receivedAt.getTime();
+    });
+    return candidates.slice(0, boundedLimit).map((row) => row.id);
   }
 
   async claimRecoverableWebhook(input: {
@@ -993,38 +1012,37 @@ export class PrismaOrderCheckoutRepository {
         return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'NOT_RETRYABLE' };
       }
       if (existing.processingAttempts >= input.maxAttempts) {
-        await tx.$executeRaw`
-          UPDATE payment_webhook_events
-          SET processed_status = 'FAILED',
-              processed_at = CURRENT_TIMESTAMP,
-              processing_lease_owner_hash = NULL,
-              processing_lease_expires_at = NULL,
-              retryable = FALSE,
-              next_retry_at = NULL,
-              result_code = 'PROCESSING_ATTEMPTS_EXHAUSTED',
-              last_error_code = COALESCE(last_error_code, 'PROCESSING_ATTEMPTS_EXHAUSTED')
-          WHERE id = ${existing.id}
-        `;
+        // See CANONICAL_TEMPORAL_AUTHORITY note in claimWebhookEvidence — typed client only.
+        await tx.paymentWebhookEvent.update({
+          where: { id: existing.id },
+          data: {
+            processedStatus: 'FAILED',
+            processedAt: new Date(),
+            processingLeaseOwnerHash: null,
+            processingLeaseExpiresAt: null,
+            retryable: false,
+            nextRetryAt: null,
+            resultCode: 'PROCESSING_ATTEMPTS_EXHAUSTED',
+            lastErrorCode: existing.lastErrorCode ?? 'PROCESSING_ATTEMPTS_EXHAUSTED',
+          },
+        });
         return { state: 'BLOCKED', webhookId: existing.id, reasonCode: 'ATTEMPTS_EXHAUSTED' };
       }
 
       const attempt = existing.processingAttempts + 1;
-      const updated = await tx.$executeRaw`
-        UPDATE payment_webhook_events
-        SET processed_status = CASE
-              WHEN processed_status = 'FAILED' THEN 'PROCESSING'
-              ELSE processed_status
-            END,
-            processing_attempts = ${attempt},
-            processing_lease_owner_hash = ${input.leaseOwnerHash},
-            processing_lease_expires_at = ${input.leaseExpiresAt},
-            retryable = FALSE,
-            next_retry_at = NULL,
-            last_error_code = NULL
-        WHERE id = ${existing.id}
-          AND processed_at IS NULL
-      `;
-      if (updated !== 1) {
+      const updated = await tx.paymentWebhookEvent.updateMany({
+        where: { id: existing.id, processedAt: null },
+        data: {
+          processedStatus: existing.processedStatus === 'FAILED' ? 'PROCESSING' : existing.processedStatus,
+          processingAttempts: attempt,
+          processingLeaseOwnerHash: input.leaseOwnerHash,
+          processingLeaseExpiresAt: input.leaseExpiresAt,
+          retryable: false,
+          nextRetryAt: null,
+          lastErrorCode: null,
+        },
+      });
+      if (updated.count !== 1) {
         return { state: 'ACTIVE', webhookId: existing.id, paymentIntentId: existing.paymentIntentId };
       }
       return {
@@ -1075,16 +1093,21 @@ export class PrismaOrderCheckoutRepository {
     leaseOwnerHash: string;
     checkpoint: 'VALIDATED' | 'TRANSITION_APPLIED' | 'DOWNSTREAM_APPLIED';
   }) {
-    const updated = await this.prisma.$executeRaw`
-      UPDATE payment_webhook_events
-      SET processed_status = ${input.checkpoint},
-          result_code = ${input.checkpoint}
-      WHERE id = ${input.webhookId}
-        AND processed_at IS NULL
-        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
-        AND processing_lease_expires_at > CURRENT_TIMESTAMP
-    `;
-    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    // CANONICAL_TEMPORAL_AUTHORITY: typed Prisma Client only for processing_lease_expires_at
+    // comparisons — see claimWebhookEvidence. Never `> CURRENT_TIMESTAMP` raw SQL again.
+    const updated = await this.prisma.paymentWebhookEvent.updateMany({
+      where: {
+        id: input.webhookId,
+        processedAt: null,
+        processingLeaseOwnerHash: input.leaseOwnerHash,
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+      data: {
+        processedStatus: input.checkpoint,
+        resultCode: input.checkpoint,
+      },
+    });
+    if (updated.count !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async completeWebhookClaim(input: {
@@ -1092,49 +1115,53 @@ export class PrismaOrderCheckoutRepository {
     leaseOwnerHash: string;
     result: CanonicalWebhookResult;
   }) {
-    const deterministicResult = JSON.stringify(input.result);
-    const updated = await this.prisma.$executeRaw`
-      UPDATE payment_webhook_events
-      SET processed_status = 'PROCESSED',
-          processed_at = CURRENT_TIMESTAMP,
-          result_code = ${input.result.processedStatus},
-          deterministic_result = ${deterministicResult}::jsonb,
-          processing_lease_owner_hash = NULL,
-          processing_lease_expires_at = NULL,
-          retryable = false,
-          next_retry_at = NULL,
-          last_error_code = NULL
-      WHERE id = ${input.webhookId}
-        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
-        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
-        AND processing_lease_expires_at > CURRENT_TIMESTAMP
-    `;
-    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    const updated = await this.prisma.paymentWebhookEvent.updateMany({
+      where: {
+        id: input.webhookId,
+        processedStatus: { in: ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'] },
+        processingLeaseOwnerHash: input.leaseOwnerHash,
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+      data: {
+        processedStatus: 'PROCESSED',
+        processedAt: new Date(),
+        resultCode: input.result.processedStatus,
+        deterministicResult: input.result as unknown as Prisma.InputJsonValue,
+        processingLeaseOwnerHash: null,
+        processingLeaseExpiresAt: null,
+        retryable: false,
+        nextRetryAt: null,
+        lastErrorCode: null,
+      },
+    });
+    if (updated.count !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async assertWebhookClaimOwned(webhookId: string, leaseOwnerHash: string) {
-    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM payment_webhook_events
-      WHERE id = ${webhookId}
-        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
-        AND processing_lease_owner_hash = ${leaseOwnerHash}
-        AND processing_lease_expires_at > CURRENT_TIMESTAMP
-    `;
-    if (rows.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
+    const count = await this.prisma.paymentWebhookEvent.count({
+      where: {
+        id: webhookId,
+        processedStatus: { in: ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'] },
+        processingLeaseOwnerHash: leaseOwnerHash,
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+    });
+    if (count !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async renewWebhookClaim(webhookId: string, leaseOwnerHash: string): Promise<Date> {
     const leaseExpiresAt = new Date(Date.now() + 30_000);
-    const updated = await this.prisma.$executeRaw`
-      UPDATE payment_webhook_events
-      SET processing_lease_expires_at = ${leaseExpiresAt}
-      WHERE id = ${webhookId}
-        AND processed_at IS NULL
-        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
-        AND processing_lease_owner_hash = ${leaseOwnerHash}
-        AND processing_lease_expires_at > CURRENT_TIMESTAMP
-    `;
-    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    const updated = await this.prisma.paymentWebhookEvent.updateMany({
+      where: {
+        id: webhookId,
+        processedAt: null,
+        processedStatus: { in: ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'] },
+        processingLeaseOwnerHash: leaseOwnerHash,
+        processingLeaseExpiresAt: { gt: new Date() },
+      },
+      data: { processingLeaseExpiresAt: leaseExpiresAt },
+    });
+    if (updated.count !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
     return leaseExpiresAt;
   }
 
@@ -1145,34 +1172,50 @@ export class PrismaOrderCheckoutRepository {
     maxAttempts: number;
     retryable: boolean;
   }) {
-    const updated = await this.prisma.$executeRaw`
-      UPDATE payment_webhook_events
-      SET processed_status = 'FAILED',
-          processed_at = CASE
-            WHEN processing_attempts >= ${input.maxAttempts} OR NOT ${input.retryable}
-              THEN CURRENT_TIMESTAMP
-            ELSE NULL
-          END,
-          processing_lease_owner_hash = NULL,
-          processing_lease_expires_at = NULL,
-          retryable = ${input.retryable} AND processing_attempts < ${input.maxAttempts},
-          next_retry_at = CASE
-            WHEN ${input.retryable} AND processing_attempts < ${input.maxAttempts}
-              THEN CURRENT_TIMESTAMP
-            ELSE NULL
-          END,
-          result_code = CASE
-            WHEN processing_attempts >= ${input.maxAttempts} THEN 'PROCESSING_ATTEMPTS_EXHAUSTED'
-            WHEN NOT ${input.retryable} THEN ${input.errorCode}
-            ELSE result_code
-          END,
-          last_error_code = ${input.errorCode}
-      WHERE id = ${input.webhookId}
-        AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
-        AND processing_lease_owner_hash = ${input.leaseOwnerHash}
-        AND processing_lease_expires_at > CURRENT_TIMESTAMP
-    `;
-    if (updated !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+    // The original single-statement raw UPDATE used a data-dependent SQL CASE keyed off the
+    // row's *current* processing_attempts, which has no static typed-client `data:` equivalent.
+    // Shape: (a) a guarded typed read using the *same* ownership+status+lease-freshness WHERE
+    // the raw SQL used, to get processing_attempts/result_code; (b) compute the CASE branches
+    // in TS (mirrors the raw SQL verbatim); (c) a guarded typed updateMany with the *same*
+    // WHERE for the final write — its count check is the correctness-critical guard, identical
+    // safety property to the original single-statement `updated !== 1` check.
+    const now = new Date();
+    const guardWhere = {
+      id: input.webhookId,
+      processedStatus: { in: ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'] },
+      processingLeaseOwnerHash: input.leaseOwnerHash,
+      processingLeaseExpiresAt: { gt: now },
+    };
+    const current = await this.prisma.paymentWebhookEvent.findFirst({
+      where: guardWhere,
+      select: { processingAttempts: true, resultCode: true },
+    });
+    if (!current) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
+
+    const attemptsExhausted = current.processingAttempts >= input.maxAttempts;
+    const stillRetryable = input.retryable && !attemptsExhausted;
+    const processedAt = attemptsExhausted || !input.retryable ? new Date() : null;
+    const nextRetryAt = stillRetryable ? new Date() : null;
+    const resultCode = attemptsExhausted
+      ? 'PROCESSING_ATTEMPTS_EXHAUSTED'
+      : !input.retryable
+        ? input.errorCode
+        : current.resultCode;
+
+    const updated = await this.prisma.paymentWebhookEvent.updateMany({
+      where: guardWhere,
+      data: {
+        processedStatus: 'FAILED',
+        processedAt,
+        processingLeaseOwnerHash: null,
+        processingLeaseExpiresAt: null,
+        retryable: stillRetryable,
+        nextRetryAt,
+        resultCode,
+        lastErrorCode: input.errorCode,
+      },
+    });
+    if (updated.count !== 1) throw new Error('PAYMENT_WEBHOOK_CLAIM_LOST');
   }
 
   async findIntentByProvider(input: { provider: PaymentIntentProvider; providerPaymentId?: string | null; providerReference?: string | null }) {
