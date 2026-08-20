@@ -527,12 +527,28 @@ export class PrismaOrderCheckoutRepository {
   async transitionPayment(input: TransitionInput) {
     return this.prisma.$transaction(async (tx) => {
       if (input.webhookClaim) {
+        // P6 fix (found while building the timezone matrix, same CANONICAL_TEMPORAL_AUTHORITY
+        // class as claimWebhookEvidence et al. — see .engineering/sofia-production/remediation/
+        // payment-lease-timezone/00-design.md): this ownership check needs `FOR UPDATE` row
+        // locking inside the surrounding transaction, so it cannot move to the typed Prisma
+        // Client (no typed-client `SELECT ... FOR UPDATE`). The naive `processing_lease_expires_at`
+        // timestamp(3) column was compared directly against `CURRENT_TIMESTAMP` (a `timestamptz`),
+        // which forces Postgres to implicitly interpret the naive value using the *session's*
+        // `TimeZone` GUC to make the types comparable — empirically verified to make an already
+        // (legitimately) expired lease appear still active under a non-UTC session (e.g.
+        // America/Bogota), which would let `transitionPayment` proceed on a stale/reclaimable
+        // claim instead of raising `PAYMENT_WEBHOOK_CLAIM_LOST`. `AT TIME ZONE 'UTC'` explicitly
+        // declares the naive value's zone as UTC (matching how the typed client wrote it) before
+        // comparing, making the comparison session-timezone-independent while preserving the row
+        // lock — the same technique already used for the raw aggregate reads in
+        // operational-backlog.service.ts. Never compare this column to `CURRENT_TIMESTAMP` (or
+        // any bind parameter) without this cast.
         const owned = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id FROM payment_webhook_events
           WHERE id = ${input.webhookClaim.webhookId}
             AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
             AND processing_lease_owner_hash = ${input.webhookClaim.leaseOwnerHash}
-            AND processing_lease_expires_at > CURRENT_TIMESTAMP
+            AND (processing_lease_expires_at AT TIME ZONE 'UTC') > CURRENT_TIMESTAMP
           FOR UPDATE
         `;
         if (owned.length !== 1) checkoutConflict('PAYMENT_WEBHOOK_CLAIM_LOST');
