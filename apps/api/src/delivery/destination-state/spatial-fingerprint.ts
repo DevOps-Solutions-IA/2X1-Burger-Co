@@ -139,8 +139,21 @@ export function splitReferenceText(rawText: string | null | undefined): Referenc
  * SPATIAL, NON_SPATIAL, or AMBIGUOUS, comparing the previous and next raw text.
  *
  * FAIL-CLOSED RULES (in order):
- *   1. If either side has zero recognizable SPATIAL segments, we cannot prove the spatial portion
- *      is unchanged -> AMBIGUOUS (never assert NON_SPATIAL without positive proof).
+ *   0. If the two raw texts are IDENTICAL after canonical normalization (whitespace/case/accents/
+ *      punctuation-insensitive), the edit is NON_SPATIAL regardless of whether either side has a
+ *      recognizable spatial segment at all. This is not an exception to "never assert NON_SPATIAL
+ *      without positive proof" — it IS the proof: nothing about the text changed, so whatever
+ *      spatial identity it encodes (even one this bounded heuristic cannot itself recognize, e.g.
+ *      an informal reference like "cerca del parque" with no street keyword or house number)
+ *      cannot have changed either. Found via A11 (Round 5, legacy POS closure): without this,
+ *      EVERY unrelated order edit (changing `notes`, `customerName`, items, etc.) that happens to
+ *      re-submit the SAME already-persisted `deliveryReference` text would spuriously fail closed
+ *      to AMBIGUOUS whenever that reference lacks a recognizable street keyword or digit —
+ *      bumping the destination revision and marking previously-trusted coordinates STALE on a
+ *      turn that changed nothing about the address at all. Common for informal Colombian
+ *      addresses ("frente al parque", "al lado de la tienda azul"), not just a contrived case.
+ *   1. Otherwise, if either side has zero recognizable SPATIAL segments, we cannot prove the
+ *      spatial portion is unchanged -> AMBIGUOUS (never assert NON_SPATIAL without positive proof).
  *   2. If the two texts' AMBIGUOUS (unrecognized) segments differ, we cannot prove that
  *      difference is spatially inert -> AMBIGUOUS.
  *   3. Otherwise: NON_SPATIAL iff the SPATIAL-segment fingerprints match; SPATIAL otherwise.
@@ -153,6 +166,10 @@ export function classifyRawReferenceChange(
   previousRawText: string | null | undefined,
   nextRawText: string | null | undefined,
 ): FieldChangeClassificationResult {
+  if (normalizeStructuralAddressText(previousRawText ?? null) === normalizeStructuralAddressText(nextRawText ?? null)) {
+    return { classification: 'NON_SPATIAL', reason: 'TEXT_UNCHANGED' };
+  }
+
   const previous = splitReferenceText(previousRawText);
   const next = splitReferenceText(nextRawText);
 

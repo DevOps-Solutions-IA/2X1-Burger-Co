@@ -150,6 +150,17 @@ describe('A6 RED TEAM: legacy POS partial coordinate update pairs a NEW axis wit
       locationProvider: 'whatsapp_live_location',
       locationConfidence: 'HIGH',
       existing: {
+        // SOFIA Round 5 / A11 CLOSURE: `resolveDeliverySnapshot` now reconstructs a canonical
+        // `DestinationSnapshot` (A9) from `existing` via `fromOrderTicketDeliveryColumns`, which
+        // needs the RAW `deliveryReference` text (not just the display-normalized address) to
+        // establish a proven spatial baseline for `classifyRawReferenceChange` -- exactly what a
+        // real caller (`orders.service.ts` `create()`/`update()`) always supplies, since `existing`
+        // there is always the FULL persisted `OrderTicket` row. Omitting it here (as the original
+        // round-4 fixture did) would make the classifier unable to prove the reference is
+        // unchanged, fail closed to AMBIGUOUS, and incorrectly mark the true-far pair STALE -- a
+        // fixture artifact, not a real caller behavior, so it is corrected here rather than left to
+        // assert a scenario no real call site can produce.
+        deliveryReference: reference,
         deliveryLatitude: first.deliveryLatitude as never,
         deliveryLongitude: first.deliveryLongitude as never,
         deliveryAddressNormalized: first.deliveryAddressNormalized as string,

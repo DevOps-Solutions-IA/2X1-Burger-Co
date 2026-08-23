@@ -58,6 +58,18 @@ import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeA
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
+import { applyDestinationEdit, isCoordinateProvisionallyUsable } from '../../delivery/destination-state/destination-revision';
+import {
+  fromOrderTicketDeliveryColumns,
+  toOrderTicketDeliveryColumns,
+  type OrderTicketDeliveryColumns,
+} from '../../delivery/destination-state/destination-state.persistence';
+import {
+  DestinationStateError,
+  type CoordinateSource,
+  type DestinationEdit,
+  type DestinationSnapshot,
+} from '../../delivery/destination-state/destination-snapshot.types';
 
 const ACTIVE_ORDER_STATUSES: OrderTicketStatus[] = [
   OrderTicketStatus.OPEN,
@@ -4607,6 +4619,35 @@ export class OrdersService {
     return maskedLocal ? `${maskedLocal}${domain ? `@${domain}` : ''}` : '[REDACTED_IDENTIFIER]';
   }
 
+  /**
+   * SOFIA Address Remediation — Round 5 / A11 CLOSURE (legacy POS). Maps a legacy POS
+   * `deliveryLocationSource`/`deliveryLocationProvider` input string onto A9's canonical
+   * `CoordinateSource` enum. Legacy POS has never distinguished coordinate PROVENANCE as its own
+   * axis (unlike SOFIA's explicit `GPS_SHARE` literal) — it only ever passed through whatever
+   * free-text `deliveryLocationProvider` the POS UI's address picker supplied (a geocoder/
+   * autocomplete provider id) or nothing at all (historically defaulted to
+   * `'whatsapp_live_location'`). This mapping is intentionally forgiving (never throws) because it
+   * only feeds `coordinateTrust` (TRUSTED vs PROVISIONAL) — both are used for pricing via
+   * `isCoordinateProvisionallyUsable` below, so misclassifying the exact provenance here can never
+   * by itself reopen a coverage/pricing gap; only the atomic-pair and revision/staleness rules
+   * (enforced by `applyDestinationEdit`) are safety-load-bearing.
+   */
+  private resolveLegacyCoordinateSource(
+    locationSource?: string | null,
+    locationProvider?: string | null,
+  ): CoordinateSource {
+    const raw = (locationSource ?? locationProvider ?? '').trim().toLowerCase();
+    if (!raw) return 'GPS_SHARE'; // legacy default: an unlabeled coordinate pair historically meant a live location share
+    if (raw.includes('live_location') || raw.includes('gps')) return 'GPS_SHARE';
+    if (raw.includes('map_pin') || raw.includes('pin')) return 'MAP_PIN';
+    if (raw.includes('manual')) return 'MANUAL_ENTRY';
+    if (raw.includes('history')) return 'CUSTOMER_HISTORY';
+    if (raw === 'address_zone_estimate') return 'UNKNOWN';
+    // Any other named provider (e.g. a geocoding/autocomplete provider id selected from the POS
+    // address picker) is provider-verified evidence, not raw manual entry.
+    return 'GEOCODED_ADDRESS';
+  }
+
   private async resolveDeliverySnapshot(
     tx: Prisma.TransactionClient,
     input: {
@@ -4652,61 +4693,136 @@ export class OrdersService {
     }
 
     const rawReference = input.deliveryReference?.trim() || null;
-    const normalizedAddress = rawReference ? normalizeAddrForCustomer(rawReference) : null;
-    const existingAddress = input.existing?.deliveryAddressNormalized
-      ? normalizeAddrForCustomer(input.existing.deliveryAddressNormalized)
+
+    // SOFIA Round 5 / A11 CLOSURE (CRITICAL, A8 finding): `resolveDeliverySnapshot` used to
+    // maintain its OWN independent notion of "did the address change" (`referenceChanged`, a bare
+    // normalized-text inequality check) and independently decide whether to keep or discard
+    // existing coordinates. ANY text change — including a purely non-spatial instruction edit like
+    // "casa azul" -> "portón negro" — was treated as address-invalidating, discarding trusted
+    // coordinates that had already proven a destination ~42km away, after which the coordinate-less
+    // order could be re-priced from bare textual zone matching, silently reopening LOCAL_FREE. This
+    // now reconstructs the destination as a canonical `DestinationSnapshot` (A9) from whatever is
+    // currently persisted on the order row, and routes the edit through the SAME single
+    // `applyDestinationEdit` state-transition function SOFIA (A10) uses — no independent per-axis
+    // fallback logic remains here.
+    const previousSnapshot: DestinationSnapshot | null = input.existing
+      ? fromOrderTicketDeliveryColumns({
+          deliveryReference: input.existing.deliveryReference ?? null,
+          deliveryAddressNormalized: input.existing.deliveryAddressNormalized ?? null,
+          deliveryLatitude: input.existing.deliveryLatitude ?? null,
+          deliveryLongitude: input.existing.deliveryLongitude ?? null,
+          deliveryLocationSource: input.existing.deliveryLocationSource ?? null,
+          deliveryLocationReceivedAt: input.existing.deliveryLocationReceivedAt
+            ? new Date(input.existing.deliveryLocationReceivedAt)
+            : null,
+          deliveryGeocodingProvider: input.existing.deliveryGeocodingProvider ?? null,
+        })
       : null;
-    const referenceChanged =
-      normalizedAddress != null &&
-      existingAddress != null &&
-      normalizedAddress !== existingAddress;
 
-    // Coordinates are only ever trusted as an atomic (latitude, longitude) pair -- never mixed
-    // from two different sources. Independently falling back per-axis (explicit lat + stale
-    // existing lng, or vice versa) can fabricate a hybrid point that was never actually geocoded
-    // as a coherent location, yet would be treated downstream as a single "already resolved"
-    // trusted spatial point.
-    const explicitLatitude = input.latitude ?? null;
-    const explicitLongitude = input.longitude ?? null;
-    const hasExplicitPair = explicitLatitude != null && explicitLongitude != null;
+    // RULE 1 (coordinate atomicity) at the legacy single-combined-DTO boundary: `deliveryLatitude`
+    // and `deliveryLongitude` are independently `@IsOptional()` on the create/update DTOs (no
+    // cross-field validator), so a caller can submit exactly ONE axis. That partial axis is never
+    // treated as coordinate evidence for this turn at all — it is neither fabricated into a hybrid
+    // pair with a leftover old axis (the round-4 finding) NOR allowed to discard a previously-valid
+    // pair that this edit otherwise leaves untouched (RULE 3: "never silently discard a
+    // previously-valid pair just because one axis wasn't resupplied on an otherwise non-spatial
+    // edit"). Whatever `applyDestinationEdit` decides about the EXISTING pair (preserve on
+    // NON_SPATIAL, stale on SPATIAL) governs instead.
+    const hasLatitudeInput = input.latitude != null;
+    const hasLongitudeInput = input.longitude != null;
+    const hasCompleteCoordinateInput = hasLatitudeInput && hasLongitudeInput;
 
-    const existingLatitudeRaw =
-      !referenceChanged && input.existing?.deliveryLatitude != null
-        ? Number(input.existing.deliveryLatitude)
-        : null;
-    const existingLongitudeRaw =
-      !referenceChanged && input.existing?.deliveryLongitude != null
-        ? Number(input.existing.deliveryLongitude)
-        : null;
-    const hasExistingPair = existingLatitudeRaw != null && existingLongitudeRaw != null;
+    const destinationEdit: DestinationEdit = { rawReferenceText: rawReference };
+    if (hasCompleteCoordinateInput) {
+      destinationEdit.coordinates = {
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        source: this.resolveLegacyCoordinateSource(input.locationSource, input.locationProvider),
+        provider: input.locationProvider ?? null,
+        evidenceId: input.locationPlaceId ?? null,
+        confidence: input.locationConfidence ?? null,
+      };
+    }
 
-    const latitude = hasExplicitPair ? explicitLatitude : hasExistingPair ? existingLatitudeRaw : null;
-    const longitude = hasExplicitPair ? explicitLongitude : hasExistingPair ? existingLongitudeRaw : null;
+    let destinationResult: ReturnType<typeof applyDestinationEdit>;
+    try {
+      destinationResult = applyDestinationEdit(previousSnapshot, destinationEdit);
+    } catch (error) {
+      if (error instanceof DestinationStateError) {
+        throw new BadRequestException('Las coordenadas de entrega deben incluir latitud y longitud juntas.');
+      }
+      throw error;
+    }
+    const { snapshot, revisionBumped, classification } = destinationResult;
+
+    // Single source of truth for "may this coordinate pair be used for pricing/coverage right
+    // now" — TRUSTED or PROVISIONAL, but always bound to the CURRENT spatial revision. A pair left
+    // STALE by a spatial edit (RULE 2) never reaches `deliveryPricingService.estimate()`.
+    const coordinatesUsable = isCoordinateProvisionallyUsable(snapshot);
+    const latitude = coordinatesUsable ? snapshot.latitude : null;
+    const longitude = coordinatesUsable ? snapshot.longitude : null;
+
+    // Provenance/confidence for the pricing call: prefer whatever THIS request explicitly supplied
+    // (a genuinely fresh coordinate submission), but fall back to the DESTINATION SNAPSHOT's own
+    // recorded provenance/trust when this turn preserved (carried forward) an EXISTING pair rather
+    // than resupplying one — e.g. a reference-only PATCH that never included location fields at
+    // all. Without this fallback, a preserved-but-real 42km-trusted pair would be re-quoted with
+    // `location.provider = null`, which can legitimately drop the pricing engine's derived
+    // confidence to LOW (see `DeliveryExternalDataService.resolveOverallConfidence`) purely because
+    // this UNRELATED edit's DTO happened not to repeat location metadata — silently blocking a
+    // perfectly valid, already-proven quote. The coordinate's own trust lives on the snapshot; use
+    // it instead of assuming "no location fields this turn" means "low confidence".
+    const pricingLocationProvider = input.locationProvider ?? input.locationSource ?? snapshot.coordinateSource ?? null;
+    const pricingLocationConfidence: 'HIGH' | 'MEDIUM' | 'LOW' =
+      input.locationConfidence
+      ?? (snapshot.coordinateTrust === 'TRUSTED' ? 'HIGH' : snapshot.coordinateTrust === 'PROVISIONAL' ? 'MEDIUM' : 'LOW');
+
     const pricing = await this.deliveryPricingService.estimate({
-      addressText: rawReference,
-      reference: rawReference,
+      addressText: snapshot.referenceText,
+      reference: snapshot.referenceText,
       latitude,
       longitude,
       location:
         latitude != null && longitude != null
           ? {
-              provider: input.locationProvider ?? input.locationSource ?? null,
+              provider: pricingLocationProvider,
               placeId: input.locationPlaceId ?? null,
-              formattedAddress: input.locationFormattedAddress ?? rawReference,
+              formattedAddress: input.locationFormattedAddress ?? snapshot.referenceText,
               latitude,
               longitude,
-              confidence: input.locationConfidence ?? 'HIGH',
+              confidence: pricingLocationConfidence,
             }
           : null,
     });
-    const deliveryFee = new Prisma.Decimal(pricing.finalFee ?? 0);
+
+    // SOFIA Round 5 / A11 CLOSURE (RULE 8 — A8 CRITICAL finding, generalized beyond the single-call
+    // case Round 4 covered): if this edit could NOT be proven non-spatial (`classification ===
+    // 'AMBIGUOUS'` — e.g. the reference has no recognizable street/number baseline for
+    // `classifyRawReferenceChange` to anchor on, so it fails closed rather than assert NON_SPATIAL)
+    // AND that unprovable-ness just staled a PREVIOUSLY TRUSTED/PROVISIONAL coordinate pair (RULE
+    // 2), the resulting coordinate-less quote must never be allowed to fall back to a bare textual
+    // LOCAL_FREE zone-alias match. We do not know whether this is genuinely a NEW destination (a
+    // bare zone-alias match is the already-approved happy path for a genuinely new order — see the
+    // positive control in `app.critical.spec.ts`) or the SAME destination already proven far away,
+    // merely re-described in a way the bounded heuristic could not confidently parse. FAIL CLOSED
+    // (CLAUDE.md section 5): treat it as unresolved, never as newly free. A PROVEN spatial change
+    // (`classification === 'SPATIAL'`) is NOT affected — that is a positively different address,
+    // for which the normal zone-alias happy path still applies exactly as before.
+    const localFreeBlockedByAmbiguousStaleness =
+      classification === 'AMBIGUOUS' && snapshot.coordinateTrust === 'STALE' && pricing.pricingStatus === 'LOCAL_FREE';
+    const effectivePricingStatus = localFreeBlockedByAmbiguousStaleness ? 'NEEDS_ADDRESS_CORRECTION' : pricing.pricingStatus;
+    const effectiveRequiresManualQuote = localFreeBlockedByAmbiguousStaleness ? true : pricing.requiresManualQuote;
+    const effectiveFinalFee = localFreeBlockedByAmbiguousStaleness ? null : pricing.finalFee;
+    const effectiveSuggestedFee = localFreeBlockedByAmbiguousStaleness ? null : pricing.suggestedFee;
+
+    const deliveryFee = new Prisma.Decimal(effectiveFinalFee ?? 0);
     const deliveryZoneLabel = pricing.zoneLabel;
-    const deliveryFeeSuggested = pricing.suggestedFee != null ? new Prisma.Decimal(pricing.suggestedFee) : null;
+    const deliveryFeeSuggested = effectiveSuggestedFee != null ? new Prisma.Decimal(effectiveSuggestedFee) : null;
     const deliveryEstimatedMinutes = pricing.estimatedMinutes != null ? new Prisma.Decimal(pricing.estimatedMinutes) : null;
     const deliveryDistanceKm =
       pricing.distanceKm != null
         ? new Prisma.Decimal(pricing.distanceKm)
-        : !referenceChanged && input.existing?.deliveryDistanceKm != null
+        : !revisionBumped && input.existing?.deliveryDistanceKm != null
           ? new Prisma.Decimal(input.existing.deliveryDistanceKm)
           : null;
 
@@ -4735,37 +4851,36 @@ export class OrdersService {
       },
     });
 
+    // Persistence tier 1 (A9): re-derives the columns this order row actually stores, with the
+    // SAFETY invariant already built in — a coordinate pair that is not `isCoordinateProvisionallyUsable`
+    // (STALE, bound to a past revision) is NEVER written back as if current; it is written as NULL,
+    // exactly like "no coordinates known", so a future reload (RULE 7) can never misread it as
+    // valid evidence for the new revision.
+    const persistedColumns: OrderTicketDeliveryColumns = toOrderTicketDeliveryColumns(snapshot, new Date());
+
     return {
       deliveryCustomerId: deliveryCustomer.id,
-      deliveryAddressNormalized: normalizedAddress ?? rawReference,
-      deliveryLatitude: latitude != null ? new Prisma.Decimal(latitude) : null,
-      deliveryLongitude: longitude != null ? new Prisma.Decimal(longitude) : null,
+      deliveryAddressNormalized: persistedColumns.deliveryAddressNormalized ?? rawReference,
+      deliveryLatitude: persistedColumns.deliveryLatitude != null ? new Prisma.Decimal(persistedColumns.deliveryLatitude as number) : null,
+      deliveryLongitude: persistedColumns.deliveryLongitude != null ? new Prisma.Decimal(persistedColumns.deliveryLongitude as number) : null,
       deliveryDistanceKm,
       deliveryZoneLabel,
       deliveryFee,
       deliveryFeeSuggested,
       deliveryFeeEdited: pricing.manualEdited,
       deliveryFeeEditReason: pricing.manualEditReason,
-      deliveryPricingStatus: pricing.pricingStatus,
+      deliveryPricingStatus: effectivePricingStatus,
       deliveryPricingConfidence: pricing.confidence,
       deliveryPricingBreakdown: pricing.breakdown as Prisma.InputJsonValue,
       deliveryCalculationVersion: pricing.calculationVersion,
-      deliveryRequiresManualQuote: pricing.requiresManualQuote,
+      deliveryRequiresManualQuote: effectiveRequiresManualQuote,
       deliveryRouteProvider: pricing.providerUsage.routingProvider ?? input.existing?.deliveryRouteProvider ?? null,
       deliveryWeatherProvider: pricing.providerUsage.weatherProvider ?? input.existing?.deliveryWeatherProvider ?? null,
-      deliveryGeocodingProvider: pricing.providerUsage.geocodingProvider ?? input.existing?.deliveryGeocodingProvider ?? null,
+      deliveryGeocodingProvider: pricing.providerUsage.geocodingProvider ?? persistedColumns.deliveryGeocodingProvider ?? null,
       deliveryEstimatedMinutes,
       deliveryPricingAuditId: pricing.auditId ?? null,
-      deliveryLocationSource:
-        latitude != null && longitude != null
-          ? input.locationSource ?? input.locationProvider ?? input.existing?.deliveryLocationSource ?? 'whatsapp_live_location'
-          : 'address_zone_estimate',
-      deliveryLocationReceivedAt:
-        latitude != null && longitude != null
-          ? new Date()
-          : input.existing?.deliveryLocationReceivedAt
-            ? new Date(input.existing.deliveryLocationReceivedAt)
-            : null,
+      deliveryLocationSource: persistedColumns.deliveryLocationSource,
+      deliveryLocationReceivedAt: persistedColumns.deliveryLocationReceivedAt,
     };
   }
 
