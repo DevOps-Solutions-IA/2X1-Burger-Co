@@ -24,9 +24,19 @@ import { COMMERCIAL_REPOSITORY, type CommercialRepository } from './commercial.r
 import type { CommercialConversationState, CommercialMessageCommand, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
 import { CommercialResponseComposer } from './response/commercial-response.composer';
 import type { CommercialFactEnvelope, CommercialResponsePurpose } from './response/commercial-response.types';
+import {
+  applyDestinationEdit,
+  createInitialDestinationSnapshot,
+  isCoordinateProvisionallyUsable,
+  isQuoteBoundToCurrentDestination,
+  quoteBindingFor,
+  type DestinationQuoteBinding,
+} from '../../../delivery/destination-state/destination-revision';
+import type { DestinationEdit, DestinationSnapshot } from '../../../delivery/destination-state/destination-snapshot.types';
 
 const emptyState = (conversationId: string): CommercialConversationState => ({
   schemaVersion: 4, conversationId, customerId: null, intent: 'UNKNOWN', items: [], fulfillment: null, address: null, addressConfirmed: false, location: null,
+  destinationSnapshot: null, deliveryQuoteDestinationBinding: null,
   paymentPreference: 'UNKNOWN', paymentReadiness: 'PAYMENT_UNRESOLVED', subtotal: null, deliveryFee: null, total: null, deliveryQuoteAuditId: null,
   deliveryQuoteVersion: null, deliveryQuoteExpiresAt: null, availabilitySnapshot: [], draftId: null, draftVersion: null,
   draftHash: null, confirmationState: 'NONE',
@@ -67,7 +77,14 @@ export class CommercialCheckoutService {
   async process(command: CommercialMessageCommand): Promise<CommercialTurnResult> {
     const previous = await this.repository.loadState(command.conversationId) ?? emptyState(command.conversationId);
     const parsed = this.intents.interpret(command.message, previous.lastQuestionPurpose);
-    const state: CommercialConversationState = { ...previous, intent: parsed.intent, confidence: parsed.confidence, ambiguities: [], domainErrors: [], lastResolvedIntent: parsed.intent !== 'UNKNOWN' ? parsed.intent : previous.lastResolvedIntent, location: command.location ?? previous.location };
+    // NOTE (A9/A10 CLOSURE — HIGH finding): `location` is deliberately NOT carried forward here as
+    // `command.location ?? previous.location` anymore. A live GPS share must be routed through
+    // `applyDestinationEdit` (below) so it is bound to a specific destination revision instead of
+    // floating globally across turns — otherwise an old GPS point silently outlives a later textual
+    // address change (see `destination-snapshot.types.ts` file header). `state.location` below
+    // still starts as `previous.location` via the spread and is only ever RE-DERIVED from
+    // `state.destinationSnapshot` in the destination-edit block further down.
+    const state: CommercialConversationState = { ...previous, intent: parsed.intent, confidence: parsed.confidence, ambiguities: [], domainErrors: [], lastResolvedIntent: parsed.intent !== 'UNKNOWN' ? parsed.intent : previous.lastResolvedIntent };
 
     if (parsed.adversarial || parsed.intent === 'ASK_HUMAN') return this.handoff(state, command, 'SOFIA_UNTRUSTED_OR_HUMAN_REQUEST');
     if (/descuento|cupon|rebaja/.test(parsed.normalized)) {
@@ -100,16 +117,67 @@ export class CommercialCheckoutService {
       if (parsed.fulfillment === 'TAKEAWAY') {
         state.address = null;
         state.addressConfirmed = false;
+        state.location = null;
+        state.destinationSnapshot = null;
         state.deliveryFee = 0;
         state.deliveryQuoteAuditId = null;
         state.deliveryQuoteVersion = null;
         state.deliveryQuoteExpiresAt = null;
+        state.deliveryQuoteDestinationBinding = null;
       }
     }
     if (parsed.paymentPreference !== 'UNKNOWN') state.paymentPreference = parsed.paymentPreference;
-    if (parsed.address) {
-      state.address = parsed.address;
-      state.addressConfirmed = true;
+
+    // SOFIA Round 5 / A10 CLOSURE — routes EVERY destination-affecting signal for this turn (a new
+    // textual address AND/OR a shared GPS point) through A9's single canonical state-transition
+    // function instead of independently deciding whether to keep/discard coordinates (the exact
+    // per-caller re-derivation that produced the CRITICAL/HIGH findings this round closes).
+    //
+    // FAIL-CLOSED REPLAY GUARD (Scenario D — out-of-order GPS replay): `CommercialMessageCommand`
+    // carries no message ordering/event-id today, so a delayed re-delivery of an OLD WhatsApp
+    // live-location share is indistinguishable, at the transport level, from a genuinely fresh
+    // share. We cannot prove causality either way — but we CAN detect the one case that is
+    // objectively suspicious without any additional plumbing: the incoming coordinate pair being
+    // byte-identical to a pair this conversation already knows is STALE (bound to a PAST revision).
+    // A live GPS reading reproducing that exact old value immediately after the address changed is
+    // far more consistent with a transport-layer replay of the old event than a fresh, coincidental
+    // re-share — so we fail closed and refuse to let it silently re-bind to the CURRENT revision.
+    // This never blocks a legitimate resend of a DIFFERENT (even nearby) point, and never blocks the
+    // address-text portion of the same turn.
+    const staleCoordinateReplay = Boolean(
+      command.location
+      && state.destinationSnapshot
+      && state.destinationSnapshot.coordinateTrust === 'STALE'
+      && state.destinationSnapshot.latitude === command.location.latitude
+      && state.destinationSnapshot.longitude === command.location.longitude,
+    );
+    if (staleCoordinateReplay) this.metrics.increment('stale_coordinate_replay_rejected');
+    const acceptCoordinates = Boolean(command.location) && !staleCoordinateReplay;
+
+    if (parsed.address || acceptCoordinates) {
+      const destinationEdit: DestinationEdit = {};
+      if (parsed.address) destinationEdit.rawReferenceText = parsed.address;
+      if (acceptCoordinates && command.location) {
+        destinationEdit.coordinates = {
+          latitude: command.location.latitude,
+          longitude: command.location.longitude,
+          source: 'GPS_SHARE',
+          confidence: 'HIGH',
+        };
+      }
+      const { snapshot, revisionBumped } = applyDestinationEdit(this.baselineDestinationSnapshot(state), destinationEdit);
+      state.destinationSnapshot = snapshot;
+      state.address = snapshot.referenceText;
+      state.addressConfirmed = Boolean(snapshot.referenceText);
+      state.location = isCoordinateProvisionallyUsable(snapshot)
+        ? { latitude: snapshot.latitude!, longitude: snapshot.longitude! }
+        : null;
+      // The destination's spatial identity actually moved (or could not be proven unchanged,
+      // fail-closed AMBIGUOUS) — any previously PENDING/CONFIRMED draft was priced/confirmed
+      // against the OLD identity and must never be replayed as-is (see `confirm()`'s
+      // `isQuoteBoundToCurrentDestination` check for the second, compound-message-safe layer of
+      // this same guard).
+      if (revisionBumped) this.invalidateDraft(state);
     }
 
     try { this.policy.validatePayment(state.fulfillment, state.paymentPreference); }
@@ -205,6 +273,7 @@ export class CommercialCheckoutService {
     const availability = await this.validateAvailability(state);
     const subtotal = state.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     let deliveryFee = 0, deliveryQuoteAuditId: string | null = null, deliveryQuoteVersion: number | null = null, deliveryQuoteExpiresAt: Date | null = null;
+    let deliveryQuoteDestinationBinding: DestinationQuoteBinding | null = null;
     if (state.fulfillment === 'DELIVERY') {
       const quote = await this.deliveryQuotes.quote({
         addressText: state.address!,
@@ -217,6 +286,10 @@ export class CommercialCheckoutService {
       deliveryFee = quote.finalFee; deliveryQuoteAuditId = quote.auditId;
       deliveryQuoteVersion = Number(quote.calculationVersion.match(/v(\d+)$/)?.[1] ?? 0) || null;
       deliveryQuoteExpiresAt = new Date(Date.now() + 15 * 60_000);
+      // QUOTE BINDING (SOFIA Round 5 / A10): record EXACTLY which destination identity this quote
+      // was computed against, so a later `confirm()` can prove (or refuse to assume) it is still
+      // the current one — `quote.destinationRevision == currentDestination.revision`.
+      deliveryQuoteDestinationBinding = state.destinationSnapshot ? quoteBindingFor(state.destinationSnapshot) : null;
     }
     const version = state.draftVersion ? state.draftVersion + 1 : 1;
     const saved = await this.repository.saveDraft({ draftId: state.draftId ?? undefined, conversationId: state.conversationId, customerId: state.customerId, fulfillment: state.fulfillment, paymentPreference: state.paymentPreference, version, items: state.items, subtotal, deliveryFee, total: subtotal + deliveryFee, address: state.address, addressConfirmed: state.addressConfirmed, deliveryQuoteAuditId, deliveryQuoteVersion, deliveryQuoteExpiresAt, availabilitySnapshot: availability });
@@ -228,6 +301,7 @@ export class CommercialCheckoutService {
       deliveryQuoteAuditId,
       deliveryQuoteVersion,
       deliveryQuoteExpiresAt: deliveryQuoteExpiresAt?.toISOString() ?? null,
+      deliveryQuoteDestinationBinding,
       availabilitySnapshot: availability,
       draftId: saved.id,
       draftVersion: saved.version,
@@ -254,12 +328,31 @@ export class CommercialCheckoutService {
 
   private async confirm(state: CommercialConversationState, command: CommercialMessageCommand): Promise<CommercialTurnResult> {
     if (state.lastQuestionPurpose !== 'CONFIRM_ORDER' || !state.draftId || !state.draftVersion || !state.draftHash || !state.expiresAt) return this.handoff(state, command, 'SOFIA_CONTEXTUAL_CONFIRMATION_INVALID');
-    if (new Date(state.expiresAt) <= new Date() || (state.fulfillment === 'DELIVERY' && (!state.deliveryQuoteExpiresAt || new Date(state.deliveryQuoteExpiresAt) <= new Date()))) {
+    // QUOTE BINDING (SOFIA Round 5 / A10): a single WhatsApp message can carry BOTH a CONFIRM
+    // intent AND a new address/GPS in the same text (e.g. "Confirmo, mejor envíamelo a la calle 80
+    // con 15"). `process()` already applied that destination edit (and, if it bumped the spatial
+    // revision, called `invalidateDraft`) BEFORE routing here — but `invalidateDraft` only resets
+    // `confirmationState`, which `confirm()` never even reads; the ONLY thing gating this call is
+    // `lastQuestionPurpose === 'CONFIRM_ORDER'`, still true from the PRIOR turn's `prepareDraft`.
+    // Without this explicit check, the stale `draftId`/`draftHash` from the OLD destination would
+    // be confirmed as-is, silently applying the OLD (possibly out-of-coverage-cheaper) quote to the
+    // NEW address. Fail closed: require `quote.destinationRevision == currentDestination.revision`
+    // (`isQuoteBoundToCurrentDestination`) — a missing binding is treated as UNPROVEN, not "fine".
+    const quoteStillBound = state.fulfillment !== 'DELIVERY'
+      || (state.deliveryQuoteDestinationBinding !== null
+        && state.destinationSnapshot !== null
+        && isQuoteBoundToCurrentDestination(state.deliveryQuoteDestinationBinding, state.destinationSnapshot));
+    if (
+      new Date(state.expiresAt) <= new Date()
+      || (state.fulfillment === 'DELIVERY' && (!state.deliveryQuoteExpiresAt || new Date(state.deliveryQuoteExpiresAt) <= new Date()))
+      || !quoteStillBound
+    ) {
       state.confirmationState = 'EXPIRED';
       const refreshed = await this.prepareDraft(state, command);
       refreshed.confirmationState = 'PENDING';
       refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
-      await this.persistAndAudit(refreshed, command, 'SOFIA_DRAFT_EXPIRED_REFRESHED');
+      if (!quoteStillBound) this.metrics.increment('destination_quote_binding_refresh');
+      await this.persistAndAudit(refreshed, command, quoteStillBound ? 'SOFIA_DRAFT_EXPIRED_REFRESHED' : 'SOFIA_DRAFT_DESTINATION_CHANGED_REFRESHED');
       return this.respond(refreshed, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM');
     }
     try {
@@ -362,6 +455,29 @@ export class CommercialCheckoutService {
       factEnvelope,
       responseComposition: { source: composed.source, violations: composed.validation.violations },
     };
+  }
+
+  /**
+   * Resolves the destination snapshot to treat as `previous` for this turn's `applyDestinationEdit`
+   * call. Almost always just `state.destinationSnapshot` — the fallback exists ONLY for backward
+   * compatibility with a `CommercialConversationState` that has `address`/`location` populated but
+   * no `destinationSnapshot` yet (a conversation persisted before this snapshot-based model existed,
+   * or a state constructed directly by an older/external caller). Without this, a coordinate-only or
+   * instruction-only edit on such a state would see `previous === null` and silently overwrite the
+   * already-known address with `null` (RULE 6 is about never inheriting ANOTHER destination's
+   * evidence — it does not license discarding THIS conversation's own already-known address). This
+   * reconstructs the conversation's OWN prior state only; it never reaches into another
+   * conversation/customer/order.
+   */
+  private baselineDestinationSnapshot(state: CommercialConversationState): DestinationSnapshot | null {
+    if (state.destinationSnapshot) return state.destinationSnapshot;
+    if (!state.address) return null;
+    return createInitialDestinationSnapshot({
+      rawReferenceText: state.address,
+      coordinates: state.location
+        ? { latitude: state.location.latitude, longitude: state.location.longitude, source: 'GPS_SHARE', confidence: 'HIGH' }
+        : null,
+    });
   }
 
   private invalidateDraft(state: CommercialConversationState) { if (state.confirmationState === 'CONFIRMED' || state.confirmationState === 'PENDING') state.confirmationState = 'NONE'; }

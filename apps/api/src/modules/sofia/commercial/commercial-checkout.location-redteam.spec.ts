@@ -79,6 +79,7 @@ function buildRoutingProvider(): RoutingProvider {
 function emptyState(conversationId: string): CommercialConversationState {
   return {
     schemaVersion: 4, conversationId, customerId: null, intent: 'UNKNOWN', items: [], fulfillment: null, address: null, addressConfirmed: false, location: null,
+    destinationSnapshot: null, deliveryQuoteDestinationBinding: null,
     paymentPreference: 'UNKNOWN', paymentReadiness: 'PAYMENT_UNRESOLVED', subtotal: null, deliveryFee: null, total: null, deliveryQuoteAuditId: null,
     deliveryQuoteVersion: null, deliveryQuoteExpiresAt: null, availabilitySnapshot: [], draftId: null, draftVersion: null,
     draftHash: null, confirmationState: 'NONE',

@@ -1,4 +1,6 @@
 import type { SofiaActorContext } from '../../../application/contracts/sofia-domain-contracts';
+import type { DestinationQuoteBinding } from '../../../delivery/destination-state/destination-revision';
+import type { DestinationSnapshot } from '../../../delivery/destination-state/destination-snapshot.types';
 import type { CommercialFactEnvelope } from './response/commercial-response.types';
 
 export type CommercialIntent = 'PURCHASE' | 'CHANGE_ORDER' | 'CONFIRM' | 'REJECT' | 'ASK_HUMAN' | 'UNKNOWN';
@@ -28,6 +30,24 @@ export type CommercialConversationState = {
   address: string | null;
   addressConfirmed: boolean;
   location: { latitude: number; longitude: number } | null;
+  /**
+   * SOFIA Round 5 / A10 — the canonical destination-state authority (A9,
+   * `../../../delivery/destination-state`) for this conversation. `address`/`location` above remain
+   * for backward-compatible display/audit (`addressSafe` in the fact envelope, existing repository
+   * columns) but are always DERIVED from this snapshot — never written independently. `null` only
+   * before any address/location signal has ever been supplied for this conversation (RULE 6: a new
+   * conversation NEVER inherits a previous one's `destinationSnapshot`; see `emptyState()` in
+   * `commercial-checkout.service.ts`, which always sets this to `null`).
+   */
+  destinationSnapshot: DestinationSnapshot | null;
+  /**
+   * The destination-state identity (`revision` + `spatialFingerprint`) that `deliveryQuoteAuditId`
+   * was actually computed against, captured at `prepareDraft()` time via `quoteBindingFor()`. A
+   * later `confirm()` call MUST verify `isQuoteBoundToCurrentDestination(deliveryQuoteDestinationBinding,
+   * destinationSnapshot)` before trusting the existing draft/quote — see QUOTE BINDING invariant.
+   * `null` whenever there is no live delivery quote (TAKEAWAY, or no quote computed yet).
+   */
+  deliveryQuoteDestinationBinding: DestinationQuoteBinding | null;
   paymentPreference: CommercialPaymentPreference;
   paymentReadiness: CommercialPaymentReadiness;
   subtotal: number | null;
