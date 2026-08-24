@@ -1,6 +1,8 @@
 /**
- * SOFIA Round 5 / A17 — blind independent red team finding (fresh audit of
- * feat/sofia-remediation-address-round5-16-drift-fix, no prior context beyond this repo's code).
+ * SOFIA Round 5 / A17 -> A18 — PERMANENT regression test.
+ *
+ * ORIGINAL FINDING (A17, blind independent red team, fresh audit of
+ * feat/sofia-remediation-address-round5-16-drift-fix, no prior context beyond this repo's code):
  *
  * SCOPE: this is a THIRD angle on the same theme A13/A14 and A15/A16 closed (invariant #12 in the
  * mission brief explicitly asks for it) — but it is a genuinely different mechanism from both:
@@ -9,75 +11,53 @@
  *   - A15/A16 was about the legacy POS logistics-only tracking path comparing new GPS pings against
  *     a WALKING reference (the last-applied ping) instead of the FIXED priced anchor, letting many
  *     sub-threshold hops cumulatively drift the destination undetected.
- *   - THIS finding (A17) is about what happens AFTER A16's fix correctly flips
- *     `deliveryRequiresManualQuote = true` for a drifted destination: an entirely UNRELATED,
- *     non-address `OrdersService.update()` call (e.g. editing `notes`, adding a napkin request —
- *     anything that does not touch `deliveryReference`/`deliveryLatitude`/`deliveryLongitude` in the
- *     DTO at all) SILENTLY:
- *       (a) promotes the courier-tracking-only coordinates (`deliveryLatitude`/`deliveryLongitude`,
+ *   - A17 was about what happens AFTER A16's fix correctly flips `deliveryRequiresManualQuote =
+ *     true` for a drifted destination: an entirely UNRELATED, non-address `OrdersService.update()`
+ *     call (e.g. editing `notes`, adding a napkin request — anything that does not touch
+ *     `deliveryReference`/`deliveryLatitude`/`deliveryLongitude` in the DTO at all) SILENTLY:
+ *       (a) promoted the courier-tracking-only coordinates (`deliveryLatitude`/`deliveryLongitude`,
  *           written exclusively by the "logistics only, pricing preserved by design" tracking path)
  *           into commercial pricing authority, and
- *       (b) clears `deliveryRequiresManualQuote` back to `false`, undoing the exact protection A16
- *           just installed — WITHOUT the customer or staff ever actually confirming/re-typing the new
- *           address, and WITHOUT any human ever intending to change the destination at all.
+ *       (b) cleared `deliveryRequiresManualQuote` back to `false`, undoing the exact protection A16
+ *           just installed — WITHOUT the customer or staff ever actually confirming/re-typing the
+ *           new address, and WITHOUT any human ever intending to change the destination at all.
  *
- * ROOT CAUSE:
+ * ROOT CAUSE (A17):
  *
- * `OrdersService.update()` ALWAYS calls `resolveDeliverySnapshot()` for a DELIVERY-type order,
- * regardless of what the caller's DTO actually touches (see `orders.service.ts` around line 1975:
- * `nextType === OrderTicketType.DELIVERY ? await this.resolveDeliverySnapshot(tx, {...}) : null` —
- * unconditional on DTO content). Inside `resolveDeliverySnapshot`, when the DTO does not resupply
- * `deliveryLatitude`/`deliveryLongitude`, the function reconstructs `previousSnapshot` from
- * `input.existing` (== `current`, the row AS IT STANDS RIGHT NOW in the database) via
- * `fromOrderTicketDeliveryColumns()` (`destination-state.persistence.ts`). That reconstruction maps
- * `deliveryLocationSource === 'whatsapp_live_location'` to `coordinateSource: 'GPS_SHARE'`, which is
- * a `HIGH_TRUST_SOURCES` entry — reconstructing `coordinateTrust: 'TRUSTED'`
- * (`destination-state.persistence.ts` line ~132). Crucially, `applyDeliveryLocationForLogisticsOnlyInTransaction`
- * (the courier-tracking path) writes EXACTLY that same `deliveryLocationSource: 'whatsapp_live_location'`
- * marker on every tracking ping (`orders.service.ts` line ~4032) — there is NO way, at the persistence
- * layer, to distinguish "a customer shared GPS to CONFIRM their delivery address" from "a courier's
- * live-location breadcrumb, explicitly documented as logistics-only and never meant to reprice
- * anything" (see the tracking path's own docstring: "this 'logistics only' path... by design must NOT
- * silently change a fee/total the customer already agreed to or paid for"). Both produce a
- * `TRUSTED`/`GPS_SHARE` reconstructed snapshot indistinguishable from a genuine address-confirmation
- * event.
+ * `OrdersService.update()` used to ALWAYS call `resolveDeliverySnapshot()` for a DELIVERY-type
+ * order, regardless of what the caller's DTO actually touched. Inside `resolveDeliverySnapshot`,
+ * when the DTO did not resupply `deliveryLatitude`/`deliveryLongitude`, the function reconstructed
+ * `previousSnapshot` from `input.existing` (== `current`, the row AS IT STOOD RIGHT NOW in the
+ * database) via `fromOrderTicketDeliveryColumns()`. That reconstruction maps
+ * `deliveryLocationSource === 'whatsapp_live_location'` to `coordinateSource: 'GPS_SHARE'`, a
+ * `HIGH_TRUST_SOURCES` entry — reconstructing `coordinateTrust: 'TRUSTED'`. Crucially,
+ * `applyDeliveryLocationForLogisticsOnlyInTransaction` (the courier-tracking path) writes EXACTLY
+ * that same `deliveryLocationSource: 'whatsapp_live_location'` marker on every tracking ping —
+ * there was NO way, at the persistence layer, to distinguish "a customer shared GPS to CONFIRM
+ * their delivery address" from "a courier's live-location breadcrumb, explicitly documented as
+ * logistics-only and never meant to reprice anything". An unrelated edit (identical/omitted
+ * `deliveryReference`) fed that reconstructed pair straight into `deliveryPricingService.estimate()`
+ * producing a brand-new price AND a brand-new `DeliveryPricingAudit` row anchored at the
+ * tracking-drifted point — becoming the new "priced anchor" for A16's drift check, letting an
+ * attacker walk the destination arbitrarily far via (tracking-drift -> unrelated-edit) cycles,
+ * never a genuine address change.
  *
- * When the incoming `update()` DTO does not change the address text either (identical
- * `deliveryReference`, or omitted so `update()` resupplies `current.deliveryReference` unchanged —
- * see `orders.service.ts` line 1980-1981), `classifyRawReferenceChange` returns `NON_SPATIAL`
- * (`TEXT_UNCHANGED`), so `applyDestinationEdit`'s RULE 3 branch fires: "carry forward unchanged,
- * still bound to the SAME revision" — but what it carries forward is the (possibly courier-drifted)
- * `TRUSTED` pair from the CURRENT row, not the pair the order's price was originally computed
- * against. `resolveDeliverySnapshot` then feeds that pair straight into
- * `deliveryPricingService.estimate()`, producing a brand-new price AND a brand-new
- * `DeliveryPricingAudit` row anchored at the tracking-drifted point — which becomes the new "priced
- * anchor" `OrdersService.resolvePricedAnchorCoordinates` (the A16 fix) will recover from then on. The
- * VERY mechanism A16 built to detect drift (comparing against the last REAL repricing pass's anchor)
- * is exactly what an attacker can walk forward one "innocuous edit" at a time.
+ * FIX (A18): `OrdersService.update()` now only invokes `resolveDeliverySnapshot()`'s
+ * destination-edit/re-pricing branch when THIS call's DTO carries genuine, explicit
+ * address-confirming input (`deliveryReference !== undefined`, or `deliveryLatitude !== undefined`,
+ * or `deliveryLongitude !== undefined` — see `hasAddressRelevantInput` in `orders.service.ts`'s
+ * `update()`). Any other edit (notes-only, item-only, status-only, etc.) now carries the existing
+ * delivery* columns forward VERBATIM via the new `carryForwardDeliverySnapshot()` helper — no
+ * re-derivation, no re-pricing, no new `DeliveryPricingAudit` row, no flag reset. Genuine address
+ * re-confirmation (explicit new `deliveryReference` text and/or explicit new coordinates supplied
+ * directly on the DTO) still goes through the full canonical `resolveDeliverySnapshot`/
+ * `applyDestinationEdit` re-pricing path exactly as before — see the positive-control test below.
  *
- * CONSEQUENCE: an attacker (or a compromised/spoofed WhatsApp sender matched to the order — the
- * courier-tracking ingestion path in `captureDeliveryLocationFromWhatsapp` only requires phone-number
- * correlation, see `resolveDeliveryLocationMatch`) can:
- *   1. Drift an order's destination via ordinary live-location tracking pings (A16 correctly flips
- *      `deliveryRequiresManualQuote = true` once cumulative drift exceeds the material threshold —
- *      checkout is genuinely blocked at this point).
- *   2. Wait for (or socially engineer) ANY completely unrelated staff edit to the order — changing
- *      `notes`, adding/removing an item, anything that does not touch the address fields — and the
- *      manual-quote block SILENTLY clears itself, re-pricing the order for the drifted point as if it
- *      were a freshly confirmed address.
- *   3. Repeat indefinitely: each "innocuous edit" both launders the current drift into a new trusted
- *      anchor AND clears the safety flag, letting the destination walk arbitrarily far while never
- *      requiring a human to actually look at, type, or confirm a new delivery address.
- *
- * This violates invariants #4 (editing a NON-address field must never cause trusted-coordinate state
- * to reopen a cheaper/different pricing path), #5 (a quote/price must not survive materially better
- * evidence arriving — here the "materially different" gate is defeated by silent anchor-reset, not
- * bypassed by never firing), #11 (a confirmed price must correspond to destination evidence ACTUALLY
- * validated as address evidence, not courier telemetry), and is exactly the "resetting an anchor by
- * triggering a cheap re-price then drifting again from the new anchor" attack class invariant #12
- * explicitly calls out — except the "cheap re-price" trigger here is not itself a location edit at
- * all, it is ANY unrelated field edit, which is a strictly larger and more dangerous attack surface
- * than a deliberately-crafted repricing call.
+ * This test file proves BOTH halves: (1) the notes-only "launder" attack from A17 no longer works —
+ * `deliveryRequiresManualQuote` survives, no new audit is created, the fee/pricing status are
+ * untouched, while the notes field itself DOES update normally; (2) a genuinely new address
+ * confirmation still legitimately re-prices and can clear `deliveryRequiresManualQuote` when the
+ * newly confirmed evidence is actually in-coverage.
  *
  * Real Postgres (isolated test database), real unmocked `OrdersService` + `DeliveryPricingService`
  * (real audit persistence via `PrismaService`, exactly as `delivery.module.ts` wires it in
@@ -102,7 +82,7 @@ import { Prisma } from '@prisma/client';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl || !/_test(?:\?|$)/.test(databaseUrl)) {
-  throw new Error('A17 requires an isolated _test database.');
+  throw new Error('A17/A18 requires an isolated _test database.');
 }
 
 // Restaurant origin — matches the A15/A16 fixture style (arbitrary real-world-shaped coordinate,
@@ -156,7 +136,7 @@ function buildRealtimeStub() {
   };
 }
 
-describe('A17 Round 5 (blind) — unrelated non-address order edit launders courier-tracking drift into commercial pricing authority', () => {
+describe('A17/A18 Round 5 — unrelated non-address order edits must never launder courier-tracking drift into commercial pricing authority', () => {
   jest.setTimeout(60000);
   let prisma: PrismaService;
   let service: OrdersService;
@@ -211,7 +191,7 @@ describe('A17 Round 5 (blind) — unrelated non-address order edit launders cour
     await prisma.$disconnect();
   });
 
-  it('an unrelated notes-only update() call silently re-anchors and re-prices a courier-drifted destination, clearing deliveryRequiresManualQuote without any address confirmation', async () => {
+  it('[FIXED] an unrelated notes-only update() call must NOT re-anchor/re-price a courier-drifted destination and must NOT clear deliveryRequiresManualQuote — the notes field itself must still update normally', async () => {
     const phone = '573011770001';
 
     // 1. Real order creation ~500m from origin: AUTO_PRICED, cheap, in-coverage, base-fare-only zone.
@@ -243,8 +223,10 @@ describe('A17 Round 5 (blind) — unrelated non-address order edit launders cour
     expect(baseline.deliveryRequiresManualQuote).toBe(false);
     expect(Number(baseline.deliveryFee)).toBe(5000); // base fare only, within includedKm=1.5
     const originalFee = Number(baseline.deliveryFee);
+    const originalPricingStatus = baseline.deliveryPricingStatus;
     const originalCalculationVersionAuditCount = await prisma.deliveryPricingAudit.count({ where: { orderTicketId: created.id } });
     expect(originalCalculationVersionAuditCount).toBe(1); // exactly the creation-time audit row (the true anchor)
+    const originalAudit = await prisma.deliveryPricingAudit.findFirstOrThrow({ where: { orderTicketId: created.id } });
 
     // 2. Walk the destination away via ordinary courier live-location tracking pings — same
     // sub-threshold-hop technique A15 used, now correctly caught by the A16 fixed-anchor gate. Total
@@ -302,65 +284,67 @@ describe('A17 Round 5 (blind) — unrelated non-address order edit launders cour
     // any point in this test so far. Only courier-tracking telemetry moved.
     expect(afterWalk.deliveryReference).toBe(originalReference);
 
-    // 3. THE ATTACK: an entirely unrelated staff edit — notes only, no address/coordinate fields
-    // anywhere in the DTO. Any ordinary "add extra napkins" / "sin cebolla" kitchen-note edit looks
-    // exactly like this from the caller's side.
+    // 3. THE FORMER ATTACK, NOW A REGRESSION PROBE: an entirely unrelated staff edit — notes only,
+    // no address/coordinate fields anywhere in the DTO. Any ordinary "add extra napkins" /
+    // "sin cebolla" kitchen-note edit looks exactly like this from the caller's side. Under the A18
+    // fix, `OrdersService.update()` must detect that this DTO carries no address-relevant field
+    // (`hasAddressRelevantInput === false`) and skip the destination-edit/re-pricing branch entirely,
+    // carrying the existing delivery* columns forward VERBATIM via `carryForwardDeliverySnapshot()`.
+    const newNotes = 'Extra salsa, sin cebolla';
     await service.update(
       created.id,
-      { notes: 'Extra salsa, sin cebolla' } as never,
+      { notes: newNotes } as never,
       admin as never,
     );
 
     const afterLaunder = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
 
-    // (a) The address text is STILL byte-for-byte unchanged — no human ever edited or re-confirmed
-    // it. Yet:
+    // (a) The notes field itself DOES update normally — this fix must not make ordinary unrelated
+    // edits inert, only prevent them from touching delivery pricing/address state.
+    expect(afterLaunder.notes).toBe(newNotes);
+
+    // (b) The address text is still byte-for-byte unchanged — no human ever edited or re-confirmed
+    // it.
     expect(afterLaunder.deliveryReference).toBe(originalReference);
 
-    // (b) deliveryRequiresManualQuote — the ONLY thing standing between the drifted destination and
-    // checkout — has been SILENTLY cleared, with zero address confirmation.
-    expect(afterLaunder.deliveryRequiresManualQuote).toBe(false);
+    // (c) [FIX PROOF] deliveryRequiresManualQuote — the ONLY thing standing between the drifted
+    // destination and checkout — MUST SURVIVE this unrelated edit. This is the core regression this
+    // test exists to prove: A16's protection is no longer silently undone by an unrelated edit.
+    expect(afterLaunder.deliveryRequiresManualQuote).toBe(true);
 
-    // (c) The persisted price actually CHANGED to reflect the tracking-only coordinates — proving a
-    // real repricing pass ran, fed by courier telemetry the tracking path's own docstring says must
-    // "NOT silently change a fee/total the customer already agreed to or paid for".
-    expect(afterLaunder.deliveryPricingStatus).toBe('AUTO_PRICED');
-    expect(Number(afterLaunder.deliveryFee)).not.toBe(originalFee);
-    expect(Number(afterLaunder.deliveryFee)).toBeGreaterThan(originalFee);
+    // (d) [FIX PROOF] The persisted price/status must be COMPLETELY UNTOUCHED by the unrelated edit
+    // — no repricing pass ran at all.
+    expect(afterLaunder.deliveryPricingStatus).toBe(originalPricingStatus);
+    expect(Number(afterLaunder.deliveryFee)).toBe(originalFee);
+    expect(afterLaunder.deliveryLatitude?.toString()).toBe(afterWalk.deliveryLatitude?.toString());
+    expect(afterLaunder.deliveryLongitude?.toString()).toBe(afterWalk.deliveryLongitude?.toString());
 
-    // (d) The coordinates that got silently promoted to "priced anchor" are exactly the
-    // courier-tracking-drifted point, not the originally-confirmed one.
-    const latestAudit = await prisma.deliveryPricingAudit.findFirst({
+    // (e) [FIX PROOF] No new `DeliveryPricingAudit` row was created — the courier-drifted point was
+    // NEVER promoted to a "priced anchor". The audit trail still shows exactly the one, original,
+    // genuinely-address-confirmed anchor.
+    const auditCountAfterLaunder = await prisma.deliveryPricingAudit.count({ where: { orderTicketId: created.id } });
+    expect(auditCountAfterLaunder).toBe(originalCalculationVersionAuditCount);
+    const latestAuditAfterLaunder = await prisma.deliveryPricingAudit.findFirstOrThrow({
       where: { orderTicketId: created.id },
       orderBy: { createdAt: 'desc' },
     });
-    expect(latestAudit).not.toBeNull();
-    const latestRequest = latestAudit!.requestJson as { latitude?: number; longitude?: number };
-    expect(latestRequest.latitude).toBeCloseTo(currentLatitude, 5);
-    expect(latestRequest.longitude).toBeCloseTo(currentLongitude, 5);
-    // Sanity: this new anchor really is far from the ORIGINAL priced point — this is not a benign
-    // same-spot re-price, it is the drifted point becoming authoritative.
-    expect(
-      isCoordinateEvidenceMateriallyDifferent(startLatitude, startLongitude, latestRequest.latitude ?? null, latestRequest.longitude ?? null),
-    ).toBe(true);
+    expect(latestAuditAfterLaunder.id).toBe(originalAudit.id);
 
-    // (e) THE FINANCIAL/OPERATIONAL PROOF: the canonical, single-authority checkout gate now
-    // authorizes checkout — at a price computed from courier telemetry that was never presented to
-    // anyone as "this is the new delivery address", after a notes-only edit that nobody would expect
-    // to touch delivery pricing at all.
+    // (f) [FIX PROOF] The canonical, single-authority checkout gate STILL blocks checkout — the
+    // manual-quote requirement A16 installed for this drifted destination was never laundered away.
     const authorizationAfterLaunder = deriveCheckoutAuthorizationFromOrderSnapshot({
       deliveryPricingStatus: afterLaunder.deliveryPricingStatus,
       deliveryRequiresManualQuote: afterLaunder.deliveryRequiresManualQuote,
       deliveryFee: Number(afterLaunder.deliveryFee),
       hasCalculationSnapshot: Boolean(afterLaunder.deliveryCalculationVersion?.trim()) && afterLaunder.deliveryPricingBreakdown != null,
     });
-    expect(authorizationAfterLaunder.canCheckout).toBe(true);
-    expect(() => (service as unknown as { assertDeliveryCheckoutAllowed: (o: unknown) => void }).assertDeliveryCheckoutAllowed(afterLaunder)).not.toThrow();
+    expect(authorizationAfterLaunder.canCheckout).toBe(false);
+    expect(() => (service as unknown as { assertDeliveryCheckoutAllowed: (o: unknown) => void }).assertDeliveryCheckoutAllowed(afterLaunder)).toThrow();
 
-    // 4. THE REPEATABILITY PROOF: the newly-laundered anchor (the drifted point) can now be walked
-    // AGAIN via more tracking pings, and reset AGAIN via another unrelated edit — demonstrating this
-    // is not a one-off quirk but a repeatable mechanism for walking a destination arbitrarily far
-    // using only (tracking ping)* + (unrelated edit) cycles, never a genuine address change.
+    // 4. REPEATABILITY PROOF: a SECOND round of (tracking pings -> unrelated edit) must behave
+    // identically — the fix is structural (gated on DTO content), not a one-shot special case. More
+    // tracking drift still correctly re-engages A16's manual-quote gate against the ORIGINAL,
+    // never-laundered anchor, and a second unrelated edit still must not clear it.
     const secondStartLatitude = currentLatitude;
     const secondStartLongitude = currentLongitude;
     for (let i = 0; i < steps; i += 1) {
@@ -375,23 +359,138 @@ describe('A17 Round 5 (blind) — unrelated non-address order edit launders cour
       currentLatitude = nextLatitude;
     }
     const afterSecondWalk = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
-    expect(afterSecondWalk.deliveryRequiresManualQuote).toBe(true); // A16 gate re-engages against the NEW (laundered) anchor
+    expect(afterSecondWalk.deliveryRequiresManualQuote).toBe(true); // still gated against the ORIGINAL anchor
     expect(
       isCoordinateEvidenceMateriallyDifferent(secondStartLatitude, secondStartLongitude, currentLatitude, currentLongitude),
     ).toBe(true);
 
     await service.update(created.id, { notes: 'Sin tomate esta vez' } as never, admin as never);
     const afterSecondLaunder = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
-    expect(afterSecondLaunder.deliveryRequiresManualQuote).toBe(false); // cleared again, still zero address confirmations ever
+    expect(afterSecondLaunder.deliveryRequiresManualQuote).toBe(true); // STILL not cleared
     expect(afterSecondLaunder.deliveryReference).toBe(originalReference);
-    const totalDriftFromOriginalAnchorKm = haversineKm(startLatitude, startLongitude, currentLatitude, currentLongitude);
-    expect(totalDriftFromOriginalAnchorKm).toBeGreaterThan(4); // walked >4km from the ONLY ever address-confirmed point, at a computer-honest but never-human-confirmed price
+    expect(Number(afterSecondLaunder.deliveryFee)).toBe(originalFee);
+    const auditCountAfterSecondLaunder = await prisma.deliveryPricingAudit.count({ where: { orderTicketId: created.id } });
+    expect(auditCountAfterSecondLaunder).toBe(originalCalculationVersionAuditCount); // still exactly 1
     const authorizationAfterSecondLaunder = deriveCheckoutAuthorizationFromOrderSnapshot({
       deliveryPricingStatus: afterSecondLaunder.deliveryPricingStatus,
       deliveryRequiresManualQuote: afterSecondLaunder.deliveryRequiresManualQuote,
       deliveryFee: Number(afterSecondLaunder.deliveryFee),
       hasCalculationSnapshot: Boolean(afterSecondLaunder.deliveryCalculationVersion?.trim()) && afterSecondLaunder.deliveryPricingBreakdown != null,
     });
-    expect(authorizationAfterSecondLaunder.canCheckout).toBe(true);
+    expect(authorizationAfterSecondLaunder.canCheckout).toBe(false);
+  });
+
+  it('[POSITIVE CONTROL] a genuine address re-confirmation (explicit new deliveryReference + coordinates on the update() DTO) still correctly re-prices and legitimately clears deliveryRequiresManualQuote when back in-coverage', async () => {
+    const phone = '573011770002';
+
+    // 1. Same setup as the fix-proof test: create an order close to origin, then drift it via
+    // courier-tracking pings until A16's manual-quote gate engages.
+    const startOffsetDeg = 0.5 / 111.32;
+    const startLatitude = ORIGIN.latitude + startOffsetDeg;
+    const startLongitude = ORIGIN.longitude;
+    const originalReference = 'Calle 10 #5-20, apto 301';
+
+    const created = await service.create(
+      {
+        type: 'DELIVERY' as never,
+        customerName: 'Cliente A17 positivo',
+        customerPhone: phone,
+        deliveryReference: originalReference,
+        deliveryLatitude: startLatitude,
+        deliveryLongitude: startLongitude,
+        deliveryLocationProvider: 'whatsapp_live_location',
+        deliveryLocationConfidence: 'HIGH',
+        items: [],
+      } as never,
+      admin as never,
+    );
+
+    const baseline = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
+    expect(baseline.deliveryRequiresManualQuote).toBe(false);
+    const originalFee = Number(baseline.deliveryFee);
+    const originalAuditCount = await prisma.deliveryPricingAudit.count({ where: { orderTicketId: created.id } });
+    expect(originalAuditCount).toBe(1);
+
+    const stepDeg = 0.00125;
+    const steps = 15;
+    let currentLatitude = startLatitude;
+    const currentLongitude = startLongitude;
+    for (let i = 0; i < steps; i += 1) {
+      const nextLatitude = currentLatitude + stepDeg;
+      await service.captureDeliveryLocationFromWhatsapp({
+        sourceEventKey: `a17-launder-positive-${created.id}-${i}`,
+        senderPhoneCandidates: [phone],
+        latitude: nextLatitude,
+        longitude: currentLongitude,
+        actorId: adminUserId,
+      });
+      currentLatitude = nextLatitude;
+    }
+
+    const afterWalk = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
+    expect(afterWalk.deliveryRequiresManualQuote).toBe(true); // A16 gate engaged, exactly as the fix-proof test above
+
+    // 2. THE POSITIVE CONTROL: staff/customer GENUINELY re-confirms the delivery address — a real
+    // new reference text AND explicit fresh coordinates supplied directly on THIS update() call
+    // (e.g. from the POS address picker, or a SOFIA-forwarded GPS share at order-edit time), placed
+    // back within `includedKm` so the honest re-price is legitimately auto-approvable. This is
+    // exactly the caller-driven, address-relevant DTO content `hasAddressRelevantInput` in
+    // `orders.service.ts` is designed to detect and route through the full
+    // `resolveDeliverySnapshot`/`applyDestinationEdit` re-pricing path — the fix must not make this
+    // legitimate flow impossible.
+    const confirmedReference = 'Carrera 8 #12-45, casa nueva confirmada';
+    const confirmedLatitude = startLatitude; // genuinely back at the original, in-coverage point
+    const confirmedLongitude = startLongitude;
+    expect(haversineKm(ORIGIN.latitude, ORIGIN.longitude, confirmedLatitude, confirmedLongitude)).toBeLessThan(1.5);
+
+    await service.update(
+      created.id,
+      {
+        deliveryReference: confirmedReference,
+        deliveryLatitude: confirmedLatitude,
+        deliveryLongitude: confirmedLongitude,
+        deliveryLocationProvider: 'pos_address_picker',
+        deliveryLocationConfidence: 'HIGH',
+      } as never,
+      admin as never,
+    );
+
+    const afterConfirmation = await prisma.orderTicket.findUniqueOrThrow({ where: { id: created.id } });
+
+    // (a) The address text DID change — a real, explicit re-confirmation occurred.
+    expect(afterConfirmation.deliveryReference).toBe(confirmedReference);
+
+    // (b) The coordinates now reflect the freshly confirmed, in-coverage point — not the
+    // tracking-drifted one.
+    expect(Number(afterConfirmation.deliveryLatitude)).toBeCloseTo(confirmedLatitude, 5);
+    expect(Number(afterConfirmation.deliveryLongitude)).toBeCloseTo(confirmedLongitude, 5);
+
+    // (c) A real repricing pass DID run and produced a NEW audit row anchored at the confirmed
+    // point — this is legitimate, caller-driven re-pricing, not laundering.
+    const auditCountAfterConfirmation = await prisma.deliveryPricingAudit.count({ where: { orderTicketId: created.id } });
+    expect(auditCountAfterConfirmation).toBeGreaterThan(originalAuditCount);
+    const latestAudit = await prisma.deliveryPricingAudit.findFirstOrThrow({
+      where: { orderTicketId: created.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    const latestRequest = latestAudit.requestJson as { latitude?: number; longitude?: number };
+    expect(latestRequest.latitude).toBeCloseTo(confirmedLatitude, 5);
+    expect(latestRequest.longitude).toBeCloseTo(confirmedLongitude, 5);
+
+    // (d) [LEGITIMATE UNBLOCK] Because the newly confirmed evidence is genuinely back in-coverage,
+    // deliveryRequiresManualQuote is legitimately cleared and the fee reflects the honest re-price —
+    // this is the flow the fix must NOT break.
+    expect(afterConfirmation.deliveryRequiresManualQuote).toBe(false);
+    expect(afterConfirmation.deliveryPricingStatus).toBe('AUTO_PRICED');
+    expect(Number(afterConfirmation.deliveryFee)).toBe(originalFee); // same in-coverage base fare as the original anchor
+
+    const authorizationAfterConfirmation = deriveCheckoutAuthorizationFromOrderSnapshot({
+      deliveryPricingStatus: afterConfirmation.deliveryPricingStatus,
+      deliveryRequiresManualQuote: afterConfirmation.deliveryRequiresManualQuote,
+      deliveryFee: Number(afterConfirmation.deliveryFee),
+      hasCalculationSnapshot: Boolean(afterConfirmation.deliveryCalculationVersion?.trim()) && afterConfirmation.deliveryPricingBreakdown != null,
+    });
+    expect(authorizationAfterConfirmation.canCheckout).toBe(true);
+    expect(() => (service as unknown as { assertDeliveryCheckoutAllowed: (o: unknown) => void }).assertDeliveryCheckoutAllowed(afterConfirmation)).not.toThrow();
   });
 });

@@ -1972,22 +1972,50 @@ export class OrdersService {
         select: { totalPrice: true },
       });
       const itemsSubtotal = currentItems.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
+      // SOFIA Round 5 / A18 CLOSURE (HIGH, A17 blind finding): `resolveDeliverySnapshot` used to be
+      // invoked UNCONDITIONALLY for every DELIVERY-type `update()` call, regardless of whether the
+      // caller's DTO actually carried any address-confirming evidence. When the DTO omitted
+      // `deliveryReference`/`deliveryLatitude`/`deliveryLongitude` entirely (e.g. a `notes`-only
+      // edit), `resolveDeliverySnapshot` fell back to reconstructing "current truth" from whatever
+      // was PERSISTED on `current` — including `deliveryLatitude`/`deliveryLongitude` columns that
+      // ordinary courier-tracking pings (`applyDeliveryLocationForLogisticsOnlyInTransaction`) may
+      // have overwritten with a marker (`whatsapp_live_location`) INDISTINGUISHABLE, at the
+      // persistence layer, from a genuine customer address confirmation. That silently laundered
+      // tracking-only drift into a fresh commercial re-price and a new `DeliveryPricingAudit`
+      // anchor, clearing `deliveryRequiresManualQuote` (A16's protection) with zero genuine address
+      // evidence ever supplied for THIS call. See
+      // `round5-a17-blind-redteam-tracking-anchor-laundering.spec.ts` for the full reproduction.
+      //
+      // Fix: only re-run the destination-edit/re-pricing branch when THIS call's DTO carries
+      // genuine, explicit address-confirming input — a new `deliveryReference` text, or coordinates
+      // supplied directly on the DTO (even a lone axis counts as an intentional address-editing
+      // attempt by the caller, never something an unrelated `notes`/item edit would ever set). Any
+      // other edit (notes-only, item-only, status-only, etc.) carries the existing delivery* columns
+      // forward VERBATIM — no re-derivation, no re-pricing, no new audit row, no flag reset. This
+      // reuses the canonical `resolveDeliverySnapshot`/`applyDestinationEdit` authority exactly as
+      // before for genuine address input; it does not introduce a parallel model.
+      const hasAddressRelevantInput =
+        dto.deliveryReference !== undefined ||
+        dto.deliveryLatitude !== undefined ||
+        dto.deliveryLongitude !== undefined;
       const deliverySnapshot =
         nextType === OrderTicketType.DELIVERY
-          ? await this.resolveDeliverySnapshot(tx, {
-              customerName: dto.customerName === undefined ? current.customerName : dto.customerName,
-              customerPhone: dto.customerPhone === undefined ? current.customerPhone : dto.customerPhone,
-              deliveryReference:
-                dto.deliveryReference === undefined ? current.deliveryReference : dto.deliveryReference,
-              latitude: dto.deliveryLatitude,
-              longitude: dto.deliveryLongitude,
-              locationProvider: dto.deliveryLocationProvider,
-              locationPlaceId: dto.deliveryLocationPlaceId,
-              locationFormattedAddress: dto.deliveryLocationFormattedAddress,
-              locationConfidence: dto.deliveryLocationConfidence,
-              locationSource: dto.deliveryLocationProvider,
-              existing: current,
-            })
+          ? hasAddressRelevantInput
+            ? await this.resolveDeliverySnapshot(tx, {
+                customerName: dto.customerName === undefined ? current.customerName : dto.customerName,
+                customerPhone: dto.customerPhone === undefined ? current.customerPhone : dto.customerPhone,
+                deliveryReference:
+                  dto.deliveryReference === undefined ? current.deliveryReference : dto.deliveryReference,
+                latitude: dto.deliveryLatitude,
+                longitude: dto.deliveryLongitude,
+                locationProvider: dto.deliveryLocationProvider,
+                locationPlaceId: dto.deliveryLocationPlaceId,
+                locationFormattedAddress: dto.deliveryLocationFormattedAddress,
+                locationConfidence: dto.deliveryLocationConfidence,
+                locationSource: dto.deliveryLocationProvider,
+                existing: current,
+              })
+            : this.carryForwardDeliverySnapshot(current)
           : null;
       const subtotal = itemsSubtotal.add(deliverySnapshot?.deliveryFee ?? new Prisma.Decimal(0));
 
@@ -4787,6 +4815,68 @@ export class OrdersService {
     // Any other named provider (e.g. a geocoding/autocomplete provider id selected from the POS
     // address picker) is provider-verified evidence, not raw manual entry.
     return 'GEOCODED_ADDRESS';
+  }
+
+  /**
+   * SOFIA Round 5 / A18 CLOSURE — companion to `resolveDeliverySnapshot`'s call site in `update()`.
+   * Returns the delivery* columns EXACTLY as currently persisted, with no re-derivation and no
+   * pricing call. Used when an `update()` DTO carries no address-relevant field at all, so the
+   * edit (notes, items, status, etc.) must never be allowed to re-anchor or re-price the order —
+   * see the `hasAddressRelevantInput` comment at the `update()` call site for the full rationale.
+   * Shape matches `resolveDeliverySnapshot`'s return value field-for-field so both can feed the
+   * same downstream `data`/`subtotal` construction without a caller-side branch.
+   */
+  private carryForwardDeliverySnapshot(current: {
+    deliveryCustomerId: string | null;
+    deliveryReference: string | null;
+    deliveryAddressNormalized: string | null;
+    deliveryLatitude: Prisma.Decimal | null;
+    deliveryLongitude: Prisma.Decimal | null;
+    deliveryDistanceKm: Prisma.Decimal | null;
+    deliveryZoneLabel: string | null;
+    deliveryFee: Prisma.Decimal;
+    deliveryFeeSuggested: Prisma.Decimal | null;
+    deliveryFeeEdited: boolean;
+    deliveryFeeEditReason: string | null;
+    deliveryPricingStatus: string | null;
+    deliveryPricingConfidence: string | null;
+    deliveryPricingBreakdown: Prisma.JsonValue | null;
+    deliveryCalculationVersion: string | null;
+    deliveryRequiresManualQuote: boolean;
+    deliveryRouteProvider: string | null;
+    deliveryWeatherProvider: string | null;
+    deliveryGeocodingProvider: string | null;
+    deliveryEstimatedMinutes: Prisma.Decimal | null;
+    deliveryLocationSource: string | null;
+    deliveryLocationReceivedAt: Date | null;
+  }) {
+    return {
+      deliveryCustomerId: current.deliveryCustomerId,
+      deliveryReference: current.deliveryReference,
+      deliveryAddressNormalized: current.deliveryAddressNormalized,
+      deliveryLatitude: current.deliveryLatitude,
+      deliveryLongitude: current.deliveryLongitude,
+      deliveryDistanceKm: current.deliveryDistanceKm,
+      deliveryZoneLabel: current.deliveryZoneLabel,
+      deliveryFee: current.deliveryFee,
+      deliveryFeeSuggested: current.deliveryFeeSuggested,
+      deliveryFeeEdited: current.deliveryFeeEdited,
+      deliveryFeeEditReason: current.deliveryFeeEditReason,
+      deliveryPricingStatus: current.deliveryPricingStatus,
+      deliveryPricingConfidence: current.deliveryPricingConfidence,
+      deliveryPricingBreakdown: (current.deliveryPricingBreakdown ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      deliveryCalculationVersion: current.deliveryCalculationVersion,
+      deliveryRequiresManualQuote: current.deliveryRequiresManualQuote,
+      deliveryRouteProvider: current.deliveryRouteProvider,
+      deliveryWeatherProvider: current.deliveryWeatherProvider,
+      deliveryGeocodingProvider: current.deliveryGeocodingProvider,
+      deliveryEstimatedMinutes: current.deliveryEstimatedMinutes,
+      // No new pricing audit row was created — nothing to link. `update()`'s
+      // `deliverySnapshot?.deliveryPricingAuditId` linking step is a no-op for this branch.
+      deliveryPricingAuditId: null as string | null,
+      deliveryLocationSource: current.deliveryLocationSource,
+      deliveryLocationReceivedAt: current.deliveryLocationReceivedAt,
+    };
   }
 
   private async resolveDeliverySnapshot(
