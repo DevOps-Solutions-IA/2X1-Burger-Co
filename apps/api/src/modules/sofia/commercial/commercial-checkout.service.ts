@@ -16,7 +16,7 @@ import {
   type ProductAvailabilityService,
   type RecipeAvailabilityService,
 } from '../../../application/contracts/sofia-domain-contracts';
-import { commercialDraftHash } from './commercial-draft-hash';
+import { commercialDraftHash, commercialItemsFingerprint } from './commercial-draft-hash';
 import { CommercialIntentEngine, normalizeCommercialText } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
@@ -39,7 +39,7 @@ const emptyState = (conversationId: string): CommercialConversationState => ({
   destinationSnapshot: null, deliveryQuoteDestinationBinding: null,
   paymentPreference: 'UNKNOWN', paymentReadiness: 'PAYMENT_UNRESOLVED', subtotal: null, deliveryFee: null, total: null, deliveryQuoteAuditId: null,
   deliveryQuoteVersion: null, deliveryQuoteExpiresAt: null, availabilitySnapshot: [], draftId: null, draftVersion: null,
-  draftHash: null, draftFulfillment: null, confirmationState: 'NONE',
+  draftHash: null, draftFulfillment: null, draftItemsFingerprint: null, draftPaymentPreference: null, confirmationState: 'NONE',
   missingFields: [], ambiguities: [], confidence: 'LOW', handoffState: 'SOFIA_ACTIVE', consentState: 'SERVICE',
   domainErrors: [], lastQuestionPurpose: null, lastResolvedIntent: null, expiresAt: null,
 });
@@ -310,6 +310,11 @@ export class CommercialCheckoutService {
       // exact moment draftId/draftVersion/draftHash were (re)computed. See field doc in
       // `commercial.types.ts`.
       draftFulfillment: state.fulfillment,
+      // A24 CLOSURE: record the items/paymentPreference this draft was ACTUALLY (re)prepared/priced
+      // for, at the exact moment draftId/draftVersion/draftHash were (re)computed. See field docs in
+      // `commercial.types.ts`.
+      draftItemsFingerprint: commercialItemsFingerprint(state.items),
+      draftPaymentPreference: state.paymentPreference,
       expiresAt: saved.expiresAt.toISOString(),
       domainErrors: [],
     };
@@ -364,7 +369,27 @@ export class CommercialCheckoutService {
       || (state.deliveryQuoteDestinationBinding !== null
         && state.destinationSnapshot !== null
         && isQuoteBoundToCurrentDestination(state.deliveryQuoteDestinationBinding, state.destinationSnapshot));
-    const quoteStillBound = fulfillmentStillBound && destinationStillBound;
+    // ITEMS BINDING (SOFIA Round 5 / A24 CLOSURE — MEDIUM): the exact same compound-message hazard
+    // that motivated `fulfillmentStillBound` (A21/A22) applies to ITEMS. `process()` mutates
+    // `state.items` IN MEMORY (product-mention resolution at line ~206, bare-quantity change at line
+    // ~209, modifier changes) independently of intent parsing, so "Confirmo, y agregame un perro
+    // caliente" / "Confirmo, mejor dos" apply the item mutation to `state.items` and THEN route
+    // straight into `confirm()` in the SAME call — before any `prepareDraft()` re-derivation ever
+    // prices/persists the new items. `draftItemsFingerprint` (captured by `prepareDraft()` at the
+    // moment the draft was last actually priced/persisted) lets us detect this exactly like
+    // `draftFulfillment` does for fulfillment. Fail closed: a mismatch invalidates the draft, forcing
+    // `prepareDraft()` to re-derive (re-price) a draft that truly matches the CURRENT items before
+    // anything can be confirmed.
+    const itemsStillBound = state.draftItemsFingerprint === commercialItemsFingerprint(state.items);
+    // PAYMENT BINDING (SOFIA Round 5 / A24 CLOSURE — MEDIUM): same hazard, PAYMENT PREFERENCE axis.
+    // "Confirmo, pasame el link" yields CONFIRM + ONLINE parsed independently from the same text;
+    // `process()` mutates `state.paymentPreference` IN MEMORY and THEN routes straight into
+    // `confirm()`. Without this check the OLD draft (still PAY_AT_PICKUP/CASH_ON_DELIVERY on the
+    // persisted row) would be confirmed verbatim while the customer is told ONLINE — silently
+    // suppressing `PaymentOrchestrationService.createOnlinePaymentLink` for a customer who explicitly
+    // asked for a payment link in the very message that confirmed the order.
+    const paymentStillBound = state.draftPaymentPreference === state.paymentPreference;
+    const quoteStillBound = fulfillmentStillBound && itemsStillBound && paymentStillBound && destinationStillBound;
     if (
       new Date(state.expiresAt) <= new Date()
       || (state.fulfillment === 'DELIVERY' && (!state.deliveryQuoteExpiresAt || new Date(state.deliveryQuoteExpiresAt) <= new Date()))
@@ -375,15 +400,21 @@ export class CommercialCheckoutService {
       refreshed.confirmationState = 'PENDING';
       refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
       if (!fulfillmentStillBound) this.metrics.increment('fulfillment_quote_binding_refresh');
+      else if (!itemsStillBound) this.metrics.increment('items_quote_binding_refresh');
+      else if (!paymentStillBound) this.metrics.increment('payment_quote_binding_refresh');
       else if (!destinationStillBound) this.metrics.increment('destination_quote_binding_refresh');
       await this.persistAndAudit(
         refreshed,
         command,
         !fulfillmentStillBound
           ? 'SOFIA_DRAFT_FULFILLMENT_CHANGED_REFRESHED'
-          : quoteStillBound
-            ? 'SOFIA_DRAFT_EXPIRED_REFRESHED'
-            : 'SOFIA_DRAFT_DESTINATION_CHANGED_REFRESHED',
+          : !itemsStillBound
+            ? 'SOFIA_DRAFT_ITEMS_CHANGED_REFRESHED'
+            : !paymentStillBound
+              ? 'SOFIA_DRAFT_PAYMENT_CHANGED_REFRESHED'
+              : quoteStillBound
+                ? 'SOFIA_DRAFT_EXPIRED_REFRESHED'
+                : 'SOFIA_DRAFT_DESTINATION_CHANGED_REFRESHED',
       );
       return this.respond(refreshed, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM');
     }

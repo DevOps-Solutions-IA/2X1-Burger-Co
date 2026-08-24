@@ -74,6 +74,39 @@ export type CommercialConversationState = {
    * `null` only before any draft has ever been prepared for this conversation.
    */
   draftFulfillment: CommercialFulfillment;
+  /**
+   * SOFIA Round 5 / A24 CLOSURE (MEDIUM) — a SHA-256 fingerprint (`commercialItemsFingerprint()`) of
+   * `state.items` exactly as they were when `draftId`/`draftVersion`/`draftHash` were last
+   * (re)computed by `prepareDraft()`. `process()` mutates `state.items` IN MEMORY (product-mention
+   * resolution, bare-quantity changes, modifier changes) independently of intent parsing, so a
+   * single message can bundle a CONFIRM intent with an item addition or quantity change (e.g.
+   * "Confirmo, y agregame un perro caliente"; "Confirmo, mejor dos") — `process()` applies the item
+   * mutation and THEN routes straight into `confirm()` in the same call, before any `prepareDraft()`
+   * re-derivation. Without this field, `confirm()` had no way to notice `state.items` no longer
+   * matched what was actually priced/persisted into the draft it was about to confirm — mirroring the
+   * exact pattern `draftFulfillment` established for the FULFILLMENT axis (A21/A22 CLOSURE) and
+   * `deliveryQuoteDestinationBinding` established for the DESTINATION axis (A9/A10). `confirm()` MUST
+   * compare this against a freshly computed `commercialItemsFingerprint(state.items)` (see
+   * `itemsStillBound`) before trusting the draft it is about to confirm. `null` only before any draft
+   * has ever been prepared for this conversation.
+   */
+  draftItemsFingerprint: string | null;
+  /**
+   * SOFIA Round 5 / A24 CLOSURE (MEDIUM) — the `paymentPreference` value that was actually current
+   * when `draftId`/`draftVersion`/`draftHash` were last (re)computed by `prepareDraft()`. The SAME
+   * compound-message hazard that motivated `draftFulfillment` (A21/A22) and `draftItemsFingerprint`
+   * above applies to PAYMENT PREFERENCE: `process()` parses `paymentPreference` from the message
+   * independently of `intent` (e.g. "Confirmo, pasame el link" yields CONFIRM + ONLINE in one shot),
+   * mutates `state.paymentPreference` IN MEMORY, and THEN routes straight into `confirm()` — before
+   * any `prepareDraft()` re-derivation ever persists the new preference. `confirm()` MUST compare
+   * this against the current `state.paymentPreference` (see `paymentStillBound`) before trusting the
+   * draft it is about to confirm — a customer who asks to switch to online payment in the SAME
+   * message as confirm must never be told "confirmado" against a draft whose persisted row still says
+   * PAY_AT_PICKUP/CASH_ON_DELIVERY (which would silently suppress `PaymentOrchestrationService`'s
+   * payment-link generation). `null` only before any draft has ever been prepared for this
+   * conversation.
+   */
+  draftPaymentPreference: CommercialPaymentPreference | null;
   confirmationState: 'NONE' | 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED';
   missingFields: string[];
   ambiguities: string[];

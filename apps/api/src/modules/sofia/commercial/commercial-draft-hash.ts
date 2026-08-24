@@ -11,3 +11,15 @@ function canonical(value: unknown): unknown {
 export function commercialDraftHash(value: Record<string, unknown>) {
   return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
+
+/**
+ * SOFIA Round 5 / A24 CLOSURE — a narrower, cheaper sibling of `commercialDraftHash` used to bind
+ * `CommercialCheckoutService.confirm()` to the ITEMS axis specifically (see `draftItemsFingerprint`
+ * in `commercial.types.ts`). Reuses the exact same canonicalization (stable, sorted key ordering) so
+ * a byte-identical `items` array always produces the same fingerprint regardless of object literal
+ * construction order, mirroring the pattern `draftFulfillment` established for the FULFILLMENT axis
+ * (A21/A22) and `deliveryQuoteDestinationBinding` established for the DESTINATION axis (A9/A10).
+ */
+export function commercialItemsFingerprint(items: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonical(items))).digest('hex');
+}
