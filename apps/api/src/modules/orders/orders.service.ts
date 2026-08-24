@@ -1930,8 +1930,20 @@ export class OrdersService {
           tableId: table?.id ?? null,
           customerName: dto.customerName === undefined ? undefined : dto.customerName.trim() || null,
           customerPhone: dto.customerPhone === undefined ? undefined : dto.customerPhone.trim() || null,
+          // SOFIA Round 5 / A12 CLOSURE: for DELIVERY orders, `deliveryReference` MUST be written
+          // from the SAME `deliverySnapshot` that produced every derived delivery* column below —
+          // never independently from the raw `dto.deliveryReference` (which Prisma treats as "leave
+          // column untouched" when `undefined`, e.g. a coordinates-only PATCH). Writing it
+          // independently let two truly concurrent `update()` calls (one coordinates-only, one
+          // reference-only) commit a row where the reference text came from ONE transaction but the
+          // coordinates/pricing came from the OTHER's now-stale computation — a real reproduced
+          // hybrid destination (see `resolveDeliverySnapshot`'s `deliveryReference` field comment
+          // and `round5-a12-cross-cutting-verification.spec.ts` case 26b). Non-DELIVERY orders keep
+          // the original raw-DTO-driven semantics (no destination-state authority involved there).
           deliveryReference:
-            dto.deliveryReference === undefined ? undefined : dto.deliveryReference.trim() || null,
+            nextType === OrderTicketType.DELIVERY
+              ? deliverySnapshot?.deliveryReference ?? null
+              : dto.deliveryReference === undefined ? undefined : dto.deliveryReference.trim() || null,
           deliveryAddressNormalized: nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryAddressNormalized ?? null : null,
           deliveryLatitude: nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLatitude ?? null : null,
           deliveryLongitude: nextType === OrderTicketType.DELIVERY ? deliverySnapshot?.deliveryLongitude ?? null : null,
@@ -4860,6 +4872,20 @@ export class OrdersService {
 
     return {
       deliveryCustomerId: deliveryCustomer.id,
+      // SOFIA Round 5 / A12 CLOSURE (concurrency finding): the RAW reference text this snapshot was
+      // actually computed against (`applyDestinationEdit`'s `previous`/`edit.rawReferenceText`),
+      // exposed so callers (`update()`) can write it back ATOMICALLY together with the derived
+      // fields (`deliveryLatitude`/`deliveryPricingStatus`/etc.) that were computed FROM it — never
+      // independently from the caller's raw, possibly-`undefined` DTO field. See `update()`'s
+      // `data.deliveryReference` for why this matters: under two truly concurrent `update()` calls
+      // to the SAME order (one touching only coordinates, one touching only the reference text),
+      // writing `deliveryReference` straight from `dto.deliveryReference` (which Prisma treats as
+      // "leave column untouched" when `undefined`) while writing the DERIVED columns from THIS
+      // transaction's own (possibly now-stale) `deliverySnapshot` could let one transaction's
+      // coordinates land paired with the OTHER transaction's newer reference text — a real,
+      // reproduced hybrid/mixed destination state (found via a real concurrent-Postgres test,
+      // `round5-a12-cross-cutting-verification.spec.ts` case 26b).
+      deliveryReference: rawReference,
       deliveryAddressNormalized: persistedColumns.deliveryAddressNormalized ?? rawReference,
       deliveryLatitude: persistedColumns.deliveryLatitude != null ? new Prisma.Decimal(persistedColumns.deliveryLatitude as number) : null,
       deliveryLongitude: persistedColumns.deliveryLongitude != null ? new Prisma.Decimal(persistedColumns.deliveryLongitude as number) : null,
