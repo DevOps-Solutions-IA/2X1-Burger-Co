@@ -358,7 +358,20 @@ export class SofiaController {
     return this.sofiaWhatsappService.retryOutbound(id);
   }
 
+  // SOFIA Round 5 / A28 CLOSURE (A27 finding, CRITICAL): these four routes carried NO route-level
+  // `@Roles(...)` override, so they inherited only the controller's class-level
+  // `@Roles('admin', 'cashier', 'supervisor')` -- and `@Permissions('orders.update')` alone did NOT
+  // narrow this in practice, because the seeded `cashier` role legitimately holds `orders.update` for
+  // routine POS work (prisma/seed.ts). Any cashier-level account could therefore create/edit/confirm/
+  // cancel ANY `SofiaOrderDraft` row, including ones owned by a live customer WhatsApp conversation.
+  // The sibling mutation `POST order-drafts/from-draft` (below) that actually turns a draft into a real
+  // delivery order already required `@Roles('admin', 'supervisor')` -- this aligns these four routes
+  // with that same precedent. This is defense-in-depth on top of the service-layer fix
+  // (`SofiaService.assertLegacyOwnedDraft`), which is the actual close of the financial bypass: it
+  // rejects any update/confirm/cancel on a draft owned by the canonical conversational commercial
+  // authority (`draftHash` set), regardless of caller role.
   @Post('order-drafts')
+  @Roles('admin', 'supervisor')
   @Permissions('orders.create')
   createDraft(@Body() dto: CreateSofiaOrderDraftDto, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.createDraft(dto, actor.sub);
@@ -377,6 +390,7 @@ export class SofiaController {
   }
 
   @Patch('order-drafts/:id')
+  @Roles('admin', 'supervisor')
   @Permissions('orders.update')
   updateDraft(
     @Param('id') id: string,
@@ -387,12 +401,14 @@ export class SofiaController {
   }
 
   @Post('order-drafts/:id/confirm')
+  @Roles('admin', 'supervisor')
   @Permissions('orders.update')
   confirmDraft(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.confirmDraft(id, actor.sub);
   }
 
   @Post('order-drafts/:id/cancel')
+  @Roles('admin', 'supervisor')
   @Permissions('orders.update')
   cancelDraft(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.sofiaService.cancelDraft(id, actor.sub);

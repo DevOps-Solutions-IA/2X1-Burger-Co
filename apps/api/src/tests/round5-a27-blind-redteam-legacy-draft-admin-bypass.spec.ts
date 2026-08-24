@@ -1,4 +1,24 @@
 /**
+ * SOFIA Round 5 / A28 CLOSURE — this file originally captured the A27 blind red-team finding
+ * (CRITICAL) below as failing/exploit-succeeding tests. It has since been converted into a PERMANENT
+ * regression suite proving the fix: `SofiaService.assertLegacyOwnedDraft()` (sofia.service.ts) now
+ * rejects `updateDraft()`/`confirmDraft()`/`cancelDraft()` on any `SofiaOrderDraft` whose `draftHash`
+ * is set (the 100%-reliable marker that a draft is owned by the canonical conversational commercial
+ * authority -- `PrismaCommercialRepository.saveDraft()` is the ONLY writer of `draftHash`,
+ * `fulfillment`, and `paymentPreference`; this legacy CRUD surface never sets any of the three). A
+ * third test below proves the legitimate MOCK_ADMIN/manual-walk-in use case this endpoint actually
+ * serves (create/update/cancel a draft that never went through the WhatsApp conversational flow, e.g.
+ * `app.critical.spec.ts`'s "mock admin core" coverage) is unaffected by the fix.
+ *
+ * The RBAC surface for these four routes was also tightened at `sofia.controller.ts` from inheriting
+ * the class-level `@Roles('admin', 'cashier', 'supervisor')` to an explicit route-level
+ * `@Roles('admin', 'supervisor')`, matching the precedent already set by the sibling
+ * `POST delivery-orders/from-draft/:draftId` mutation. That is defense-in-depth; the actual close of
+ * the financial bypass is the service-layer ownership guard exercised below (these tests call
+ * `SofiaService` directly, the same way the original A27 finding did, precisely so they keep proving
+ * the guard holds regardless of which role/permission set reaches it).
+ *
+ * === ORIGINAL A27 FINDING (preserved for record) ===
  * SOFIA Round 5 / A27 — BLIND independent red team pass (fresh audit of
  * feat/sofia-remediation-address-round5-26-conversation-memory-race-fix, the branch that closed A25/A26's
  * `sofiaConversationMemory` lost-update race via a row-locked `saveState()` + `DraftAlreadyConfirmedError`).
@@ -127,7 +147,7 @@ const HAMBURGUESA = {
 const PRODUCTS = [HAMBURGUESA];
 const QUOTED_DELIVERY_FEE = 12000;
 
-describe('A27 Round 5 (BLIND, fresh audit) — legacy /sofia/order-drafts admin CRUD (cashier-reachable) can silently confirm a live SOFIA-conversation DELIVERY draft at a rewritten address for a falsified $0 total, invisibly to the conversation-memory authority the A25/A26 fix protects', () => {
+describe('A28 Round 5 (closure of A27 BLIND finding) — legacy /sofia/order-drafts admin CRUD can no longer touch a draft owned by the canonical SOFIA-conversation commercial authority; the legitimate MOCK_ADMIN walk-in use case keeps working', () => {
   jest.setTimeout(30000);
   let prisma: PrismaClient;
 
@@ -207,7 +227,7 @@ describe('A27 Round 5 (BLIND, fresh audit) — legacy /sofia/order-drafts admin 
   }
 
   it(
-    'end-to-end exploit: a cashier-reachable PATCH+confirm on /sofia/order-drafts zeroes a real, geo-quoted $27,000 COP DELIVERY draft down to a CONFIRMED $0 total at an attacker-chosen address, while sofiaConversationMemory silently keeps believing the draft is still PENDING',
+    'CLOSED (A28): a cashier-reachable PATCH+confirm on /sofia/order-drafts can no longer touch a real, geo-quoted $27,000 COP DELIVERY draft at all -- both calls are rejected before any mutation, the honest values survive untouched, and sofiaConversationMemory + the customer\'s own "confirmo" both stay correct',
     async () => {
       const conversationId = `a27-legacy-exploit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const phone = '573001130001';
@@ -244,103 +264,94 @@ describe('A27 Round 5 (BLIND, fresh audit) — legacy /sofia/order-drafts admin 
       expect(stateBeforeAttack.confirmationState).toBe('PENDING');
       expect(stateBeforeAttack.draftId).toBe(draftD);
 
-      // --- THE ATTACK: a routine cashier-level staff account (NOT admin, NOT the customer, NOT SOFIA)
-      // hits the legacy /sofia/order-drafts CRUD directly on the SAME draft id the live customer
-      // conversation is tracking. No knowledge of the conversation is required or checked -- only the
-      // draft id, which is visible via GET /sofia/order-drafts (also cashier-reachable). ---
+      // --- THE ATTACK (now blocked): a routine cashier-level staff account (NOT admin, NOT the
+      // customer, NOT SOFIA) hits the legacy /sofia/order-drafts CRUD directly on the SAME draft id the
+      // live customer conversation is tracking. `draftHash` on this draft is non-null (it was created by
+      // `PrismaCommercialRepository.saveDraft()`), so `SofiaService.assertLegacyOwnedDraft()` must reject
+      // the PATCH before touching the row at all. ---
       const cashierActorId = 'malicious-or-compromised-cashier-account';
       const admin = buildSofiaAdminService();
-      const patched = await admin.updateDraft(
-        draftD,
-        {
-          deliveryAddress: 'Direccion inventada por el cajero, jamas geocodificada ni cotizada',
-          // customerName/customerPhone must be supplied because the SOFIA-conversation path never
-          // populates these free-text fields (it tracks `customerId` instead) -- without them
-          // `resolveDraftStatus()` would report NEEDS_INFO. A cashier filling in "obviously required"
-          // contact fields on a PATCH form is completely unremarkable UI behavior, not an advanced
-          // exploit technique.
-          customerName: 'Cliente Suplantado',
-          customerPhone: '3000000000',
-        },
-        cashierActorId,
-      );
+      let updateError: unknown = null;
+      try {
+        await admin.updateDraft(
+          draftD,
+          {
+            deliveryAddress: 'Direccion inventada por el cajero, jamas geocodificada ni cotizada',
+            customerName: 'Cliente Suplantado',
+            customerPhone: '3000000000',
+          },
+          cashierActorId,
+        );
+      } catch (error) {
+        updateError = error;
+      }
+      expect(updateError).not.toBeNull();
+      expect((updateError as { getResponse?: () => unknown }).getResponse?.()).toMatchObject({
+        code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY',
+      });
 
-      // *** THE FINDING: one ordinary-looking field edit, with ZERO geocoding/coordinate/zone/quote
-      // evaluation of any kind, unconditionally zeroed BOTH the delivery fee AND the subtotal. ***
-      expect(patched.status).toBe('READY_TO_CONFIRM');
-      expect(Number(patched.deliveryFee)).toBe(0);
-      expect(Number(patched.subtotal)).toBe(0);
-      expect(Number(patched.total)).toBe(0);
-      expect(patched.deliveryAddress).toBe('Direccion inventada por el cajero, jamas geocodificada ni cotizada');
-      // version/draftHash are byte-identical to the ones the LEGITIMATE geo-quoted draft had -- nothing
-      // about this edit was tracked as a "the price changed" event at all.
-      expect(patched.version).toBe(originalVersion);
-      expect(patched.draftHash).toBe(originalHash);
+      // *** THE FIX: zero mutation happened. Subtotal, delivery fee, total, address, version and hash
+      // are BYTE-IDENTICAL to the honest, geo-quoted draft -- the rejected PATCH never reached Prisma. ***
+      const afterBlockedUpdate = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
+      expect(Number(afterBlockedUpdate.subtotal)).toBe(15000);
+      expect(Number(afterBlockedUpdate.deliveryFee)).toBe(QUOTED_DELIVERY_FEE);
+      expect(Number(afterBlockedUpdate.total)).toBe(15000 + QUOTED_DELIVERY_FEE);
+      expect(afterBlockedUpdate.deliveryAddress).toBe('Avenida Central');
+      expect(afterBlockedUpdate.version).toBe(originalVersion);
+      expect(afterBlockedUpdate.draftHash).toBe(originalHash);
+      expect(afterBlockedUpdate.status).toBe('READY_TO_CONFIRM');
 
-      const confirmed = await admin.confirmDraft(draftD, cashierActorId);
-      // *** The falsified $0, falsified-address draft is now a REAL, financially CONFIRMED commercial
-      // record -- using the SAME stale version/hash pair the honest $27,000 quote produced. ***
-      expect(confirmed.status).toBe('CONFIRMED');
-      expect(Number(confirmed.total)).toBe(0);
-      expect(Number(confirmed.subtotal)).toBe(0);
-      expect(Number(confirmed.deliveryFee)).toBe(0);
-      expect(confirmed.confirmedAt).toBeTruthy();
-      expect(confirmed.deliveryAddress).toBe('Direccion inventada por el cajero, jamas geocodificada ni cotizada');
+      // Even WITHOUT the update step, a bare confirmDraft() call against this canonical-owned draft must
+      // be rejected too -- proving the guard closes the mid-conversation-hijack variant (scenario 2
+      // below) independently of whether updateDraft() was ever invoked.
+      let confirmError: unknown = null;
+      try {
+        await admin.confirmDraft(draftD, cashierActorId);
+      } catch (error) {
+        confirmError = error;
+      }
+      expect(confirmError).not.toBeNull();
+      expect((confirmError as { getResponse?: () => unknown }).getResponse?.()).toMatchObject({
+        code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY',
+      });
 
       const draftInDb = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
-      expect(draftInDb.status).toBe('CONFIRMED');
-      expect(Number(draftInDb.total)).toBe(0);
-      // The original quote audit trail is now completely orphaned from the confirmed record's actual
-      // price -- the confirmed $0 total has NO relationship whatsoever to `deliveryQuoteAuditId`, which
-      // still points at the honest $12,000 quote (invariant 14: evidence linking is broken).
+      expect(draftInDb.status).toBe('READY_TO_CONFIRM');
+      expect(Number(draftInDb.total)).toBe(15000 + QUOTED_DELIVERY_FEE);
       expect(draftInDb.deliveryQuoteAuditId).toBe(quoteAuditId);
 
-      // *** INVARIANT 18 VIOLATED: durable sofiaConversationMemory NEVER learns this draft was
-      // confirmed. It is permanently stuck believing confirmationState=PENDING for a draft that is, in
-      // Postgres ground truth, CONFIRMED (at a completely different price/address than what was ever
-      // shown to the customer). ***
+      // sofiaConversationMemory correctly still says PENDING -- nothing was confirmed by anyone, so this
+      // is now the HONEST state, not a divergence (invariant 18 upheld).
       const memoryAfterAttack = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
       const stateAfterAttack = memoryAfterAttack.currentOrderIntentJson as unknown as { confirmationState: string; draftId: string };
       expect(stateAfterAttack.confirmationState).toBe('PENDING');
       expect(stateAfterAttack.draftId).toBe(draftD);
 
-      // *** INVARIANT 16 VIOLATED (narration divergence): the honest customer, having no idea any of
-      // this happened, sends a perfectly normal follow-up "confirmo" through the REAL SOFIA
-      // conversational path. Instead of being correctly told "your order is already confirmed" (the
-      // A26-closure recovery UX for the conversation-memory race), this now throws an UNCAUGHT
-      // `ConflictException` all the way out of `CommercialCheckoutService.process()` -- because
-      // `confirm()`'s happy-path call to `repository.confirmDraft()` (commercial-checkout.service.ts
-      // line 500) has NO catch for `SOFIA_STALE_CONFIRMATION` (only `DraftAlreadyConfirmedError` thrown
-      // from `prepareDraft()`'s CAS path is special-cased -- this is a DIFFERENT failure surface that
-      // the A25/A26 closure never touches, because A25/A26 only ever reasoned about two SOFIA-side
-      // writers racing each other, not a THIRD, entirely separate mutation authority getting there
-      // first). The customer receives no explanation and no outbound message is ever composed -- they
-      // have no way to know their $27,000 order is gone, replaced by a $0 confirmed phantom at an
-      // address they never gave. ***
+      // The honest customer's own "confirmo" through the REAL SOFIA conversational path now succeeds
+      // normally, at the correct, never-tampered-with price and address -- no uncaught exception, no
+      // phantom $0 record, invariant 16 upheld end-to-end.
       const { service: honestFollowUp } = buildCommercialService(customer.id, quoteAuditId);
-      let honestConfirmError: unknown = null;
-      try {
-        await honestFollowUp.process(cmd(conversationId, 'confirmo', phone));
-      } catch (error) {
-        honestConfirmError = error;
-      }
-      expect(honestConfirmError).not.toBeNull();
-      const response = (honestConfirmError as { getResponse?: () => unknown }).getResponse?.();
-      expect((response as { code?: string } | undefined)?.code).toBe('SOFIA_STALE_CONFIRMATION');
+      const confirmResult = await honestFollowUp.process(cmd(conversationId, 'confirmo', phone));
+      expect(confirmResult.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(confirmResult.state.confirmationState).toBe('CONFIRMED');
+      expect(confirmResult.state.draftId).toBe(draftD);
+
+      const finalDraft = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
+      expect(finalDraft.status).toBe('CONFIRMED');
+      expect(Number(finalDraft.total)).toBe(15000 + QUOTED_DELIVERY_FEE);
+      expect(finalDraft.deliveryAddress).toBe('Avenida Central');
 
       console.log(
-        `[A27 FINDING] conversationId=${conversationId} draftD=${draftD} -- honest geo-quoted DELIVERY ` +
-          `draft (subtotal 15000 + deliveryFee ${QUOTED_DELIVERY_FEE} = total ${15000 + QUOTED_DELIVERY_FEE}) ` +
-          `was silently confirmed via legacy /sofia/order-drafts (cashier-reachable) at total=0 and a ` +
-          `rewritten, never-geocoded address, using the byte-identical stale version/hash pair from the ` +
-          `honest quote. sofiaConversationMemory still says PENDING; the customer's next honest "confirmo" ` +
-          `throws an uncaught SOFIA_STALE_CONFIRMATION instead of revealing any of this.`,
+        `[A28 CLOSURE] conversationId=${conversationId} draftD=${draftD} -- legacy /sofia/order-drafts ` +
+          `updateDraft()/confirmDraft() both rejected with SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY on ` +
+          `the canonical-owned draft; the honest $${15000 + QUOTED_DELIVERY_FEE} order was later confirmed ` +
+          `correctly through the real conversational "confirmo" flow.`,
       );
     },
   );
 
   it(
-    'the SAME legacy path also lets a cashier CONFIRM a draft the customer conversation had NOT even reached READY_TO_CONFIRM for yet (mid-conversation hijack), producing a CONFIRMED record for items/terms the customer never actually finalized in that turn',
+    'CLOSED (A28): the SAME legacy path can no longer let a cashier CONFIRM (mid-conversation hijack) a canonical-owned draft the customer had not yet said "confirmo" for -- both updateDraft() and confirmDraft() are rejected, and the customer\'s own later "confirmo" still confirms correctly',
     async () => {
       const conversationId = `a27-legacy-midconv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const phone = '573001130002';
@@ -362,21 +373,88 @@ describe('A27 Round 5 (BLIND, fresh audit) — legacy /sofia/order-drafts admin 
       const memoryBefore = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
       expect((memoryBefore.currentOrderIntentJson as unknown as { confirmationState: string }).confirmationState).toBe('PENDING');
 
-      // A cashier, with no customer confirmation ever having happened, directly confirms the draft via
-      // the legacy admin surface -- after first "editing" it (same $0 zeroing as above) to prove this is
-      // not a benign read-only confirm of an already-correct row.
+      // A cashier, with no customer confirmation ever having happened, tries to directly confirm the
+      // draft via the legacy admin surface -- after first attempting to "edit" it (same shape as the
+      // $0-zeroing attempt above) to prove this is not a benign read-only confirm of an already-correct
+      // row. Both calls must now be rejected before touching the row.
       const admin = buildSofiaAdminService();
-      await admin.updateDraft(draftD, { customerName: 'X', customerPhone: '3000000001' }, 'cashier-2');
-      const confirmed = await admin.confirmDraft(draftD, 'cashier-2');
-      expect(confirmed.status).toBe('CONFIRMED');
-      expect(Number(confirmed.total)).toBe(0);
+      let updateError: unknown = null;
+      try {
+        await admin.updateDraft(draftD, { customerName: 'X', customerPhone: '3000000001' }, 'cashier-2');
+      } catch (error) {
+        updateError = error;
+      }
+      expect(updateError).not.toBeNull();
+      expect((updateError as { getResponse?: () => unknown }).getResponse?.()).toMatchObject({
+        code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY',
+      });
 
-      // The customer NEVER said "confirmo" for this order, yet Postgres now holds a CONFIRMED
-      // commercial record for it. This is invariant 11's "confirmed ... must always correspond to
-      // evidence ACTUALLY current and trusted at confirmation/checkout time" violated in its purest
-      // form: there was no confirming customer evidence AT ALL.
+      let confirmError: unknown = null;
+      try {
+        await admin.confirmDraft(draftD, 'cashier-2');
+      } catch (error) {
+        confirmError = error;
+      }
+      expect(confirmError).not.toBeNull();
+      expect((confirmError as { getResponse?: () => unknown }).getResponse?.()).toMatchObject({
+        code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY',
+      });
+
+      // The customer NEVER said "confirmo" for this order, and Postgres correctly still holds it
+      // READY_TO_CONFIRM (not CONFIRMED) -- invariant 11 upheld: no confirmation without confirming
+      // customer evidence, from ANY code path.
       const draftInDb = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
-      expect(draftInDb.status).toBe('CONFIRMED');
+      expect(draftInDb.status).toBe('READY_TO_CONFIRM');
+      expect(Number(draftInDb.total)).toBe(15000 + QUOTED_DELIVERY_FEE);
+      expect(draftInDb.customerName).toBeNull();
+
+      // The customer's own, later "confirmo" through the real conversational path still works
+      // correctly, proving the guard did not leave the draft in some unconfirmable limbo state.
+      const { service: honestFollowUp } = buildCommercialService(customer.id, quoteAuditId);
+      const confirmResult = await honestFollowUp.process(cmd(conversationId, 'confirmo', phone));
+      expect(confirmResult.nextAction).toBe('DRAFT_CONFIRMED');
+      const finalDraft = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
+      expect(finalDraft.status).toBe('CONFIRMED');
+      expect(Number(finalDraft.total)).toBe(15000 + QUOTED_DELIVERY_FEE);
+    },
+  );
+
+  it(
+    'legitimate use case preserved: a genuine MOCK_ADMIN manual walk-in draft (never touched by the conversational commercial authority, draftHash === null) can still be created, edited, and cancelled through the legacy /sofia/order-drafts endpoint exactly as before',
+    async () => {
+      // Same style of catalog double used throughout this file for the CommercialCheckoutService side
+      // (HAMBURGUESA/PRODUCTS above) -- `SofiaService.buildItemsSnapshot()` only ever calls
+      // `catalogRead.getActiveById(productId)` and reads `.id/.code/.name/.persistedPrice` off the
+      // result, so a real Prisma `Product` row is not required to exercise this code path faithfully.
+      const walkinProduct = { id: 'a28-walkin-p1', code: 'HAMB-WALKIN', name: 'Hamburguesa Mostrador', persistedPrice: 18000 };
+      const catalogReadStub = { getActiveById: jest.fn(async () => walkinProduct), listActive: jest.fn(), findActive: jest.fn() };
+      const admin = new SofiaService(prisma as never, { log: jest.fn(async () => undefined) } as never, {} as never, catalogReadStub as never, {} as never);
+
+      // A staff member manually building a draft for a walk-in/phone customer that never went through
+      // WhatsApp -- no conversationId, no draftHash, no phase-4 binding of any kind.
+      const created = await admin.createDraft(
+        {
+          customerName: 'Cliente Mostrador A28',
+          customerPhone: '3000000099',
+          deliveryAddress: 'Recoge en tienda',
+          items: [{ productId: walkinProduct.id, quantity: 2 } as never],
+        } as never,
+        'walkin-staff-1',
+      );
+      expect(created.status).toBe('READY_TO_CONFIRM');
+      expect(created.draftHash).toBeNull();
+      expect(Number(created.subtotal)).toBe(36000);
+      expect(Number(created.total)).toBe(36000);
+
+      // updateDraft() and cancelDraft() must NOT be blocked by the new guard -- draftHash is still null.
+      const updated = await admin.updateDraft(created.id, { deliveryNotes: 'Recoger antes de las 8pm' }, 'walkin-staff-1');
+      expect(updated.deliveryNotes).toBe('Recoger antes de las 8pm');
+      expect(Number(updated.total)).toBe(36000);
+
+      const cancelled = await admin.cancelDraft(created.id, 'walkin-staff-1');
+      expect(cancelled.status).toBe('CANCELLED');
+
+      await prisma.sofiaOrderDraft.deleteMany({ where: { id: created.id } }).catch(() => undefined);
     },
   );
 });

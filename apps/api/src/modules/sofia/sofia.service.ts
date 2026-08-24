@@ -304,6 +304,44 @@ export class SofiaService {
     return snapshots;
   }
 
+  /**
+   * SOFIA Round 5 / A28 CLOSURE (A27 blind red-team finding, CRITICAL) — `SofiaOrderDraft.draftHash` is
+   * ONLY ever populated by `PrismaCommercialRepository.saveDraft()` (the canonical destination-state /
+   * pricing authority behind `CommercialCheckoutService`, hardened across A9-A26). Neither this
+   * service's `createDraft()` nor `updateDraft()` ever sets `draftHash`, `fulfillment`, or
+   * `paymentPreference` — those three fields are written exclusively by the conversational commercial
+   * flow. A non-null `draftHash` is therefore a 100%-reliable marker that a `SofiaOrderDraft` row is
+   * OWNED by that canonical authority (a live or completed WhatsApp customer conversation), not by this
+   * legacy staff CRUD surface.
+   *
+   * A27 proved that `updateDraft()`/`confirmDraft()` reachable by this endpoint (any authenticated
+   * cashier/supervisor/admin — see `sofia.controller.ts` class-level `@Roles`) could silently rewrite a
+   * canonical-owned draft's address/fee/subtotal to $0 (never touching `draftHash`/`version`, so the
+   * downstream CAS check trivially matched) and then confirm it — completely bypassing every
+   * destination-state, quote, and binding invariant this service's own conversational path enforces, and
+   * leaving `sofiaConversationMemory` permanently unaware the draft was ever touched.
+   *
+   * FIX: this legacy CRUD surface may only ever operate on drafts it itself created/owns (`draftHash ===
+   * null`, i.e. real MOCK_ADMIN/manual walk-in drafts that never went through the conversational
+   * pricing/destination authority). Any attempt to update/confirm/cancel a canonical-owned draft through
+   * this path fails closed — staff must use the conversational flow (or its own admin surface) for those
+   * drafts. This does not remove any working capability: `confirmDraft()` via this endpoint could NEVER
+   * legitimately succeed for a genuine MOCK_ADMIN draft anyway, because nothing in this service ever sets
+   * the `fulfillment`/`paymentPreference`/`draftHash` fields `confirmDraft()`'s own PHASE_4_BINDING_REQUIRED
+   * gate requires — the only way it was ever reachable was by hijacking a canonical draft's id, which is
+   * exactly what this guard closes.
+   */
+  private assertLegacyOwnedDraft(draft: { id: string; draftHash: string | null }) {
+    if (draft.draftHash) {
+      throw new ConflictException({
+        code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY',
+        reasonCode: 'CANONICAL_COMMERCIAL_AUTHORITY_REQUIRED',
+        message:
+          'Este borrador pertenece a una conversación SOFIA en curso y solo puede editarse, confirmarse o cancelarse a través del flujo conversacional canónico.',
+      });
+    }
+  }
+
   private draftMoney(items: SofiaItemSnapshot[], deliveryFee = 0) {
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const normalizedDeliveryFee = Math.max(Number(deliveryFee) || 0, 0);
@@ -1067,6 +1105,7 @@ export class SofiaService {
 
   async updateDraft(id: string, dto: UpdateSofiaOrderDraftDto, actorId: string) {
     const current = await this.findDraft(id);
+    this.assertLegacyOwnedDraft(current);
     const finalStatuses: SofiaOrderDraftStatus[] = [
       SofiaOrderDraftStatus.CONFIRMED,
       SofiaOrderDraftStatus.CANCELLED,
@@ -1131,6 +1170,7 @@ export class SofiaService {
     if (draft.status === SofiaOrderDraftStatus.CONFIRMED) {
       return draft;
     }
+    this.assertLegacyOwnedDraft(draft);
     const blockedStatuses: SofiaOrderDraftStatus[] = [SofiaOrderDraftStatus.CANCELLED, SofiaOrderDraftStatus.EXPIRED];
     if (blockedStatuses.includes(draft.status)) {
       throw new ConflictException('No puedes confirmar un borrador cancelado o vencido.');
@@ -1183,7 +1223,8 @@ export class SofiaService {
   }
 
   async cancelDraft(id: string, actorId: string) {
-    await this.findDraft(id);
+    const current = await this.findDraft(id);
+    this.assertLegacyOwnedDraft(current);
     const updated = await this.prisma.sofiaOrderDraft.update({
       where: { id },
       data: { status: SofiaOrderDraftStatus.CANCELLED },
