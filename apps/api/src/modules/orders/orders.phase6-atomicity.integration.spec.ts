@@ -610,6 +610,22 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
           },
         },
       });
+      // SOFIA Round 5 / A16 CLOSURE: a REAL resolved order's pricing snapshot is always accompanied
+      // by a linked `DeliveryPricingAudit` row (`resolveDeliverySnapshot` -> `DeliveryPricingService
+      // .estimate()`, linked via `orderTicketId` in the SAME transaction as `create()`/`update()` —
+      // see orders.service.ts). `OrdersService.resolvePricedAnchorCoordinates` recovers the
+      // coordinate pair the CURRENT price was computed against from that row's `requestJson`, so a
+      // fixture that claims to represent "a REAL resolved pricing snapshot" (see comment above) must
+      // provide one too, or the anchor lookup will (correctly, fail-closed) find nothing.
+      await prisma.deliveryPricingAudit.create({
+        data: {
+          orderTicketId: order.id,
+          requestJson: { latitude: options.latitude, longitude: options.longitude },
+          resultJson: { pricingStatus: options.pricingStatus, finalFee: options.deliveryFee },
+          finalFee: options.deliveryFee,
+          calculationVersion: '2x1-delivery-pricing-v1',
+        },
+      });
       return { seed, order, actor: actor(seed.adminUser) };
     }
 

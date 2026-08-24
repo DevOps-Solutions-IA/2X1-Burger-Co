@@ -1192,19 +1192,87 @@ export class OrdersService {
     });
   }
 
+  /**
+   * SOFIA Round 5 / A16 CLOSURE (CRITICAL, A15 blind red team finding): resolves the coordinate pair
+   * this order's CURRENTLY PERSISTED delivery price (`deliveryFee`/`deliveryPricingBreakdown`/
+   * `deliveryPricingStatus`) was actually computed against — a FIXED "priced anchor" — as opposed to
+   * `order.deliveryLatitude`/`deliveryLongitude`, which the logistics-only live-location path
+   * (`applyDeliveryLocationForLogisticsOnlyInTransaction`) overwrites on EVERY tracking ping
+   * regardless of whether a real repricing occurred. Comparing new evidence against that WALKING
+   * "last ping" reference instead of a FIXED anchor is exactly what let A15 walk a destination
+   * arbitrarily far away via many individually-sub-threshold hops (each hop under the 150m
+   * `COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM` relative to the PREVIOUS ping, but cumulatively
+   * >9.7km from the point the price was computed for).
+   *
+   * NO NEW COLUMN: reuses the existing `DeliveryPricingAudit` table every REAL repricing pass
+   * (`resolveDeliverySnapshot` -> `DeliveryPricingService.estimate()`) already writes and links to
+   * this order via `orderTicketId` (see `create()`/`update()`'s `deliveryPricingAudit.updateMany`
+   * linking, run atomically in the SAME transaction as the repricing write). The logistics-only path
+   * NEVER creates or links an audit row, so "the most recent audit row for this `orderTicketId`" is,
+   * by construction, always exactly the one that produced the CURRENTLY persisted price — never a
+   * value a tracking ping could have moved.
+   *
+   * FAILS CLOSED: if the order has a real pricing snapshot (caller-determined) but no anchor can be
+   * recovered here (audit row missing/unlinked), returns `anchorFound: false` so the caller treats
+   * ANY new coordinate evidence as materially different rather than silently trusting a walking
+   * reference again — never assume "no evidence of drift" means "no drift" (CLAUDE.md fail-closed).
+   */
+  private async resolvePricedAnchorCoordinates(
+    db: Prisma.TransactionClient | PrismaService,
+    order: { id: string },
+  ): Promise<{ latitude: number | null; longitude: number | null; anchorFound: boolean }> {
+    const audit = await db.deliveryPricingAudit.findFirst({
+      where: { orderTicketId: order.id },
+      orderBy: { createdAt: 'desc' },
+      select: { requestJson: true },
+    });
+
+    if (!audit) {
+      return { latitude: null, longitude: null, anchorFound: false };
+    }
+
+    const requestJson = audit.requestJson as { latitude?: unknown; longitude?: unknown } | null;
+    const anchorLatitude = typeof requestJson?.latitude === 'number' ? requestJson.latitude : null;
+    const anchorLongitude = typeof requestJson?.longitude === 'number' ? requestJson.longitude : null;
+
+    // A real repricing pass that was itself computed WITHOUT coordinates (e.g. a LOCAL_FREE
+    // zone-alias match) is a legitimate, discoverable anchor state ("priced with no evidence"), not
+    // a lookup failure — `isCoordinateEvidenceMateriallyDifferent` already treats evidence appearing
+    // from that state as material (RULE: fail closed on appearance, see destination-revision.ts).
+    return { latitude: anchorLatitude, longitude: anchorLongitude, anchorFound: true };
+  }
+
+  /**
+   * Detects an operational/data-quality anomaly: does this incoming ping look like a sudden,
+   * implausible jump relative to whatever coordinate is MOST RECENTLY on file for this order (e.g. a
+   * GPS glitch, or a sign the ping actually belongs to a different customer/order than it matched)?
+   * This is DELIBERATELY a walking-reference ("most recently observed") comparison — a genuinely
+   * different concept from the pricing-safety gate below (`deliveryRequiresManualQuote`, fed by
+   * `resolvePricedAnchorCoordinates`'s FIXED priced anchor). SOFIA Round 5 / A16 CLOSURE
+   * (investigated as part of the A15 finding): anchoring THIS check to the fixed priced point too
+   * was considered and rejected — it would fire partway through any ordinary gradual live-location
+   * walk (as soon as cumulative drift from the anchor first exceeds the threshold, long before any
+   * genuinely large single jump occurred), diverting the ping to REQUIRES_REVIEW and preventing it
+   * from ever reaching `applyDeliveryLocationForLogisticsOnlyInTransaction` — which would starve the
+   * canonical, dedicated pricing-safety mechanism (`deliveryRequiresManualQuote`, reused per A14/A16,
+   * "do not build a second gate") of the chance to ever run for that order. Only reuses the SAME
+   * `isCoordinateEvidenceMateriallyDifferent` predicate (no duplicated threshold math) — the
+   * distance formula changed from a flat-earth approximation to the canonical haversine helper;
+   * numerically equivalent at this threshold's scale (~150m).
+   */
   private deliveryLocationConflicts(
     currentLatitude: Prisma.Decimal | null | undefined,
     currentLongitude: Prisma.Decimal | null | undefined,
     incomingLatitude: number,
     incomingLongitude: number,
-  ) {
+  ): boolean {
     if (currentLatitude == null || currentLongitude == null) return false;
-    const latitudeDeltaKm = (Number(currentLatitude) - incomingLatitude) * 111.32;
-    const longitudeDeltaKm =
-      (Number(currentLongitude) - incomingLongitude) *
-      111.32 *
-      Math.cos((incomingLatitude * Math.PI) / 180);
-    return Math.hypot(latitudeDeltaKm, longitudeDeltaKm) > 0.15;
+    return isCoordinateEvidenceMateriallyDifferent(
+      Number(currentLatitude),
+      Number(currentLongitude),
+      incomingLatitude,
+      incomingLongitude,
+    );
   }
 
   private resolveDeliveryLocationMatch(
@@ -3937,14 +4005,23 @@ export class OrdersService {
     const isPrePayment = ACTIVE_ORDER_STATUSES.includes(order.status);
     const hasExistingPricingSnapshot =
       Boolean(order.deliveryCalculationVersion?.trim()) && order.deliveryPricingBreakdown != null;
-    const previousLatitude = order.deliveryLatitude != null ? Number(order.deliveryLatitude) : null;
-    const previousLongitude = order.deliveryLongitude != null ? Number(order.deliveryLongitude) : null;
-    const coordinatesMateriallyDifferent = isCoordinateEvidenceMateriallyDifferent(
-      previousLatitude,
-      previousLongitude,
-      latitude,
-      longitude,
-    );
+    // SOFIA Round 5 / A16 CLOSURE (CRITICAL, A15 blind red team finding): compared against
+    // `order.deliveryLatitude`/`deliveryLongitude` before A16 — but THIS SAME transaction overwrites
+    // those columns with the raw incoming ping a few lines below on EVERY call, whether or not a real
+    // repricing happens. That made "previous" a WALKING reference (the last-applied hop), not the
+    // FIXED point the currently-active price was actually computed against — a sequence of hops each
+    // individually under `COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM` relative to the PREVIOUS hop
+    // could cumulatively drift the destination arbitrarily far without ever tripping this check (A15:
+    // 70 hops, ~9.7km cumulative drift, `deliveryRequiresManualQuote` never set). Anchor to the
+    // coordinate pair `resolvePricedAnchorCoordinates` recovers from the last REAL repricing pass's
+    // linked `DeliveryPricingAudit` row instead — a value logistics-only pings can never move.
+    let coordinatesMateriallyDifferent = false;
+    if (isPrePayment && hasExistingPricingSnapshot) {
+      const anchor = await this.resolvePricedAnchorCoordinates(tx, order);
+      coordinatesMateriallyDifferent = anchor.anchorFound
+        ? isCoordinateEvidenceMateriallyDifferent(anchor.latitude, anchor.longitude, latitude, longitude)
+        : true; // fail closed: a real price exists but its anchor could not be recovered
+    }
     const requiresRequoteBeforeCheckout = isPrePayment && hasExistingPricingSnapshot && coordinatesMateriallyDifferent;
 
     const updatedOrder = await tx.orderTicket.update({
