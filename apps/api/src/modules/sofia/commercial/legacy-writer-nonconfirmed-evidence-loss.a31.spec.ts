@@ -1,7 +1,7 @@
 /**
- * A31 (Round 5, blind, independent) — NEW RED TEAM FINDING against the A30/round-5-30 state.
+ * A31 (Round 5, blind, independent) — RED TEAM FINDING, CLOSED BY A32.
  *
- * Invariant(s) violated:
+ * Invariant(s) originally violated (see A32 fix below for how each is now protected):
  *   20. "Every writer of durable conversational/commercial state (not just the ones already found)
  *       must respect the same concurrency-safety and evidence-preservation guarantees as the
  *       canonical writer."
@@ -11,67 +11,53 @@
  *       it materializes into must be accurate."
  *   1/2/3/4/6/7. destination/coordinate/quote-binding evidence must never be silently discarded.
  *
- * ROOT CAUSE
- * ----------
- * A30 (`PrismaCommercialRepository.saveLegacyConversationContext()`) protects the legacy writer
+ * ORIGINAL ROOT CAUSE (A31)
+ * -------------------------
+ * A30 (`PrismaCommercialRepository.saveLegacyConversationContext()`) protected the legacy writer
  * (`SofiaConversationMemoryService.updateContext()`, invoked from `SofiaAgentService.processMessage()`'s
  * pre-canonical-engagement fallback branch whenever `CommercialCheckoutService.shouldHandle()` returns
  * `false` for a given turn) against clobbering `sofiaConversationMemory.currentOrderIntentJson`, but
- * ONLY when the currently-persisted row is a canonical record whose `confirmationState === 'CONFIRMED'`
- * (see the exact guard: `existingIsConfirmedCanonical` in prisma-commercial.repository.ts).
+ * ONLY when the currently-persisted row was a canonical record whose `confirmationState === 'CONFIRMED'`
+ * (see the old guard: `existingIsConfirmedCanonical` in prisma-commercial.repository.ts).
  *
  * A canonical, `schemaVersion: 4` record that is NOT yet confirmed -- i.e. `confirmationState ===
  * 'PENDING'`, fully quote-bound, address-confirmed, GPS-coordinate-bound, with a real
  * `deliveryQuoteAuditId`/`destinationSnapshot`/`deliveryQuoteDestinationBinding` already computed by
- * `CommercialCheckoutService.process()` on a PRIOR turn -- receives NO protection at all. A legacy
- * write landing after it is written unconditionally over the top, exactly like the pre-A26 bug, just
- * one confirmationState value earlier in the lifecycle.
+ * `CommercialCheckoutService.process()` on a PRIOR turn -- received NO protection at all. A legacy write
+ * landing after it was written unconditionally over the top, exactly like the pre-A26 bug, just one
+ * `confirmationState` value earlier in the lifecycle.
  *
- * WHY THIS IS REACHABLE IN PRODUCTION (not a contrived ordering)
- * ----------------------------------------------------------------
- * `CommercialCheckoutService.shouldHandle()` is:
+ * Consequence (part 2): the underlying `SofiaOrderDraft` row (real `draftHash`, `READY_TO_CONFIRM`,
+ * unexpired) became ORPHANED once its owning conversation-memory JSON was gone, and got picked back up
+ * by `SofiaAgentRepository.findActiveDraft()` (filtered only by `conversationId` + status, not
+ * `draftHash`) on the conversation's next legacy-routed turn. A28's `assertLegacyOwnedDraft()` correctly
+ * REJECTED the resulting legacy `update()` call on that orphaned canonical-owned draft with a
+ * `ConflictException` -- but that exception was UNCAUGHT at the `sofia-agent.service.ts:897-899` call
+ * site (no try/catch), failing that turn's `processMessage()` entirely until the zombie draft expired
+ * (up to 30 minutes).
  *
- *     const existing = await this.repository.loadState(conversationId);
- *     if (existing) return true;
- *     ...
+ * A32 FIX (this file now proves the FIXED behavior, not the bug)
+ * -----------------------------------------------------------------
+ * Part 1: `saveLegacyConversationContext()`'s guard is now unconditional on `schemaVersion === 4` --
+ * it no longer inspects `confirmationState` at all. Any canonical record (PENDING, READY_TO_CONFIRM,
+ * CONFIRMED, ...) represents real, validated evidence a structurally incompatible legacy payload must
+ * never silently erase. The rest of the legacy narration columns (`currentIntent`, `missingFieldsJson`,
+ * `lastProductDiscussed`, `memorySummary`, `customerMemoryId`) still update normally.
  *
- * `loadState()` treats a row as "existing" ONLY if `currentOrderIntentJson.schemaVersion === 4`. If a
- * legacy write (see below) has just overwritten that JSON with the legacy's own non-`schemaVersion-4`
- * shape, `loadState()` returns `null` again on the VERY NEXT turn -- so `shouldHandle()` can route a
- * SUBSEQUENT ordinary early-conversation message (e.g. "Domicilio a la Calle 45 #12-08" with no
- * "quiero/pedido/confirmo" trigger word -- the exact kind of message A29's own test proves routes to
- * the legacy branch) back through the SAME unprotected legacy writer again. Two real, distinct WhatsApp
- * messages for the same conversation are not guaranteed to be processed by the application in a way
- * that serializes "check shouldHandle" against "commit the legacy write" end-to-end across requests
- * (there is substantial work -- AI provider calls, catalog lookups, message persistence -- between the
- * two in `sofia-agent.service.ts`), so this is a genuinely reachable interleaving, not just a
- * pathological unit-test setup.
+ * Part 2: `SofiaAgentService.processMessage()` now (a) proactively refuses to treat a draft with a
+ * non-null `draftHash` (i.e. canonical-owned) as this legacy branch's "active draft" at the point
+ * `findActiveDraft()` returns it, and (b) additionally wraps the legacy `orderDrafts.update()`/`create()`
+ * call in a try/catch that gracefully absorbs a residual `SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY`
+ * `ConflictException` (defense in depth for any already-orphaned row predating this fix) instead of
+ * letting it propagate out of `processMessage()` and fail the turn.
  *
- * CONSEQUENCE
- * -----------
- * The conversation silently "forgets" a customer's ALREADY-VALIDATED delivery destination (revision,
- * spatial fingerprint, trusted GPS coordinates, address-confirmed flag) and an ALREADY-COMPUTED,
- * unexpired delivery quote (`deliveryQuoteAuditId`/`deliveryQuoteDestinationBinding`) -- hard-won
- * evidence that took A9/A10/A13/A14 several rounds to make trustworthy in the first place. The
- * customer must re-supply everything from scratch. Worse: the underlying `SofiaOrderDraft` row (real
- * `draftHash`, `status: READY_TO_CONFIRM`, unexpired) is now ORPHANED -- no `sofiaConversationMemory`
- * row references its id any more. This orphaned, canonical-owned draft becomes reachable again by
- * `SofiaAgentRepository.findActiveDraft()` (used by the SAME legacy fallback branch, filtered ONLY by
- * `conversationId` + status -- NOT by `draftHash`), which will resurface it as "activeDraft" on the
- * conversation's next legacy-routed turn. Attempting to legacy-`update()` it correctly throws (A28's
- * `assertLegacyOwnedDraft` / `draftHash === null` ownership check holds), but that throw is UNCAUGHT at
- * the `sofia-agent.service.ts:897-899` call site (`draft = activeDraft ? await this.orderDrafts.update(...)
- * : ...` -- no try/catch), so it will actually blow up that turn's message processing end-to-end for as
- * long as the zombie draft remains active/unexpired.
- *
- * This test proves BOTH parts against REAL Postgres using the REAL, unmocked
+ * This test proves the FIX directly against REAL Postgres using the REAL, unmocked
  * `PrismaCommercialRepository`, `SofiaConversationMemoryService`, `SofiaAgentRepository`, `SofiaService`
  * and `SofiaOrderDraftAdapter` classes -- no mocks, no simulation of the state machine.
  */
 
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
-import { ConflictException } from '@nestjs/common';
 import { SofiaOrderDraftStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditContextService } from '../../audit/audit-context.service';
@@ -143,7 +129,7 @@ function pendingQuoteBoundState(conversationId: string, draftId: string): Commer
     draftItemsFingerprint: 'a31-test-items-fingerprint',
     draftPaymentPreference: 'CASH_ON_DELIVERY',
     // THE FACT THIS TEST IS ABOUT: real, already-validated, already-quoted evidence, ONE STEP before
-    // confirmation. Not yet CONFIRMED -- so A30's guard does not apply to it at all.
+    // confirmation. Not yet CONFIRMED -- A32 now protects it anyway.
     confirmationState: 'PENDING',
     missingFields: [],
     ambiguities: [],
@@ -157,7 +143,7 @@ function pendingQuoteBoundState(conversationId: string, draftId: string): Commer
   };
 }
 
-describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PENDING (not-yet-confirmed) canonical destination/quote evidence, and the resulting orphaned draft is reachable again by the legacy fallback', () => {
+describe('A31/A32 CLOSED: legacy updateContext() writer must never destroy PENDING (not-yet-confirmed) canonical destination/quote evidence, and an orphaned draft must never crash a turn', () => {
   let prisma: PrismaService;
   let commercialRepo: PrismaCommercialRepository;
   let legacyMemory: SofiaConversationMemoryService;
@@ -168,7 +154,7 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
     if (!process.env.DATABASE_URL?.includes('_test')) {
-      throw new Error('A31 test requires an isolated _test database.');
+      throw new Error('A31/A32 test requires an isolated _test database.');
     }
     prisma = new PrismaService();
     await prisma.$connect();
@@ -198,7 +184,7 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
     await prisma.whatsappConversation.deleteMany({ where: { id: { startsWith: 'a31-' } } });
   });
 
-  it('PART 1: a legacy updateContext() write AFTER a canonical PENDING (quote-bound, GPS-validated, not-yet-confirmed) saveState() silently destroys that evidence -- A30 does not protect it', async () => {
+  it('FIXED — PART 1: a legacy updateContext() write AFTER a canonical PENDING (quote-bound, GPS-validated, not-yet-confirmed) saveState() no longer destroys that evidence', async () => {
     const conversationId = `a31-pending-${randomUUID()}`;
     const draftId = `draft-a31-${randomUUID()}`;
 
@@ -218,7 +204,7 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
     // legacy fallback (`shouldHandle()` can legitimately return `false` for an ordinary turn -- see
     // A29's own "CAUSAL CONTEXT" test for a real, unmocked proof of this routing) and calls the REAL,
     // unmocked `SofiaConversationMemoryService.updateContext()` -- exactly the call at
-    // sofia-agent.service.ts:984.
+    // sofia-agent.service.ts:1013.
     await legacyMemory.updateContext({
       conversationId,
       customerMemoryId: null,
@@ -233,24 +219,33 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
       memorySummary: null,
     });
 
-    // THE BUG: unlike the CONFIRMED case (A30, closed), a PENDING canonical record gets NO
-    // protection at all. The legacy write's non-schemaVersion-4 payload silently wins.
+    // THE FIX: unlike the pre-A32 state, a PENDING canonical record is now fully protected -- the
+    // legacy write's non-schemaVersion-4 payload no longer wins.
     const afterLegacyWrite = await commercialRepo.loadState(conversationId);
-    expect(afterLegacyWrite).toBeNull(); // <-- all canonical destination/quote evidence is now GONE
+    expect(afterLegacyWrite).not.toBeNull();
+    expect(afterLegacyWrite!.confirmationState).toBe('PENDING');
+    expect(afterLegacyWrite!.draftId).toBe(draftId);
+    expect(afterLegacyWrite!.destinationSnapshot?.coordinateTrust).toBe('TRUSTED');
+    expect(afterLegacyWrite!.deliveryQuoteAuditId).toBe('audit-a31-1');
+    expect(afterLegacyWrite!.deliveryQuoteDestinationBinding?.destinationSpatialFingerprint).toBe('sha256:a31-test-fingerprint');
 
+    // Prove it precisely at the raw-column level too, so there is no ambiguity that the evidence
+    // genuinely survived and this is not a test-harness artifact.
     const raw = await prisma.sofiaConversationMemory.findUnique({ where: { conversationId } });
     const rawJson = raw!.currentOrderIntentJson as Record<string, unknown> | null;
-    // The row still exists, but it no longer carries schemaVersion 4 -- the TRUSTED GPS coordinates,
-    // the destinationSnapshot, the deliveryQuoteAuditId/binding and the draftId are all unreachable
-    // from the conversation's canonical state now, even though NOTHING was ever confirmed and NOTHING
-    // about this evidence was stale, wrong, or superseded by anything more current.
-    expect(rawJson).not.toHaveProperty('schemaVersion', 4);
-    expect(rawJson).not.toHaveProperty('destinationSnapshot');
-    expect(rawJson).not.toHaveProperty('deliveryQuoteAuditId');
-    expect(rawJson).not.toHaveProperty('draftId');
+    expect(rawJson).toHaveProperty('schemaVersion', 4);
+    expect(rawJson).toHaveProperty('destinationSnapshot');
+    expect(rawJson).toHaveProperty('deliveryQuoteAuditId', 'audit-a31-1');
+    expect(rawJson).toHaveProperty('draftId', draftId);
+
+    // The legacy write's OTHER, non-order-intent columns are still allowed to update normally -- only
+    // `currentOrderIntentJson` is protected, since that is the only column carrying the canonical
+    // evidence invariant (same reasoning A30 established for the CONFIRMED case).
+    expect(raw!.currentIntent).toBe('UNKNOWN');
+    expect(raw!.lastProductDiscussed).toBe('Hamburguesa Sencilla');
   });
 
-  it('PART 2: the orphaned canonical SofiaOrderDraft (real draftHash, READY_TO_CONFIRM, unexpired) becomes reachable again via the legacy fallback\'s findActiveDraft(), and the legacy update() call the fallback branch makes on it throws UNCAUGHT at that call site', async () => {
+  it('FIXED — PART 2: an orphaned canonical SofiaOrderDraft (real draftHash, READY_TO_CONFIRM, unexpired) reached again via the legacy fallback no longer crashes the turn -- the ownership conflict is absorbed gracefully', async () => {
     const conversationId = `a31-orphan-${randomUUID()}`;
     const draftId = `draft-a31-orphan-${randomUUID()}`;
 
@@ -260,9 +255,10 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
       data: { id: conversationId, phone: '+573001234567', provider: 'qr_gateway' },
     });
 
-    // Reproduce the exact state PrismaCommercialRepository.saveDraft() would have persisted for this
-    // conversation's PENDING quote-bound draft (real draftHash, READY_TO_CONFIRM, unexpired) -- the
-    // SofiaOrderDraft side of the evidence destroyed in PART 1.
+    // Reproduce the exact state `PrismaCommercialRepository.saveDraft()` would have persisted for this
+    // conversation's PENDING quote-bound draft (real draftHash, READY_TO_CONFIRM, unexpired) -- i.e. a
+    // pre-existing orphaned row from before the A32 write-guard fix (part 1 now prevents new ones from
+    // being created this way, but this test proves defense-in-depth for rows that already exist).
     await prisma.sofiaOrderDraft.create({
       data: {
         id: draftId,
@@ -281,32 +277,26 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
         addressConfirmedAt: new Date(),
       },
     });
-    // ... and the conversation-memory side of the evidence, PENDING, exactly as PART 1 proved it
-    // ends up (schemaVersion-4 tracking already destroyed by a prior legacy write in this
-    // conversation's history).
+    // ... and the conversation-memory side, with the canonical tracking already gone (as if a legacy
+    // write predating A32 had already destroyed it).
     await prisma.sofiaConversationMemory.create({
       data: { conversationId, currentIntent: 'UNKNOWN', currentOrderIntentJson: { items: [], matchedCatalogItem: null, matchedFeaturedOffer: null } },
     });
 
     // `CommercialCheckoutService.shouldHandle()` will see no schemaVersion-4 state and (for an
     // ordinary non-transactional-looking follow-up) route back to the legacy fallback -- which calls
-    // the REAL, unmocked `SofiaAgentRepository.findActiveDraft()` exactly as sofia-agent.service.ts:796
-    // does.
+    // the REAL, unmocked `SofiaAgentRepository.findActiveDraft()` exactly as sofia-agent.service.ts
+    // does. `findActiveDraft()` itself is unchanged (filtered only by conversationId + status) and
+    // still surfaces the canonical-owned row -- the fix lives entirely in how the caller reacts to it.
     const activeDraft = await agentRepository.findActiveDraft(conversationId);
     expect(activeDraft).not.toBeNull();
     expect(activeDraft!.id).toBe(draftId);
     expect(activeDraft!.draftHash).toBe('a31-test-draft-hash'); // <-- a REAL canonical-owned draft
     expect(activeDraft!.status).toBe(SofiaOrderDraftStatus.READY_TO_CONFIRM);
 
-    // The legacy fallback branch then does exactly this (sofia-agent.service.ts:897-899), with NO
-    // try/catch around it:
-    //   draft = activeDraft
-    //     ? await this.orderDrafts.update(activeDraft.id, activeDraft.updatedAt.toISOString(), draftPayload, actor)
-    //     : await this.orderDrafts.create(...)
-    // A28's ownership guard correctly rejects mutating a canonical (`draftHash` truthy) draft through
-    // the legacy path -- but the resulting exception is UNCAUGHT at that call site, so it propagates
-    // out of `processMessage()` and fails that entire turn's message processing (not merely "declines
-    // to update the draft and continues gracefully").
+    // A28's ownership guard still correctly rejects mutating a canonical (`draftHash` truthy) draft
+    // through the legacy `SofiaOrderDraftAdapter`/`SofiaService.updateDraft()` path -- this invariant
+    // is untouched by A32.
     await expect(
       orderDraftAdapter.update(
         activeDraft!.id,
@@ -314,20 +304,41 @@ describe('A31 (NEW, blind): legacy updateContext() writer silently destroys PEND
         { deliveryAddress: 'Otra direccion nueva', deliveryNotes: 'Borrador supervisado por Sofía.' },
         { actorId: 'system-a31', roles: ['system'], source: 'SOFIA_WHATSAPP' },
       ),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toMatchObject({ response: { code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY' } });
 
-    await expect(
-      orderDraftAdapter.update(
+    // THE FIX: `SofiaAgentService.processMessage()` itself (the real caller at sofia-agent.service.ts,
+    // formerly lines ~897-899) now (a) never treats a `draftHash`-bearing draft as its own legacy
+    // "active draft" in the first place, and (b) additionally catches
+    // `SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY` around the update/create call as defense in depth.
+    // We cannot invoke the full `processMessage()` here without a much heavier fixture (AI provider,
+    // catalog, runtime safety, etc. -- out of this unit's scope), so this test proves the exact
+    // building block the fix relies on: the ownership conflict this adapter call raises is a
+    // structured, catchable `ConflictException` with a stable `code`, so the caller's
+    // `error instanceof ConflictException && error.getResponse().code ===
+    // 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY'` guard in `sofia-agent.service.ts` reliably
+    // recognizes and absorbs it rather than letting an unrelated/unexpected exception through.
+    let caught: unknown;
+    try {
+      await orderDraftAdapter.update(
         activeDraft!.id,
         activeDraft!.updatedAt.toISOString(),
         { deliveryAddress: 'Otra direccion nueva' },
         { actorId: 'system-a31', roles: ['system'], source: 'SOFIA_WHATSAPP' },
-      ),
-    ).rejects.toMatchObject({ response: { code: 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY' } });
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeDefined();
+    const ConflictExceptionCtor = (await import('@nestjs/common')).ConflictException;
+    expect(caught).toBeInstanceOf(ConflictExceptionCtor);
+    const response = (caught as InstanceType<typeof ConflictExceptionCtor>).getResponse();
+    expect(typeof response).toBe('object');
+    expect((response as { code?: string }).code).toBe('SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY');
 
     // The zombie draft is untouched (still READY_TO_CONFIRM, still unexpired, still real draftHash) --
-    // it cannot be confirmed via this path either (A28 holds), but the conversation is now stuck
-    // hitting this uncaught exception on every legacy-routed turn until the draft expires.
+    // it cannot be confirmed via this path either (A28 holds). The point of the A32 fix is that
+    // `processMessage()` no longer crashes the whole turn while this remains true; it degrades to
+    // treating this conversation as having no legacy-usable draft for that turn instead.
     const stillThere = await prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
     expect(stillThere?.status).toBe(SofiaOrderDraftStatus.READY_TO_CONFIRM);
     expect(stillThere?.draftHash).toBe('a31-test-draft-hash');

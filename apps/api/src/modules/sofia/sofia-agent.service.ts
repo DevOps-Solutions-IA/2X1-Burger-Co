@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import {
@@ -793,7 +793,21 @@ export class SofiaAgentService {
     const quantity = this.quantityFromText(normalized);
     const extractedItems = matchedProducts.map((product) => this.toAgentItem(product, quantity));
 
-    const activeDraft = await this.repository.findActiveDraft(conversation.id);
+    const activeDraftRaw = await this.repository.findActiveDraft(conversation.id);
+    // SOFIA Round 5 / A32 CLOSURE (A31 finding, HIGH, part 2) — a draft with a real, non-null
+    // `draftHash` was created/owned by the canonical commercial (conversational) authority
+    // (`CommercialCheckoutService.process()` / `saveDraft()`), never by this legacy fallback branch.
+    // A26/A28's `assertLegacyOwnedDraft()` guard already rejects any legacy update/confirm/cancel
+    // attempt on such a draft with a `ConflictException` -- but until now that exception was UNCAUGHT
+    // here, crashing this turn's entire `processMessage()` end-to-end whenever `findActiveDraft()`
+    // (filtered only by `conversationId` + status, not `draftHash`) resurfaced a canonical-owned draft
+    // whose owning `sofiaConversationMemory` row had been lost (e.g. a pre-existing orphaned row from
+    // before the A32 write-guard fix, or any other edge case). This legacy branch has no legitimate
+    // business reason to read from or write to a canonical-owned draft at all, so treat it the same as
+    // "no legacy-usable active draft exists" from this point on -- the canonical conversational flow
+    // remains independently, fully in control of it. A defensive catch around the update/create call
+    // below (see A32 comment there) covers any residual TOCTOU between this check and that call.
+    const activeDraft = activeDraftRaw && activeDraftRaw.draftHash ? null : activeDraftRaw;
 
     const explicitFeaturedOffer = this.findFeaturedOffer(normalized);
     const availableOfferSnapshots = this.catalogService.toAvailableOfferSnapshots(commercialCatalog);
@@ -894,9 +908,24 @@ export class SofiaAgentService {
         aiSummary: `Intent: ${effectiveIntent}. ${matchedFeaturedOffer ? `FeaturedOffer:${matchedFeaturedOffer.slug}. ` : ''}AI:${safeAi.provider}/${safeAi.mode}.`,
         items: nextItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
       };
-      draft = activeDraft
-        ? await this.orderDrafts.update(activeDraft.id, activeDraft.updatedAt.toISOString(), draftPayload, this.actorContext(actorId, options.source))
-        : await this.orderDrafts.create({ ...draftPayload, conversationId: conversation.id }, this.actorContext(actorId, options.source));
+      try {
+        draft = activeDraft
+          ? await this.orderDrafts.update(activeDraft.id, activeDraft.updatedAt.toISOString(), draftPayload, this.actorContext(actorId, options.source))
+          : await this.orderDrafts.create({ ...draftPayload, conversationId: conversation.id }, this.actorContext(actorId, options.source));
+      } catch (error) {
+        // A32 (A31 finding, part 2): defensive net around the proactive guard above. If the legacy
+        // path still lands on a canonical-owned draft (`SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY`,
+        // thrown by `assertLegacyOwnedDraft()`), never let it crash this turn's `processMessage()`.
+        // Fail closed on the draft mutation only: drop back to "no legacy-usable draft" and let the
+        // rest of the turn (AI reply, message persistence) complete normally -- the canonical
+        // conversational authority remains untouched and in control of that draft.
+        const isOwnershipConflict =
+          error instanceof ConflictException
+          && typeof error.getResponse() === 'object'
+          && (error.getResponse() as { code?: string }).code === 'SOFIA_DRAFT_OWNED_BY_CONVERSATION_AUTHORITY';
+        if (!isOwnershipConflict) throw error;
+        draft = null;
+      }
     }
 
     const deliveryOrder: unknown = null;
