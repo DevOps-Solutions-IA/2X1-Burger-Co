@@ -95,10 +95,32 @@ export class PrismaCommercialRepository implements CommercialRepository {
    * correct principle is broader than "never regress CONFIRMED": the legacy writer must never clobber
    * ANY canonical conversational record, regardless of `confirmationState` -- `schemaVersion === 4` by
    * itself is sufficient to mean "this row is owned by the canonical commercial authority, not by
-   * this legacy writer", so the guard now checks ONLY `schemaVersion === 4`. The rest of the legacy
-   * narration columns (`currentIntent`, `missingFieldsJson`, `lastProductDiscussed`, `memorySummary`,
-   * `customerMemoryId`) are still allowed to update normally, since those are not part of the
-   * canonical-evidence invariant this closes.
+   * this legacy writer", so the guard now checks ONLY `schemaVersion === 4`.
+   *
+   * SOFIA Round 5 / A34 CLOSURE (A33 blind red-team finding, LOW) — A32's docstring (this comment,
+   * previous revision) explicitly and deliberately scoped the protection to `currentOrderIntentJson`
+   * ONLY, reasoning that `currentIntent`, `missingFieldsJson` and `lastProductDiscussed` were "not
+   * part of the canonical-evidence invariant this closes". That was correct about the FINANCIAL/
+   * evidence authority (they aren't) but wrong about the ROW-LEVEL invariant: once this row carries a
+   * canonical (`schemaVersion === 4`) record, `currentIntent` and `missingFieldsJson` are NOT
+   * legacy-owned narration -- `saveState()` (A26, above) itself writes both of those exact columns
+   * from the canonical state on every canonical save (see its `upsert` `data`). Letting the legacy
+   * writer keep overwriting them after a canonical record exists made the row internally
+   * self-contradictory: `currentOrderIntentJson.intent`/`.missingFields` (protected, correct) could
+   * read e.g. `PURCHASE` / `[]` while the sibling `currentIntent`/`missingFieldsJson` columns on the
+   * SAME row simultaneously read `GREETING` / `['deliveryAddress']` from an unrelated legacy turn --
+   * directly observable via `SofiaConversationMemoryService.sanitize()`, which
+   * `SofiaAgentService.processMessage()` returns as `memory.conversation` to sandbox/admin/debug
+   * callers. `lastProductDiscussed` has no canonical-writer equivalent at all (`saveState()` never
+   * touches it), so once a canonical record exists there is no legacy-supplied value that could ever
+   * be correct for it either -- it must simply stop being legacy-writable at that point, same as the
+   * other two. The fix extends the EXACT SAME `existingIsCanonical ? undefined : ...` pattern already
+   * used for `currentOrderIntentJson` to these three columns: once the row is canonical, the legacy
+   * writer leaves them untouched (whatever the canonical writer itself last set, or unset), instead of
+   * writing its own unrelated legacy-turn values over them. `memorySummary` and `customerMemoryId`
+   * remain legacy-owned free-text/linkage fields with no canonical-writer equivalent and no
+   * cross-column contradiction risk, so they are intentionally left updating normally, matching A33's
+   * confirmed scope.
    */
   async saveLegacyConversationContext(input: {
     conversationId: string;
@@ -134,14 +156,18 @@ export class PrismaCommercialRepository implements CommercialRepository {
         },
         update: {
           customerMemoryId: input.customerMemoryId ?? undefined,
-          currentIntent: input.currentIntent ?? undefined,
-          // A32: never let the legacy writer clobber an already-persisted canonical
-          // (`schemaVersion === 4`) record, REGARDLESS of `confirmationState` -- omitting the field
-          // from the update payload leaves the existing column value untouched (Prisma treats
-          // `undefined` as "do not update this field").
+          // A32 (currentOrderIntentJson) + A34 (currentIntent, missingFieldsJson,
+          // lastProductDiscussed): never let the legacy writer clobber an already-persisted canonical
+          // (`schemaVersion === 4`) record's columns, REGARDLESS of `confirmationState` -- omitting a
+          // field from the update payload leaves the existing column value untouched (Prisma treats
+          // `undefined` as "do not update this field"). This keeps the row internally consistent: once
+          // canonical evidence exists, ONLY the canonical writer (`saveState()`) may change the
+          // narration columns it itself owns (`currentIntent`, `missingFieldsJson`) or leave
+          // `lastProductDiscussed` alone (it has no canonical equivalent at all).
+          currentIntent: existingIsCanonical ? undefined : (input.currentIntent ?? undefined),
           currentOrderIntentJson: existingIsCanonical ? undefined : (input.currentOrderIntent ?? undefined),
-          missingFieldsJson: input.missingFields ?? undefined,
-          lastProductDiscussed: input.lastProductDiscussed ?? undefined,
+          missingFieldsJson: existingIsCanonical ? undefined : (input.missingFields ?? undefined),
+          lastProductDiscussed: existingIsCanonical ? undefined : (input.lastProductDiscussed ?? undefined),
           memorySummary: input.memorySummary ?? undefined,
         },
       });

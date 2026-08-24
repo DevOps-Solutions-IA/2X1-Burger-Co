@@ -50,9 +50,19 @@
  * own: if the currently-persisted row is already a canonical, CONFIRMED commercial record
  * (`schemaVersion === 4 && confirmationState === 'CONFIRMED'`), the legacy write's
  * `currentOrderIntentJson` payload is unconditionally dropped in favor of the existing canonical
- * truth (the rest of the legacy narration columns -- `currentIntent`, `missingFieldsJson`,
- * `lastProductDiscussed`, `memorySummary`, `customerMemoryId` -- still update normally, since those
- * are not part of the confirmed-evidence invariant this closes).
+ * truth.
+ *
+ * SOFIA Round 5 / A34 AMENDMENT (A33 blind red-team finding, LOW) — this file originally asserted
+ * that the OTHER legacy narration columns (`currentIntent`, `missingFieldsJson`,
+ * `lastProductDiscussed`) still updated normally even once a canonical record existed, on the
+ * reasoning that they were "not part of the confirmed-evidence invariant this closes". A33 proved
+ * that reasoning left the row internally CONTRADICTORY (protected `currentOrderIntentJson` says one
+ * thing, sibling columns on the same row say another, both surfaced together by
+ * `SofiaConversationMemoryService.sanitize()`). A34 extended the SAME `existingIsCanonical` guard to
+ * those three columns too, so this file's assertions below now reflect the FIXED, ALWAYS-CONSISTENT
+ * behavior: once canonical evidence exists, none of the four columns are legacy-writable.
+ * `memorySummary`/`customerMemoryId` remain intentionally legacy-writable (no canonical-writer
+ * equivalent, no contradiction risk).
  *
  * This test proves the FIX directly against REAL Postgres using the REAL, unmocked
  * `PrismaCommercialRepository` and `SofiaConversationMemoryService` classes — no mocks, no
@@ -185,11 +195,13 @@ describe('A29/A30 CLOSED: legacy SofiaConversationMemoryService.updateContext() 
     expect(rawJson!.confirmationState).toBe('CONFIRMED');
     expect(rawJson!.draftId).toBe(draftId);
 
-    // The legacy write's OTHER, non-order-intent columns (currentIntent, missingFieldsJson,
-    // lastProductDiscussed) are still allowed to update normally -- only `currentOrderIntentJson`
-    // is protected, since that is the only column carrying the confirmed-evidence invariant.
-    expect(raw!.currentIntent).toBe('UNKNOWN');
-    expect(raw!.lastProductDiscussed).toBe('Hamburguesa Sencilla');
+    // A34: the legacy write's OTHER narration columns (currentIntent, missingFieldsJson,
+    // lastProductDiscussed) are now ALSO protected once the row is canonical -- they stay exactly
+    // what the canonical writer itself left them as (currentIntent = the canonical state's own
+    // 'CONFIRM' intent; lastProductDiscussed was never touched by saveState(), so it stays unset),
+    // instead of being overwritten by this unrelated legacy turn's 'UNKNOWN'/'Hamburguesa Sencilla'.
+    expect(raw!.currentIntent).toBe('CONFIRM');
+    expect(raw!.lastProductDiscussed).toBeNull();
   });
 
   it('FIXED (genuine concurrency, Promise.all): racing the canonical confirm write against the legacy fallback write for the same conversationId can no longer corrupt the CONFIRMED marker, regardless of commit order', async () => {

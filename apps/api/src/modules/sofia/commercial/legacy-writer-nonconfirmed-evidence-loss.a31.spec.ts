@@ -41,8 +41,16 @@
  * Part 1: `saveLegacyConversationContext()`'s guard is now unconditional on `schemaVersion === 4` --
  * it no longer inspects `confirmationState` at all. Any canonical record (PENDING, READY_TO_CONFIRM,
  * CONFIRMED, ...) represents real, validated evidence a structurally incompatible legacy payload must
- * never silently erase. The rest of the legacy narration columns (`currentIntent`, `missingFieldsJson`,
- * `lastProductDiscussed`, `memorySummary`, `customerMemoryId`) still update normally.
+ * never silently erase.
+ *
+ * SOFIA Round 5 / A34 AMENDMENT (A33 blind red-team finding, LOW) — A32 originally left the sibling
+ * narration columns (`currentIntent`, `missingFieldsJson`, `lastProductDiscussed`) legacy-writable
+ * even once a canonical record existed, reasoning they were "not part of the canonical evidence
+ * invariant this closes". A33 proved that let the row become internally CONTRADICTORY (protected
+ * `currentOrderIntentJson` vs. sibling columns on the same row disagreeing, both surfaced together
+ * by `sanitize()`). A34 extended the SAME guard to those three columns, so this file's assertions
+ * below now reflect the FIXED, ALWAYS-CONSISTENT behavior. `memorySummary`/`customerMemoryId` remain
+ * intentionally legacy-writable (no canonical-writer equivalent, no contradiction risk).
  *
  * Part 2: `SofiaAgentService.processMessage()` now (a) proactively refuses to treat a draft with a
  * non-null `draftHash` (i.e. canonical-owned) as this legacy branch's "active draft" at the point
@@ -238,11 +246,13 @@ describe('A31/A32 CLOSED: legacy updateContext() writer must never destroy PENDI
     expect(rawJson).toHaveProperty('deliveryQuoteAuditId', 'audit-a31-1');
     expect(rawJson).toHaveProperty('draftId', draftId);
 
-    // The legacy write's OTHER, non-order-intent columns are still allowed to update normally -- only
-    // `currentOrderIntentJson` is protected, since that is the only column carrying the canonical
-    // evidence invariant (same reasoning A30 established for the CONFIRMED case).
-    expect(raw!.currentIntent).toBe('UNKNOWN');
-    expect(raw!.lastProductDiscussed).toBe('Hamburguesa Sencilla');
+    // A34: the sibling narration columns are now ALSO protected once the row is canonical -- they
+    // stay exactly what the canonical writer itself left them as (currentIntent = the canonical
+    // state's own 'PURCHASE' intent; lastProductDiscussed was never touched by saveState(), so it
+    // stays unset), instead of being overwritten by this unrelated legacy turn's
+    // 'UNKNOWN'/'Hamburguesa Sencilla'.
+    expect(raw!.currentIntent).toBe('PURCHASE');
+    expect(raw!.lastProductDiscussed).toBeNull();
   });
 
   it('FIXED — PART 2: an orphaned canonical SofiaOrderDraft (real draftHash, READY_TO_CONFIRM, unexpired) reached again via the legacy fallback no longer crashes the turn -- the ownership conflict is absorbed gracefully', async () => {

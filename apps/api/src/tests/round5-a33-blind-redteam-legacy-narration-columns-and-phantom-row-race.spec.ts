@@ -4,27 +4,36 @@
  * design rationale beyond the standing invariant list and round summary supplied in the brief. Two
  * angles are covered in this file:
  *
- *   PART 1 (CONFIRMED FINDING, LOW) — `PrismaCommercialRepository.saveLegacyConversationContext()`'s
- *   A32 guard protects ONLY the `currentOrderIntentJson` column once a canonical (`schemaVersion: 4`)
- *   record exists. The THREE SIBLING narration columns on the exact same row --
- *   `currentIntent`, `missingFieldsJson`, `lastProductDiscussed` -- are explicitly, deliberately left
- *   unprotected (see that method's own docstring: "The rest of the legacy narration columns ... are
- *   still allowed to update normally, since those are not part of the canonical-evidence invariant
- *   this closes."). This is a conscious, documented scope decision, not an oversight -- but it means
- *   a legacy write racing (or merely landing after) a canonical PENDING/CONFIRMED write can still make
+ *   PART 1 (A33 FINDING, LOW -- CLOSED by A34, now a PERMANENT REGRESSION TEST of the fixed
+ *   behavior) — `PrismaCommercialRepository.saveLegacyConversationContext()`'s A32 guard originally
+ *   protected ONLY the `currentOrderIntentJson` column once a canonical (`schemaVersion: 4`) record
+ *   existed. The THREE SIBLING narration columns on the exact same row -- `currentIntent`,
+ *   `missingFieldsJson`, `lastProductDiscussed` -- were explicitly, deliberately left unprotected (see
+ *   that method's PRE-A34 docstring: "The rest of the legacy narration columns ... are still allowed
+ *   to update normally, since those are not part of the canonical-evidence invariant this closes.").
+ *   That was a conscious, documented scope decision, not an oversight -- but it meant a legacy write
+ *   racing (or merely landing after) a canonical PENDING/CONFIRMED write could still make
  *   `sofiaConversationMemory.currentIntent`/`.missingFieldsJson`/`.lastProductDiscussed` diverge from
  *   what the PROTECTED `currentOrderIntentJson.intent`/`.missingFields` actually say -- a real, if
  *   narrow, violation of invariant 6 ("narration/memory never diverging from actual confirmed
- *   state"). The divergence is directly observable through
+ *   state"). The divergence was directly observable through
  *   `SofiaConversationMemoryService.sanitize()`, which is exactly what
  *   `SofiaAgentService.processMessage()`'s legacy branch returns as `memory.conversation` in its
  *   response payload (sofia-agent.service.ts:1110) -- so an operator/sandbox/admin surface reading
- *   that field can observe e.g. `currentIntent: "GREETING"` on a conversation whose real, protected,
+ *   that field could observe e.g. `currentIntent: "GREETING"` on a conversation whose real, protected,
  *   evidence-carrying state (`currentOrderIntentJson`) says `intent: "PURCHASE"`,
  *   `confirmationState: "PENDING"`, with a real bound delivery quote. Reachable in production whenever
  *   two genuinely concurrent WhatsApp messages for the SAME conversation race `shouldHandle()` before
  *   the first canonical write commits -- the exact class of interleaving A25/A26's own docstring
  *   already establishes as realistic ("real network+DB round trip... entirely possible").
+ *
+ *   SOFIA Round 5 / A34 CLOSURE — `saveLegacyConversationContext()` now extends the EXACT SAME
+ *   `existingIsCanonical ? undefined : ...` guard already used for `currentOrderIntentJson` to all
+ *   three sibling columns. Once a canonical (`schemaVersion: 4`) record exists on the row, the legacy
+ *   writer leaves `currentIntent`, `missingFieldsJson` and `lastProductDiscussed` untouched instead of
+ *   overwriting them with an unrelated legacy turn's values -- closing the internal-contradiction gap
+ *   this test originally proved. This test now asserts the FIXED behavior permanently: the legacy
+ *   write below must NOT change any of the four protected columns once canonical evidence exists.
  *
  *   PART 2 (VERIFIED SAFE, not a finding) -- documents a plausible-looking but ultimately DISPROVEN
  *   hypothesis: does `saveLegacyConversationContext()`'s `SELECT ... FOR UPDATE` row-lock protection
@@ -123,15 +132,15 @@ function withGatedQueryRaw(real: PrismaService, gate: Promise<void>): PrismaServ
   return new Proxy(real, {
     get(target, prop, receiver) {
       if (prop === '$transaction') {
-        return (fn: unknown, ...rest: unknown[]) =>
-          (target as unknown as { $transaction: Function }).$transaction(async (tx: Record<string, unknown>) => {
-            const originalQueryRaw = (tx.$queryRaw as Function).bind(tx);
+        return (fn: (tx: Record<string, unknown>) => unknown, ...rest: unknown[]) =>
+          (target as unknown as { $transaction: (cb: (tx: Record<string, unknown>) => unknown, ...rest: unknown[]) => unknown }).$transaction(async (tx: Record<string, unknown>) => {
+            const originalQueryRaw = (tx.$queryRaw as (...args: unknown[]) => Promise<unknown>).bind(tx);
             (tx as Record<string, unknown>).$queryRaw = async (...args: unknown[]) => {
               const result = await originalQueryRaw(...args);
               await gate;
               return result;
             };
-            return (fn as Function)(tx);
+            return fn(tx);
           }, ...rest);
       }
       return Reflect.get(target, prop, receiver);
@@ -158,10 +167,11 @@ describe('A33 (Round 5, blind, independent, final verification pass)', () => {
   });
 
   it(
-    'PART 1 (CONFIRMED, LOW): a legacy write landing after a canonical PENDING save leaves the ' +
-      'protected currentOrderIntentJson intact (A32 holds) but STILL overwrites the sibling ' +
-      'currentIntent/missingFieldsJson/lastProductDiscussed narration columns on the SAME row -- and ' +
-      'that divergence is exactly what sanitize() (exposed to callers as memory.conversation) returns',
+    'PART 1 (A34 PERMANENT REGRESSION, fixed behavior): a legacy write landing after a canonical ' +
+      'PENDING save leaves ALL FOUR protected columns intact -- currentOrderIntentJson (A32) AND the ' +
+      'sibling currentIntent/missingFieldsJson/lastProductDiscussed narration columns (A34) -- so the ' +
+      'row can never become internally contradictory, and sanitize() (exposed to callers as ' +
+      'memory.conversation) reflects the real, protected canonical narration, not a stale legacy turn',
     async () => {
       const conversationId = `a33-narration-${randomUUID()}`;
       const draftId = `draft-a33-${randomUUID()}`;
@@ -173,6 +183,10 @@ describe('A33 (Round 5, blind, independent, final verification pass)', () => {
       expect(afterCanonical!.intent).toBe('PURCHASE');
       expect(afterCanonical!.missingFields).toEqual([]);
       expect(afterCanonical!.confirmationState).toBe('PENDING');
+
+      const beforeLegacyWrite = await prisma.sofiaConversationMemory.findUnique({ where: { conversationId } });
+      expect(beforeLegacyWrite!.currentIntent).toBe('PURCHASE');
+      expect(beforeLegacyWrite!.missingFieldsJson).toEqual([]);
 
       // Step 2: a DIFFERENT, concurrently-processed WhatsApp message for the SAME conversation routes
       // to the legacy fallback (exactly sofia-agent.service.ts:1013's real call) and reports a
@@ -197,29 +211,70 @@ describe('A33 (Round 5, blind, independent, final verification pass)', () => {
       expect(afterLegacyWrite!.confirmationState).toBe('PENDING');
       expect(afterLegacyWrite!.deliveryQuoteAuditId).toBe('audit-a33-1');
 
-      // *** THE FINDING: the sibling narration columns on the EXACT SAME conversationMemory row now
-      // say something that directly contradicts the protected evidence sitting right next to them on
-      // the same row -- "GREETING" / "deliveryAddress missing" vs. the real PURCHASE / fully quote-
-      // bound / nothing-missing truth one column over. ***
-      expect(updatedRow.currentIntent).toBe('GREETING');
-      expect((updatedRow.missingFieldsJson as unknown as string[])).toEqual(['deliveryAddress']);
+      // *** A34 HOLDS: the sibling narration columns on the EXACT SAME conversationMemory row are now
+      // ALSO left untouched by the legacy write -- no more internal contradiction between the
+      // protected evidence and the columns sitting right next to it on the same row. ***
+      expect(updatedRow.currentIntent).toBe('PURCHASE');
+      expect((updatedRow.missingFieldsJson as unknown as string[])).toEqual([]);
+      expect(updatedRow.lastProductDiscussed).toBe(beforeLegacyWrite!.lastProductDiscussed);
 
       const raw = await prisma.sofiaConversationMemory.findUnique({ where: { conversationId } });
-      expect(raw!.currentIntent).toBe('GREETING');
-      expect(raw!.missingFieldsJson).toEqual(['deliveryAddress']);
+      expect(raw!.currentIntent).toBe('PURCHASE');
+      expect(raw!.missingFieldsJson).toEqual([]);
       const rawJson = raw!.currentOrderIntentJson as Record<string, unknown>;
       expect(rawJson.intent).toBe('PURCHASE');
       expect(rawJson.missingFields).toEqual([]);
 
-      // *** Exactly the divergence a consumer of sanitize() (sofia-agent.service.ts:1110,
+      // *** No more divergence: any consumer of sanitize() (sofia-agent.service.ts:1110,
       // `memory: { customer, conversation: this.conversationMemoryService.sanitize(conversationMemory) }`,
       // returned to any caller of processMessage() -- sandbox UI, admin tooling, or any future
-      // consumer of this API surface) would see: a conversation whose narration says "just said hi,
-      // still needs an address" while its own protected commercial record says "fully quote-bound
-      // purchase, ready to confirm, nothing missing". ***
+      // consumer of this API surface) now sees narration that agrees with the protected commercial
+      // record: fully quote-bound purchase, ready to confirm, nothing missing -- not a stale
+      // unrelated legacy turn's "just said hi, still needs an address". ***
       const sanitized = legacyMemory.sanitize(raw!);
-      expect(sanitized.currentIntent).toBe('GREETING');
-      expect(sanitized.missingFields).toEqual(['deliveryAddress']);
+      expect(sanitized.currentIntent).toBe('PURCHASE');
+      expect(sanitized.missingFields).toEqual([]);
+
+      // Sanity: the legacy write's OWN payload (memorySummary and customerMemoryId, which remain
+      // legacy-owned with no canonical-writer equivalent) still applies normally -- this fix is
+      // narrowly scoped to the three columns that can contradict canonical evidence, not a blanket
+      // freeze of the whole row.
+      expect(raw!.memorySummary).toBe('Cliente saludo de nuevo');
+    },
+  );
+
+  it(
+    'PART 1b (A34 PERMANENT REGRESSION): when NO canonical record exists yet, the legacy writer ' +
+      'still updates currentIntent/missingFieldsJson/lastProductDiscussed normally -- the A34 guard ' +
+      'is scoped to existingIsCanonical only, not a blanket freeze of these columns',
+    async () => {
+      const conversationId = `a33-narration-noncanonical-${randomUUID()}`;
+
+      const created = await legacyMemory.updateContext({
+        conversationId,
+        customerMemoryId: null,
+        currentIntent: 'GREETING',
+        currentOrderIntent: { items: [], matchedCatalogItem: null, matchedFeaturedOffer: null },
+        missingFields: ['deliveryAddress'],
+        lastProductDiscussed: 'BURGER-1',
+        memorySummary: 'Cliente saludo',
+      });
+      expect(created.currentIntent).toBe('GREETING');
+      expect((created.missingFieldsJson as unknown as string[])).toEqual(['deliveryAddress']);
+      expect(created.lastProductDiscussed).toBe('BURGER-1');
+
+      const updated = await legacyMemory.updateContext({
+        conversationId,
+        customerMemoryId: null,
+        currentIntent: 'BROWSE',
+        currentOrderIntent: { items: [], matchedCatalogItem: null, matchedFeaturedOffer: null },
+        missingFields: [],
+        lastProductDiscussed: 'BURGER-2',
+        memorySummary: 'Cliente explorando menu',
+      });
+      expect(updated.currentIntent).toBe('BROWSE');
+      expect((updated.missingFieldsJson as unknown as string[])).toEqual([]);
+      expect(updated.lastProductDiscussed).toBe('BURGER-2');
     },
   );
 
