@@ -1,30 +1,37 @@
 /**
- * SOFIA Round 5 / A25 — BLIND independent red team pass (fresh audit of
- * feat/sofia-remediation-address-round5-24-item-payment-binding-fix, no prior context beyond the
- * public mission brief). This file targets a DIFFERENT axis than every prior round (A9/A10, A13/A14,
- * A15/A16, A17/A18, A19/A20, A21/A22, A23/A24): all six of those closed gaps in `confirm()`'s
- * "is the persisted DRAFT (`SofiaOrderDraft`) still bound to what the SAME message just mutated in
- * memory" check — i.e. a SINGLE inbound WhatsApp message bundling a CONFIRM word with a destination /
- * fulfillment / item / payment change. That whole family is now closed: `confirm()` independently
- * verifies `fulfillmentStillBound`, `itemsStillBound`, `paymentStillBound` and `destinationStillBound`
- * before ever trusting a stale `draftId`/`draftVersion`/`draftHash`.
+ * SOFIA Round 5 / A25 (finding) -> A26 (CLOSURE, this file). A25 was a BLIND independent red team pass
+ * (fresh audit of feat/sofia-remediation-address-round5-24-item-payment-binding-fix) that targeted a
+ * DIFFERENT axis than every prior round (A9/A10, A13/A14, A15/A16, A17/A18, A19/A20, A21/A22, A23/A24):
+ * all six of those closed gaps in `confirm()`'s "is the persisted DRAFT (`SofiaOrderDraft`) still bound
+ * to what the SAME message just mutated in memory" check — i.e. a SINGLE inbound WhatsApp message
+ * bundling a CONFIRM word with a destination/fulfillment/item/payment change. That whole family stays
+ * closed: `confirm()` still independently verifies `fulfillmentStillBound`, `itemsStillBound`,
+ * `paymentStillBound` and `destinationStillBound` before ever trusting a stale
+ * `draftId`/`draftVersion`/`draftHash` — this file does not touch that logic.
  *
- * This report instead attacks the layer ABOVE the draft: `sofiaConversationMemory` — the durable,
- * per-conversation JSON blob (`CommercialConversationState`, read/written by
+ * A25 attacked the layer ABOVE the draft: `sofiaConversationMemory` — the durable, per-conversation
+ * JSON blob (`CommercialConversationState`, read/written by
  * `PrismaCommercialRepository.loadState()`/`saveState()`) that every turn of
- * `CommercialCheckoutService.process()` reads at the top and unconditionally upserts at the bottom
- * (`persistAndAudit`). Unlike `SofiaOrderDraft.saveDraft()`/`confirmDraft()` — both of which use real
- * optimistic-concurrency CAS (`updateMany({ where: { id, version, status, ... } })`, verified
- * count===1) — `saveState()` is a bare `upsert` keyed only on `conversationId`, with NO version/CAS
- * check at all (`prisma-commercial.repository.ts::saveState`, lines 20-26). Nothing in the inbound
- * pipeline serializes two DIFFERENT WhatsApp messages for the SAME conversation either:
- * `sofia-whatsapp.service.ts`'s `WhatsappInboundDeduplicator.claim()` dedupes/replays a SINGLE inbound
- * EVENT (keyed on `eventHash`/`messageId` — a webhook retry of the identical event), and
- * `withInboundAgentLease()` is a heartbeat/lease against lease EXPIRY for a single in-flight claim, not
- * a mutex across two distinct claims for the same `conversationId`. So two real, distinct WhatsApp
- * messages the same customer sends moments apart (e.g. "confirmo" immediately followed by "mejor
- * pásame el link", or simply a doubled webhook redelivery racing a fast worker) can be picked up by two
- * concurrent `processMessage()` invocations with NO lock between them.
+ * `CommercialCheckoutService.process()` reads at the top and persists at the bottom
+ * (`persistAndAudit`). TWO independent root causes combined to let a completely ordinary, non-CONFIRM
+ * follow-up message that raced a genuine confirmation silently erase the durable CONFIRMED marker and
+ * spawn a duplicate confirmed draft:
+ *
+ *   Root cause #1 (`saveState()`): was a bare `upsert` keyed only on `conversationId`, with NO
+ *   version/CAS check. Nothing in the inbound pipeline serializes two DIFFERENT WhatsApp messages for
+ *   the SAME conversation either (`WhatsappInboundDeduplicator` dedupes retries of the IDENTICAL
+ *   message; `withInboundAgentLease()` guards lease expiry, not a mutex across two distinct claims). A
+ *   turn that read a stale (pre-confirmation) snapshot could write that stale belief back AFTER a
+ *   genuinely confirming turn's write had already committed, silently regressing the durable
+ *   `confirmationState` from CONFIRMED back to PENDING/NONE.
+ *
+ *   Root cause #2 (`saveDraft()`'s CAS-failure fallback): when the CAS `updateMany` failed to match
+ *   the caller's tracked `draftId` because that draft was already CONFIRMED, the fallback silently
+ *   `create()`d a BRAND NEW draft row — the correct behavior ONLY when the caller's OWN prior read
+ *   already, truthfully, knew about the confirmation (the legitimate "start a new order after a prior
+ *   confirmed one" flow). Fired blindly, it also silently spun off a shadow draft for a caller that had
+ *   NO idea its tracked draft was already confirmed (a stale-read caller), without ever surfacing that
+ *   distinction to `process()`.
  *
  * THE RACE (classic lost-update / TOCTOU, deterministically reproduced below by capturing a real
  * `loadState()` snapshot and replaying it as a second turn's read — the exact interleaving that would
@@ -39,40 +46,25 @@
  *
  *   Turn B (a completely ordinary, non-adversarial, non-CONFIRM message — "Mejor pásame el link",
  *   switching payment preference to ONLINE): its `loadState()` read happens to return the SAME S0
- *   (i.e. it raced Turn A's write and lost). `process()` mutates `paymentPreference` in memory (no
- *   `invalidateDraft()` call exists on that path — only fulfillment/item/modifier changes call it) and,
- *   because there is no CONFIRM intent this turn, falls through to the unconditional
- *   `prepareDraft()` at the bottom of `process()`. `prepareDraft()` calls `saveDraft()` with the SAME
- *   draftId=D and `version = S0.draftVersion + 1 = 2`. `saveDraft()`'s CAS
- *   (`updateMany({ where: { id: D, version: 1, status: in [DRAFT,NEEDS_INFO,READY_TO_CONFIRM] } })`)
- *   correctly finds 0 rows (D is now version 1 / status CONFIRMED, outside that status set) — this part
- *   IS safe, draft D itself is never corrupted. But `saveDraft()`'s fallback path
- *   (`prisma-commercial.repository.ts` lines 58-65) treats "prior draft is CONFIRMED and its version
- *   equals what I expected as my baseline" as the "revise-after-confirm, start a follow-up draft" case
- *   and silently `create()`s a BRAND NEW draft row D2 — WITHOUT ever telling `confirm()`'s caller (this
- *   IS `process()`, not `confirm()`) that draft D was already confirmed. `process()` then unconditionally
- *   persists this new state (draftId=D2, confirmationState=PENDING) to `sofiaConversationMemory` via
- *   `saveState()`'s un-CAS'd upsert — SILENTLY OVERWRITING Turn A's S1 (confirmationState=CONFIRMED,
- *   draftId=D).
+ *   (i.e. it raced Turn A's write and lost). `process()` mutates `paymentPreference` in memory and,
+ *   because there is no CONFIRM intent this turn, falls through to `prepareDraft()`.
  *
- * RESULT: immediately after Turn B, the durable `sofiaConversationMemory` row — the ONLY place any
- * later turn, any human agent view, any reconciliation job looks to know "is this conversation's order
- * confirmed" — says PENDING, even though a real, financially-binding CONFIRMED `SofiaOrderDraft` (D)
- * exists and was truthfully narrated to the customer moments earlier. This is an exact violation of
- * REQUIRED INVARIANT #16 ("the durably persisted conversation-memory record of it must never diverge
- * from what the actual confirmed commercial authority record contains") caused purely by a lost update
- * — no single message bundles anything suspicious; each message in isolation is completely ordinary.
- *
- * IT GETS WORSE: because the conversation now believes it has a fresh, unconfirmed PENDING draft (D2,
- * `lastQuestionPurpose='CONFIRM_ORDER'`), a subsequent, entirely honest "confirmo" from the customer —
- * who has no way of knowing their EARLIER message already confirmed an order, since Turn B's response
- * never mentioned it — passes every one of A21-A24's binding checks (nothing changed between Turn B and
- * Turn C) and CONFIRMS D2 AS WELL. The conversation now has TWO independently CONFIRMED `SofiaOrderDraft`
- * rows (D: PAY_AT_PICKUP, D2: ONLINE) for what the customer experienced as ONE continuous transaction —
- * a genuine duplicate-commitment / financial-duplication risk (invariants #6/#11/#14/#16) that would
- * translate into two real `OrderCheckout`/`OrderTicket` materializations the instant the
- * `SOFIA_CREATE_ORDER` owner-activation gate is turned on, entirely without any adversarial single
- * message ever being sent.
+ * SOFIA Round 5 / A26 CLOSURE — FIXED BEHAVIOR asserted by this file (see
+ * `commercial.repository.ts::DraftAlreadyConfirmedError`,
+ * `prisma-commercial.repository.ts::saveState()`/`saveDraft()`, and
+ * `commercial-checkout.service.ts::allowsNewDraftAfterConfirm()`/`respondDraftAlreadyConfirmed()`):
+ * Turn B's `prepareDraft()`/`saveDraft()` now detects that its tracked draft D is already CONFIRMED and
+ * that ITS OWN prior read never knew that (`allowNewDraftAfterConfirm` is only set when the caller's
+ * own non-stale `previous` read already showed `confirmationState === 'CONFIRMED'` for that same
+ * `draftId`) — so instead of silently creating shadow draft D2, `saveDraft()` throws
+ * `DraftAlreadyConfirmedError`, and `process()` recovers by reloading the AUTHORITATIVE persisted state
+ * (already correctly CONFIRMED, thanks to root cause #1's row-locked, regression-proof `saveState()`)
+ * and telling the customer their order is already confirmed. No shadow draft is EVER created; the
+ * durable `sofiaConversationMemory` record never loses the fact that D was confirmed at any point in
+ * the sequence; and a subsequent honest "confirmo" (Turn C) is now correctly recognized (via the
+ * existing `SOFIA_DRAFT_CONFIRMATION_REPLAY` early-exit) as a replay of an already-confirmed order,
+ * NOT a second confirmation. Exactly ONE `SofiaOrderDraft` row is ever created or confirmed for this
+ * conversation across the whole Turn A/B/C sequence.
  *
  * Real Postgres (isolated `_test`/round5 database), real unmocked `CommercialCheckoutService` +
  * `CommercialIntentEngine` + `CommercialPolicyService` + `PrismaCommercialRepository` (real
@@ -139,7 +131,7 @@ function staleFirstReadRepository(real: CommercialRepository, staleSnapshot: Com
   };
 }
 
-describe('A25 Round 5 — lost-update race on sofiaConversationMemory: a genuine confirm() plus a concurrent, entirely ordinary follow-up message can silently erase the CONFIRMED marker and spawn a duplicate confirmed draft', () => {
+describe('A25/A26 Round 5 — lost-update race on sofiaConversationMemory: a genuine confirm() plus a concurrent, entirely ordinary follow-up message must NEVER silently erase the CONFIRMED marker or spawn a duplicate confirmed draft (A26 CLOSURE, permanent regression)', () => {
   jest.setTimeout(30000);
   let prisma: PrismaClient;
 
@@ -179,10 +171,11 @@ describe('A25 Round 5 — lost-update race on sofiaConversationMemory: a genuine
   }
 
   it(
-    'RACE: Turn A truthfully confirms draft D; Turn B (an ordinary payment-preference message that ' +
-      'raced Turn A\'s write) silently overwrites the durable CONFIRMED marker with a NEW pending draft ' +
-      'D2, and a follow-up honest "confirmo" then confirms D2 too -- two independently CONFIRMED ' +
-      'SofiaOrderDraft rows for one conversation, with no single message ever being adversarial',
+    'A26 CLOSURE (FIXED BEHAVIOR): Turn A truthfully confirms draft D; Turn B (an ordinary ' +
+      'payment-preference message that races Turn A\'s write) MUST NOT overwrite the durable ' +
+      'CONFIRMED marker or spin off a shadow draft -- it must instead recover to the true CONFIRMED ' +
+      'state, and a follow-up honest "confirmo" (Turn C) must be recognized as a replay, not a second ' +
+      'confirmation. Exactly ONE SofiaOrderDraft is ever created or confirmed for this conversation.',
     async () => {
       const conversationId = `a25-race-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const phone = '573001120001';
@@ -230,77 +223,76 @@ describe('A25 Round 5 — lost-update race on sofiaConversationMemory: a genuine
       // network+DB round trips can produce without any attacker intervention. Every other repository
       // call (saveState/saveDraft/confirmDraft) goes to the SAME real Postgres connection Turn A used. ---
       const staleRepo = staleFirstReadRepository(realRepository, s0);
-      const { service: serviceB } = buildService(customer.id, staleRepo);
+      const { service: serviceB, orderCreation: orderCreationB } = buildService(customer.id, staleRepo);
       const turnB = await serviceB.process(cmd(conversationId, 'Mejor pasame el link', phone));
 
-      // Turn B's own in-memory/response view looks completely normal: it thinks it's still working
-      // with a PENDING draft, now wanting ONLINE payment.
-      expect(turnB.state.paymentPreference).toBe('ONLINE');
-      expect(turnB.nextAction).toBe('READY_TO_CONFIRM');
-      expect(turnB.state.confirmationState).toBe('PENDING');
-      // *** THE BUG: saveDraft()'s CONFIRMED-fallback path silently spun off a BRAND NEW draft (D2 !=
-      // D) instead of surfacing "the draft you were tracking is already confirmed" to `process()`. ***
-      const draftD2 = turnB.state.draftId!;
-      expect(draftD2).toBeTruthy();
-      expect(draftD2).not.toBe(draftD);
+      // *** A26 CLOSURE: `saveDraft()` detected that draft D was already CONFIRMED and that Turn B's
+      // OWN prior read never knew that (its `previous.confirmationState` was the stale PENDING from
+      // S0) -- so instead of silently creating a shadow draft, it threw `DraftAlreadyConfirmedError`,
+      // and `process()` recovered by reloading the AUTHORITATIVE persisted state and telling the
+      // customer their order is already confirmed. No new draft was ever created for Turn B's payment
+      // preference change; that change is correctly dropped (the order it would have applied to no
+      // longer exists as an editable draft). ***
+      expect(turnB.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(turnB.state.confirmationState).toBe('CONFIRMED');
+      expect(turnB.state.draftId).toBe(draftD);
+      // No order-creation side effect is repeated for Turn B -- draft D was already confirmed (and
+      // already bridged to order creation) back in Turn A; this is a narration recovery, not a new
+      // confirmation.
+      expect(orderCreationB.createFromSofiaDraft).not.toHaveBeenCalled();
 
-      // Draft D itself is untouched -- Postgres-level CAS correctly protected it. This is NOT a
-      // financial-record-corruption bug; it is a durable-narration/lost-update bug.
+      // Draft D itself is untouched -- Postgres-level CAS correctly protected it, exactly as before.
       const draftDAfterTurnB = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
       expect(draftDAfterTurnB.status).toBe('CONFIRMED');
       expect(draftDAfterTurnB.paymentPreference).toBe('PAY_AT_PICKUP');
 
-      const draftD2AfterTurnB = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD2 } });
-      expect(draftD2AfterTurnB.status).toBe('READY_TO_CONFIRM');
-      expect(draftD2AfterTurnB.paymentPreference).toBe('ONLINE');
+      // *** No shadow draft D2 was EVER created -- exactly one SofiaOrderDraft row exists for this
+      // conversation, before and after Turn B. ***
+      const draftsAfterTurnB = await prisma.sofiaOrderDraft.findMany({ where: { conversationId } });
+      expect(draftsAfterTurnB).toHaveLength(1);
+      expect(draftsAfterTurnB[0]!.id).toBe(draftD);
 
-      // *** REQUIRED INVARIANT #16 VIOLATION: the durable `sofiaConversationMemory` record now says
-      // PENDING / draftId=D2 -- it has COMPLETELY LOST any reference to the fact that draft D is
-      // ALREADY, truthfully, CONFIRMED. Any later turn, human-agent view, or reconciliation job reading
-      // this row alone would conclude "no order has been confirmed yet for this conversation", which is
-      // false. ***
+      // *** REQUIRED INVARIANT #16 HELD: the durable `sofiaConversationMemory` record still,
+      // correctly, says CONFIRMED for draft D -- the race never had a chance to erase it, because
+      // `saveState()` never got an incoming write asserting anything else (the recovery path found the
+      // authoritative record already correct and made NO additional write at all). ***
       const memoryAfterTurnB = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
       const stateAfterTurnB = memoryAfterTurnB.currentOrderIntentJson as unknown as { confirmationState: string; draftId: string; paymentPreference: string };
-      expect(stateAfterTurnB.confirmationState).toBe('PENDING'); // <-- was CONFIRMED after Turn A; silently regressed
-      expect(stateAfterTurnB.draftId).toBe(draftD2); // <-- no trace of draftD left in durable memory at all
-      expect(stateAfterTurnB.draftId).not.toBe(draftD);
+      expect(stateAfterTurnB.confirmationState).toBe('CONFIRMED');
+      expect(stateAfterTurnB.draftId).toBe(draftD);
+      expect(stateAfterTurnB.paymentPreference).toBe('PAY_AT_PICKUP'); // Turn B's ONLINE request never landed anywhere durable.
 
-      // --- Turn C: an entirely honest, non-adversarial follow-up "confirmo" from a customer who has no
-      // way of knowing their EARLIER message already produced a confirmed order. It passes every one of
-      // A21-A24's binding checks (nothing changed between Turn B and Turn C) and confirms D2 too. ---
+      // --- Turn C: an entirely honest, non-adversarial follow-up "confirmo". With memory correctly
+      // showing CONFIRMED/draftD, this now hits the existing `SOFIA_DRAFT_CONFIRMATION_REPLAY`
+      // early-exit -- recognized as a replay of an already-confirmed order, not a fresh confirmation. ---
       const { service: serviceC, orderCreation: orderCreationC } = buildService(customer.id, realRepository);
       const turnC = await serviceC.process(cmd(conversationId, 'confirmo', phone));
       expect(turnC.nextAction).toBe('DRAFT_CONFIRMED');
       expect(turnC.state.confirmationState).toBe('CONFIRMED');
-      expect(turnC.state.draftId).toBe(draftD2);
-      expect(orderCreationC.createFromSofiaDraft).toHaveBeenCalledTimes(1);
-      expect(orderCreationC.createFromSofiaDraft).toHaveBeenCalledWith(expect.objectContaining({ draftId: draftD2 }));
+      expect(turnC.state.draftId).toBe(draftD);
+      // The replay path does not re-invoke order creation -- draft D was already bridged to the order
+      // authority in Turn A; Turn C must not attempt it a second time.
+      expect(orderCreationC.createFromSofiaDraft).not.toHaveBeenCalled();
 
-      // *** FINAL STATE: TWO independently CONFIRMED SofiaOrderDraft rows exist for ONE conversation
-      // and ONE continuous customer interaction -- D (PAY_AT_PICKUP, 15000) and D2 (ONLINE, 15000) --
-      // neither the customer nor the system ever made an explicit "place a second order" decision. If
-      // the SOFIA_CREATE_ORDER owner-activation gate were live, this would materialize as TWO real
-      // OrderCheckout/OrderTicket records for a single 15000 hamburguesa order the customer believes
-      // they confirmed exactly once. ***
-      const finalDraftD = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD } });
-      const finalDraftD2 = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: draftD2 } });
-      expect(finalDraftD.status).toBe('CONFIRMED');
-      expect(finalDraftD2.status).toBe('CONFIRMED');
-      expect(finalDraftD.id).not.toBe(finalDraftD2.id);
-      expect(Number(finalDraftD.total)).toBe(15000);
-      expect(Number(finalDraftD2.total)).toBe(15000);
+      // *** FINAL STATE: EXACTLY ONE SofiaOrderDraft row exists for this conversation across the whole
+      // Turn A/B/C sequence, and it is CONFIRMED exactly once -- the race that previously produced a
+      // silent duplicate commitment is now fully closed. ***
+      const finalDrafts = await prisma.sofiaOrderDraft.findMany({ where: { conversationId } });
+      expect(finalDrafts).toHaveLength(1);
+      expect(finalDrafts[0]!.id).toBe(draftD);
+      expect(finalDrafts[0]!.status).toBe('CONFIRMED');
+      expect(Number(finalDrafts[0]!.total)).toBe(15000);
 
       const confirmedDraftsForConversation = await prisma.sofiaOrderDraft.findMany({
         where: { conversationId, status: 'CONFIRMED' },
         select: { id: true, paymentPreference: true, total: true },
       });
-      expect(confirmedDraftsForConversation).toHaveLength(2);
+      expect(confirmedDraftsForConversation).toHaveLength(1);
 
       console.log(
-        `[A25 RACE] conversationId=${conversationId} draftD=${draftD}(CONFIRMED,PAY_AT_PICKUP) ` +
-          `draftD2=${draftD2}(CONFIRMED,ONLINE) -- durable sofiaConversationMemory lost the CONFIRMED ` +
-          `marker for draftD after the race (Turn B saw confirmationState=PENDING) and a routine ` +
-          `follow-up confirm produced a SECOND independently-confirmed draft for the same conversation.`,
+        `[A26 CLOSURE] conversationId=${conversationId} draftD=${draftD}(CONFIRMED,PAY_AT_PICKUP) -- ` +
+          `the race no longer regresses the durable CONFIRMED marker, no shadow draft is ever created, ` +
+          `and the follow-up "confirmo" is correctly recognized as a replay. Exactly ONE confirmed draft.`,
       );
     },
   );
@@ -343,6 +335,114 @@ describe('A25 Round 5 — lost-update race on sofiaConversationMemory: a genuine
       // Sequential (non-raced) processing must never produce MORE than one confirmed draft from this
       // sequence -- this is the control proving the race above is the actual cause of the duplicate.
       expect(confirmedDrafts.length).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it(
+    'SOFIA Round 5 / A26 CLOSURE — root cause #1 in isolation: a raced turn that never even reaches ' +
+      '`prepareDraft()`/`saveDraft()` (it lands on the ASK_MISSING branch instead, e.g. switching ' +
+      'fulfillment to DELIVERY without yet supplying an address) MUST NOT be able to regress the ' +
+      'durable CONFIRMED marker via `persistAndAudit()`\'s plain `saveState()` call -- this is the ' +
+      'SECOND, independent interleaving root cause #2 alone (the saveDraft() fallback guard) cannot ' +
+      'close, since this path never calls saveDraft() at all',
+    async () => {
+      const conversationId = `a25-race-askmissing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const phone = '573001120004';
+      await prisma.whatsappConversation.create({ data: { id: conversationId, phone, provider: 'whatsapp_business_api' } });
+      const customer = await prisma.customer.create({ data: { displayName: 'Cliente A25' } });
+      const realRepository = new PrismaCommercialRepository(prisma as never);
+
+      const { service: setupService } = buildService(customer.id, realRepository);
+      const ready = await setupService.process(cmd(conversationId, 'Quiero una hamburguesa clasica, lo recojo yo mismo y pago alla', phone));
+      expect(ready.nextAction).toBe('READY_TO_CONFIRM');
+      const draftD = ready.state.draftId!;
+      const s0: CommercialConversationState = JSON.parse(JSON.stringify(ready.state));
+
+      const { service: serviceA } = buildService(customer.id, realRepository);
+      const turnA = await serviceA.process(cmd(conversationId, 'confirmo', phone));
+      expect(turnA.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(turnA.state.draftId).toBe(draftD);
+
+      // Turn B: a raced, stale-read message that switches fulfillment to DELIVERY WITHOUT an address
+      // -- `process()` calls `invalidateDraft()` (fulfillment changed) and then forcibly sets
+      // `confirmationState = 'NONE'` in the ASK_MISSING branch (line ~230), NEVER reaching
+      // `prepareDraft()`/`saveDraft()` at all. If root cause #1 were not closed, this plain
+      // `saveState()` write (draftId still = D, confirmationState = NONE) would silently clobber Turn
+      // A's durable CONFIRMED record.
+      const staleRepo = staleFirstReadRepository(realRepository, s0);
+      const { service: serviceB } = buildService(customer.id, staleRepo);
+      const turnB = await serviceB.process(cmd(conversationId, 'Mejor que me lo lleven a domicilio', phone));
+      expect(turnB.nextAction).toBe('ASK_MISSING');
+
+      // *** The durable CONFIRMED marker for draftD must survive this stale write untouched. ***
+      const memoryAfterTurnB = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
+      const stateAfterTurnB = memoryAfterTurnB.currentOrderIntentJson as unknown as { confirmationState: string; draftId: string };
+      expect(stateAfterTurnB.confirmationState).toBe('CONFIRMED');
+      expect(stateAfterTurnB.draftId).toBe(draftD);
+
+      const drafts = await prisma.sofiaOrderDraft.findMany({ where: { conversationId } });
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0]!.status).toBe('CONFIRMED');
+    },
+  );
+
+  it(
+    'SOFIA Round 5 / A26 CLOSURE — the legitimate "genuinely start a new order after a prior confirmed ' +
+      'one" flow still works: a customer who confirms one order, then (in a real sequential exchange, no ' +
+      'race) places a second, separate order in the SAME conversation, ends up with TWO independently ' +
+      'CONFIRMED SofiaOrderDraft rows -- this is the intended, authorized outcome for a genuinely NEW ' +
+      'order, contrasting with the race scenario above which now correctly produces exactly ONE',
+    async () => {
+      const conversationId = `a25-race-newafterconfirm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const phone = '573001120003';
+      await prisma.whatsappConversation.create({ data: { id: conversationId, phone, provider: 'whatsapp_business_api' } });
+      const customer = await prisma.customer.create({ data: { displayName: 'Cliente A25' } });
+      const realRepository = new PrismaCommercialRepository(prisma as never);
+      const { service: service1, orderCreation: orderCreation1 } = buildService(customer.id, realRepository);
+
+      // First order: identical setup to the race scenario above.
+      const ready = await service1.process(cmd(conversationId, 'Quiero una hamburguesa clasica, lo recojo yo mismo y pago alla', phone));
+      expect(ready.nextAction).toBe('READY_TO_CONFIRM');
+      const draftD = ready.state.draftId!;
+
+      const turnA = await service1.process(cmd(conversationId, 'confirmo', phone));
+      expect(turnA.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(turnA.state.draftId).toBe(draftD);
+      expect(orderCreation1.createFromSofiaDraft).toHaveBeenCalledTimes(1);
+
+      const memoryAfterFirstOrder = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
+      const stateAfterFirstOrder = memoryAfterFirstOrder.currentOrderIntentJson as unknown as { confirmationState: string; draftId: string };
+      expect(stateAfterFirstOrder.confirmationState).toBe('CONFIRMED');
+      expect(stateAfterFirstOrder.draftId).toBe(draftD);
+
+      // Second order: a genuinely NEW, sequential (non-raced) message re-supplying full order intent
+      // (product + fulfillment + payment) for the SAME conversation, sent AFTER Turn A's confirming
+      // write genuinely landed. `service2`'s own `loadState()` truthfully reads the CONFIRMED state --
+      // this is exactly the signal `allowsNewDraftAfterConfirm()` requires to permit a new draft.
+      const { service: service2, orderCreation: orderCreation2 } = buildService(customer.id, realRepository);
+      const secondReady = await service2.process(cmd(conversationId, 'Quiero otra hamburguesa clasica, lo recojo yo mismo y pago alla', phone));
+      expect(secondReady.nextAction).toBe('READY_TO_CONFIRM');
+      expect(secondReady.state.confirmationState).toBe('PENDING');
+      const draftD2 = secondReady.state.draftId!;
+      expect(draftD2).toBeTruthy();
+      expect(draftD2).not.toBe(draftD);
+
+      const turnC = await service2.process(cmd(conversationId, 'confirmo', phone));
+      expect(turnC.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(turnC.state.draftId).toBe(draftD2);
+      expect(orderCreation2.createFromSofiaDraft).toHaveBeenCalledTimes(1);
+      expect(orderCreation2.createFromSofiaDraft).toHaveBeenCalledWith(expect.objectContaining({ draftId: draftD2 }));
+
+      // *** Both orders are legitimately, independently CONFIRMED -- this is the AUTHORIZED "place a
+      // second order" outcome, not a lost-update duplicate. Two real customer decisions (two separate
+      // "confirmo" messages, each following its own truthful, non-raced read of conversation state)
+      // produced two real confirmed drafts, as intended. ***
+      const finalDrafts = await prisma.sofiaOrderDraft.findMany({ where: { conversationId }, orderBy: { version: 'asc' } });
+      expect(finalDrafts.map((row) => row.id)).toEqual([draftD, draftD2]);
+      expect(finalDrafts.every((row) => row.status === 'CONFIRMED')).toBe(true);
+
+      const confirmedDraftsForConversation = await prisma.sofiaOrderDraft.findMany({ where: { conversationId, status: 'CONFIRMED' } });
+      expect(confirmedDraftsForConversation).toHaveLength(2);
     },
   );
 });

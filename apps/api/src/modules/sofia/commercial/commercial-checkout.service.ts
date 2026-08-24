@@ -20,7 +20,7 @@ import { commercialDraftHash, commercialItemsFingerprint } from './commercial-dr
 import { CommercialIntentEngine, normalizeCommercialText } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
-import { COMMERCIAL_REPOSITORY, type CommercialRepository } from './commercial.repository';
+import { COMMERCIAL_REPOSITORY, DraftAlreadyConfirmedError, type CommercialRepository } from './commercial.repository';
 import type { CommercialConversationState, CommercialMessageCommand, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
 import { CommercialResponseComposer } from './response/commercial-response.composer';
 import type { CommercialFactEnvelope, CommercialResponsePurpose } from './response/commercial-response.types';
@@ -224,7 +224,7 @@ export class CommercialCheckoutService {
     state.missingFields = this.policy.missing(state);
     if (state.ambiguities.length) state.missingFields = [...new Set([...state.missingFields, ...state.ambiguities])];
 
-    if (parsed.intent === 'CONFIRM') return this.confirm(state, command);
+    if (parsed.intent === 'CONFIRM') return this.confirm(state, command, previous);
     if (state.missingFields.length) {
       state.lastQuestionPurpose = this.policy.questionPurpose(state.missingFields);
       state.confirmationState = 'NONE';
@@ -232,11 +232,64 @@ export class CommercialCheckoutService {
       return this.respond(state, this.responsePurpose(state.lastQuestionPurpose, state.ambiguities), 'ASK_MISSING');
     }
 
-    const prepared = await this.prepareDraft(state, command);
+    let prepared: CommercialConversationState;
+    try {
+      prepared = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+    } catch (error) {
+      if (error instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, error);
+      throw error;
+    }
     prepared.lastQuestionPurpose = 'CONFIRM_ORDER';
     prepared.confirmationState = 'PENDING';
     await this.persistAndAudit(prepared, command, prepared.draftVersion === 1 ? 'SOFIA_DRAFT_CREATED' : 'SOFIA_DRAFT_UPDATED');
     return this.respond(prepared, 'SUMMARIZE_DRAFT', 'READY_TO_CONFIRM');
+  }
+
+  /**
+   * SOFIA Round 5 / A26 CLOSURE (root cause #2) — `true` only when THIS turn's own, non-stale
+   * `previous` read (captured at the very top of `process()`, before any in-turn mutation) already,
+   * truthfully knew `state`'s tracked draft was CONFIRMED. This is the one signal `saveDraft()` is
+   * allowed to trust when deciding whether a CAS failure against an already-CONFIRMED draft means
+   * "genuinely start a new order" (safe -- the caller knew) versus "I have no idea this draft was
+   * already confirmed" (the A25 lost-update hazard -- the caller must NOT silently spin off a shadow
+   * draft). See `DraftAlreadyConfirmedError` for the failure mode when this is `false`.
+   */
+  private allowsNewDraftAfterConfirm(previous: CommercialConversationState, state: CommercialConversationState): boolean {
+    return previous.confirmationState === 'CONFIRMED' && previous.draftId !== null && previous.draftId === state.draftId;
+  }
+
+  /**
+   * SOFIA Round 5 / A26 CLOSURE (root cause #2) — recovery path when `saveDraft()` reports that the
+   * draft this turn was tracking is already CONFIRMED and this turn had no idea (see
+   * `DraftAlreadyConfirmedError`). Reloads the AUTHORITATIVE persisted state instead of trusting this
+   * turn's own (proven-stale) in-memory `state`, and narrates the true outcome to the customer --
+   * "your order is already confirmed" -- instead of silently creating and later confirming a second,
+   * phantom draft for the same conversation. Never regresses durable memory: if the authoritative
+   * read already reflects the confirmation (the expected case -- the confirming turn's own
+   * `saveState()` already committed it, protected by root cause #1's row lock), this makes NO
+   * additional write at all.
+   */
+  private async respondDraftAlreadyConfirmed(
+    state: CommercialConversationState,
+    command: CommercialMessageCommand,
+    error: DraftAlreadyConfirmedError,
+  ): Promise<CommercialTurnResult> {
+    this.metrics.increment('draft_already_confirmed_race_detected');
+    const authoritative = await this.repository.loadState(command.conversationId);
+    const alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
+    const resolved: CommercialConversationState = alreadyCorrect
+      ? authoritative!
+      : { ...state, draftId: error.draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null };
+    if (!alreadyCorrect) await this.repository.saveState(resolved);
+    await this.audit.record({
+      actor: command.actor,
+      action: 'SOFIA_DRAFT_ALREADY_CONFIRMED_RACE_DETECTED',
+      entity: 'sofia_commercial_conversation',
+      entityId: state.conversationId,
+      result: 'SUCCESS',
+      after: { draftId: resolved.draftId, confirmationState: resolved.confirmationState },
+    });
+    return this.respond(resolved, resolved.fulfillment === 'DELIVERY' ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED', 'DRAFT_CONFIRMED');
   }
 
   private async resolveProducts(message: string): Promise<CatalogProductDto[] | 'AMBIGUOUS'> {
@@ -269,7 +322,7 @@ export class CommercialCheckoutService {
     return fallback ?? 1;
   }
 
-  private async prepareDraft(state: CommercialConversationState, command: CommercialMessageCommand) {
+  private async prepareDraft(state: CommercialConversationState, command: CommercialMessageCommand, options: { allowNewDraftAfterConfirm: boolean } = { allowNewDraftAfterConfirm: false }) {
     const availability = await this.validateAvailability(state);
     const subtotal = state.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     let deliveryFee = 0, deliveryQuoteAuditId: string | null = null, deliveryQuoteVersion: number | null = null, deliveryQuoteExpiresAt: Date | null = null;
@@ -292,7 +345,7 @@ export class CommercialCheckoutService {
       deliveryQuoteDestinationBinding = state.destinationSnapshot ? quoteBindingFor(state.destinationSnapshot) : null;
     }
     const version = state.draftVersion ? state.draftVersion + 1 : 1;
-    const saved = await this.repository.saveDraft({ draftId: state.draftId ?? undefined, conversationId: state.conversationId, customerId: state.customerId, fulfillment: state.fulfillment, paymentPreference: state.paymentPreference, version, items: state.items, subtotal, deliveryFee, total: subtotal + deliveryFee, address: state.address, addressConfirmed: state.addressConfirmed, deliveryQuoteAuditId, deliveryQuoteVersion, deliveryQuoteExpiresAt, availabilitySnapshot: availability });
+    const saved = await this.repository.saveDraft({ draftId: state.draftId ?? undefined, conversationId: state.conversationId, customerId: state.customerId, fulfillment: state.fulfillment, paymentPreference: state.paymentPreference, version, items: state.items, subtotal, deliveryFee, total: subtotal + deliveryFee, address: state.address, addressConfirmed: state.addressConfirmed, deliveryQuoteAuditId, deliveryQuoteVersion, deliveryQuoteExpiresAt, availabilitySnapshot: availability, allowNewDraftAfterConfirm: options.allowNewDraftAfterConfirm });
     return {
       ...state,
       subtotal,
@@ -335,7 +388,7 @@ export class CommercialCheckoutService {
     }));
   }
 
-  private async confirm(state: CommercialConversationState, command: CommercialMessageCommand): Promise<CommercialTurnResult> {
+  private async confirm(state: CommercialConversationState, command: CommercialMessageCommand, previous: CommercialConversationState): Promise<CommercialTurnResult> {
     if (state.lastQuestionPurpose !== 'CONFIRM_ORDER' || !state.draftId || !state.draftVersion || !state.draftHash || !state.expiresAt) return this.handoff(state, command, 'SOFIA_CONTEXTUAL_CONFIRMATION_INVALID');
     // QUOTE BINDING (SOFIA Round 5 / A10): a single WhatsApp message can carry BOTH a CONFIRM
     // intent AND a new address/GPS in the same text (e.g. "Confirmo, mejor envíamelo a la calle 80
@@ -396,7 +449,13 @@ export class CommercialCheckoutService {
       || !quoteStillBound
     ) {
       state.confirmationState = 'EXPIRED';
-      const refreshed = await this.prepareDraft(state, command);
+      let refreshed: CommercialConversationState;
+      try {
+        refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+      } catch (error) {
+        if (error instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, error);
+        throw error;
+      }
       refreshed.confirmationState = 'PENDING';
       refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
       if (!fulfillmentStillBound) this.metrics.increment('fulfillment_quote_binding_refresh');
@@ -423,7 +482,13 @@ export class CommercialCheckoutService {
     } catch (error) {
       if (error instanceof BadRequestException && (error.getResponse() as { code?: string }).code === 'SOFIA_PRICE_CHANGED') {
         for (const item of state.items) item.unitPrice = (await this.catalog.getActiveById(item.productId)).persistedPrice;
-        const refreshed = await this.prepareDraft(state, command);
+        let refreshed: CommercialConversationState;
+        try {
+          refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+        } catch (priceRefreshError) {
+          if (priceRefreshError instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, priceRefreshError);
+          throw priceRefreshError;
+        }
         refreshed.confirmationState = 'PENDING';
         refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
         await this.persistAndAudit(refreshed, command, 'SOFIA_DRAFT_PRICE_REFRESHED');

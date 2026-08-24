@@ -2,7 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { OrderTicketType, Prisma, SofiaOrderDraftStatus, SofiaPaymentPreference } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { commercialDraftHash } from '../commercial-draft-hash';
-import type { CommercialRepository } from '../commercial.repository';
+import { DraftAlreadyConfirmedError, type CommercialRepository } from '../commercial.repository';
 import type { CommercialConversationState } from '../commercial.types';
 
 @Injectable()
@@ -17,15 +17,58 @@ export class PrismaCommercialRepository implements CommercialRepository {
     return candidate.schemaVersion === 4 ? candidate as unknown as CommercialConversationState : null;
   }
 
+  /**
+   * SOFIA Round 5 / A26 CLOSURE (root cause #1, HIGH) — `sofiaConversationMemory` was previously a
+   * bare `upsert` keyed only on `conversationId`, with NO optimistic-concurrency/version check at
+   * all. Two genuinely concurrent `CommercialCheckoutService.process()` calls for the SAME
+   * conversation (e.g. two distinct WhatsApp messages arriving moments apart, or a fast worker racing
+   * a slower one) could interleave so that a turn which read a STALE, pre-confirmation snapshot wrote
+   * back that stale belief AFTER a genuine confirming turn's write had already landed — silently
+   * erasing the only durable record that a draft was ever confirmed (see the A25 finding; this is a
+   * classic lost update / TOCTOU, independent of `saveDraft()`'s own CAS on `SofiaOrderDraft`, which
+   * remains correctly protected).
+   *
+   * This is conversational narration state, not the financial authority itself (`SofiaOrderDraft`
+   * stays separately, unconditionally CAS-protected regardless of what happens here), so a hard
+   * CAS-reject-and-bubble-a-ConflictException-to-the-customer is the wrong UX for a lost race on a
+   * routine follow-up message. Instead: serialize concurrent writers for this `conversationId` with a
+   * real row lock (`SELECT ... FOR UPDATE` inside a transaction — the second writer's SELECT blocks
+   * until the first COMMITs, then observes the first writer's committed truth) and apply a single,
+   * narrow invariant on top: NEVER let a write regress an already-persisted CONFIRMED marker for the
+   * SAME `draftId` back to a non-CONFIRMED value. A write that targets a genuinely DIFFERENT
+   * `draftId` (the legitimate "start a new order after a prior confirmed one" flow) is never blocked
+   * by this — only a write that is unaware its own tracked draft was already confirmed gets its stale
+   * belief dropped in favor of the durable truth, which any subsequent `loadState()` (including the
+   * losing writer's own next turn) will now correctly observe.
+   */
   async saveState(state: CommercialConversationState) {
-    await this.prisma.sofiaConversationMemory.upsert({
-      where: { conversationId: state.conversationId },
-      create: { conversationId: state.conversationId, currentIntent: state.intent, currentOrderIntentJson: state as unknown as Prisma.InputJsonValue, missingFieldsJson: state.missingFields, expiresAt: state.expiresAt ? new Date(state.expiresAt) : null },
-      update: { currentIntent: state.intent, currentOrderIntentJson: state as unknown as Prisma.InputJsonValue, missingFieldsJson: state.missingFields, expiresAt: state.expiresAt ? new Date(state.expiresAt) : null },
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
+        Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${state.conversationId} FOR UPDATE`,
+      );
+      const existingRaw = rows[0]?.current_order_intent_json;
+      const existing = existingRaw && typeof existingRaw === 'object' && !Array.isArray(existingRaw) && (existingRaw as Record<string, unknown>).schemaVersion === 4
+        ? (existingRaw as unknown as CommercialConversationState)
+        : null;
+
+      const wouldRegressConfirmedMarker = Boolean(
+        existing
+        && existing.confirmationState === 'CONFIRMED'
+        && existing.draftId !== null
+        && existing.draftId === state.draftId
+        && state.confirmationState !== 'CONFIRMED',
+      );
+      const toPersist = wouldRegressConfirmedMarker ? existing! : state;
+
+      await tx.sofiaConversationMemory.upsert({
+        where: { conversationId: toPersist.conversationId },
+        create: { conversationId: toPersist.conversationId, currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
+        update: { currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
+      });
     });
   }
 
-  async saveDraft(input: Record<string, unknown> & { conversationId: string; version?: number; draftId?: string }) {
+  async saveDraft(input: Record<string, unknown> & { conversationId: string; version?: number; draftId?: string; allowNewDraftAfterConfirm?: boolean }) {
     const version = input.version ?? 1;
     const draftHash = commercialDraftHash({ ...input, draftId: undefined, version });
     const expiresAt = new Date(Date.now() + 30 * 60_000);
@@ -57,8 +100,24 @@ export class PrismaCommercialRepository implements CommercialRepository {
     const updated = await this.prisma.sofiaOrderDraft.updateMany({ where: { id: input.draftId, version: version - 1, status: { in: [SofiaOrderDraftStatus.DRAFT, SofiaOrderDraftStatus.NEEDS_INFO, SofiaOrderDraftStatus.READY_TO_CONFIRM] } }, data });
     if (updated.count !== 1) {
       const prior = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: input.draftId }, select: { status: true, version: true } });
-      if (prior?.status !== SofiaOrderDraftStatus.CONFIRMED || prior.version !== version - 1) {
+      const priorConfirmedAtExpectedVersion = prior?.status === SofiaOrderDraftStatus.CONFIRMED && prior.version === version - 1;
+      if (!priorConfirmedAtExpectedVersion) {
         throw new ConflictException({ code: 'STALE_DRAFT_VERSION' });
+      }
+      // SOFIA Round 5 / A26 CLOSURE (root cause #2, HIGH) — the tracked draft is legitimately
+      // CONFIRMED at the exact version the caller expected. This IS the "start a new order after a
+      // prior confirmed one" case -- but ONLY when the caller has explicitly asserted it via
+      // `allowNewDraftAfterConfirm: true`, which `CommercialCheckoutService` only sets when its OWN,
+      // non-stale `previous` read (captured at the top of `process()`, before any in-turn mutation)
+      // already, truthfully knew this draft was confirmed. Without that explicit signal, silently
+      // creating a new draft here is exactly the A25 lost-update bug: a caller that read a STALE
+      // pre-confirmation snapshot has no idea its tracked draft was already confirmed, and spinning
+      // off an independently-confirmable shadow draft would let a later honest "confirmo" produce a
+      // SECOND confirmed commercial record for one continuous customer interaction. Fail closed:
+      // surface this distinctly so the caller can recover (reload authoritative state, tell the
+      // customer their order is already confirmed) instead of silently corrupting durable narration.
+      if (input.allowNewDraftAfterConfirm !== true) {
+        throw new DraftAlreadyConfirmedError(input.draftId!);
       }
       const created = await this.prisma.sofiaOrderDraft.create({ data: { conversationId: input.conversationId, ...data } });
       return { id: created.id, version: created.version, draftHash: created.draftHash!, expiresAt: created.expiresAt! };
