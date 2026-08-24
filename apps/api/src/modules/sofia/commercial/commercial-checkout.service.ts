@@ -39,7 +39,7 @@ const emptyState = (conversationId: string): CommercialConversationState => ({
   destinationSnapshot: null, deliveryQuoteDestinationBinding: null,
   paymentPreference: 'UNKNOWN', paymentReadiness: 'PAYMENT_UNRESOLVED', subtotal: null, deliveryFee: null, total: null, deliveryQuoteAuditId: null,
   deliveryQuoteVersion: null, deliveryQuoteExpiresAt: null, availabilitySnapshot: [], draftId: null, draftVersion: null,
-  draftHash: null, confirmationState: 'NONE',
+  draftHash: null, draftFulfillment: null, confirmationState: 'NONE',
   missingFields: [], ambiguities: [], confidence: 'LOW', handoffState: 'SOFIA_ACTIVE', consentState: 'SERVICE',
   domainErrors: [], lastQuestionPurpose: null, lastResolvedIntent: null, expiresAt: null,
 });
@@ -306,6 +306,10 @@ export class CommercialCheckoutService {
       draftId: saved.id,
       draftVersion: saved.version,
       draftHash: saved.draftHash,
+      // A22 CLOSURE: record the fulfillment this draft was ACTUALLY (re)prepared/priced for, at the
+      // exact moment draftId/draftVersion/draftHash were (re)computed. See field doc in
+      // `commercial.types.ts`.
+      draftFulfillment: state.fulfillment,
       expiresAt: saved.expiresAt.toISOString(),
       domainErrors: [],
     };
@@ -338,10 +342,29 @@ export class CommercialCheckoutService {
     // be confirmed as-is, silently applying the OLD (possibly out-of-coverage-cheaper) quote to the
     // NEW address. Fail closed: require `quote.destinationRevision == currentDestination.revision`
     // (`isQuoteBoundToCurrentDestination`) — a missing binding is treated as UNPROVEN, not "fine".
-    const quoteStillBound = state.fulfillment !== 'DELIVERY'
+    //
+    // FULFILLMENT BINDING (SOFIA Round 5 / A22 CLOSURE — CRITICAL): the exact same compound-message
+    // hazard applies to FULFILLMENT, not just destination. `process()` parses `intent` and
+    // `fulfillment` from the same message INDEPENDENTLY (`CommercialIntentEngine.interpret()`), so
+    // "Confirmo, mejor paso por el local" yields CONFIRM + TAKEAWAY in one shot; `process()` already
+    // mutated `state.fulfillment` to TAKEAWAY (and cleared address/fee/binding) BEFORE routing here,
+    // but `draftId`/`draftVersion`/`draftHash` still point at the PRIOR turn's real, priced DELIVERY
+    // draft. The OLD destination-binding-only check above was blind to this: `state.fulfillment !==
+    // 'DELIVERY'` short-circuited it to trivially `true` the instant fulfillment stopped being
+    // DELIVERY, regardless of what the persisted draft actually was. `draftFulfillment` (captured by
+    // `prepareDraft()` at the moment the draft was last actually priced/persisted) lets us tell "this
+    // conversation was ALREADY this fulfillment" (safe, cheap fast path — no destination data to
+    // check for a conversation that was TAKEAWAY the whole time) apart from "fulfillment just
+    // changed THIS turn, bundled with confirm" (unsafe — the draft about to be confirmed no longer
+    // represents current reality). Fail closed: a mismatch invalidates the draft exactly like an
+    // address change already does, forcing `prepareDraft()` to re-derive a draft that truly matches
+    // the CURRENT fulfillment before anything can be confirmed.
+    const fulfillmentStillBound = state.draftFulfillment === state.fulfillment;
+    const destinationStillBound = state.fulfillment !== 'DELIVERY'
       || (state.deliveryQuoteDestinationBinding !== null
         && state.destinationSnapshot !== null
         && isQuoteBoundToCurrentDestination(state.deliveryQuoteDestinationBinding, state.destinationSnapshot));
+    const quoteStillBound = fulfillmentStillBound && destinationStillBound;
     if (
       new Date(state.expiresAt) <= new Date()
       || (state.fulfillment === 'DELIVERY' && (!state.deliveryQuoteExpiresAt || new Date(state.deliveryQuoteExpiresAt) <= new Date()))
@@ -351,8 +374,17 @@ export class CommercialCheckoutService {
       const refreshed = await this.prepareDraft(state, command);
       refreshed.confirmationState = 'PENDING';
       refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
-      if (!quoteStillBound) this.metrics.increment('destination_quote_binding_refresh');
-      await this.persistAndAudit(refreshed, command, quoteStillBound ? 'SOFIA_DRAFT_EXPIRED_REFRESHED' : 'SOFIA_DRAFT_DESTINATION_CHANGED_REFRESHED');
+      if (!fulfillmentStillBound) this.metrics.increment('fulfillment_quote_binding_refresh');
+      else if (!destinationStillBound) this.metrics.increment('destination_quote_binding_refresh');
+      await this.persistAndAudit(
+        refreshed,
+        command,
+        !fulfillmentStillBound
+          ? 'SOFIA_DRAFT_FULFILLMENT_CHANGED_REFRESHED'
+          : quoteStillBound
+            ? 'SOFIA_DRAFT_EXPIRED_REFRESHED'
+            : 'SOFIA_DRAFT_DESTINATION_CHANGED_REFRESHED',
+      );
       return this.respond(refreshed, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM');
     }
     try {

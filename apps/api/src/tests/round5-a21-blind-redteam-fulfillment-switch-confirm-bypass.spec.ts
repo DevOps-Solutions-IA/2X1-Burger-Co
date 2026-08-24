@@ -3,78 +3,82 @@
  * feat/sofia-remediation-address-round5-20-materialization-fix, no prior context beyond the public
  * mission brief). Four previous rounds (A9/A10, A13/A14, A15/A16, A17/A18, A19/A20) each closed a
  * distinct gap in "does every code path agree on what counts as trustworthy evidence that the
- * destination genuinely changed / was genuinely priced". This file finds a FIFTH, DIFFERENT gap in
- * the SAME general family, but on an axis none of the prior rounds' fixes touch: FULFILLMENT TYPE
+ * destination genuinely changed / was genuinely priced". A21 found a FIFTH, DIFFERENT gap in the
+ * SAME general family, but on an axis none of the prior rounds' fixes touched: FULFILLMENT TYPE
  * (DELIVERY vs TAKEAWAY), not address/coordinates.
  *
+ * SOFIA Round 5 / A22 — REMEDIATION + PERMANENT REGRESSION (this file, updated in place). The
+ * original A21 bug report is preserved below verbatim for provenance; the test bodies have been
+ * converted from "prove the attack succeeds" to "prove the attack is now blocked / safely
+ * requoted" — i.e. this file now asserts the FIXED behavior permanently, not the vulnerability.
+ *
+ * ============================== ORIGINAL A21 BUG REPORT (for provenance) ==============================
  * THE BUG: `CommercialCheckoutService.confirm()`'s ONLY defense against confirming a STALE quote
- * bound to a DIFFERENT destination is `quoteStillBound` (`commercial-checkout.service.ts`, ~line
- * 341-344):
+ * bound to a DIFFERENT destination was `quoteStillBound` (`commercial-checkout.service.ts`, ~line
+ * 341-344, PRE-FIX):
  *
  *   const quoteStillBound = state.fulfillment !== 'DELIVERY'
  *     || (state.deliveryQuoteDestinationBinding !== null && state.destinationSnapshot !== null
- *         && isQuoteBoundToCurrentDestination(state.deliveryQuoteDestinationBinding, state.destinationSnapshot));
+ *         && isQuoteBoundToCurrentDestination(...));
  *
- * The FIRST clause (`state.fulfillment !== 'DELIVERY'`) short-circuits the whole check to `true`
- * ("trivially bound, nothing to validate") whenever fulfillment is NOT DELIVERY at confirm() time.
- * That is correct for a conversation that has been TAKEAWAY the whole time. It is WRONG when
+ * The FIRST clause (`state.fulfillment !== 'DELIVERY'`) short-circuited the whole check to `true`
+ * ("trivially bound, nothing to validate") whenever fulfillment was NOT DELIVERY at confirm() time.
+ * That is correct for a conversation that has been TAKEAWAY the whole time. It was WRONG when
  * fulfillment JUST CHANGED, in THIS SAME TURN, from DELIVERY to TAKEAWAY — because `process()`
  * evaluates `parsed.fulfillment` and `parsed.intent` from the SAME message INDEPENDENTLY
- * (`commercial-intent.engine.ts` line 19 vs line 23-27: two separate regex tests over the same
- * normalized text, with no interaction between them), so a single, entirely realistic Spanish
- * message like "Confirmo, mejor paso por el local" produces `intent: 'CONFIRM'` AND
- * `fulfillment: 'TAKEAWAY'` in one shot. `process()` applies the fulfillment switch (clearing
- * `state.address`/`state.deliveryFee`/`state.deliveryQuoteAuditId`/`state.deliveryQuoteDestinationBinding`
- * IN MEMORY ONLY) and THEN routes straight to `confirm()` in the same call (no intermediate turn).
+ * (`commercial-intent.engine.ts`: two separate regex tests over the same normalized text, with no
+ * interaction between them), so a single, entirely realistic Spanish message like "Confirmo, mejor
+ * paso por el local" produces `intent: 'CONFIRM'` AND `fulfillment: 'TAKEAWAY'` in one shot.
+ * `process()` applies the fulfillment switch (clearing `state.address`/`state.deliveryFee`/
+ * `state.deliveryQuoteAuditId`/`state.deliveryQuoteDestinationBinding` IN MEMORY ONLY) and THEN
+ * routes straight to `confirm()` in the same call (no intermediate turn).
  *
- * `confirm()` does NOT re-derive `state.draftId`/`draftVersion`/`draftHash` from the just-updated
- * `state.fulfillment` — it reuses whatever `state.draftId` already pointed at from the PRIOR turn's
+ * `confirm()` did NOT re-derive `state.draftId`/`draftVersion`/`draftHash` from the just-updated
+ * `state.fulfillment` — it reused whatever `state.draftId` already pointed at from the PRIOR turn's
  * `prepareDraft()`. That prior draft is a real, already-priced DELIVERY draft (real address, real
- * positive delivery fee, real linked `DeliveryPricingAudit` row). Because `quoteStillBound` is now
- * trivially `true` (fulfillment reads TAKEAWAY at the moment of the check), NONE of the
- * expiry/requote branch conditions fire, and `confirm()` proceeds straight to
- * `repository.confirmDraft({draftId, expectedVersion, expectedHash, confirmationHash})` — which
- * transitions the OLD DELIVERY draft ROW to CONFIRMED status VERBATIM. `PrismaCommercialRepository
- * .confirmDraft()` only ever writes `status`/`confirmedAt`/`confirmationHash` — it never touches
- * `fulfillment`/`deliveryFee`/`deliveryAddress` (see that method, `prisma-commercial.repository.ts`).
+ * positive delivery fee, real linked `DeliveryPricingAudit` row). Because `quoteStillBound` was
+ * trivially `true` (fulfillment read TAKEAWAY at the moment of the check), NONE of the
+ * expiry/requote branch conditions fired, and `confirm()` proceeded straight to
+ * `repository.confirmDraft(...)` — which transitioned the OLD DELIVERY draft ROW to CONFIRMED status
+ * VERBATIM, never touching `fulfillment`/`deliveryFee`/`deliveryAddress`.
  *
- * CONSEQUENCE: the persisted, CONFIRMED `SofiaOrderDraft` — the exact row
- * `OrderCreationService.createFromSofiaDraft()` reads `draft.fulfillment`/`draft.deliveryFee`/
- * `draft.deliveryAddress` from to materialize the real `OrderCheckout`/`OrderTicket` — still says
- * DELIVERY, with the OLD address and the OLD nonzero delivery fee. Meanwhile:
- *   (a) the customer-facing response text is 'TAKEAWAY_CONFIRMED' (`state.fulfillment === 'DELIVERY'
- *       ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED'` reads the IN-MEMORY `state.fulfillment`,
- *       which correctly says TAKEAWAY) — the customer is TOLD "listo para recoger en el local", and
- *   (b) the conversation memory persisted to Postgres (`sofiaConversationMemory
- *       .currentOrderIntentJson`) ALSO says `fulfillment: 'TAKEAWAY'`, `deliveryFee: 0` — but
- *   (c) the ACTUAL commercial record that downstream order materialization/SecureCommand acts on
- *       (`sofia_order_drafts` row, status CONFIRMED) says DELIVERY with the OLD fee/address.
+ * CONSEQUENCE (pre-fix): the persisted, CONFIRMED `SofiaOrderDraft` — the exact row
+ * `OrderCreationService.createFromSofiaDraft()` reads to materialize the real order — still said
+ * DELIVERY, with the OLD address and the OLD nonzero delivery fee, while the customer was told
+ * TAKEAWAY_CONFIRMED. A courier could be dispatched to a withdrawn address and/or the customer
+ * charged a delivery fee for a pickup order.
  *
- * This is a direct, real financial/operational mismatch between what the customer was told, what the
- * conversation state records, and what gets materialized/charged — a courier would be dispatched to
- * an address the customer just withdrew, and/or the customer is charged a delivery fee for an order
- * they explicitly said they would pick up themselves. It violates invariant #11 ("a confirmed
- * checkout's price must always correspond to destination/fulfillment evidence ACTUALLY CURRENT at
- * confirmation time") and #13 ("an edit to a conversation that is not itself address/fulfillment-
- * confirming evidence must never silently promote a stale commercial price into a fresh,
- * re-authorized one" — here inverted: an edit that VERY MUCH IS fulfillment-changing evidence fails
- * to invalidate the stale DELIVERY confirmation at all).
+ * A21 confirmed the bug was one-directional: TAKEAWAY->DELIVERY bundled with confirm was already
+ * safely blocked (`deliveryQuoteDestinationBinding` is null in that direction, so the pre-existing
+ * DELIVERY-branch check correctly failed). Only DELIVERY->TAKEAWAY was unguarded.
+ * ============================================================================================
  *
- * Root cause, precisely: `quoteStillBound`'s `state.fulfillment !== 'DELIVERY'` short-circuit
- * conflates two different questions — "was this conversation ALREADY non-DELIVERY" (safe to skip
- * the destination-binding check) vs. "does the DRAFT ABOUT TO BE CONFIRMED still represent the
- * fulfillment type this turn actually requested" (never checked at all). A9-A20 hardened the
- * ADDRESS axis of "does the draft being confirmed still match current reality" exhaustively; this
- * file shows the FULFILLMENT axis of that exact same question was never covered.
+ * ============================== A22 FIX (see commercial-checkout.service.ts) ==============================
+ * `CommercialConversationState.draftFulfillment` now records the fulfillment that was ACTUALLY
+ * current when `draftId`/`draftVersion`/`draftHash` were last (re)computed by `prepareDraft()` —
+ * mirroring the exact pattern `deliveryQuoteDestinationBinding` already established for the
+ * destination axis (A9/A10). `confirm()`'s guard is now:
  *
- * Real Postgres (isolated `a21_round5_test` database), real unmocked `CommercialCheckoutService` +
+ *   const fulfillmentStillBound = state.draftFulfillment === state.fulfillment;
+ *   const destinationStillBound = state.fulfillment !== 'DELIVERY' || (... isQuoteBoundToCurrentDestination ...);
+ *   const quoteStillBound = fulfillmentStillBound && destinationStillBound;
+ *
+ * A mismatch on EITHER axis now invalidates the draft and forces a `prepareDraft()` re-derivation
+ * (same requote/re-confirm path already used for destination changes and price changes) instead of
+ * confirming a stale row. A conversation that was TAKEAWAY (or DELIVERY) from the very start, with no
+ * same-turn switch, still takes the cheap fast path — `draftFulfillment === state.fulfillment` holds,
+ * so no destination-binding data is required for a conversation that never had any.
+ * ============================================================================================
+ *
+ * Real Postgres (isolated `_test` database), real unmocked `CommercialCheckoutService` +
  * `CommercialIntentEngine` + `CommercialPolicyService` + `PrismaCommercialRepository` +
  * `DeliveryPricingService` + `DeliveryExternalDataService` (real audit persistence, real FK-backed
  * `SofiaOrderDraft`/`WhatsappConversation`/`Customer` rows) — only the routing/weather HTTP-provider
- * layer is doubled, matching every precedent Round 5 real-engine fixture (A11-A18). `orderCreation`
+ * layer is doubled, matching every precedent Round 5 real-engine fixture (A11-A21). `orderCreation`
  * (SecureCommand `SOFIA_CREATE_ORDER` bridge) is a spy, not because it needs mocking for this bug —
- * the bug is fully proven from the persisted `SofiaOrderDraft` row alone — but to observe exactly
- * which stale `draftId` a real SecureCommand dispatch would be told to materialize.
+ * the bug/fix is fully proven from the persisted `SofiaOrderDraft` row alone — but to observe exactly
+ * which `draftId` a real SecureCommand dispatch would be told to materialize, and to prove it is
+ * NEVER invoked for a turn that was correctly blocked/requoted rather than confirmed.
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -97,7 +101,7 @@ import type { CommercialMessageCommand } from '../modules/sofia/commercial/comme
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl || !/_test(?:\?|$)/.test(databaseUrl)) {
-  throw new Error('A21 red team requires an isolated _test database (TEST_DATABASE_URL must end in _test).');
+  throw new Error('A21/A22 requires an isolated _test database (TEST_DATABASE_URL must end in _test).');
 }
 
 const origin = { latitude: 3.2601, longitude: -76.5405, label: '2X1 Burger Co', address: 'Local principal' };
@@ -125,10 +129,10 @@ function buildRoutingProvider(): RoutingProvider {
 const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
 function cmd(conversationId: string, message: string, location?: { latitude: number; longitude: number }): CommercialMessageCommand {
-  return { conversationId, message, phone: '573009876543', displayName: 'Cliente A21', actor, location };
+  return { conversationId, message, phone: '573009876543', displayName: 'Cliente A21A22', actor, location };
 }
 
-describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment switch (DELIVERY->TAKEAWAY) confirms the STALE DELIVERY draft verbatim', () => {
+describe('A21/A22 Round 5 — single-message "confirmo" + fulfillment switch (both directions): the FIX now blocks/requotes instead of confirming a stale draft', () => {
   jest.setTimeout(30000);
   let prisma: PrismaClient;
 
@@ -142,7 +146,7 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
     await prisma.sofiaConversationMemory.deleteMany({ where: { conversationId: { startsWith: 'a21-fulfillment-switch-' } } }).catch(() => undefined);
     await prisma.whatsappConversation.deleteMany({ where: { id: { startsWith: 'a21-fulfillment-switch-' } } }).catch(() => undefined);
     await prisma.deliveryPricingAudit.deleteMany({}).catch(() => undefined);
-    await prisma.customer.deleteMany({ where: { displayName: 'Cliente A21' } }).catch(() => undefined);
+    await prisma.customer.deleteMany({ where: { displayName: 'Cliente A21A22' } }).catch(() => undefined);
     await prisma.$disconnect();
   });
 
@@ -162,9 +166,9 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
       active: true, trackStock: true, updatedAt: new Date().toISOString(),
     };
     const responses = new CommercialResponseComposer({ compose: jest.fn(async () => null) }, new CommercialResponseValidator(), new SafeCommercialResponseTemplates());
-    // Spy, not a functional mock: this bug is proven purely from the persisted SofiaOrderDraft row.
-    // We just want to see exactly what a real SecureCommand(SOFIA_CREATE_ORDER) dispatch would be
-    // told to materialize once that gate is owner-activated.
+    // Spy, not a functional mock: this test proves its assertions purely from the persisted
+    // SofiaOrderDraft row plus how many times a real SecureCommand(SOFIA_CREATE_ORDER) dispatch would
+    // have been triggered — it must be zero for any turn that was correctly blocked/requoted.
     const orderCreation = { createFromSofiaDraft: jest.fn(async (input: { draftId: string }) => ({ id: `checkout-${input.draftId}`, replayed: false })) };
     const metrics = new CommercialMetricsService();
     const service = new CommercialCheckoutService(
@@ -181,14 +185,14 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
   }
 
   it(
-    'ATTACK: "Confirmo, mejor paso por el local" in ONE message (CONFIRM intent + TAKEAWAY fulfillment ' +
-      'parsed independently from the same text) confirms the OLD DELIVERY draft VERBATIM — customer is ' +
-      'told TAKEAWAY_CONFIRMED while the persisted, CONFIRMED, materializable commercial record still ' +
-      'says DELIVERY with the original address and the original nonzero delivery fee',
+    'FIXED: "Confirmo, mejor paso por el local" in ONE message (CONFIRM intent + TAKEAWAY fulfillment ' +
+      'parsed independently from the same text, DELIVERY -> TAKEAWAY) no longer confirms the OLD ' +
+      'DELIVERY draft verbatim — it is blocked/requoted, and only a SUBSEQUENT honest "confirmo" ' +
+      'confirms a TRUE TAKEAWAY draft with fee=0 and no address',
     async () => {
       const conversationId = `a21-fulfillment-switch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573009876543', provider: 'whatsapp_business_api' } });
-      const customer = await prisma.customer.create({ data: { displayName: 'Cliente A21' } });
+      const customer = await prisma.customer.create({ data: { displayName: 'Cliente A21A22' } });
 
       const { service, orderCreation } = buildService(customer.id);
 
@@ -201,6 +205,7 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
       expect(ready.state.fulfillment).toBe('DELIVERY');
       expect(ready.state.deliveryFee).toBeGreaterThan(0); // real AUTO_PRICED fee, never LOCAL_FREE/0
       expect(ready.state.lastQuestionPurpose).toBe('CONFIRM_ORDER');
+      expect(ready.state.draftFulfillment).toBe('DELIVERY');
       const originalFee = ready.state.deliveryFee!;
       const originalAddress = ready.state.address;
       const originalAuditId = ready.state.deliveryQuoteAuditId;
@@ -219,51 +224,68 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
       // message. A completely realistic thing for a customer to type.
       const attackResult = await service.process(cmd(conversationId, 'Confirmo, mejor paso por el local'));
 
-      // The in-memory/response layer correctly reflects TAKEAWAY (this is the "safe-looking" half of
-      // the bug — the customer is told a story that matches their words)...
+      // FIX: the in-memory/response layer reflects TAKEAWAY (correct, unchanged from before)...
       expect(attackResult.state.fulfillment).toBe('TAKEAWAY');
-      expect(attackResult.state.confirmationState).toBe('CONFIRMED');
-      expect(attackResult.factEnvelope.responsePurpose).toBe('TAKEAWAY_CONFIRMED');
-      expect(attackResult.nextAction).toBe('DRAFT_CONFIRMED');
+      // ...but confirmation is now BLOCKED, not granted: the mismatch between the just-changed
+      // fulfillment and the draft's recorded `draftFulfillment` (still DELIVERY, from turn 1) forces
+      // a re-derivation instead of confirming the stale row.
+      expect(attackResult.state.confirmationState).toBe('PENDING');
+      expect(attackResult.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+      expect(attackResult.nextAction).toBe('READY_TO_CONFIRM');
+      expect(attackResult.state.draftFulfillment).toBe('TAKEAWAY'); // re-prepared draft now correctly bound to TAKEAWAY
+      expect(attackResult.state.deliveryFee).toBe(0);
+      expect(attackResult.state.address).toBeNull();
 
-      // ...but confirm() reused the SAME draftId from turn 1 without ever re-validating that a
-      // DELIVERY draft still represents what THIS turn actually asked for once fulfillment flipped.
-      expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
-      expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledWith(
-        expect.objectContaining({ draftId: originalDraftId }),
-      );
+      // SecureCommand(SOFIA_CREATE_ORDER) must NEVER have been reached for this turn — nothing was
+      // actually confirmed.
+      expect(orderCreation.createFromSofiaDraft).not.toHaveBeenCalled();
 
-      // THE SMOKING GUN — reload the draft fresh from Postgres, independent of anything this
-      // process() call chain claimed in memory. This is the EXACT row
-      // OrderCreationService.createFromSofiaDraft() -> PrismaOrderCheckoutRepository
-      // .createFromSofiaDraft() reads `draft.fulfillment`/`draft.deliveryFee`/`draft.deliveryAddress`
-      // from to build the real OrderCheckout once SOFIA_CREATE_ORDER is owner-activated.
+      // Reload the draft fresh from Postgres, independent of anything this process() call chain
+      // claimed in memory — the SAME draftId was re-prepared in place (new version), not confirmed.
       const draftAfterAttack = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: originalDraftId } });
-      expect(draftAfterAttack.status).toBe('CONFIRMED'); // really confirmed, not merely attempted
-      // *** STILL DELIVERY, with the OLD address and the OLD nonzero fee — never TAKEAWAY, never 0 ***
-      expect(draftAfterAttack.fulfillment).toBe('DELIVERY');
-      expect(Number(draftAfterAttack.deliveryFee)).toBe(originalFee);
-      expect(draftAfterAttack.deliveryAddress).toBe(originalAddress);
-      expect(draftAfterAttack.deliveryQuoteAuditId).toBe(originalAuditId);
-      expect(Number(draftAfterAttack.total)).toBeGreaterThan(25000); // 25000 item + a real nonzero delivery fee, not a takeaway 25000-only total
+      expect(draftAfterAttack.status).toBe('READY_TO_CONFIRM'); // NOT confirmed — this is the fix
+      expect(draftAfterAttack.fulfillment).toBe('TAKEAWAY'); // now correctly re-priced as TAKEAWAY
+      expect(Number(draftAfterAttack.deliveryFee)).toBe(0);
+      expect(draftAfterAttack.deliveryAddress).toBeNull();
+      expect(Number(draftAfterAttack.total)).toBe(25000); // item only, no stale delivery fee baked in
 
-      // Cross-check against what a HONEST, non-attack TAKEAWAY confirmation actually persists, so the
-      // mismatch above is not an artifact of this test's own assumptions about the schema.
+      // Turn 3: an HONEST follow-up "confirmo" (the customer re-confirming what they were actually
+      // just told/asked to re-confirm) now succeeds, and persists a TRUE TAKEAWAY confirmation.
+      const secondConfirm = await service.process(cmd(conversationId, 'confirmo'));
+      expect(secondConfirm.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(secondConfirm.factEnvelope.responsePurpose).toBe('TAKEAWAY_CONFIRMED');
+      expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
+      expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledWith(expect.objectContaining({ draftId: originalDraftId }));
+
+      const draftAfterHonestConfirm = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: originalDraftId } });
+      expect(draftAfterHonestConfirm.status).toBe('CONFIRMED');
+      expect(draftAfterHonestConfirm.fulfillment).toBe('TAKEAWAY');
+      expect(Number(draftAfterHonestConfirm.deliveryFee)).toBe(0);
+      expect(draftAfterHonestConfirm.deliveryAddress).toBeNull();
+      // *** No more DELIVERY, no more stale fee, no more stale address on the CONFIRMED row ***
+
+      // Cross-check against what an HONEST, non-attack TAKEAWAY confirmation (never touched DELIVERY)
+      // actually persists, so the fixed behavior above is not an artifact of this test's own
+      // assumptions about the schema. This is the "legitimate fast path" that must remain cheap and
+      // must NOT require destination-binding data it never had.
       const honestConversationId = `a21-fulfillment-switch-honest-${Date.now()}`;
       await prisma.whatsappConversation.create({ data: { id: honestConversationId, phone: '573009876544', provider: 'whatsapp_business_api' } });
-      const honestCustomer = await prisma.customer.create({ data: { displayName: 'Cliente A21' } });
-      const { service: honestService } = buildService(honestCustomer.id);
-      await honestService.process(cmd(honestConversationId, 'Quiero un combo 2x1, lo recojo yo y pago alla'));
-      const honestReady = await honestService.process(cmd(honestConversationId, 'confirmo'));
-      expect(honestReady.state.fulfillment).toBe('TAKEAWAY');
+      const honestCustomer = await prisma.customer.create({ data: { displayName: 'Cliente A21A22' } });
+      const { service: honestService, orderCreation: honestOrderCreation } = buildService(honestCustomer.id);
+      const honestReady = await honestService.process(cmd(honestConversationId, 'Quiero un combo 2x1, lo recojo yo y pago alla'));
+      expect(honestReady.state.draftFulfillment).toBe('TAKEAWAY');
+      const honestConfirmed = await honestService.process(cmd(honestConversationId, 'confirmo'));
+      expect(honestConfirmed.nextAction).toBe('DRAFT_CONFIRMED'); // fast path: confirms in ONE more turn, no spurious requote
+      expect(honestConfirmed.state.fulfillment).toBe('TAKEAWAY');
+      expect(honestOrderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
       const honestDraft = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: honestReady.state.draftId! } });
       expect(honestDraft.fulfillment).toBe('TAKEAWAY'); // genuine takeaway confirmations DO persist TAKEAWAY
       expect(Number(honestDraft.deliveryFee)).toBe(0);
       expect(honestDraft.deliveryAddress).toBeNull();
+      expect(honestDraft.status).toBe('CONFIRMED');
 
-      // The persisted conversation MEMORY (separate table from the draft) also says TAKEAWAY/fee=0 —
-      // proving the divergence is specifically between "what confirm() actually committed to the
-      // draft row" and "everything else in the system", not a blanket state-tracking failure.
+      // The persisted conversation MEMORY (separate table from the draft) also says TAKEAWAY/fee=0
+      // for the attack conversation, consistent end-to-end after the fix.
       const memoryRow = await prisma.sofiaConversationMemory.findUniqueOrThrow({ where: { conversationId } });
       const persistedState = memoryRow.currentOrderIntentJson as unknown as { fulfillment: string; deliveryFee: number | null; confirmationState: string };
       expect(persistedState.fulfillment).toBe('TAKEAWAY');
@@ -271,11 +293,76 @@ describe('A21 Round 5 blind red team — single-message "confirmo" + fulfillment
       expect(persistedState.confirmationState).toBe('CONFIRMED');
 
       console.log(
-        `[A21 CRITICAL] conversationId=${conversationId} draftId=${originalDraftId} ` +
-          `conversationMemory.fulfillment=${persistedState.fulfillment} (told to customer) vs ` +
-          `CONFIRMED sofia_order_drafts.fulfillment=${draftAfterAttack.fulfillment} fee=${draftAfterAttack.deliveryFee} ` +
-          `address="${draftAfterAttack.deliveryAddress}" (what materializes/charges) — MISMATCH proven.`,
+        `[A21/A22 FIXED] conversationId=${conversationId} draftId=${originalDraftId} ` +
+          `attack turn was blocked/requoted (status stayed READY_TO_CONFIRM, fulfillment flipped to ` +
+          `TAKEAWAY/fee=0/no-address); only the honest follow-up confirm actually confirmed ` +
+          `CONFIRMED sofia_order_drafts.fulfillment=${draftAfterHonestConfirm.fulfillment} ` +
+          `fee=${draftAfterHonestConfirm.deliveryFee} address="${draftAfterHonestConfirm.deliveryAddress}".`,
       );
+    },
+  );
+
+  it(
+    'SYMMETRIC ATTACK (permanent regression lock-in): "Confirmo, mejor enviamelo a <address>" in ONE ' +
+      'message (CONFIRM intent + DELIVERY fulfillment parsed independently from the same text, ' +
+      'TAKEAWAY -> DELIVERY) remains safely blocked/requoted after the A22 fix — A21 found this ' +
+      'direction already safe (destination-binding check), this test locks that guarantee in ' +
+      'permanently and additionally proves the NEW fulfillment-binding check independently blocks it too',
+    async () => {
+      const conversationId = `a21-fulfillment-switch-reverse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573009876545', provider: 'whatsapp_business_api' } });
+      const customer = await prisma.customer.create({ data: { displayName: 'Cliente A21A22' } });
+
+      const { service, orderCreation } = buildService(customer.id);
+
+      // Turn 1: item + TAKEAWAY + pay-at-pickup -> READY_TO_CONFIRM, fee 0, no address, no
+      // destination-quote binding at all (there is nothing DELIVERY-shaped to bind yet).
+      const ready = await service.process(cmd(conversationId, 'Quiero un combo 2x1, lo recojo yo y pago alla'));
+      expect(ready.nextAction).toBe('READY_TO_CONFIRM');
+      expect(ready.state.fulfillment).toBe('TAKEAWAY');
+      expect(ready.state.deliveryFee).toBe(0);
+      expect(ready.state.address).toBeNull();
+      expect(ready.state.draftFulfillment).toBe('TAKEAWAY');
+      expect(ready.state.deliveryQuoteDestinationBinding).toBeNull();
+      const originalDraftId = ready.state.draftId!;
+      expect(originalDraftId).toBeTruthy();
+
+      // Turn 2 (THE SYMMETRIC ATTACK): a single message that both confirms AND switches fulfillment
+      // to DELIVERY with a brand-new address, in the same breath.
+      const attackResult = await service.process(
+        cmd(conversationId, 'Confirmo, mejor enviamelo a la Avenida 9 #50-30', { latitude: NEAR_LATITUDE, longitude: NEAR_LONGITUDE }),
+      );
+
+      expect(attackResult.state.fulfillment).toBe('DELIVERY');
+      // Must NOT be confirmed in one shot: no destination-quote binding exists yet for a fulfillment
+      // that only just became DELIVERY this turn, AND draftFulfillment (TAKEAWAY, from turn 1) no
+      // longer matches state.fulfillment (DELIVERY) — either check alone would block this.
+      expect(attackResult.state.confirmationState).toBe('PENDING');
+      expect(attackResult.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+      expect(attackResult.nextAction).toBe('READY_TO_CONFIRM');
+      expect(attackResult.state.draftFulfillment).toBe('DELIVERY'); // re-prepared draft now correctly bound to DELIVERY
+      expect(attackResult.state.deliveryFee).toBeGreaterThan(0); // real AUTO_PRICED fee for the NEW address
+      expect(attackResult.state.address).toBe('Avenida 9 #50-30');
+
+      expect(orderCreation.createFromSofiaDraft).not.toHaveBeenCalled();
+
+      const draftAfterAttack = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: originalDraftId } });
+      expect(draftAfterAttack.status).toBe('READY_TO_CONFIRM'); // NOT confirmed
+      expect(draftAfterAttack.fulfillment).toBe('DELIVERY');
+      expect(Number(draftAfterAttack.deliveryFee)).toBeGreaterThan(0);
+      expect(draftAfterAttack.deliveryAddress).toBe('Avenida 9 #50-30');
+
+      // Turn 3: honest follow-up confirm now correctly confirms the TRUE DELIVERY draft.
+      const secondConfirm = await service.process(cmd(conversationId, 'confirmo'));
+      expect(secondConfirm.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(secondConfirm.factEnvelope.responsePurpose).toBe('DELIVERY_CONFIRMED');
+      expect(orderCreation.createFromSofiaDraft).toHaveBeenCalledTimes(1);
+
+      const draftAfterHonestConfirm = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: originalDraftId } });
+      expect(draftAfterHonestConfirm.status).toBe('CONFIRMED');
+      expect(draftAfterHonestConfirm.fulfillment).toBe('DELIVERY');
+      expect(Number(draftAfterHonestConfirm.deliveryFee)).toBeGreaterThan(0);
+      expect(draftAfterHonestConfirm.deliveryAddress).toBe('Avenida 9 #50-30');
     },
   );
 });

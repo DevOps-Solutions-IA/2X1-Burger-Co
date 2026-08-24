@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-const allowed = new Set(['commercial_intent_resolved', 'commercial_intent_ambiguous', 'draft_created', 'draft_updated', 'draft_confirmed', 'draft_expired', 'draft_rejected', 'handoff_requested', 'catalog_failure', 'availability_failure', 'delivery_quote_failure', 'stale_coordinate_replay_rejected', 'destination_quote_binding_refresh']);
+const allowed = new Set(['commercial_intent_resolved', 'commercial_intent_ambiguous', 'draft_created', 'draft_updated', 'draft_confirmed', 'draft_expired', 'draft_rejected', 'handoff_requested', 'catalog_failure', 'availability_failure', 'delivery_quote_failure', 'stale_coordinate_replay_rejected', 'destination_quote_binding_refresh', 'fulfillment_quote_binding_refresh']);
 
 @Injectable()
 export class CommercialMetricsService {

@@ -60,6 +60,20 @@ export type CommercialConversationState = {
   draftId: string | null;
   draftVersion: number | null;
   draftHash: string | null;
+  /**
+   * SOFIA Round 5 / A22 CLOSURE (CRITICAL) — the `fulfillment` value that was actually current when
+   * `draftId`/`draftVersion`/`draftHash` were last (re)computed by `prepareDraft()`. Captured
+   * independently of `state.fulfillment` because a SINGLE message can carry BOTH a CONFIRM intent
+   * AND a fulfillment switch, parsed independently by `CommercialIntentEngine.interpret()` and
+   * applied to `state.fulfillment` BEFORE `process()` routes into `confirm()` in the SAME call — so
+   * by the time `confirm()` runs, `state.fulfillment` may already reflect THIS turn's switch while
+   * `draftId` still points at a draft priced/persisted for the PREVIOUS fulfillment. `confirm()` MUST
+   * compare this field against the current `state.fulfillment` (see `quoteStillBound` /
+   * `fulfillmentStillBound`) before trusting the draft it is about to confirm — mirroring the exact
+   * pattern `deliveryQuoteDestinationBinding` already established for the destination axis (A9/A10).
+   * `null` only before any draft has ever been prepared for this conversation.
+   */
+  draftFulfillment: CommercialFulfillment;
   confirmationState: 'NONE' | 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED';
   missingFields: string[];
   ambiguities: string[];

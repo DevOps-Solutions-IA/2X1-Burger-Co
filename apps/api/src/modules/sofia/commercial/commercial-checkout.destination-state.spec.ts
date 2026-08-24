@@ -39,7 +39,7 @@ function emptyState(conversationId: string): CommercialConversationState {
     destinationSnapshot: null, deliveryQuoteDestinationBinding: null,
     paymentPreference: 'UNKNOWN', paymentReadiness: 'PAYMENT_UNRESOLVED', subtotal: null, deliveryFee: null, total: null, deliveryQuoteAuditId: null,
     deliveryQuoteVersion: null, deliveryQuoteExpiresAt: null, availabilitySnapshot: [], draftId: null, draftVersion: null,
-    draftHash: null, confirmationState: 'NONE',
+    draftHash: null, draftFulfillment: null, confirmationState: 'NONE',
     missingFields: [], ambiguities: [], confidence: 'LOW', handoffState: 'SOFIA_ACTIVE', consentState: 'SERVICE',
     domainErrors: [], lastQuestionPurpose: null, lastResolvedIntent: null, expiresAt: null,
   };
