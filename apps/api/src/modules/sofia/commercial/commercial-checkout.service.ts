@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import {
   AUDIT_COMMAND_SERVICE,
   CATALOG_READ_SERVICE,
@@ -236,8 +236,10 @@ export class CommercialCheckoutService {
     try {
       prepared = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
     } catch (error) {
-      if (error instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, error);
-      throw error;
+      const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+      if (!outcome.recovered) throw error;
+      if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
+      prepared = outcome.prepared;
     }
     prepared.lastQuestionPurpose = 'CONFIRM_ORDER';
     prepared.confirmationState = 'PENDING';
@@ -290,6 +292,129 @@ export class CommercialCheckoutService {
       after: { draftId: resolved.draftId, confirmationState: resolved.confirmationState },
     });
     return this.respond(resolved, resolved.fulfillment === 'DELIVERY' ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED', 'DRAFT_CONFIRMED');
+  }
+
+  private conflictCode(error: unknown): string | null {
+    if (!(error instanceof ConflictException)) return null;
+    const response = error.getResponse();
+    return typeof response === 'object' && response !== null ? (response as { code?: string }).code ?? null : null;
+  }
+
+  private isStaleDraftVersionConflict(error: unknown): boolean {
+    return this.conflictCode(error) === 'STALE_DRAFT_VERSION';
+  }
+
+  private isStaleConfirmationConflict(error: unknown): boolean {
+    return this.conflictCode(error) === 'SOFIA_STALE_CONFIRMATION';
+  }
+
+  /**
+   * SOFIA Round 5 / A36 CLOSURE (A35 blind red-team finding, MEDIUM) — recovers from the sibling CAS
+   * failure `saveDraft()` can throw alongside `DraftAlreadyConfirmedError`:
+   * `ConflictException({code:'STALE_DRAFT_VERSION'})`, thrown when a DIFFERENT, genuinely concurrent
+   * turn's ordinary (non-confirming) write to the SAME draft wins the optimistic-concurrency race
+   * first (e.g. a customer double/triple-tapping an item-adding message like "También quiero una Coca
+   * Cola"). Postgres already ensures exactly one writer's rebuild lands — this is purely about giving
+   * the LOSING turn the same graceful, non-throwing recovery `DraftAlreadyConfirmedError` already gets
+   * one branch over, instead of an uncaught exception reaching `SofiaWhatsappService`'s outer catch.
+   *
+   * Every `prepareDraft()` call site funnels its catch block through here so `DraftAlreadyConfirmedError`
+   * and `STALE_DRAFT_VERSION` share one recovery path, while still letting each call site apply its own
+   * post-success bookkeeping (audit action codes, site-specific metrics, response purpose) when a retry
+   * actually succeeds.
+   */
+  private async recoverDraftConflict(
+    error: unknown,
+    state: CommercialConversationState,
+    command: CommercialMessageCommand,
+    options: { allowNewDraftAfterConfirm: boolean },
+  ): Promise<
+    | { recovered: false }
+    | { recovered: true; kind: 'ALREADY_CONFIRMED' | 'RETRY_EXHAUSTED'; result: CommercialTurnResult }
+    | { recovered: true; kind: 'RETRY_SUCCEEDED'; prepared: CommercialConversationState }
+  > {
+    if (error instanceof DraftAlreadyConfirmedError) {
+      return { recovered: true, kind: 'ALREADY_CONFIRMED', result: await this.respondDraftAlreadyConfirmed(state, command, error) };
+    }
+    if (!this.isStaleDraftVersionConflict(error)) return { recovered: false };
+
+    this.metrics.increment('stale_draft_version_race_detected');
+    const fresh = state.draftId ? await this.repository.loadDraftVersion(state.draftId) : null;
+    if (fresh?.status === 'CONFIRMED') {
+      // The concurrent winner's write was actually a confirmation -- same graceful "already
+      // confirmed" recovery as the sibling `DraftAlreadyConfirmedError` race.
+      return {
+        recovered: true,
+        kind: 'ALREADY_CONFIRMED',
+        result: await this.respondDraftAlreadyConfirmed(state, command, new DraftAlreadyConfirmedError(state.draftId!)),
+      };
+    }
+    if (fresh) {
+      // Retry ONCE against the now-current authoritative version (read directly from `SofiaOrderDraft`,
+      // not the possibly-not-yet-committed conversation-memory snapshot) so this turn's own genuine
+      // intent is still honored against current reality instead of being silently dropped.
+      try {
+        const prepared = await this.prepareDraft({ ...state, draftVersion: fresh.version }, command, options);
+        return { recovered: true, kind: 'RETRY_SUCCEEDED', prepared };
+      } catch (retryError) {
+        if (retryError instanceof DraftAlreadyConfirmedError) {
+          return { recovered: true, kind: 'ALREADY_CONFIRMED', result: await this.respondDraftAlreadyConfirmed(state, command, retryError) };
+        }
+        if (!this.isStaleDraftVersionConflict(retryError)) throw retryError;
+        // Fall through: a second consecutive collision is rare enough that we stop retrying rather
+        // than loop indefinitely, and respond safely below instead.
+      }
+    }
+
+    // Authoritative reload unavailable, or the retry itself lost a second race: never let the
+    // customer's turn crash. Reload the best-known authoritative state and ask them to resend,
+    // reusing the same `QUOTE_EXPIRED` narration already used by the sibling expiry-refresh path.
+    const authoritative = (await this.repository.loadState(command.conversationId)) ?? state;
+    await this.audit.record({
+      actor: command.actor,
+      action: 'SOFIA_DRAFT_VERSION_CONFLICT_RETRY_EXHAUSTED',
+      entity: 'sofia_commercial_conversation',
+      entityId: state.conversationId,
+      result: 'SUCCESS',
+      after: { draftId: authoritative.draftId, draftVersion: authoritative.draftVersion },
+    });
+    return { recovered: true, kind: 'RETRY_EXHAUSTED', result: await this.respond(authoritative, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM') };
+  }
+
+  /**
+   * SOFIA Round 5 / A36 CLOSURE (A35 blind red-team finding, MEDIUM) — recovers from
+   * `confirmDraft()`'s own final, unconditional CAS failure
+   * (`ConflictException({code:'SOFIA_STALE_CONFIRMATION'})`), the one write path in `confirm()` that
+   * previously had no matching graceful-recovery treatment. By the time execution reaches this call,
+   * every earlier guard in `confirm()` (expiry, fulfillment/items/payment/destination binding, price)
+   * has already passed for THIS turn's own view of the draft, so the only remaining way the CAS can
+   * still fail is a DIFFERENT, genuinely concurrent turn for the SAME conversation racing the same
+   * confirm — almost always another confirming ("Sí") turn that legitimately won. Reuses
+   * `respondDraftAlreadyConfirmed()` directly for that (overwhelmingly common) case; falls back to the
+   * same safe `QUOTE_EXPIRED` re-sync response `recoverDraftConflict()` uses for the rare case where
+   * the authoritative draft is not actually CONFIRMED (e.g. it expired between this turn's earlier
+   * checks and this final write).
+   */
+  private async recoverStaleConfirmation(
+    state: CommercialConversationState,
+    command: CommercialMessageCommand,
+    error: ConflictException,
+  ): Promise<CommercialTurnResult> {
+    this.metrics.increment('stale_confirmation_race_detected');
+    const fresh = state.draftId ? await this.repository.loadDraftVersion(state.draftId) : null;
+    if (fresh?.status === 'CONFIRMED') {
+      return this.respondDraftAlreadyConfirmed(state, command, new DraftAlreadyConfirmedError(state.draftId!));
+    }
+    const authoritative = (await this.repository.loadState(command.conversationId)) ?? state;
+    await this.audit.record({
+      actor: command.actor,
+      action: 'SOFIA_STALE_CONFIRMATION_RETRY_EXHAUSTED',
+      entity: 'sofia_commercial_conversation',
+      entityId: state.conversationId,
+      result: 'SUCCESS',
+      after: { draftId: authoritative.draftId, draftVersion: authoritative.draftVersion, code: this.conflictCode(error) },
+    });
+    return this.respond(authoritative, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM');
   }
 
   private async resolveProducts(message: string): Promise<CatalogProductDto[] | 'AMBIGUOUS'> {
@@ -453,8 +578,10 @@ export class CommercialCheckoutService {
       try {
         refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
       } catch (error) {
-        if (error instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, error);
-        throw error;
+        const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+        if (!outcome.recovered) throw error;
+        if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
+        refreshed = outcome.prepared;
       }
       refreshed.confirmationState = 'PENDING';
       refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
@@ -486,8 +613,10 @@ export class CommercialCheckoutService {
         try {
           refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
         } catch (priceRefreshError) {
-          if (priceRefreshError instanceof DraftAlreadyConfirmedError) return this.respondDraftAlreadyConfirmed(state, command, priceRefreshError);
-          throw priceRefreshError;
+          const outcome = await this.recoverDraftConflict(priceRefreshError, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+          if (!outcome.recovered) throw priceRefreshError;
+          if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
+          refreshed = outcome.prepared;
         }
         refreshed.confirmationState = 'PENDING';
         refreshed.lastQuestionPurpose = 'CONFIRM_ORDER';
@@ -497,7 +626,12 @@ export class CommercialCheckoutService {
       throw error;
     }
     const confirmationHash = commercialDraftHash({ draftId: state.draftId, version: state.draftVersion, draftHash: state.draftHash, customerId: state.customerId, conversationId: state.conversationId });
-    await this.repository.confirmDraft({ draftId: state.draftId, expectedVersion: state.draftVersion, expectedHash: state.draftHash, confirmationHash });
+    try {
+      await this.repository.confirmDraft({ draftId: state.draftId, expectedVersion: state.draftVersion, expectedHash: state.draftHash, confirmationHash });
+    } catch (error) {
+      if (this.isStaleConfirmationConflict(error)) return this.recoverStaleConfirmation(state, command, error as ConflictException);
+      throw error;
+    }
     state.confirmationState = 'CONFIRMED'; state.lastQuestionPurpose = null;
     await this.persistAndAudit(state, command, 'SOFIA_DRAFT_CONFIRMED');
     // Governed bridge to the canonical order authority: SecureCommand(SOFIA_CREATE_ORDER) ->

@@ -28,4 +28,15 @@ export interface CommercialRepository {
   saveState(state: CommercialConversationState): Promise<void>;
   saveDraft(input: Record<string, unknown> & { conversationId: string; version?: number; draftId?: string; allowNewDraftAfterConfirm?: boolean }): Promise<{ id: string; version: number; draftHash: string; expiresAt: Date }>;
   confirmDraft(input: { draftId: string; expectedVersion: number; expectedHash: string; confirmationHash: string }): Promise<{ id: string; version: number; status: string }>;
+  /**
+   * SOFIA Round 5 / A36 CLOSURE (A35 blind red-team finding, MEDIUM) — reads the CURRENT
+   * authoritative `SofiaOrderDraft` row's `version`/`status` directly, bypassing the
+   * `sofiaConversationMemory` narration snapshot entirely. Used ONLY by `CommercialCheckoutService`'s
+   * CAS-conflict recovery paths (`STALE_DRAFT_VERSION` from `saveDraft()`, `SOFIA_STALE_CONFIRMATION`
+   * from `confirmDraft()`) to determine ground truth immediately after a lost optimistic-concurrency
+   * race, without depending on whether the WINNING concurrent turn has finished writing its own
+   * conversation-memory snapshot yet (a second, independent race that `loadState()` alone cannot
+   * resolve reliably). Returns `null` only if the draft row itself does not exist.
+   */
+  loadDraftVersion(draftId: string): Promise<{ version: number; status: string } | null>;
 }

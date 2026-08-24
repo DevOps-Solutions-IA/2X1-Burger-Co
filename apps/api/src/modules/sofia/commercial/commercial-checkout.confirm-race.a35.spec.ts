@@ -1,10 +1,10 @@
 /**
- * A35 (Round 5, blind, FINAL VERIFICATION PASS) — RED TEAM FINDING.
+ * A35 (Round 5, blind, FINAL VERIFICATION PASS) — RED TEAM FINDING, CLOSED BY A36.
  *
- * Invariant broken: "no uncaught exceptions on foreseeable business/guard conditions" (explicitly
- * in the standing invariant set for this round) + "every durable-state writer ... sharing the same
- * concurrency-safety guarantees" (the FINAL confirmation write is the one CAS in the whole
- * confirm() pipeline that is NOT given the same graceful-recovery treatment its sibling races get).
+ * Invariant originally broken: "no uncaught exceptions on foreseeable business/guard conditions"
+ * (explicitly in the standing invariant set for this round) + "every durable-state writer ... sharing
+ * the same concurrency-safety guarantees" (the FINAL confirmation write was the one CAS in the whole
+ * confirm() pipeline that was NOT given the same graceful-recovery treatment its sibling races get).
  *
  * ATTACK SCENARIO
  * ----------------
@@ -48,25 +48,36 @@
  * `ConflictException` instead of returning a `CommercialTurnResult` the same way
  * `respondDraftAlreadyConfirmed()` does for the sibling race one layer up.
  *
- * BUSINESS IMPACT
- * ----------------
- * This is not a financial-correctness bug (no double charge, no duplicate order, no lost evidence
- * -- exactly one confirmation ever lands). It is a robustness/availability gap that is explicitly
+ * BUSINESS IMPACT (as originally found)
+ * ----------------------------------------
+ * This was never a financial-correctness bug (no double charge, no duplicate order, no lost evidence
+ * -- exactly one confirmation ever lands). It was a robustness/availability gap that was explicitly
  * in scope for this round ("no uncaught exceptions on foreseeable business/guard conditions"):
  *   - `SofiaWhatsappService.processInboundWebhook()`'s outer try/catch (sofia-whatsapp.service.ts:
  *     ~270) marks the inbound claim FAILED and RE-THROWS -- the losing WhatsApp message's turn
- *     produces no `sofia_conversation_memories`/audit update, no composed customer-facing reply,
- *     and surfaces a raw internal exception to whatever calls the webhook handler, exactly the kind
+ *     produced no `sofia_conversation_memories`/audit update, no composed customer-facing reply,
+ *     and surfaced a raw internal exception to whatever calls the webhook handler, exactly the kind
  *     of ungoverned failure mode the sibling `DraftAlreadyConfirmedError` path was hardened
  *     specifically to avoid one layer below.
- *   - The customer's second/third confirming tap gets no coherent "ya confirmamos tu pedido"
+ *   - The customer's second/third confirming tap got no coherent "ya confirmamos tu pedido"
  *     acknowledgment (unlike a slow-but-legitimate REPLAY, which IS handled gracefully by the
  *     `parsed.affirmative && previous.confirmationState === 'CONFIRMED'` fast path at the TOP of
  *     `process()` -- that fast path only works when the SECOND turn starts strictly AFTER the FIRST
  *     turn's `saveState()` has already committed; the genuinely-concurrent case proven here starts
  *     before either commits).
  *
- * This test proves the gap directly against REAL, unmocked `CommercialCheckoutService` +
+ * A36 FIX (this file now proves the FIXED behavior, not the bug)
+ * -------------------------------------------------------------
+ * `CommercialCheckoutService.confirm()`'s final `repository.confirmDraft()` call is now wrapped in a
+ * try/catch that recognizes `ConflictException({code:'SOFIA_STALE_CONFIRMATION'})` and routes it to
+ * `recoverStaleConfirmation()`, which reads the CURRENT authoritative `SofiaOrderDraft` row directly
+ * (`repository.loadDraftVersion()`, bypassing the conversation-memory snapshot the concurrent winner
+ * may not have committed yet) and -- when it confirms the draft really is now CONFIRMED, which is the
+ * overwhelmingly common cause of this exact CAS failure -- reuses the SAME `respondDraftAlreadyConfirmed()`
+ * recovery its sibling `DraftAlreadyConfirmedError` race already had. The losing turn now resolves to a
+ * normal `CommercialTurnResult` (`nextAction: 'DRAFT_CONFIRMED'`) instead of a rejected promise.
+ *
+ * This test proves the FIXED behavior directly against REAL, unmocked `CommercialCheckoutService` +
  * `PrismaCommercialRepository` + REAL Postgres (only the non-financial collaborators --
  * catalog/product-availability/customer-resolution/delivery-quotes/audit/order-creation -- are
  * stubbed, exactly as every other file in this directory does for domain services that are not the
@@ -74,7 +85,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommercialCheckoutService } from './commercial-checkout.service';
 import { CommercialIntentEngine } from './commercial-intent.engine';
@@ -85,7 +95,7 @@ import { CommercialResponseComposer } from './response/commercial-response.compo
 import { CommercialResponseValidator } from './response/commercial-response.validator';
 import { SafeCommercialResponseTemplates } from './response/safe-commercial-response.templates';
 
-describe('A35 RED TEAM: confirmDraft() CAS failure is an uncaught exception, unlike its sibling DraftAlreadyConfirmedError race', () => {
+describe('A35/A36: confirmDraft() CAS failure now recovers gracefully, same as its sibling DraftAlreadyConfirmedError race', () => {
   let prisma: PrismaService;
   let repository: PrismaCommercialRepository;
 
@@ -130,7 +140,7 @@ describe('A35 RED TEAM: confirmDraft() CAS failure is an uncaught exception, unl
 
   const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
-  it('two genuinely concurrent "Sí" turns for the same conversation: one confirms, the other REJECTS with an uncaught ConflictException instead of a graceful CommercialTurnResult', async () => {
+  it('two genuinely concurrent "Sí" turns for the same conversation: one confirms, the other now resolves gracefully to a coherent "already confirmed" CommercialTurnResult instead of rejecting', async () => {
     const conversationId = `a35-race-${randomUUID()}`;
     // Real FK target for SofiaOrderDraft.conversationId -- mirrors a genuine WhatsApp conversation.
     await prisma.whatsappConversation.create({
@@ -165,22 +175,29 @@ describe('A35 RED TEAM: confirmDraft() CAS failure is an uncaught exception, unl
     const fulfilled = settled.filter((entry) => entry.status === 'fulfilled') as PromiseFulfilledResult<Awaited<ReturnType<typeof service.process>>>[];
     const rejected = settled.filter((entry) => entry.status === 'rejected') as PromiseRejectedResult[];
 
-    // THE FINANCIAL OUTCOME IS CORRECT: exactly one turn actually confirms.
-    expect(fulfilled).toHaveLength(1);
-    expect(fulfilled[0]!.value.nextAction).toBe('DRAFT_CONFIRMED');
+    // THE FINANCIAL OUTCOME IS CORRECT (unchanged by the fix): exactly one turn actually confirms at
+    // the DB level. Asserted again below via `repository.loadState()`.
 
-    // THE FINDING: the other turn does not degrade gracefully like `DraftAlreadyConfirmedError`'s
-    // sibling race does (see `respondDraftAlreadyConfirmed()`, which NEVER lets `process()` reject).
-    // Instead the customer's second confirming tap blows up the whole call with an UNCAUGHT
-    // ConflictException carrying `SOFIA_STALE_CONFIRMATION` -- proving `confirm()`'s own final CAS
-    // is the one write path in this file with no matching recovery path.
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0]!.reason).toBeInstanceOf(ConflictException);
-    expect((rejected[0]!.reason as ConflictException).getResponse()).toMatchObject({ code: 'SOFIA_STALE_CONFIRMATION' });
+    // A36 CLOSURE: NEITHER turn rejects anymore. Both `process()` calls now resolve to a normal
+    // `CommercialTurnResult` -- the losing turn recovers via the SAME graceful path
+    // `DraftAlreadyConfirmedError`'s sibling race already used (`respondDraftAlreadyConfirmed()`,
+    // reached this time through `recoverStaleConfirmation()`), instead of blowing up the whole call
+    // with an uncaught `ConflictException({code:'SOFIA_STALE_CONFIRMATION'})`.
+    expect(rejected).toHaveLength(0);
+    expect(fulfilled).toHaveLength(2);
+    for (const entry of fulfilled) {
+      // Both turns tell the customer the SAME true outcome: their order is confirmed. The winning
+      // turn reaches this via `confirm()`'s normal success path; the losing turn reaches the exact
+      // same `nextAction`/`confirmationState`/`draftId` via `recoverStaleConfirmation()` ->
+      // `respondDraftAlreadyConfirmed()`.
+      expect(entry.value.nextAction).toBe('DRAFT_CONFIRMED');
+      expect(entry.value.state.confirmationState).toBe('CONFIRMED');
+      expect(entry.value.state.draftId).toBe(built.state.draftId);
+    }
 
     // Durable state itself stays correct (no duplicate confirmed record, no corruption) -- this
-    // finding is about the missing graceful-degradation path, not about financial/evidence
-    // correctness, which remains intact.
+    // closure is about the previously-missing graceful-degradation path, not about financial/evidence
+    // correctness, which was always intact.
     const finalState = await repository.loadState(conversationId);
     expect(finalState!.confirmationState).toBe('CONFIRMED');
     expect(finalState!.draftId).toBe(built.state.draftId);

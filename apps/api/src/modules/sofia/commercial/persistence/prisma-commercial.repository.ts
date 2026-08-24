@@ -239,4 +239,13 @@ export class PrismaCommercialRepository implements CommercialRepository {
     if (updated.count !== 1) throw new ConflictException({ code: 'SOFIA_STALE_CONFIRMATION' });
     return { id: input.draftId, version: input.expectedVersion, status: 'CONFIRMED' };
   }
+
+  // SOFIA Round 5 / A36 CLOSURE (A35 blind red-team finding, MEDIUM) — see interface docstring
+  // (`commercial.repository.ts`). Deliberately the SAME direct, unlocked `findUnique` shape already
+  // used internally by `saveDraft()`'s own CAS-conflict diagnosis (`prior` above) -- reused, not
+  // reinvented.
+  async loadDraftVersion(draftId: string) {
+    const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId }, select: { version: true, status: true } });
+    return draft ? { version: draft.version, status: draft.status as string } : null;
+  }
 }
