@@ -4,36 +4,54 @@
  * `PrismaCommercialRepository`, `applyDestinationEdit`; only the routing/weather HTTP providers
  * are doubled, exactly like the precedent A11/A12 real-engine fixtures).
  *
- * SCOPE: this file was written with zero prior knowledge of A9-A12's design docs beyond reading the
- * shipped code fresh from `feat/sofia-remediation-address-round5-12-integration-verifier`. A9-A12
- * closed every scenario where a REVISION BUMP is the correct/expected signal (address-text change,
- * concurrent hybrid writes, process restart, quote binding across a textual address change, etc —
- * see `round5-a12-cross-cutting-verification.spec.ts` and
- * `commercial-checkout.destination-state.spec.ts`'s "QUOTE BINDING" describe block). Every one of
- * those existing tests changes the quote binding's ADDRESS TEXT (which correctly bumps
- * `destinationSnapshot.revision` and is caught by `isQuoteBoundToCurrentDestination`).
+ * SOFIA Round 5 / A14 CLOSURE — PERMANENT REGRESSION TEST OF THE FIX. This file originally proved a
+ * HIGH finding (see the ORIGINAL FINDING section below, kept verbatim for audit history) and now
+ * asserts that finding STAYS FIXED: turn 3's "confirmo" MUST be refused (`SOFIA_DELIVERY_QUOTE_REQUIRED`,
+ * never a silent `DRAFT_CONFIRMED`) once the destination's own current, TRUSTED coordinate evidence
+ * disagrees with what the pending quote was computed against. Do not weaken these assertions back
+ * toward the original (buggy) expectations to make this pass — that would silently reopen the gap.
  *
- * THE GAP THIS FILE PROVES: `applyDestinationEdit`'s RULE 3/4 (`destination-revision.ts`) are
+ * THE FIX (`destination-revision.ts`, SOFIA Round 5 / A14): `DestinationQuoteBinding` now also
+ * captures the coordinate pair (`boundCoordinateLatitude/Longitude`) a quote was actually computed
+ * against, independent of `destinationRevision`/`destinationSpatialFingerprint`. `isQuoteBoundToCurrentDestination`
+ * additionally requires that pair to still be within `COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM`
+ * (150m — see that constant's doc comment for why) of whatever coordinate evidence is CURRENTLY
+ * active for the destination, via `isCoordinateEvidenceMateriallyDifferent`. `confirm()` in
+ * `commercial-checkout.service.ts` was already calling `isQuoteBoundToCurrentDestination` before
+ * trusting a pending draft/quote (line ~341-344) — no wiring change was needed there, only the
+ * canonical predicate itself needed to consider coordinate evidence, not merely revision/fingerprint.
+ *
+ * ORIGINAL FINDING (HIGH, now fixed) — SCOPE: this file was written with zero prior knowledge of
+ * A9-A12's design docs beyond reading the shipped code fresh from
+ * `feat/sofia-remediation-address-round5-12-integration-verifier`. A9-A12 closed every scenario
+ * where a REVISION BUMP is the correct/expected signal (address-text change, concurrent hybrid
+ * writes, process restart, quote binding across a textual address change, etc — see
+ * `round5-a12-cross-cutting-verification.spec.ts` and `commercial-checkout.destination-state.spec.ts`'s
+ * "QUOTE BINDING" describe block). Every one of those existing tests changes the quote binding's
+ * ADDRESS TEXT (which correctly bumps `destinationSnapshot.revision` and is caught by
+ * `isQuoteBoundToCurrentDestination`).
+ *
+ * THE GAP THIS FILE PROVED: `applyDestinationEdit`'s RULE 3/4 (`destination-revision.ts`) are
  * — correctly, by design — meant to let a coordinate-only refinement of the SAME address update
  * `latitude`/`longitude`/`coordinateTrust` WITHOUT bumping `revision` (e.g. "same address, more
- * precise GPS pin"). But `confirm()`'s quote-binding guard
+ * precise GPS pin"). But (BEFORE THE FIX) `confirm()`'s quote-binding guard
  * (`isQuoteBoundToCurrentDestination(state.deliveryQuoteDestinationBinding, state.destinationSnapshot)`,
- * `commercial-checkout.service.ts` line ~341-344) is keyed ONLY on `revision` +
+ * `commercial-checkout.service.ts` line ~341-344) was keyed ONLY on `revision` +
  * `spatialFingerprint` — both of which are, by RULE 3/4's own definition, UNCHANGED by a
- * coordinate-only edit. So: if a conversation reaches READY_TO_CONFIRM with a cheap/AUTO_PRICED
- * quote computed from a NEAR (in-coverage) coordinate pair, and a LATER turn supplies a fresh,
+ * coordinate-only edit. So: if a conversation reached READY_TO_CONFIRM with a cheap/AUTO_PRICED
+ * quote computed from a NEAR (in-coverage) coordinate pair, and a LATER turn supplied a fresh,
  * TRUSTED, materially-DIFFERENT coordinate pair for the address text (no new address text, e.g. a
  * bare WhatsApp live-location share with no caption — completely realistic; live-location shares
- * carry no text), that new evidence is accepted into `destinationSnapshot` (RULE 4: "new trusted
+ * carry no text), that new evidence was accepted into `destinationSnapshot` (RULE 4: "new trusted
  * evidence replaces old evidence for the ACTIVE revision") but the STALE quote/draft from the
- * earlier, now-superseded coordinates remains "quoteStillBound === true" and can be confirmed
+ * earlier, now-superseded coordinates remained "quoteStillBound === true" and could be confirmed
  * as-is on the next plain "confirmo" — with NO fresh pricing call at all. If a fresh quote would
  * have come back `OUT_OF_COVERAGE` (`canCheckout: false`) for the new coordinates, the customer's
- * order is nonetheless CONFIRMED (persisted, `SofiaOrderDraft.status = CONFIRMED`) carrying the
+ * order was nonetheless CONFIRMED (persisted, `SofiaOrderDraft.status = CONFIRMED`) carrying the
  * OLD cheap/in-coverage fee — a courier-dispatch and financial mismatch: the system's own current,
- * TRUSTED evidence says the destination is out of coverage, yet checkout completed anyway.
+ * TRUSTED evidence said the destination was out of coverage, yet checkout completed anyway.
  *
- * This violates invariant #5 (STALE_QUOTE_REUSE — "a delivery price quote computed for one
+ * This violated invariant #5 (STALE_QUOTE_REUSE — "a delivery price quote computed for one
  * destination must never be usable to complete checkout after the destination has changed... the
  * system must require a fresh quote") even though, textually, "the destination" (address string)
  * never changed — what changed is the EVIDENCE about where that address actually is, and pricing
@@ -56,7 +74,7 @@ import { InMemoryExternalCache } from '../delivery/providers/in-memory-external-
 import type { RouteResult, WeatherResult } from '../delivery/providers/provider-types';
 import type { RoutingProvider } from '../delivery/providers/routing-provider.interface';
 import type { WeatherProvider } from '../delivery/providers/weather-provider.interface';
-import type { CommercialConversationState, CommercialMessageCommand } from '../modules/sofia/commercial/commercial.types';
+import type { CommercialMessageCommand } from '../modules/sofia/commercial/commercial.types';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl || !/_test(?:\?|$)/.test(databaseUrl)) {
@@ -98,7 +116,7 @@ function cmd(conversationId: string, message: string, location?: { latitude: num
   return { conversationId, message, phone: '573001234567', displayName: 'Cliente A13', actor, location };
 }
 
-describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses SOFIA quote-binding at confirm()', () => {
+describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses SOFIA quote-binding at confirm() (A14 FIXED — permanent regression)', () => {
   jest.setTimeout(30000);
   let prisma: PrismaClient;
 
@@ -154,8 +172,9 @@ describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses 
   }
 
   it(
-    'draft confirmed AUTO_PRICED (NEAR) is confirmed as-is even after a later bare live-location share ' +
-      'proves the SAME address is actually OUT_OF_COVERAGE (42km) — never requoted, never blocked',
+    'FIXED (A14): a pending AUTO_PRICED (NEAR) draft is REQUOTED and BLOCKED — never silently ' +
+      'confirmed — once a later bare live-location share proves the SAME address text is actually ' +
+      'OUT_OF_COVERAGE (42km)',
     async () => {
       const conversationId = `a13-stale-quote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // Real FK-backed WhatsappConversation row (sofia_order_drafts.conversation_id has a real FK
@@ -192,12 +211,16 @@ describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses 
       expect(gpsOnly.state.destinationSnapshot?.latitude).toBeCloseTo(FAR_LATITUDE, 5);
       expect(gpsOnly.state.destinationSnapshot?.longitude).toBeCloseTo(FAR_LONGITUDE, 5);
       expect(gpsOnly.state.destinationSnapshot?.coordinateTrust).toBe('TRUSTED');
-      // ...but — BY THE STATE MACHINE'S OWN DESIGN (RULE 3/4: a coordinate-only edit with no new
-      // address text never bumps the spatial revision) — the revision/fingerprint the quote is
-      // bound to is UNCHANGED:
+      // ...and — BY THE STATE MACHINE'S OWN DESIGN (RULE 3/4: a coordinate-only edit with no new
+      // address text never bumps the spatial revision) — the revision/fingerprint stay UNCHANGED.
+      // This is intentional and NOT itself the bug — RULE 3 must keep working exactly like this;
+      // see the FIX comment below for what closes the gap without touching this part.
       expect(gpsOnly.state.destinationSnapshot?.revision).toBe(originalRevision);
       expect(gpsOnly.state.destinationSnapshot?.spatialFingerprint).toBe(originalFingerprint);
-      // The PENDING draft/quote from turn 1 was never invalidated by this turn:
+      // The turn-1 draft/quote is not retroactively rewritten by turn 2 itself (the A14 fix is
+      // enforced at confirm() time, not by mutating history) — `deliveryQuoteDestinationBinding`
+      // still literally records the NEAR pair turn 1 priced against; that is correct and exactly
+      // what lets `isQuoteBoundToCurrentDestination` detect the mismatch on turn 3, below.
       expect(gpsOnly.state.confirmationState).toBe('PENDING');
       expect(gpsOnly.state.draftId).toBe(originalDraftId);
       expect(gpsOnly.state.deliveryQuoteAuditId).toBe(originalAuditId);
@@ -211,24 +234,29 @@ describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses 
 
       // Turn 3: a plain "confirmo", no location this time — `lastQuestionPurpose` is still
       // 'CONFIRM_ORDER' from turn 1 (never touched by turn 2's handoff/no-op path).
-      const confirmed = await service.process(cmd(conversationId, 'confirmo'));
-
-      // THE FINDING: confirm() succeeds using the STALE (NEAR/AUTO_PRICED) quote from turn 1 —
-      // never requoted, never blocked — even though the CURRENT `destinationSnapshot` (persisted
-      // between turns 2 and 3, independent of any in-memory state) is TRUSTED-bound to a point a
-      // fresh call to the SAME real pricing engine proves is OUT_OF_COVERAGE.
-      expect(confirmed.nextAction).toBe('DRAFT_CONFIRMED');
-      expect(confirmed.state.confirmationState).toBe('CONFIRMED');
-      expect(confirmed.state.deliveryQuoteAuditId).toBe(originalAuditId);
-      expect(confirmed.state.deliveryFee).toBe(originalFee);
-      // Yet the "current" destination this confirmed order actually carries is 42km away:
-      expect(confirmed.state.destinationSnapshot?.latitude).toBeCloseTo(FAR_LATITUDE, 5);
-      expect(confirmed.state.destinationSnapshot?.coordinateTrust).toBe('TRUSTED');
+      //
+      // FIXED BEHAVIOR (A14): `confirm()`'s `isQuoteBoundToCurrentDestination` check now ALSO
+      // compares the coordinate evidence the pending quote (`deliveryQuoteDestinationBinding`,
+      // still NEAR) was computed against to the destination's CURRENT active evidence (FAR, ~53km
+      // away by the real haversine distance — orders of magnitude past the 150m jitter threshold).
+      // That mismatch makes `quoteStillBound === false`, which forces `confirm()` into its existing
+      // "requote" branch — `prepareDraft()` calls the REAL pricing engine with the FAR coordinates,
+      // gets back `OUT_OF_COVERAGE`/`canCheckout: false`, and (exactly like the precedent
+      // `commercial-checkout.destination-state.spec.ts` "far GPS + local-free-styled reference" case)
+      // throws `BadRequestException({ code: 'SOFIA_DELIVERY_QUOTE_REQUIRED' })` instead of ever
+      // reaching `confirmDraft()`. The stale NEAR quote is never confirmed.
+      await expect(service.process(cmd(conversationId, 'confirmo'))).rejects.toMatchObject({
+        response: { code: 'SOFIA_DELIVERY_QUOTE_REQUIRED' },
+      });
 
       // Persisted proof — not merely an in-memory artifact of this one process() chain: reload both
-      // rows fresh from Postgres.
+      // rows fresh from Postgres. Because `confirm()` threw INSIDE the requote attempt (before
+      // `saveDraft`/`confirmDraft` could run), the turn-1 draft row is untouched: still
+      // READY_TO_CONFIRM, still at the ORIGINAL version, still carrying the ORIGINAL (NEAR) fee —
+      // never silently advanced to CONFIRMED at the wrong price.
       const draftRow = await prisma.sofiaOrderDraft.findUniqueOrThrow({ where: { id: originalDraftId! } });
-      expect(draftRow.status).toBe('CONFIRMED');
+      expect(draftRow.status).toBe('READY_TO_CONFIRM');
+      expect(draftRow.status).not.toBe('CONFIRMED');
       expect(draftRow.version).toBe(originalDraftVersion);
       expect(Number(draftRow.deliveryFee)).toBe(originalFee);
       expect(draftRow.deliveryAddress).toBe('Avenida 9 #50-30');
@@ -239,19 +267,22 @@ describe('A13 Round 5 blind red team — coordinate-only turn silently bypasses 
         confirmationState: string;
         deliveryQuoteAuditId: string | null;
       };
-      expect(persistedState.confirmationState).toBe('CONFIRMED');
+      // The persisted conversation state reflects turn 2 (the last turn that successfully committed
+      // — `confirm()`'s exception this turn is never caught/persisted as a state change): still
+      // PENDING, still bound to the ORIGINAL audit id, with the CURRENT destination correctly
+      // showing the FAR/TRUSTED coordinates the confirm attempt was correctly blocked against.
+      expect(persistedState.confirmationState).toBe('PENDING');
       expect(persistedState.deliveryQuoteAuditId).toBe(originalAuditId);
       expect(persistedState.destinationSnapshot?.latitude).toBeCloseTo(FAR_LATITUDE, 5);
       expect(persistedState.destinationSnapshot?.coordinateTrust).toBe('TRUSTED');
 
-      // Summary of the confirmed mismatch: a CONFIRMED order, dispatch-ready, whose OWN persisted
-      // TRUSTED coordinates are 42km from the store (OUT_OF_COVERAGE per the real engine), yet was
-      // never blocked and was priced/confirmed at the original in-coverage fee.
-      // eslint-disable-next-line no-console
+      // Summary of the FIXED outcome: the stale NEAR/AUTO_PRICED draft was never confirmed; the
+      // system correctly refused checkout and required a fresh quote once its own current, TRUSTED
+      // coordinate evidence disagreed with what the pending quote was priced against.
       console.log(
-        `[A13 FINDING] conversationId=${conversationId} confirmedFee=${confirmed.state.deliveryFee} ` +
+        `[A13/A14 FIXED] conversationId=${conversationId} draftStatus=${draftRow.status} ` +
           `freshQuoteStatus=${freshQuote.pricingStatus} freshQuoteCanCheckout=${freshQuote.canCheckout} ` +
-          `confirmedDestinationLatLng=(${confirmed.state.destinationSnapshot?.latitude},${confirmed.state.destinationSnapshot?.longitude})`,
+          `currentDestinationLatLng=(${persistedState.destinationSnapshot?.latitude},${persistedState.destinationSnapshot?.longitude})`,
       );
     },
   );

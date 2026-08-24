@@ -1,6 +1,8 @@
 import {
   applyDestinationEdit,
   createInitialDestinationSnapshot,
+  COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM,
+  isCoordinateEvidenceMateriallyDifferent,
   isCoordinateUsableForPricing,
   isQuoteBoundToCurrentDestination,
   quoteBindingFor,
@@ -220,6 +222,97 @@ describe('QUOTE BINDING — quote.destinationRevision == currentDestination.revi
     const binding = quoteBindingFor(destinationOneRev1);
     expect(binding.destinationRevision).toBe(destinationTwoRev1.revision);
     expect(isQuoteBoundToCurrentDestination(binding, destinationTwoRev1)).toBe(false);
+  });
+});
+
+// SOFIA Round 5 / A14 — closes the A13 blind red team finding: RULE 3/4 deliberately keep
+// `revision`/`spatialFingerprint` UNCHANGED across a coordinate-only refinement of the SAME address
+// (that is correct, see RULE 3). Before A14, that meant `isQuoteBoundToCurrentDestination` alone
+// could not detect a quote/draft priced against coordinate evidence that has since been REPLACED
+// (RULE 4) by a materially different pair for the SAME revision. These tests exercise that third
+// axis directly, at the pure-function level (see `round5-a13-blind-redteam-coordinate-only-quote-bypass.spec.ts`
+// for the end-to-end SOFIA regression, and `orders.phase6-atomicity.integration.spec.ts`'s "SOFIA
+// Round 5 / A14" describe block for the legacy POS equivalent).
+describe('QUOTE BINDING — A14: coordinate evidence materially changing invalidates a binding EVEN WITHOUT a revision bump', () => {
+  it('a coordinate-only turn that replaces NEAR evidence with a materially-different FAR pair (same revision) invalidates the binding — requote required', () => {
+    const { snapshot: rev1 } = applyDestinationEdit(
+      null,
+      { rawReferenceText: 'Avenida 9 #50-30', coordinates: { latitude: 3.255, longitude: -76.545, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    const binding = quoteBindingFor(rev1);
+    expect(binding.boundCoordinateLatitude).toBeCloseTo(3.255, 6);
+    expect(binding.boundCoordinateLongitude).toBeCloseTo(-76.545, 6);
+
+    // A LATER bare coordinate-only turn (no new address text) supplies a genuinely far (~53km) pair
+    // for the SAME address text — RULE 4 replaces the active evidence, RULE 3 correctly leaves the
+    // revision/fingerprint untouched.
+    const { snapshot: rev2, revisionBumped } = applyDestinationEdit(
+      rev1,
+      { coordinates: { latitude: 3.62, longitude: -76.15, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    expect(revisionBumped).toBe(false);
+    expect(rev2.revision).toBe(rev1.revision);
+    expect(rev2.spatialFingerprint).toBe(rev1.spatialFingerprint);
+
+    // The OLD binding is no longer trustworthy — THIS is the A14 fix. Pre-A14, this returned `true`.
+    expect(isQuoteBoundToCurrentDestination(binding, rev2)).toBe(false);
+  });
+
+  it('a coordinate-only turn within GPS jitter tolerance of the bound evidence does NOT invalidate the binding (no unnecessary requote)', () => {
+    const { snapshot: rev1 } = applyDestinationEdit(
+      null,
+      { rawReferenceText: 'Avenida 9 #50-30', coordinates: { latitude: 3.255, longitude: -76.545, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    const binding = quoteBindingFor(rev1);
+
+    // ~30m offset — comfortably inside COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM (150m): typical
+    // smartphone GPS jitter re-sharing "the same spot", not a genuinely different point.
+    const { snapshot: rev2, revisionBumped } = applyDestinationEdit(
+      rev1,
+      { coordinates: { latitude: 3.25527, longitude: -76.54503, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    expect(revisionBumped).toBe(false);
+    expect(isQuoteBoundToCurrentDestination(binding, rev2)).toBe(true);
+  });
+
+  it('evidence APPEARING (no coordinates at quote time, real coordinates arrive later, same revision) invalidates the binding', () => {
+    const { snapshot: rev1 } = applyDestinationEdit(null, { rawReferenceText: 'Barrio Alborada' }, NOW);
+    const binding = quoteBindingFor(rev1); // no usable coordinates yet — a bare zone-text match
+    expect(binding.boundCoordinateLatitude).toBeNull();
+
+    const { snapshot: rev2, revisionBumped } = applyDestinationEdit(
+      rev1,
+      { coordinates: { latitude: 3.62, longitude: -76.15, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    expect(revisionBumped).toBe(false);
+    expect(isQuoteBoundToCurrentDestination(binding, rev2)).toBe(false);
+  });
+
+  describe('isCoordinateEvidenceMateriallyDifferent (unit)', () => {
+    it('two null pairs (no evidence either time) are not material', () => {
+      expect(isCoordinateEvidenceMateriallyDifferent(null, null, null, null)).toBe(false);
+    });
+
+    it('evidence appearing or disappearing is always material', () => {
+      expect(isCoordinateEvidenceMateriallyDifferent(null, null, 3.62, -76.15)).toBe(true);
+      expect(isCoordinateEvidenceMateriallyDifferent(3.62, -76.15, null, null)).toBe(true);
+    });
+
+    it('a distance exactly at/under the threshold is not material; just over it is', () => {
+      // ~0.001 degrees latitude ≈ 111m — inside the 150m threshold.
+      expect(isCoordinateEvidenceMateriallyDifferent(3.255, -76.545, 3.256, -76.545)).toBe(false);
+      // ~0.01 degrees latitude ≈ 1.1km — well past the 150m threshold.
+      expect(isCoordinateEvidenceMateriallyDifferent(3.255, -76.545, 3.265, -76.545)).toBe(true);
+    });
+
+    it('the exported threshold constant is 0.15km (150m), matching the pre-existing legacy POS deliveryLocationConflicts threshold', () => {
+      expect(COORDINATE_EVIDENCE_MATERIAL_THRESHOLD_KM).toBe(0.15);
+    });
   });
 });
 

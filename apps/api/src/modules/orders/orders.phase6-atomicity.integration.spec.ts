@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { BadRequestException, type INestApplication } from '@nestjs/common';
 import {
   DeliveryIssueStatus,
   DeliveryIssueType,
@@ -556,5 +556,142 @@ describe('OrdersService Phase 6 delivery/location atomicity', () => {
     expect('order' in manualReplay ? manualReplay.order : undefined).toBeNull();
     expect((await prisma.deliveryLocationInbox.findUniqueOrThrow({ where: { id: first.inbox.id } })).version)
       .toBe(first.inbox.version);
+  });
+
+  // SOFIA Round 5 / A14 CLOSURE — legacy POS symmetric gap to the A13 SOFIA finding. The pre-existing
+  // `deliveryLocationConflicts` check (`orders.service.ts`, 0.15km threshold) already blocks the
+  // logistics-only path from silently applying a materially-different coordinate pair WHEN THE ORDER
+  // ALREADY HAS coordinates (see "routes conflicting coordinates to review" above). But that check is
+  // a no-op (`return false`) whenever the order has NO coordinates yet — exactly the shape of a
+  // LOCAL_FREE zone-text-only match (the A8/A11 CRITICAL precedent: a resolved, priced order with
+  // zero recorded coordinate evidence). Before this fix, a genuinely far live-location landing on such
+  // an order via this same "logistics only, pricing preserved" path would be silently applied with NO
+  // repricing and NO checkout gate — the order could still be charged for a free local zone despite
+  // real, TRUSTED evidence the destination is actually 42km away. This test proves that gap is closed:
+  // `deliveryRequiresManualQuote` is flipped `true` (reusing the EXISTING canonical checkout-authority
+  // column/derivation, `deriveCheckoutAuthorizationFromOrderSnapshot` — see `delivery-checkout-authorization.ts`),
+  // and `checkout()` is blocked until a real repricing pass runs.
+  describe('SOFIA Round 5 / A14 — legacy POS logistics-only location update vs. checkout authority', () => {
+    async function createResolvedDeliveryOrder(options: {
+      latitude: number | null;
+      longitude: number | null;
+      deliveryFee: number;
+      pricingStatus: string;
+    }) {
+      const seed = await seedTestData(prisma);
+      const cashSession = await prisma.cashSession.create({
+        data: { openedById: seed.adminUser.id, openingAmount: 0 },
+      });
+      const order = await prisma.orderTicket.create({
+        data: {
+          number: `P6-A14-${Date.now()}-${Math.random()}`,
+          type: OrderTicketType.DELIVERY,
+          status: OrderTicketStatus.SERVED, // ACTIVE_ORDER_STATUSES — pre-payment, not yet checked out
+          cashSessionId: cashSession.id,
+          createdById: seed.adminUser.id,
+          customerName: 'Cliente A14 Legacy',
+          customerPhone: '3215550199',
+          deliveryReference: 'Barrio Alborada, casa azul',
+          deliveryAddressNormalized: 'barrio alborada casa azul',
+          deliveryLatitude: options.latitude,
+          deliveryLongitude: options.longitude,
+          deliveryLocationSource: options.latitude != null ? 'geocoded_address' : null,
+          deliveryFee: options.deliveryFee,
+          deliveryPricingStatus: options.pricingStatus,
+          deliveryPricingConfidence: 'HIGH',
+          // A REAL resolved pricing snapshot — the exact `hasCalculationSnapshot` shape
+          // `assertDeliveryCheckoutAllowed`/`deriveCheckoutAuthorizationFromOrderSnapshot` require.
+          deliveryPricingBreakdown: [{ code: options.pricingStatus, label: 'Tarifa calculada', amount: options.deliveryFee }],
+          deliveryCalculationVersion: '2x1-delivery-pricing-v1',
+          deliveryRequiresManualQuote: false,
+          subtotal: 20_000,
+          items: {
+            create: [{ productId: seed.burger.id, quantity: 1, unitPrice: 20_000, totalPrice: 20_000 }],
+          },
+        },
+      });
+      return { seed, order, actor: actor(seed.adminUser) };
+    }
+
+    it(
+      'a bare live-location share landing on a resolved LOCAL_FREE order with NO prior coordinates ' +
+        'now blocks checkout until a real repricing pass runs (previously: silently applied, checkout ' +
+        'still allowed at the stale $0 fee)',
+      async () => {
+        const fixture = await createResolvedDeliveryOrder({ latitude: null, longitude: null, deliveryFee: 0, pricingStatus: 'LOCAL_FREE' });
+
+        // A genuinely far point (~50km away, well past any jitter tolerance) arrives with no prior
+        // coordinate evidence to compare against — `deliveryLocationConflicts` is a structural no-op
+        // here (`currentLatitude == null`), so this is NOT intercepted by the pre-existing REQUIRES_REVIEW
+        // path; it reaches `applyDeliveryLocationForLogisticsOnlyInTransaction` directly.
+        const captured = await orders.captureDeliveryLocationFromWhatsapp({
+          senderPhoneCandidates: ['3215550199'],
+          latitude: 3.62,
+          longitude: -76.15,
+          actorId: fixture.actor.sub,
+        });
+        expect(captured.order?.id).toBe(fixture.order.id);
+
+        const updated = await prisma.orderTicket.findUniqueOrThrow({ where: { id: fixture.order.id } });
+        // Coordinates ARE applied (logistics still needs them to route the courier)...
+        expect(Number(updated.deliveryLatitude)).toBeCloseTo(3.62, 5);
+        expect(Number(updated.deliveryLongitude)).toBeCloseTo(-76.15, 5);
+        // ...the persisted fee/status are untouched (this path still never silently reprices)...
+        expect(Number(updated.deliveryFee)).toBe(0);
+        expect(updated.deliveryPricingStatus).toBe('LOCAL_FREE');
+        // ...but the canonical "needs a real repricing pass before checkout" flag is now set:
+        expect(updated.deliveryRequiresManualQuote).toBe(true);
+
+        // The existing, unmodified canonical checkout gate (`assertDeliveryCheckoutAllowed` via
+        // `checkout()`) now refuses to charge this order at the stale LOCAL_FREE fee.
+        await expect(
+          orders.checkout(
+            fixture.order.id,
+            { baseSubtotal: 20_000, payments: [{ paymentMethodId: fixture.seed.paymentCash.id, amount: 20_000 }] },
+            fixture.actor.sub,
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        const stillOpen = await prisma.orderTicket.findUniqueOrThrow({ where: { id: fixture.order.id } });
+        expect(stillOpen.status).not.toBe(OrderTicketStatus.PAID);
+      },
+    );
+
+    it(
+      'a live-location share within GPS jitter tolerance of the EXISTING bound coordinates does NOT ' +
+        'force an unnecessary checkout block (benign refinement, same effective point)',
+      async () => {
+        const fixture = await createResolvedDeliveryOrder({
+          latitude: 3.2686,
+          longitude: -76.5516,
+          deliveryFee: 5_000,
+          pricingStatus: 'AUTO_PRICED',
+        });
+
+        // ~30m offset — comfortably inside the 150m material-difference threshold (and inside the
+        // pre-existing `deliveryLocationConflicts` 150m threshold too, so this is not even routed to
+        // manual review): GPS accuracy noise around the same point, not a genuinely different one.
+        const captured = await orders.captureDeliveryLocationFromWhatsapp({
+          senderPhoneCandidates: ['3215550199'],
+          latitude: 3.26887,
+          longitude: -76.55163,
+          actorId: fixture.actor.sub,
+        });
+        expect(captured.order?.id).toBe(fixture.order.id);
+
+        const updated = await prisma.orderTicket.findUniqueOrThrow({ where: { id: fixture.order.id } });
+        expect(Number(updated.deliveryFee)).toBe(5_000);
+        expect(updated.deliveryPricingStatus).toBe('AUTO_PRICED');
+        // No unnecessary requote/block was forced by benign jitter:
+        expect(updated.deliveryRequiresManualQuote).toBe(false);
+
+        const sale = await orders.checkout(
+          fixture.order.id,
+          { baseSubtotal: 25_000, payments: [{ paymentMethodId: fixture.seed.paymentCash.id, amount: 25_000 }] },
+          fixture.actor.sub,
+        );
+        expect(sale.order.status).toBe(OrderTicketStatus.PAID);
+      },
+    );
   });
 });

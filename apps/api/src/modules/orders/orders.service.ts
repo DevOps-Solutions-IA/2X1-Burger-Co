@@ -58,7 +58,11 @@ import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeA
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
-import { applyDestinationEdit, isCoordinateProvisionallyUsable } from '../../delivery/destination-state/destination-revision';
+import {
+  applyDestinationEdit,
+  isCoordinateEvidenceMateriallyDifferent,
+  isCoordinateProvisionallyUsable,
+} from '../../delivery/destination-state/destination-revision';
 import {
   fromOrderTicketDeliveryColumns,
   toOrderTicketDeliveryColumns,
@@ -3903,6 +3907,46 @@ export class OrdersService {
       deliveryCustomerId = deliveryCustomer.id;
     }
 
+    // SOFIA Round 5 / A14 CLOSURE (legacy POS symmetric gap to the A13 SOFIA finding): this
+    // "logistics only" path is the courier-live-location-tracking path — by design it must NOT
+    // silently change a fee/total the customer already agreed to or paid for (see
+    // `pricingPreserved`/`feeChanged: false` in the audit/alert metadata below), so it deliberately
+    // never calls `resolveDeliverySnapshot`/repricing. That is correct once the order is genuinely
+    // in courier-dispatch territory. But `ACTIVE_ORDER_STATUSES` (this function's callers match
+    // orders in OPEN/IN_PREPARATION/SERVED/PAYMENT_PENDING too — i.e. BEFORE `checkout()` has ever
+    // run) means the SAME "preserve pricing" behavior can also fire on an order that has not been
+    // checked out yet. `assertDeliveryCheckoutAllowed()` (see below) reads ONLY the persisted
+    // `deliveryPricingStatus`/`deliveryFee`/`deliveryCalculationVersion` columns — it has no idea
+    // the coordinates underneath that price snapshot just moved. Without this guard, a courier's
+    // live-location share landing between order creation and checkout could silently replace a
+    // NEAR (cheap/in-coverage) pair with a FAR (genuinely out-of-coverage) one and the order would
+    // still check out at the stale price — the exact class of bug A13 found in SOFIA's `confirm()`.
+    //
+    // Fix: if the order has NOT yet been checked out AND already has a resolved pricing snapshot
+    // AND the new coordinates are materially different (same threshold/helper the canonical
+    // destination-state module uses for SOFIA's quote binding — `isCoordinateEvidenceMateriallyDifferent`,
+    // never a second independently-invented notion of "different enough") from whatever coordinates
+    // that snapshot was actually computed against, mark the EXISTING `deliveryRequiresManualQuote`
+    // column `true`. That column is already the canonical "address not complete enough to check out"
+    // signal consumed by `deriveCheckoutAuthorizationFromOrderSnapshot()` (see
+    // `delivery-checkout-authorization.ts`) — reusing it means `assertDeliveryCheckoutAllowed()`
+    // fails closed with ZERO changes required there, and the ONLY way to clear it is a real
+    // repricing pass through `resolveDeliverySnapshot` (i.e. `update()`), never a silent bypass.
+    // Once genuinely checked out (PAID/CANCELLED), pricing must stay preserved unconditionally —
+    // this guard is a no-op for those statuses, exactly matching the intended courier-tracking use.
+    const isPrePayment = ACTIVE_ORDER_STATUSES.includes(order.status);
+    const hasExistingPricingSnapshot =
+      Boolean(order.deliveryCalculationVersion?.trim()) && order.deliveryPricingBreakdown != null;
+    const previousLatitude = order.deliveryLatitude != null ? Number(order.deliveryLatitude) : null;
+    const previousLongitude = order.deliveryLongitude != null ? Number(order.deliveryLongitude) : null;
+    const coordinatesMateriallyDifferent = isCoordinateEvidenceMateriallyDifferent(
+      previousLatitude,
+      previousLongitude,
+      latitude,
+      longitude,
+    );
+    const requiresRequoteBeforeCheckout = isPrePayment && hasExistingPricingSnapshot && coordinatesMateriallyDifferent;
+
     const updatedOrder = await tx.orderTicket.update({
       where: { id: order.id },
       data: {
@@ -3913,6 +3957,7 @@ export class OrdersService {
         deliveryCustomerId,
         deliveryStatusUpdatedAt: new Date(),
         revision: { increment: 1 },
+        ...(requiresRequoteBeforeCheckout ? { deliveryRequiresManualQuote: true } : {}),
       },
       include: orderInclude,
     });
@@ -3936,9 +3981,16 @@ export class OrdersService {
           longitude,
           locationPresent: true,
           source: 'whatsapp_location',
+          // Note: `pricingPreserved`/`feeChanged`/`totalChanged` describe the persisted `deliveryFee`
+          // NUMBER (never mutated by this logistics-only path). `requiresRequoteBeforeCheckout`
+          // (SOFIA Round 5 / A14) is the separate, safety-relevant signal: `true` means the new
+          // coordinate evidence was materially different from what that unchanged fee was actually
+          // computed against, and `deliveryRequiresManualQuote` was flipped so checkout is blocked
+          // (via the existing `assertDeliveryCheckoutAllowed` gate) until a real repricing pass runs.
           pricingPreserved: true,
           feeChanged: false,
           totalChanged: false,
+          requiresRequoteBeforeCheckout,
           locationSavedForDelivery: true,
           subtotal: updatedOrder.subtotal,
           deliveryFee: updatedOrder.deliveryFee,
