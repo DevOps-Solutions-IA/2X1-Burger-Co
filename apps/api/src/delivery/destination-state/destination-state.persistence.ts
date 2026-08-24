@@ -60,6 +60,15 @@ import { EMPTY_SPATIAL_FINGERPRINT, type CoordinateSource, type CoordinateTrust,
 import { isCoordinateProvisionallyUsable } from './destination-revision';
 import { spatialFingerprint } from './spatial-fingerprint';
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toFiniteNumberOrNull(value: unknown): number | null {
+  const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(num) ? num : null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tier 1 — OrderTicket delivery* columns (collapsed / current-state-only, safe without migration)
 // ---------------------------------------------------------------------------------------------
@@ -188,4 +197,104 @@ export function fromDeliveryQuoteAuditEnvelope(value: unknown): DestinationSnaps
   const candidate = (value as Record<string, unknown>).destinationSnapshot;
   if (!candidate || typeof candidate !== 'object') return null;
   return candidate as DestinationSnapshot;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tier 2b — DeliveryPricingAudit request/result reconstruction (SOFIA Round 5 / A20 CLOSURE).
+// ---------------------------------------------------------------------------------------------
+
+/** The subset of a `DeliveryPricingAudit` row this reads. `requestJson`/`resultJson` match
+ * `DeliveryPricingRequest`/`DeliveryPricingResult` (`delivery-pricing.types.ts`) exactly —
+ * `DeliveryPricingService.auditEstimate()` writes `sanitizeJson(request)`/`sanitizeJson(result)`
+ * verbatim (see `delivery-pricing.service.ts`), with no `DestinationSnapshotAuditEnvelope` wrapper:
+ * as of A20, `toDeliveryQuoteAuditEnvelope` still has zero real write-side callers anywhere in the
+ * codebase (grep-confirmed). `fromDeliveryPricingAudit` below is written to prefer that envelope
+ * the moment any caller ever adopts it, but must work correctly against the RAW shape every real
+ * audit row actually carries today. */
+export type DeliveryPricingAuditEvidenceRow = {
+  id: string;
+  requestJson: Prisma.JsonValue;
+  resultJson: Prisma.JsonValue;
+};
+
+/**
+ * `DeliveryPricingAudit` row -> reconstructed `DestinationSnapshot` (A20 CLOSURE — SOFIA order
+ * materialization, `OrdersService.createFromCanonicalCheckout()`, read the address TEXT sitting
+ * next to `deliveryQuoteAuditId` but never followed the pointer to recover the trusted GPS pair the
+ * audit actually carries; see that function's own comment for the full A19 finding).
+ *
+ * Prefers the full-fidelity Tier 2 envelope (`fromDeliveryQuoteAuditEnvelope`) when present, so this
+ * reader is correct-by-construction the moment any write-side caller adopts it. Falls back to
+ * reconstructing directly from the RAW `DeliveryPricingRequest`/`-Result` shape every real audit row
+ * carries today: `requestJson.location.{latitude,longitude,provider,confidence}` (falling back to
+ * `requestJson.{latitude,longitude}` top-level, matching `DeliveryPricingService.estimate()`'s own
+ * `request.location?.latitude ?? request.latitude` precedence) and `requestJson.{addressText,
+ * reference}` for the reference text.
+ *
+ * Returns `null` only when the row carries genuinely no usable spatial evidence at all (no
+ * coordinates AND no reference text) — content-addressed, like every other reconstruction in this
+ * file: it never fabricates identity the row does not actually contain (RULE 7). A row with a
+ * reference text but no coordinates (e.g. a LOCAL_FREE zone-alias quote with no GPS ever submitted)
+ * still reconstructs a valid, coordinate-less snapshot — a legitimate case, not an error; see
+ * `toOrderTicketDeliveryColumns` for how that safely persists as NULL coordinates, never as a
+ * fabricated pair. */
+export function fromDeliveryPricingAudit(audit: DeliveryPricingAuditEvidenceRow): DestinationSnapshot | null {
+  const envelope = fromDeliveryQuoteAuditEnvelope(audit.resultJson);
+  if (envelope) return envelope;
+
+  const request = isPlainRecord(audit.requestJson) ? audit.requestJson : null;
+  if (!request) return null;
+  const location = isPlainRecord(request.location) ? request.location : null;
+  const latitude = toFiniteNumberOrNull(location?.latitude ?? request.latitude);
+  const longitude = toFiniteNumberOrNull(location?.longitude ?? request.longitude);
+  const hasCoordinates = latitude != null && longitude != null;
+
+  const referenceText =
+    typeof request.addressText === 'string' && request.addressText.trim()
+      ? request.addressText
+      : typeof request.reference === 'string' && request.reference.trim()
+        ? request.reference
+        : null;
+  if (!hasCoordinates && !referenceText) return null;
+
+  const normalizedAddress = referenceText ?? '';
+  const providerLabel = typeof location?.provider === 'string' ? location.provider : null;
+  const confidence = typeof location?.confidence === 'string' ? location.confidence : null;
+  const coordinateSource: CoordinateSource | null = !hasCoordinates
+    ? null
+    : (providerLabel && LOCATION_SOURCE_TO_COORDINATE_SOURCE[providerLabel]) || 'UNKNOWN';
+  // Same trust precedence `resolveDeliverySnapshot`'s `pricingLocationConfidence` fallback uses:
+  // a recognized high-trust provider (GPS share / map pin / geocode) is TRUSTED outright; anything
+  // else defers to the request's own recorded confidence, defaulting to PROVISIONAL rather than
+  // ever silently upgrading unknown provenance to TRUSTED (fail closed).
+  const coordinateTrust: CoordinateTrust = !hasCoordinates
+    ? 'UNTRUSTED'
+    : coordinateSource === 'GPS_SHARE' || coordinateSource === 'MAP_PIN' || coordinateSource === 'GEOCODED_ADDRESS'
+      ? 'TRUSTED'
+      : confidence === 'HIGH'
+        ? 'TRUSTED'
+        : 'PROVISIONAL';
+
+  const now = new Date().toISOString();
+  return {
+    revision: 1,
+    spatialFingerprint: spatialFingerprintOf(normalizedAddress),
+    normalizedAddress,
+    addressComponents: null,
+    // RULE 1 (coordinate atomicity): a lone axis (e.g. `requestJson.latitude` present but
+    // `.longitude` missing/non-finite) must never survive as a partial pair — `hasCoordinates`
+    // already requires BOTH to be finite, so null out both here rather than leaking a single
+    // numeric axis into a snapshot that every other consumer assumes is atomic-or-both-null.
+    latitude: hasCoordinates ? latitude : null,
+    longitude: hasCoordinates ? longitude : null,
+    coordinateSource,
+    coordinateTrust,
+    coordinateBoundRevision: hasCoordinates ? 1 : null,
+    geocodingProvider: providerLabel,
+    geocodingEvidenceId: audit.id,
+    deliveryInstructions: null,
+    referenceText,
+    createdAt: now,
+    updatedAt: now,
+  };
 }

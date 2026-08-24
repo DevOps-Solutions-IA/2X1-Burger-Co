@@ -1,5 +1,6 @@
-import { applyDestinationEdit, isCoordinateUsableForPricing } from './destination-revision';
+import { applyDestinationEdit, isCoordinateProvisionallyUsable, isCoordinateUsableForPricing } from './destination-revision';
 import {
+  fromDeliveryPricingAudit,
   fromDeliveryQuoteAuditEnvelope,
   fromOrderTicketDeliveryColumns,
   toDeliveryQuoteAuditEnvelope,
@@ -106,5 +107,82 @@ describe('DeliveryPricingAudit resultJson envelope — Tier 2 (full fidelity)', 
     expect(fromDeliveryQuoteAuditEnvelope(null)).toBeNull();
     expect(fromDeliveryQuoteAuditEnvelope([1, 2, 3])).toBeNull();
     expect(fromDeliveryQuoteAuditEnvelope({ someOtherShape: true })).toBeNull();
+  });
+});
+
+describe('fromDeliveryPricingAudit — Tier 2b (SOFIA Round 5 / A20 CLOSURE, raw request/result reconstruction)', () => {
+  it('prefers the Tier 2 envelope when resultJson already carries one', () => {
+    const { snapshot } = applyDestinationEdit(
+      null,
+      { rawReferenceText: 'Calle 5 #10-20', coordinates: { latitude: 3.62, longitude: -76.15, source: 'GPS_SHARE', confidence: 'HIGH' } },
+      NOW,
+    );
+    const envelope = JSON.parse(JSON.stringify(toDeliveryQuoteAuditEnvelope(snapshot)));
+    const reconstructed = fromDeliveryPricingAudit({ id: 'audit-1', requestJson: {}, resultJson: envelope });
+    expect(reconstructed).toEqual(snapshot);
+  });
+
+  it('reconstructs a TRUSTED, usable coordinate pair from the RAW DeliveryPricingRequest shape (location.{latitude,longitude,provider})', () => {
+    const reconstructed = fromDeliveryPricingAudit({
+      id: 'audit-2',
+      requestJson: {
+        addressText: 'Calle 5 #10-20',
+        reference: 'Calle 5 #10-20',
+        latitude: 3.265,
+        longitude: -76.543,
+        location: { latitude: 3.265, longitude: -76.543, provider: 'whatsapp_live_location', confidence: 'HIGH' },
+      },
+      resultJson: { pricingStatus: 'AUTO_PRICED', finalFee: 6500 },
+    });
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed?.latitude).toBe(3.265);
+    expect(reconstructed?.longitude).toBe(-76.543);
+    expect(reconstructed?.coordinateSource).toBe('GPS_SHARE');
+    expect(reconstructed?.coordinateTrust).toBe('TRUSTED');
+    expect(reconstructed?.referenceText).toBe('Calle 5 #10-20');
+    expect(reconstructed ? isCoordinateProvisionallyUsable(reconstructed) : false).toBe(true);
+  });
+
+  it('falls back to top-level requestJson.{latitude,longitude} when no `location` object is present', () => {
+    const reconstructed = fromDeliveryPricingAudit({
+      id: 'audit-3',
+      requestJson: { addressText: 'Carrera 8 #40-12', latitude: 3.1, longitude: -76.2 },
+      resultJson: { pricingStatus: 'AUTO_PRICED' },
+    });
+    expect(reconstructed?.latitude).toBe(3.1);
+    expect(reconstructed?.longitude).toBe(-76.2);
+    // No recognized provider label -> UNKNOWN source, but still PROVISIONAL (usable), never
+    // silently discarded just because provenance wasn't labeled.
+    expect(reconstructed?.coordinateSource).toBe('UNKNOWN');
+    expect(reconstructed?.coordinateTrust).toBe('PROVISIONAL');
+  });
+
+  it('reconstructs a legitimate coordinate-less snapshot for a LOCAL_FREE zone-alias audit (no GPS ever submitted)', () => {
+    const reconstructed = fromDeliveryPricingAudit({
+      id: 'audit-4',
+      requestJson: { addressText: 'Barrio Condados, sin GPS', reference: 'Barrio Condados, sin GPS' },
+      resultJson: { pricingStatus: 'LOCAL_FREE', finalFee: 0 },
+    });
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed?.latitude).toBeNull();
+    expect(reconstructed?.longitude).toBeNull();
+    expect(reconstructed?.coordinateTrust).toBe('UNTRUSTED');
+    expect(reconstructed?.referenceText).toBe('Barrio Condados, sin GPS');
+  });
+
+  it('returns null when the audit row carries genuinely no spatial evidence at all (no coordinates, no reference text)', () => {
+    expect(fromDeliveryPricingAudit({ id: 'audit-5', requestJson: {}, resultJson: {} })).toBeNull();
+    expect(fromDeliveryPricingAudit({ id: 'audit-6', requestJson: null as unknown as object, resultJson: {} })).toBeNull();
+  });
+
+  it('never lets an incomplete single-axis coordinate pair in requestJson be treated as usable evidence', () => {
+    const reconstructed = fromDeliveryPricingAudit({
+      id: 'audit-7',
+      requestJson: { addressText: 'Calle 1', latitude: 3.1 }, // longitude missing
+      resultJson: { pricingStatus: 'AUTO_PRICED' },
+    });
+    expect(reconstructed?.latitude).toBeNull();
+    expect(reconstructed?.longitude).toBeNull();
+    expect(reconstructed?.coordinateTrust).toBe('UNTRUSTED');
   });
 });

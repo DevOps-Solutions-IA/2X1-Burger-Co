@@ -64,8 +64,10 @@ import {
   isCoordinateProvisionallyUsable,
 } from '../../delivery/destination-state/destination-revision';
 import {
+  fromDeliveryPricingAudit,
   fromOrderTicketDeliveryColumns,
   toOrderTicketDeliveryColumns,
+  type DeliveryPricingAuditEvidenceRow,
   type OrderTicketDeliveryColumns,
 } from '../../delivery/destination-state/destination-state.persistence';
 import {
@@ -87,6 +89,54 @@ const KITCHEN_MANAGED_STATUSES = new Set<OrderTicketStatus>([
   OrderTicketStatus.IN_PREPARATION,
   OrderTicketStatus.SERVED,
 ]);
+
+/** SOFIA Round 5 / A20 CLOSURE — the destination/pricing-authority evidence
+ * `createFromCanonicalCheckout()` writes onto a new `OrderTicket`, reconstructed from the
+ * checkout's linked `DeliveryPricingAudit` row. See `materializeDeliveryEvidenceFromPricingAudit`. */
+type DeliveryMaterializationEvidence = {
+  deliveryLatitude: Prisma.Decimal | null;
+  deliveryLongitude: Prisma.Decimal | null;
+  deliveryLocationSource: string | null;
+  deliveryLocationReceivedAt: Date | null;
+  deliveryGeocodingProvider: string | null;
+  deliveryPricingStatus: string | null;
+  deliveryPricingConfidence: string | null;
+  deliveryPricingBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+  deliveryCalculationVersion: string | null;
+  deliveryRequiresManualQuote: boolean;
+  deliveryFeeSuggested: Prisma.Decimal | null;
+  deliveryFeeEdited: boolean;
+  deliveryFeeEditReason: string | null;
+  deliveryZoneLabel: string | null;
+  deliveryDistanceKm: Prisma.Decimal | null;
+  deliveryEstimatedMinutes: Prisma.Decimal | null;
+  deliveryRouteProvider: string | null;
+  deliveryWeatherProvider: string | null;
+};
+
+/** Fail-closed default: no audit evidence found/linked (TAKEAWAY fulfillment, or a DELIVERY
+ * checkout whose audit pointer is missing/dangling) — every column stays exactly as unset/NULL as
+ * before this fix, never fabricated. */
+const EMPTY_DELIVERY_MATERIALIZATION_EVIDENCE: DeliveryMaterializationEvidence = {
+  deliveryLatitude: null,
+  deliveryLongitude: null,
+  deliveryLocationSource: null,
+  deliveryLocationReceivedAt: null,
+  deliveryGeocodingProvider: null,
+  deliveryPricingStatus: null,
+  deliveryPricingConfidence: null,
+  deliveryPricingBreakdown: Prisma.JsonNull,
+  deliveryCalculationVersion: null,
+  deliveryRequiresManualQuote: false,
+  deliveryFeeSuggested: null,
+  deliveryFeeEdited: false,
+  deliveryFeeEditReason: null,
+  deliveryZoneLabel: null,
+  deliveryDistanceKm: null,
+  deliveryEstimatedMinutes: null,
+  deliveryRouteProvider: null,
+  deliveryWeatherProvider: null,
+};
 
 const orderInclude = {
   table: true,
@@ -1837,6 +1887,57 @@ export class OrdersService {
         throw new ConflictException({ code: 'CHECKOUT_DELIVERY_ADDRESS_REQUIRED' });
       }
 
+      // SOFIA Round 5 / A20 CLOSURE (HIGH, A19 blind finding): this call site used to copy ONLY
+      // `deliveryFee` (money) and `deliveryAddress` (text) from the checkout's `customerSnapshot`
+      // onto the new `OrderTicket`, and NEVER followed `customer.deliveryQuoteAuditId` back to the
+      // `DeliveryPricingAudit` row that actually priced the destination — so the trusted GPS pair
+      // SOFIA's canonical destination-state authority (A9-A14) resolved during the conversation, and
+      // the pricing-authority evidence (`deliveryPricingStatus`/`deliveryCalculationVersion`/
+      // `deliveryPricingBreakdown`) proving HOW the fee was resolved, were both silently dropped —
+      // permanently blocking `OrdersService.checkout()` (`deriveCheckoutAuthorizationFromOrderSnapshot`
+      // requires that evidence) and leaving `assertDeliveryOrder`'s dispatch gate with zero coordinate
+      // evidence to reason about. Fixed by reusing the SAME canonical machinery legacy POS's
+      // `resolveDeliverySnapshot` already uses: `fromDeliveryPricingAudit` (destination-state
+      // persistence Tier 2/2b) reconstructs the `DestinationSnapshot` the audit row represents, and
+      // `toOrderTicketDeliveryColumns` maps it onto the exact same OrderTicket columns. The audit row
+      // is then linked back via `orderTicketId` exactly like legacy `create()`/`update()` do, so
+      // future drift-anchor resolution (A16) and audit-trail reconciliation work for SOFIA-originated
+      // orders too. Never re-invokes the pricing engine here — the checkout's `deliveryFee` is
+      // already locked/confirmed with the customer; re-quoting at materialization time could silently
+      // diverge from the price actually confirmed.
+      let deliveryEvidence: DeliveryMaterializationEvidence = EMPTY_DELIVERY_MATERIALIZATION_EVIDENCE;
+      let deliveryPricingAuditIdToLink: string | null = null;
+      if (checkout.fulfillment === OrderTicketType.DELIVERY) {
+        const auditId = typeof customer.deliveryQuoteAuditId === 'string' ? customer.deliveryQuoteAuditId : null;
+        const audit = auditId
+          ? await tx.deliveryPricingAudit.findUnique({
+              where: { id: auditId },
+              select: {
+                id: true,
+                requestJson: true,
+                resultJson: true,
+                providerSummaryJson: true,
+                suggestedFee: true,
+                finalFee: true,
+                manualEdited: true,
+                manualEditReason: true,
+                calculationVersion: true,
+              },
+            })
+          : null;
+        // Fail closed (CLAUDE.md section 5): if the checkout carries no audit pointer, or the
+        // pointer is dangling (row deleted/never existed), leave every destination/pricing column
+        // NULL — exactly the pre-fix behavior — rather than fabricate evidence that was never proven.
+        // A genuinely coordinate-less LOCAL_FREE audit (zone-alias match, no GPS ever submitted) is
+        // NOT this case: it still resolves a real audit row, just with null coordinates, and
+        // `materializeDeliveryEvidenceFromPricingAudit` below still correctly authorizes it for
+        // checkout via `deliveryPricingStatus`/`deliveryCalculationVersion`/`deliveryPricingBreakdown`.
+        if (audit) {
+          deliveryEvidence = this.materializeDeliveryEvidenceFromPricingAudit(audit, new Date());
+          deliveryPricingAuditIdToLink = audit.id;
+        }
+      }
+
       const order = await tx.orderTicket.create({
         data: {
           number: await this.generateOrderNumber(tx, checkout.fulfillment),
@@ -1846,6 +1947,24 @@ export class OrdersService {
           deliveryReference: deliveryAddress,
           deliveryAddressNormalized: deliveryAddress,
           deliveryFee: checkout.deliveryFee,
+          deliveryLatitude: deliveryEvidence.deliveryLatitude,
+          deliveryLongitude: deliveryEvidence.deliveryLongitude,
+          deliveryLocationSource: deliveryEvidence.deliveryLocationSource,
+          deliveryLocationReceivedAt: deliveryEvidence.deliveryLocationReceivedAt,
+          deliveryGeocodingProvider: deliveryEvidence.deliveryGeocodingProvider,
+          deliveryPricingStatus: deliveryEvidence.deliveryPricingStatus,
+          deliveryPricingConfidence: deliveryEvidence.deliveryPricingConfidence,
+          deliveryPricingBreakdown: deliveryEvidence.deliveryPricingBreakdown,
+          deliveryCalculationVersion: deliveryEvidence.deliveryCalculationVersion,
+          deliveryRequiresManualQuote: deliveryEvidence.deliveryRequiresManualQuote,
+          deliveryFeeSuggested: deliveryEvidence.deliveryFeeSuggested,
+          deliveryFeeEdited: deliveryEvidence.deliveryFeeEdited,
+          deliveryFeeEditReason: deliveryEvidence.deliveryFeeEditReason,
+          deliveryZoneLabel: deliveryEvidence.deliveryZoneLabel,
+          deliveryDistanceKm: deliveryEvidence.deliveryDistanceKm,
+          deliveryEstimatedMinutes: deliveryEvidence.deliveryEstimatedMinutes,
+          deliveryRouteProvider: deliveryEvidence.deliveryRouteProvider,
+          deliveryWeatherProvider: deliveryEvidence.deliveryWeatherProvider,
           deliveryWorkflowStatus:
             checkout.fulfillment === OrderTicketType.DELIVERY
               ? DeliveryWorkflowStatus.PENDING_ASSIGNMENT
@@ -1865,6 +1984,17 @@ export class OrdersService {
         data: { orderTicketId: order.id, status: 'ORDER_CREATED', version: { increment: 1 } },
       });
       if (attached.count !== 1) throw new ConflictException({ code: 'CHECKOUT_ORDER_CONFLICT' });
+      // Link the audit row back to the order — matching legacy POS `create()`/`update()`'s
+      // `deliveryPricingAudit.updateMany({ where: { id, orderTicketId: null }, data: { orderTicketId } })`
+      // — so an auditor/reconciliation process can walk from this OrderTicket to the exact
+      // `DeliveryPricingAudit` row that priced it, and A16's drift-anchor resolution works for
+      // SOFIA-originated orders too.
+      if (deliveryPricingAuditIdToLink) {
+        await tx.deliveryPricingAudit.updateMany({
+          where: { id: deliveryPricingAuditIdToLink, orderTicketId: null },
+          data: { orderTicketId: order.id },
+        });
+      }
       await this.auditService.log(
         {
           userId: actor.sub,
@@ -1882,6 +2012,7 @@ export class OrdersService {
             paymentPreference: checkout.paymentPreference,
             itemCount: items.length,
             total: checkout.total.toString(),
+            deliveryPricingAuditId: deliveryPricingAuditIdToLink,
           },
         },
         tx,
@@ -1897,6 +2028,79 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('orders');
     return result;
+  }
+
+  /**
+   * SOFIA Round 5 / A20 CLOSURE — companion to `createFromCanonicalCheckout()`'s call site above.
+   * Reconstructs the FULL destination/pricing-authority evidence a `DeliveryPricingAudit` row
+   * already carries into the SAME `OrderTicket` delivery* column shape legacy POS's
+   * `resolveDeliverySnapshot` writes (see that private method's own `persistedColumns`/return value)
+   * — destination columns (coordinates/location source/geocoding provider) via
+   * `fromDeliveryPricingAudit` + `toOrderTicketDeliveryColumns` (the canonical destination-state Tier
+   * 1/2 machinery A9 built), pricing-authority columns straight from the audit row's own typed
+   * columns (`calculationVersion`/`suggestedFee`/`manualEdited`/`manualEditReason`) and `resultJson`
+   * (`pricingStatus`/`requiresManualQuote`/`zoneLabel`/`distanceKm`/`estimatedMinutes`/`confidence`).
+   * Never re-invokes the pricing engine — see the call site's comment for why.
+   */
+  private materializeDeliveryEvidenceFromPricingAudit(
+    audit: DeliveryPricingAuditEvidenceRow & {
+      providerSummaryJson: Prisma.JsonValue | null;
+      suggestedFee: Prisma.Decimal | null;
+      finalFee: Prisma.Decimal | null;
+      manualEdited: boolean;
+      manualEditReason: string | null;
+      calculationVersion: string;
+    },
+    now: Date,
+  ): DeliveryMaterializationEvidence {
+    const snapshot = fromDeliveryPricingAudit(audit);
+    const destinationColumns: OrderTicketDeliveryColumns | null = snapshot
+      ? toOrderTicketDeliveryColumns(snapshot, now)
+      : null;
+
+    const result = this.readAuditJsonObject(audit.resultJson);
+    const providerUsage = this.readAuditJsonObject(audit.providerSummaryJson);
+    const pricingStatus =
+      typeof result.pricingStatus === 'string'
+        ? result.pricingStatus
+        : typeof result.status === 'string'
+          ? result.status
+          : null;
+    // Fail closed: an unresolved/unknown status (or a status not in the two automated
+    // "resolved" statuses) is treated as still requiring manual attention, exactly like the live
+    // pricing engine does for every non-happy-path branch (`delivery-pricing.engine.ts`).
+    const requiresManualQuote =
+      typeof result.requiresManualQuote === 'boolean'
+        ? result.requiresManualQuote
+        : pricingStatus !== 'LOCAL_FREE' && pricingStatus !== 'AUTO_PRICED';
+    const zoneLabel = typeof result.zoneLabel === 'string' ? result.zoneLabel : null;
+    const distanceKm = typeof result.distanceKm === 'number' ? new Prisma.Decimal(result.distanceKm) : null;
+    const estimatedMinutes =
+      typeof result.estimatedMinutes === 'number' ? new Prisma.Decimal(result.estimatedMinutes) : null;
+    const confidence = typeof result.confidence === 'string' ? result.confidence : null;
+
+    return {
+      deliveryLatitude:
+        destinationColumns?.deliveryLatitude != null ? new Prisma.Decimal(destinationColumns.deliveryLatitude as number) : null,
+      deliveryLongitude:
+        destinationColumns?.deliveryLongitude != null ? new Prisma.Decimal(destinationColumns.deliveryLongitude as number) : null,
+      deliveryLocationSource: destinationColumns?.deliveryLocationSource ?? null,
+      deliveryLocationReceivedAt: destinationColumns?.deliveryLocationReceivedAt ?? null,
+      deliveryGeocodingProvider: destinationColumns?.deliveryGeocodingProvider ?? null,
+      deliveryPricingStatus: pricingStatus,
+      deliveryPricingConfidence: confidence,
+      deliveryPricingBreakdown: (audit.resultJson ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      deliveryCalculationVersion: audit.calculationVersion ?? null,
+      deliveryRequiresManualQuote: requiresManualQuote,
+      deliveryFeeSuggested: audit.suggestedFee ?? null,
+      deliveryFeeEdited: audit.manualEdited ?? false,
+      deliveryFeeEditReason: audit.manualEditReason ?? null,
+      deliveryZoneLabel: zoneLabel,
+      deliveryDistanceKm: distanceKm,
+      deliveryEstimatedMinutes: estimatedMinutes,
+      deliveryRouteProvider: typeof providerUsage.routingProvider === 'string' ? providerUsage.routingProvider : null,
+      deliveryWeatherProvider: typeof providerUsage.weatherProvider === 'string' ? providerUsage.weatherProvider : null,
+    };
   }
 
   async update(id: string, dto: UpdateOrderTicketDto, actor: AuthUser) {
