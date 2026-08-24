@@ -68,6 +68,77 @@ export class PrismaCommercialRepository implements CommercialRepository {
     });
   }
 
+  /**
+   * SOFIA Round 5 / A30 CLOSURE (A29 finding, HIGH) — `sofiaConversationMemory.currentOrderIntentJson`
+   * has a SECOND real writer besides `saveState()`: the legacy `SofiaConversationMemoryService.
+   * updateContext()`, used by `SofiaAgentService.processMessage()`'s pre-canonical-engagement fallback
+   * branch. That writer used to run a bare, unlocked `prisma.sofiaConversationMemory.update()` with
+   * NO row lock and NO awareness whatsoever of the canonical, CAS-protected shape written by
+   * `saveState()` (A26) -- so a legacy write racing (or merely landing after) a canonical CONFIRMED
+   * write could silently and irrecoverably destroy the only durable evidence a conversation had a
+   * confirmed commercial record, even though the underlying `SofiaOrderDraft` row was still CONFIRMED.
+   *
+   * This method is the SAME row-locked primitive `saveState()` uses (`SELECT ... FOR UPDATE` inside a
+   * transaction), reused rather than re-invented, extended with the correct guarantee for the LEGACY
+   * writer specifically: unlike `saveState()` (which only refuses to regress a CONFIRMED marker for
+   * the SAME `draftId`, because a genuinely different `draftId` there can legitimately mean "start a
+   * new order after a prior confirmed one"), the legacy writer has NO `draftId` concept at all and NO
+   * legitimate business reason to ever know about or intentionally supersede a confirmed commercial
+   * record. So here the guard is unconditional: if the currently-persisted row is already a canonical,
+   * CONFIRMED commercial record (`schemaVersion === 4 && confirmationState === 'CONFIRMED'`), the
+   * legacy write's `currentOrderIntentJson` payload is silently dropped in favor of the existing
+   * canonical truth -- the rest of the legacy narration columns (`currentIntent`, `missingFieldsJson`,
+   * `lastProductDiscussed`, `memorySummary`, `customerMemoryId`) are still allowed to update normally,
+   * since those are not part of the confirmed-evidence invariant this closes.
+   */
+  async saveLegacyConversationContext(input: {
+    conversationId: string;
+    customerMemoryId?: string | null;
+    currentIntent?: string | null;
+    currentOrderIntent?: Prisma.InputJsonValue;
+    missingFields?: string[];
+    lastProductDiscussed?: string | null;
+    memorySummary?: string | null;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
+        Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${input.conversationId} FOR UPDATE`,
+      );
+      const existingRaw = rows[0]?.current_order_intent_json;
+      const existingIsConfirmedCanonical = Boolean(
+        existingRaw
+        && typeof existingRaw === 'object'
+        && !Array.isArray(existingRaw)
+        && (existingRaw as Record<string, unknown>).schemaVersion === 4
+        && (existingRaw as Record<string, unknown>).confirmationState === 'CONFIRMED',
+      );
+
+      return tx.sofiaConversationMemory.upsert({
+        where: { conversationId: input.conversationId },
+        create: {
+          conversationId: input.conversationId,
+          customerMemoryId: input.customerMemoryId ?? null,
+          currentIntent: input.currentIntent ?? undefined,
+          currentOrderIntentJson: input.currentOrderIntent ?? undefined,
+          missingFieldsJson: input.missingFields ?? undefined,
+          lastProductDiscussed: input.lastProductDiscussed ?? undefined,
+          memorySummary: input.memorySummary ?? undefined,
+        },
+        update: {
+          customerMemoryId: input.customerMemoryId ?? undefined,
+          currentIntent: input.currentIntent ?? undefined,
+          // A30: never let the legacy writer clobber an already-persisted CONFIRMED canonical
+          // record -- omitting the field from the update payload leaves the existing column value
+          // untouched (Prisma treats `undefined` as "do not update this field").
+          currentOrderIntentJson: existingIsConfirmedCanonical ? undefined : (input.currentOrderIntent ?? undefined),
+          missingFieldsJson: input.missingFields ?? undefined,
+          lastProductDiscussed: input.lastProductDiscussed ?? undefined,
+          memorySummary: input.memorySummary ?? undefined,
+        },
+      });
+    });
+  }
+
   async saveDraft(input: Record<string, unknown> & { conversationId: string; version?: number; draftId?: string; allowNewDraftAfterConfirm?: boolean }) {
     const version = input.version ?? 1;
     const draftHash = commercialDraftHash({ ...input, draftId: undefined, version });
