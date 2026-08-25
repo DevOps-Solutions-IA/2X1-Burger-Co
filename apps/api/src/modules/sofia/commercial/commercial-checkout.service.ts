@@ -311,6 +311,22 @@ export class CommercialCheckoutService {
   }
 
   /**
+   * SOFIA Round 5 / A42 CLOSURE (A41 blind red-team finding, HIGH) — generalized version of
+   * `conflictCode()` that extracts an application error `code` from ANY Nest `HttpException` shape
+   * (`BadRequestException({code:'SOFIA_PRICE_CHANGED', ...})`, `ServiceUnavailableException({code:
+   * 'SOFIA_CATALOG_UNAVAILABLE'})`, etc.), not just `ConflictException`. Used only for audit
+   * traceability of what business condition made `recoverDraftConflict()`'s retry fall through to the
+   * safe response — never used to change control flow, so it never needs to enumerate every possible
+   * code.
+   */
+  private businessErrorCode(error: unknown): string | null {
+    const getResponse = (error as { getResponse?: unknown } | null)?.getResponse;
+    if (typeof getResponse !== 'function') return null;
+    const response = getResponse.call(error);
+    return typeof response === 'object' && response !== null ? (response as { code?: string }).code ?? null : null;
+  }
+
+  /**
    * SOFIA Round 5 / A36 CLOSURE (A35 blind red-team finding, MEDIUM) — recovers from the sibling CAS
    * failure `saveDraft()` can throw alongside `DraftAlreadyConfirmedError`:
    * `ConflictException({code:'STALE_DRAFT_VERSION'})`, thrown when a DIFFERENT, genuinely concurrent
@@ -367,6 +383,7 @@ export class CommercialCheckoutService {
         result: await this.respondDraftAlreadyConfirmed(state, command, new DraftAlreadyConfirmedError(state.draftId!)),
       };
     }
+    let retryFailureCode: string | null = null;
     if (fresh) {
       // Retry ONCE against the now-current authoritative version (read directly from `SofiaOrderDraft`,
       // not the possibly-not-yet-committed conversation-memory snapshot) AND against the now-current
@@ -388,15 +405,37 @@ export class CommercialCheckoutService {
         if (retryError instanceof DraftAlreadyConfirmedError) {
           return { recovered: true, kind: 'ALREADY_CONFIRMED', result: await this.respondDraftAlreadyConfirmed(state, command, retryError) };
         }
-        if (!this.isStaleDraftVersionConflict(retryError)) throw retryError;
-        // Fall through: a second consecutive collision is rare enough that we stop retrying rather
-        // than loop indefinitely, and respond safely below instead.
+        // SOFIA Round 5 / A42 CLOSURE (A41 blind red-team finding, HIGH) — previously only a SECOND
+        // `STALE_DRAFT_VERSION` conflict fell through to the safe response below; every OTHER
+        // foreseeable business exception the retried `prepareDraft()` (or `rebaseTurnOntoFreshState()`'s
+        // own `applyItemsMutation()` -> `resolveProducts()` catalog lookup) can throw --
+        // `SOFIA_PRICE_CHANGED`, `SOFIA_PRODUCT_UNAVAILABLE`, `SOFIA_MODIFIER_UNSUPPORTED`,
+        // `SOFIA_DELIVERY_QUOTE_REQUIRED`, `SOFIA_CATALOG_UNAVAILABLE` -- was re-thrown VERBATIM here and
+        // escaped uncaught, because neither `process()` nor `confirm()` wraps their own `await
+        // this.recoverDraftConflict(...)` call in a further try/catch. Rather than enumerating every
+        // business-exception code this service's various dependencies can throw today (fragile -- it
+        // would silently regress again the next time a new business-rule check is added anywhere in
+        // `prepareDraft()`/`rebaseTurnOntoFreshState()`'s call graph), ANY error reaching this point that
+        // is not a `DraftAlreadyConfirmedError` is now treated identically: never attempt a third
+        // `prepareDraft()` call (a genuine second collision and an unrelated business-rule failure are
+        // equally "not safely retryable within this turn"), and fall through to the SAME safe,
+        // already-audited `QUOTE_EXPIRED` re-sync response used for retry exhaustion just below --
+        // reloads the true authoritative state and asks the customer to resend, exactly like every other
+        // unrecoverable-within-this-turn condition in this method. `retryFailureCode` is captured purely
+        // for audit traceability (so a reviewer can see WHICH condition triggered the fallback) and never
+        // changes this control flow.
+        retryFailureCode = this.isStaleDraftVersionConflict(retryError)
+          ? 'STALE_DRAFT_VERSION'
+          : this.businessErrorCode(retryError) ?? (retryError instanceof Error ? retryError.message : 'UNKNOWN_RETRY_ERROR');
+        // Fall through: neither a second consecutive CAS collision nor a business-rule failure landing
+        // on the retry should loop indefinitely -- respond safely below instead.
       }
     }
 
-    // Authoritative reload unavailable, or the retry itself lost a second race: never let the
-    // customer's turn crash. Reload the best-known authoritative state and ask them to resend,
-    // reusing the same `QUOTE_EXPIRED` narration already used by the sibling expiry-refresh path.
+    // Authoritative reload unavailable, the retry itself lost a second race, or the retry's own
+    // business-rule validation (price/availability/quote/catalog) failed: never let the customer's turn
+    // crash. Reload the best-known authoritative state and ask them to resend, reusing the same
+    // `QUOTE_EXPIRED` narration already used by the sibling expiry-refresh path.
     const authoritative = (await this.repository.loadState(command.conversationId)) ?? state;
     await this.audit.record({
       actor: command.actor,
@@ -404,7 +443,7 @@ export class CommercialCheckoutService {
       entity: 'sofia_commercial_conversation',
       entityId: state.conversationId,
       result: 'SUCCESS',
-      after: { draftId: authoritative.draftId, draftVersion: authoritative.draftVersion },
+      after: { draftId: authoritative.draftId, draftVersion: authoritative.draftVersion, retryFailureCode },
     });
     return { recovered: true, kind: 'RETRY_EXHAUSTED', result: await this.respond(authoritative, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM') };
   }

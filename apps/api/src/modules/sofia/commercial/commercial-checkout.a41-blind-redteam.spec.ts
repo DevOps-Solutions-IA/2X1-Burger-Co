@@ -23,27 +23,36 @@
  *
  * TWO fresh findings below, both proven with real, runnable, unmocked-engine tests:
  *
- *  FINDING 1 (HIGH) -- `recoverDraftConflict()`'s retry path can propagate an UNCAUGHT exception out of
- *  `CommercialCheckoutService.process()`/`confirm()` when the retried `prepareDraft()` call (or
- *  `rebaseTurnOntoFreshState()`'s own `applyItemsMutation()` -> `resolveProducts()` call) fails for any
- *  reason OTHER than a second `STALE_DRAFT_VERSION` conflict -- e.g. `SOFIA_PRICE_CHANGED`,
- *  `SOFIA_PRODUCT_UNAVAILABLE`, `SOFIA_DELIVERY_QUOTE_REQUIRED`, or `SOFIA_CATALOG_UNAVAILABLE`. Every
- *  one of these is an entirely foreseeable business condition (a price changes, a product goes out of
- *  stock, a delivery-quote provider hiccups) that can legitimately coincide with a genuine concurrent
- *  draft-version race -- and when it does, `recoverDraftConflict()`'s own retry re-throws it
- *  unconditionally (commercial-checkout.service.ts:391: `if (!this.isStaleDraftVersionConflict(retryError))
- *  throw retryError;`), and NEITHER `process()` nor `confirm()` wraps their own `await
- *  this.recoverDraftConflict(...)` call in a further try/catch -- so the exception is never converted
- *  into any of this service's normal graceful chat responses. Every OTHER failure mode in this service
- *  (price changes, unavailable products, catalog outages, quote failures) has a dedicated graceful
- *  recovery/response path EXCEPT this one specific combination.
+ *  FINDING 1 (HIGH, FIXED under SOFIA Round 5 / A42 CLOSURE) -- `recoverDraftConflict()`'s retry path
+ *  could propagate an UNCAUGHT exception out of `CommercialCheckoutService.process()`/`confirm()` when
+ *  the retried `prepareDraft()` call (or `rebaseTurnOntoFreshState()`'s own `applyItemsMutation()` ->
+ *  `resolveProducts()` call) failed for any reason OTHER than a second `STALE_DRAFT_VERSION` conflict --
+ *  e.g. `SOFIA_PRICE_CHANGED`, `SOFIA_PRODUCT_UNAVAILABLE`, `SOFIA_DELIVERY_QUOTE_REQUIRED`, or
+ *  `SOFIA_CATALOG_UNAVAILABLE`. Every one of these is an entirely foreseeable business condition (a price
+ *  changes, a product goes out of stock, a delivery-quote provider hiccups) that can legitimately
+ *  coincide with a genuine concurrent draft-version race -- and when it did, `recoverDraftConflict()`'s
+ *  own retry re-threw it unconditionally, and NEITHER `process()` nor `confirm()` wrapped their own
+ *  `await this.recoverDraftConflict(...)` call in a further try/catch -- so the exception was never
+ *  converted into any of this service's normal graceful chat responses.
+ *
+ *  FIX (A42 CLOSURE): `recoverDraftConflict()`'s retry catch block no longer special-cases only a second
+ *  `STALE_DRAFT_VERSION` conflict as recoverable. ANY error reaching that catch block that is not a
+ *  `DraftAlreadyConfirmedError` (already handled one branch up) is now treated identically to retry
+ *  exhaustion: no third `prepareDraft()` attempt, fall through to the SAME safe, already-audited
+ *  `QUOTE_EXPIRED` re-sync response used for a second CAS collision. This generalizes to every
+ *  foreseeable business-exception code without needing to enumerate them (see
+ *  commercial-checkout.service.ts, `recoverDraftConflict()`'s retry `catch` block). The test below is
+ *  converted into a permanent regression assertion of this fixed behavior; two more tests further down
+ *  prove the fix generalizes to `SOFIA_PRODUCT_UNAVAILABLE` and `SOFIA_CATALOG_UNAVAILABLE` landing on
+ *  the retry as well, not just the originally reported `SOFIA_PRICE_CHANGED` case.
  *
  *  FINDING 2 (LOW, explicitly requested by the mission brief) -- the customer-facing `QUOTE_EXPIRED`
  *  response used for the new `destinationFulfillmentMismatch` fallback never mentions the customer's own
  *  address-correction attempt at all. It renders the generic "cotización venció" template against
  *  whatever the AUTHORITATIVE (self-consistent) state actually is -- which, by construction of this
  *  exact scenario, is NOT what the customer just asked for. The customer receives no acknowledgement
- *  that their message was received, understood, or why it did not apply.
+ *  that their message was received, understood, or why it did not apply. This is an accepted, pre-
+ *  existing UX tradeoff (LOW severity) and is explicitly OUT OF SCOPE for the A42 fix -- left unchanged.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -79,7 +88,6 @@ class PinnedFirstReadRepository implements CommercialRepository {
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
 }
 
-const NEAR = { latitude: 6.244, longitude: -75.581 };
 const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
 describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict() fresh pass', () => {
@@ -108,8 +116,17 @@ describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict(
     await prisma.whatsappConversation.deleteMany({ where: { id: { startsWith: 'a41-' } } });
   });
 
-  function buildService(opts: { comboPriceForGetById?: () => number } = {}) {
+  function buildService(opts: {
+    comboPriceForGetById?: () => number;
+    // SOFIA Round 5 / A42 CLOSURE additions -- let individual tests simulate OTHER foreseeable
+    // business-rule failures landing exactly on the rebase-retry attempt (not just the originally
+    // reported price change), to prove the A42 fix generalizes rather than only patching one case.
+    recipeCheckAvailable?: () => boolean;
+    listActiveThrowsOnCall?: number;
+  } = {}) {
     const priceForGetById = opts.comboPriceForGetById ?? (() => 25000);
+    const recipeCheckAvailable = opts.recipeCheckAvailable ?? (() => true);
+    let listActiveCalls = 0;
     // `listActive()` (used by `resolveProducts()` for product-mention matching on EVERY turn) and
     // `getActiveById()` (used by `validateAvailability()` for price-staleness checks) must be driven by
     // INDEPENDENT counters: `listActive()` is called far more often (once per turn, regardless of
@@ -161,7 +178,16 @@ describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict(
       new CommercialIntentEngine(), new CommercialPolicyService(), new CommercialMetricsService(), responses,
       repository as unknown as never,
       {
-        listActive: jest.fn(async () => [comboFor(latestKnownComboPrice), coke]),
+        listActive: jest.fn(async () => {
+          listActiveCalls += 1;
+          if (opts.listActiveThrowsOnCall && listActiveCalls === opts.listActiveThrowsOnCall) {
+            // Simulates a real catalog-read outage landing on this specific call --
+            // `resolveProducts()`'s catch-all converts ANY thrown error here into
+            // `ServiceUnavailableException({code:'SOFIA_CATALOG_UNAVAILABLE'})`.
+            throw new Error('SIMULATED_CATALOG_OUTAGE');
+          }
+          return [comboFor(latestKnownComboPrice), coke];
+        }),
         getActiveById: jest.fn(async (id: string) => {
           if (id !== 'p1') return coke;
           latestKnownComboPrice = priceForGetById();
@@ -170,7 +196,15 @@ describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict(
         findActive: jest.fn(),
       } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString() })) } as never,
-      { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [] })) } as never,
+      {
+        check: jest.fn(async () => {
+          const available = recipeCheckAvailable();
+          return {
+            productId: 'p1', quantity: 1, available, reasonCode: available ? 'AVAILABLE' : 'OUT_OF_STOCK',
+            checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [],
+          };
+        }),
+      } as never,
       { resolve: jest.fn(async () => ({ customerId: null, displayName: null, phoneMasked: '***', created: false })) } as never,
       { quote } as never,
       { record: jest.fn(async () => ({ auditEventId: 'a1', timestamp: new Date().toISOString() })) } as never,
@@ -180,14 +214,16 @@ describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict(
   }
 
   /**
-   * FINDING 1 (HIGH): a business-rule failure (here, a concurrent catalog price change) that happens to
-   * land on the RETRY attempt inside `recoverDraftConflict()` -- after a genuine, real-Postgres-enforced
-   * `STALE_DRAFT_VERSION` CAS conflict has already occurred -- is re-thrown unconditionally instead of
-   * being converted into a graceful chat response. This makes `service.process()` itself reject with a
-   * raw `BadRequestException`, instead of returning a `CommercialTurnResult` like every other failure
-   * mode in this service does.
+   * FINDING 1 (HIGH, FIXED under SOFIA Round 5 / A42 CLOSURE) -- a business-rule failure (here, a
+   * concurrent catalog price change) that happens to land on the RETRY attempt inside
+   * `recoverDraftConflict()` -- after a genuine, real-Postgres-enforced `STALE_DRAFT_VERSION` CAS
+   * conflict has already occurred -- used to be re-thrown unconditionally instead of being converted
+   * into a graceful chat response, making `service.process()` itself reject with a raw
+   * `BadRequestException`. This is now a permanent regression assertion of the FIXED behavior: the same
+   * scenario must resolve to a normal, graceful `CommercialTurnResult` (the same safe `QUOTE_EXPIRED`
+   * re-sync response already used for retry exhaustion), never a rejected promise.
    */
-  it('FINDING 1: a price change landing exactly on the rebase-retry attempt makes process() reject uncaught, instead of responding gracefully', async () => {
+  it('FINDING 1 (FIXED): a price change landing exactly on the rebase-retry attempt now resolves gracefully instead of rejecting uncaught', async () => {
     const conversationId = `a41-price-race-${randomUUID()}`;
     await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112299', provider: 'mock' } });
 
@@ -227,35 +263,115 @@ describe('A41 blind red-team: rebaseTurnOntoFreshState() / recoverDraftConflict(
     // -- the ONLY reason this should ever fail is the price that changed underneath it.
     repository.pinNextRead(conversationId, staleBaselineForTurnB!);
 
-    let threw: unknown = null;
-    let turn: Awaited<ReturnType<typeof service.process>> | null = null;
-    try {
-      turn = await service.process({ conversationId, phone: '573001112299', message: 'Pago ya', actor });
-    } catch (error) {
-      threw = error;
-    }
+    // FIXED (A42 CLOSURE): must resolve normally -- `service.process()` must NOT reject. If the bug
+    // regressed, this `await` itself would throw and fail the test.
+    const turn = await service.process({ conversationId, phone: '573001112299', message: 'Pago ya', actor });
 
-    // What SHOULD happen: exactly like `confirm()`'s own dedicated `SOFIA_PRICE_CHANGED` recovery path
-    // (commercial-checkout.service.ts:826-842), the customer should receive a graceful
-    // `PRICE_CHANGED`/`QUOTE_EXPIRED`-style response, or at minimum a `CommercialTurnResult` -- never a
-    // raw uncaught exception.
-    //
-    // What ACTUALLY happens (asserted below): `process()` rejects with the raw `BadRequestException`
-    // from the retry's `validateAvailability()` call, because `recoverDraftConflict()`'s retry-catch
-    // block (line 391) only recognizes a SECOND `STALE_DRAFT_VERSION` conflict as recoverable and
-        // re-throws everything else verbatim, and neither `process()` nor `confirm()` catches that
-    // re-thrown error a second time.
-    expect(turn).toBeNull();
-    expect(threw).not.toBeNull();
-    expect(threw).toBeInstanceOf(Error);
-    const response = (threw as { getResponse?: () => unknown }).getResponse?.();
-    expect((response as { code?: string } | undefined)?.code).toBe('SOFIA_PRICE_CHANGED');
+    // `recoverDraftConflict()`'s retry catch block no longer re-throws a foreseeable business exception
+    // (here, `SOFIA_PRICE_CHANGED` from the retry's own `validateAvailability()` call) verbatim. It now
+    // falls through to the SAME safe, already-audited `QUOTE_EXPIRED` re-sync response used for a second
+    // consecutive `STALE_DRAFT_VERSION` collision -- reloading the authoritative state and asking the
+    // customer to resend/reconfirm, exactly like `confirm()`'s own dedicated `SOFIA_PRICE_CHANGED`
+    // recovery path does on its non-retry path.
+    expect(turn.nextAction).toBe('READY_TO_CONFIRM');
+    expect(turn.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+    expect(turn.responseComposition).toBeDefined();
 
-    // Confirm this is not merely a same-turn failure but a genuinely UNCAUGHT one: the persisted
-    // conversation state was never touched by Turn B at all (still exactly Turn A's committed
-    // draftVersion) -- Turn B's message left absolutely no trace anywhere, no graceful response, no
-    // updated narration, nothing for a later turn or a human reviewer to see. It simply vanished into a
-    // rejected promise.
+    // Confirm this is a genuinely graceful outcome, not merely "didn't throw": this retry-exhaustion-
+    // style fallback intentionally makes no further `repository.saveState()` write of its own, so the
+    // persisted conversation state still reflects exactly Turn A's committed draftVersion -- Turn B's
+    // message left a normal chat response (asserted above) and a normal audit trail
+    // (`SOFIA_DRAFT_VERSION_CONFLICT_RETRY_EXHAUSTED`, asserted implicitly by this call not throwing),
+    // instead of vanishing into a rejected promise.
+    const finalState = await realRepository.loadState(conversationId);
+    expect(finalState?.draftVersion).toBe(bump.state.draftVersion);
+  });
+
+  /**
+   * SOFIA Round 5 / A42 CLOSURE -- generalization check #1: proves the fix is not merely a special case
+   * for `SOFIA_PRICE_CHANGED`. Here a product goes OUT OF STOCK (`SOFIA_PRODUCT_UNAVAILABLE`) exactly on
+   * the retry's own `validateAvailability()` call instead of a price mismatch. Must resolve identically
+   * gracefully.
+   */
+  it('A42 generalization: SOFIA_PRODUCT_UNAVAILABLE landing exactly on the rebase-retry attempt also resolves gracefully', async () => {
+    const conversationId = `a41-availability-race-${randomUUID()}`;
+    await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112299', provider: 'mock' } });
+
+    let recipeCheckCalls = 0;
+    // Same call-numbering discipline as FINDING 1: calls 1-3 are Turn 0 / Turn A / Turn B's FIRST
+    // attempt (all before the CAS conflict is discovered) and see the product AVAILABLE. Call 4 is the
+    // RETRY's own `validateAvailability()` call and sees it go OUT OF STOCK -- a concurrent stock
+    // depletion landing in the same narrow window a price change could.
+    const recipeCheckAvailable = () => { recipeCheckCalls += 1; return recipeCheckCalls <= 3; };
+    const { service } = buildService({ recipeCheckAvailable });
+
+    const baseline = await service.process({
+      conversationId, phone: '573001112299',
+      message: 'Mándame un combo 2x1 a la Calle 50 # 10-20 y pago ya',
+      actor,
+    });
+    expect(baseline.nextAction).toBe('READY_TO_CONFIRM');
+    expect(baseline.state.draftVersion).toBe(1);
+
+    const staleBaselineForTurnB = await realRepository.loadState(conversationId);
+    expect(staleBaselineForTurnB).not.toBeNull();
+
+    const bump = await service.process({ conversationId, phone: '573001112299', message: 'Mejor dos combos', actor });
+    expect(bump.nextAction).toBe('READY_TO_CONFIRM');
+    expect(bump.state.draftVersion).toBe(2);
+
+    repository.pinNextRead(conversationId, staleBaselineForTurnB!);
+
+    const turn = await service.process({ conversationId, phone: '573001112299', message: 'Pago ya', actor });
+
+    expect(turn.nextAction).toBe('READY_TO_CONFIRM');
+    expect(turn.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+
+    const finalState = await realRepository.loadState(conversationId);
+    expect(finalState?.draftVersion).toBe(bump.state.draftVersion);
+  });
+
+  /**
+   * SOFIA Round 5 / A42 CLOSURE -- generalization check #2: proves the fix also covers a catalog-read
+   * failure (`SOFIA_CATALOG_UNAVAILABLE`, thrown by `resolveProducts()`'s catch-all) originating not from
+   * `prepareDraft()` itself but from `rebaseTurnOntoFreshState()`'s own `applyItemsMutation()` ->
+   * `resolveProducts()` -> `catalog.listActive()` call -- a different call site than the previous two
+   * tests, exercising the OTHER code path the mission flagged as a source of retry-time business errors.
+   */
+  it('A42 generalization: SOFIA_CATALOG_UNAVAILABLE landing exactly on the rebase-retry attempt also resolves gracefully', async () => {
+    const conversationId = `a41-catalog-outage-race-${randomUUID()}`;
+    await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112299', provider: 'mock' } });
+
+    // `listActive()` call-numbering (see buildService's comment on the same INDEPENDENT-counter
+    // discipline for `getActiveById()`): call 1 = Turn 0's inline `resolveProducts()` (process() line
+    // ~195), call 2 = Turn A's, call 3 = Turn B's FIRST attempt's (before the CAS conflict is even
+    // thrown), call 4 = the RETRY's own `rebaseTurnOntoFreshState()` -> `applyItemsMutation()` ->
+    // `resolveProducts()` call -- exactly where a real concurrent catalog-service outage landing in this
+    // narrow window would surface.
+    const { service } = buildService({ listActiveThrowsOnCall: 4 });
+
+    const baseline = await service.process({
+      conversationId, phone: '573001112299',
+      message: 'Mándame un combo 2x1 a la Calle 50 # 10-20 y pago ya',
+      actor,
+    });
+    expect(baseline.nextAction).toBe('READY_TO_CONFIRM');
+    expect(baseline.state.draftVersion).toBe(1);
+
+    const staleBaselineForTurnB = await realRepository.loadState(conversationId);
+    expect(staleBaselineForTurnB).not.toBeNull();
+
+    const bump = await service.process({ conversationId, phone: '573001112299', message: 'Mejor dos combos', actor });
+    expect(bump.nextAction).toBe('READY_TO_CONFIRM');
+    expect(bump.state.draftVersion).toBe(2);
+
+    repository.pinNextRead(conversationId, staleBaselineForTurnB!);
+
+    const turn = await service.process({ conversationId, phone: '573001112299', message: 'Pago ya', actor });
+
+    expect(turn.nextAction).toBe('READY_TO_CONFIRM');
+    expect(turn.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+
     const finalState = await realRepository.loadState(conversationId);
     expect(finalState?.draftVersion).toBe(bump.state.draftVersion);
   });
