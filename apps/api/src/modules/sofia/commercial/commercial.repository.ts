@@ -55,6 +55,33 @@ export class DraftAlreadyConfirmedError extends Error {
   }
 }
 
+/**
+ * SOFIA Round 5 / A50 CLOSURE (A49 blind red-team finding, LOW, defense-in-depth) —
+ * `reconcileConfirmedState()` (below) has an IMPLICIT precondition: it must only ever be asked to
+ * resolve a `draftId` that the caller already knows is genuinely `CONFIRMED`. Every current
+ * production caller upholds this today (verified by full call-graph trace — see the A49 spec's
+ * reachability caveat), but nothing in the method ITSELF used to enforce it: a
+ * `computeReconciledState` callback could return a `resolved.confirmationState === 'CONFIRMED'`
+ * that neither the locked `sofiaConversationMemory` row nor this SAME transaction's own locked read
+ * of the authoritative `SofiaOrderDraft` row actually corroborates, and that fabricated result would
+ * flow straight back to the caller — and, in `respondDraftAlreadyConfirmed()`'s case, straight into
+ * a customer-facing "your order is confirmed" narration — with nothing having verified it.
+ *
+ * `reconcileConfirmedState()` now independently re-derives, from its OWN locked observations only
+ * (never trusting the callback's internal logic), whether a `CONFIRMED` result is legitimately
+ * backed by evidence. When it is not, it throws THIS error instead of ever returning the fabricated
+ * result — so the precondition is enforced by the mechanism itself, not by caller discipline alone,
+ * and a future caller/refactor that removes an existing upstream guard cannot silently reopen the
+ * gap. Callers that reach this branch should treat it exactly like any other failure of the atomic
+ * reconcile: fail closed, persist nothing, and never build a "confirmed" customer message from it.
+ */
+export class SofiaReconcileConfirmationUnverifiableError extends Error {
+  constructor(public readonly conversationId: string, public readonly draftId: string) {
+    super(`SOFIA_RECONCILE_CONFIRMATION_UNVERIFIABLE: reconcileConfirmedState() for conversation ${conversationId} / draft ${draftId} was asked to resolve a CONFIRMED result that neither the locked conversation-memory row nor this transaction's own locked SofiaOrderDraft read corroborates; refusing to return an unverified CONFIRMED result.`);
+    this.name = 'SofiaReconcileConfirmationUnverifiableError';
+  }
+}
+
 export interface CommercialRepository {
   loadState(conversationId: string): Promise<CommercialConversationState | null>;
   saveState(state: CommercialConversationState): Promise<void>;
@@ -137,6 +164,20 @@ export interface CommercialRepository {
    * correctly-implemented `computeReconciledState` should never legitimately propose a regression
    * from this call site (it is only ever reached once the caller already knows `draftId` is
    * CONFIRMED).
+   *
+   * SOFIA Round 5 / A50 CLOSURE (A49 blind red-team finding, LOW, defense-in-depth) — two further
+   * hardenings, both aimed at making this method enforce its own "caller already knows `draftId` is
+   * CONFIRMED" precondition instead of relying entirely on caller discipline:
+   *   1. The authoritative `SofiaOrderDraft` read is now itself taken under `SELECT ... FOR UPDATE`
+   *      (the same row-lock discipline already used for `sofiaConversationMemory`), so a genuinely
+   *      concurrent writer to that row cannot land in the gap between this read and this
+   *      transaction's commit.
+   *   2. Independently of that lock, if `computeReconciledState` ever returns a `resolved` whose
+   *      `confirmationState` is `'CONFIRMED'` without EITHER the locked `current` memory row or this
+   *      transaction's own locked `confirmedDraft` read corroborating it, this method throws
+   *      `SofiaReconcileConfirmationUnverifiableError` rather than returning the fabricated result —
+   *      so this method itself can never be the source of a customer being told "confirmed" from
+   *      unverified data, regardless of what any present or future callback does.
    */
   reconcileConfirmedState(
     conversationId: string,

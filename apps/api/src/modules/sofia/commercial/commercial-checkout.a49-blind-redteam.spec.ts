@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PrismaCommercialRepository } from './persistence/prisma-commercial.repository';
 import { CommercialCheckoutService } from './commercial-checkout.service';
+import { SofiaReconcileConfirmationUnverifiableError } from './commercial.repository';
 import type { CommercialConversationState } from './commercial.types';
 
 /**
@@ -218,73 +219,76 @@ describe('A49 blind red-team: reconcileConfirmedState() re-verification with REA
     await cleanup(conversationId, realCustomerId);
   }, 30000);
 
-  it('FINDING (LOW, narrow): reconcileConfirmedState()\'s unlocked draft read, if ever invoked BEFORE confirmDraft() truly commits, returns the CALLING TURN\'S OWN STALE state mislabeled CONFIRMED (fail-closed case 3) -- DB stays safe (persist:false) but this exact object is what respond() sends to the customer', async () => {
-    // IMPORTANT REACHABILITY CAVEAT (verified by full call-graph trace, not assumed): every real
-    // production caller of `respondDraftAlreadyConfirmed()` -- `recoverDraftConflict()`'s
-    // `DraftAlreadyConfirmedError` branch, its `STALE_DRAFT_VERSION` -> `loadDraftVersion()`
-    // branch, and `recoverStaleConfirmation()`'s `SOFIA_STALE_CONFIRMATION` branch -- ALL first
-    // perform their OWN read that already observed `status === 'CONFIRMED'` (in
-    // `saveDraft()`'s CAS, or an explicit `loadDraftVersion()` check) BEFORE ever calling
-    // `respondDraftAlreadyConfirmed()`. Under Postgres READ COMMITTED, once any reader observes a
-    // committed value, that write is durably committed and visible to every later reader/writer --
-    // so in practice `confirmDraft()` has ALWAYS already committed by the time
-    // `reconcileConfirmedState()`'s own unlocked `tx.sofiaOrderDraft.findUnique()` runs. This test
-    // therefore does NOT reproduce a reachable production race today.
+  it('SOFIA Round 5 / A50 CLOSURE (hardened regression of the A49 finding, LOW/defense-in-depth): reconcileConfirmedState() can no longer silently return the CALLING TURN\'S OWN STALE state mislabeled CONFIRMED -- a still-in-flight concurrent confirm now produces EITHER a genuinely-verified CONFIRMED reconstruction OR a loud SofiaReconcileConfirmationUnverifiableError, never a fabricated customer-facing CONFIRMED narration', async () => {
+    // ORIGINAL A49 FINDING (LOW, narrow, verified NOT reachable via any current production call
+    // path by full call-graph trace -- every real caller of `respondDraftAlreadyConfirmed()` always
+    // already observes `status === 'CONFIRMED'` before calling in): `reconcileConfirmedState()`'s
+    // draft read used to be a PLAIN, unlocked `tx.sofiaOrderDraft.findUnique()` -- only the
+    // `sofiaConversationMemory` row itself was lock-protected. Fired directly at the exact instant a
+    // raw `sofiaOrderDraft.update()` to CONFIRMED was ALSO in flight for the same row, the unlocked
+    // read could observe the PRE-update row and fall into `decideConfirmedReconciliation()`'s
+    // case-3 fail-closed branch -- which used to return `{ ...callerState, confirmationState:
+    // 'CONFIRMED' }` verbatim, i.e. the calling turn's own unverified, possibly-stale data (wrong
+    // customerId/items/price in a real turn) labeled CONFIRMED. `persist: false` always protected
+    // the DATABASE (zero rows written in that branch), but `respondDraftAlreadyConfirmed()` still
+    // sends that exact object to the customer as "your order is confirmed" -- a narration built from
+    // data nothing had actually verified.
     //
-    // What it DOES prove: `reconcileConfirmedState()` as a repository primitive has NO enforcement
-    // of that precondition itself -- it trusts the caller entirely. If fired directly (as here) at
-    // the exact instant a raw `sofiaOrderDraft.update()` to CONFIRMED is ALSO in flight for the
-    // same row, the unlocked, non-`FOR UPDATE` `tx.sofiaOrderDraft.findUnique()` can observe the
-    // PRE-update row and fall into `decideConfirmedReconciliation()`'s case-3 fail-closed branch --
-    // which returns `{ ...callerState, confirmationState: 'CONFIRMED' }`, i.e. the CALLING TURN'S
-    // OWN unverified, possibly-stale data (wrong customerId/items/price in a real turn), labeled
-    // CONFIRMED. `persist: false` protects the DATABASE (proven below: zero rows written), but
-    // `respondDraftAlreadyConfirmed()` still calls `this.respond(resolved, ..., 'DRAFT_CONFIRMED')`
-    // on that exact object -- i.e. the CUSTOMER-FACING reply would assert "your order is confirmed"
-    // sourced from data nothing has actually verified as the true confirmed order. This is a
-    // narration/evidence-linking property (`respond()`'s output must never diverge from actual
-    // confirmed-or-pending canonical state) that today depends ENTIRELY on every present and future
-    // caller of `reconcileConfirmedState()` upholding an unenforced, undocumented-in-the-type-system
-    // invariant, rather than the transaction itself refusing to fabricate a CONFIRMED narration it
-    // cannot verify. Recommendation: case 3 should mark the response as UNVERIFIED/hand off rather
-    // than assert `confirmationState: 'CONFIRMED'` from unverified caller state, and/or
-    // `reconcileConfirmedState()` should take its own `FOR UPDATE` lock on the draft row so the
-    // precondition is enforced by the mechanism itself, not by caller discipline alone.
-    const conversationId = `a49-draftread-${randomUUID()}`;
-    await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573008889999', provider: 'mock' } });
-    const draftReadCustomer = await prisma.customer.create({ data: { displayName: 'A49 Draftread Customer' } });
-    const draft = await prisma.sofiaOrderDraft.create({
-      data: {
-        conversationId, status: 'READY_TO_CONFIRM', fulfillment: 'TAKEAWAY', paymentPreference: 'CASH_ON_DELIVERY',
-        version: 1, draftHash: 'hash-a49-b', itemsSnapshot: [], subtotal: 0, deliveryFee: 0, total: 0,
-        availabilitySnapshot: [], expiresAt: new Date(Date.now() + 60_000), customerId: draftReadCustomer.id,
-      },
-    });
-    await repo.saveState(baseState(conversationId, { draftId: draft.id, draftVersion: 1, draftHash: 'hash-a49-b' }));
+    // SOFIA Round 5 / A50 CLOSURE: `reconcileConfirmedState()` now (1) takes its own `SELECT ... FOR
+    // UPDATE` lock on the `SofiaOrderDraft` row, and (2) independently re-derives -- from its OWN
+    // locked observations only, never trusting the callback's internal honesty -- whether a
+    // `resolved.confirmationState === 'CONFIRMED'` result is actually corroborated by either the
+    // locked memory row or its own locked draft read. If a callback (this one, or any future caller)
+    // ever returns CONFIRMED without either corroborating it, the method now throws
+    // `SofiaReconcileConfirmationUnverifiableError` instead of returning the fabricated result. This
+    // test still fires the exact same genuine race the A49 finding used to reproduce the gap with --
+    // it now asserts the HARDENED behavior: the vulnerable "silent fabrication" outcome is no longer
+    // reachable at all, regardless of how the race interleaves.
+    for (let trial = 0; trial < 5; trial++) {
+      const conversationId = `a50-draftread-${trial}-${randomUUID()}`;
+      await prisma.whatsappConversation.create({ data: { id: conversationId, phone: `57300889${trial}${trial}${trial}${trial}`, provider: 'mock' } });
+      const draftReadCustomer = await prisma.customer.create({ data: { displayName: `A50 Draftread Customer ${trial}` } });
+      const draft = await prisma.sofiaOrderDraft.create({
+        data: {
+          conversationId, status: 'READY_TO_CONFIRM', fulfillment: 'TAKEAWAY', paymentPreference: 'CASH_ON_DELIVERY',
+          version: 1, draftHash: 'hash-a50-b', itemsSnapshot: [], subtotal: 0, deliveryFee: 0, total: 0,
+          availabilitySnapshot: [], expiresAt: new Date(Date.now() + 60_000), customerId: draftReadCustomer.id,
+        },
+      });
+      await repo.saveState(baseState(conversationId, { draftId: draft.id, draftVersion: 1, draftHash: 'hash-a50-b' }));
 
-    const loserState = baseState(conversationId, { draftId: draft.id, customerId: 'draftread-loser-STALE-DATA' });
-    const [, resolved] = await Promise.all([
-      prisma.sofiaOrderDraft.update({ where: { id: draft.id }, data: { status: 'CONFIRMED', confirmedAt: new Date(), confirmationHash: 'x' } }),
-      repo.reconcileConfirmedState(conversationId, draft.id, (locked) => decide(loserState, draft.id, locked)),
-    ]);
+      const loserState = baseState(conversationId, { draftId: draft.id, customerId: 'draftread-loser-STALE-DATA' });
+      const [updateOutcome, reconcileOutcome] = await Promise.allSettled([
+        prisma.sofiaOrderDraft.update({ where: { id: draft.id }, data: { status: 'CONFIRMED', confirmedAt: new Date(), confirmationHash: 'x' } }),
+        repo.reconcileConfirmedState(conversationId, draft.id, (locked) => decide(loserState, draft.id, locked)),
+      ]);
 
-    // DB-safety invariant holds regardless of which branch was hit: no corrupted/duplicate row.
-    const rows = await prisma.sofiaConversationMemory.findMany({ where: { conversationId } });
-    expect(rows.length).toBe(1);
+      // The raw confirming update itself must always succeed regardless of how the reconcile side
+      // resolves -- the fix must never make the confirm() write path itself fail.
+      expect(updateOutcome.status).toBe('fulfilled');
 
-    if (resolved.customerId === 'draftread-loser-STALE-DATA') {
-      // Reproduced the fail-closed case-3 branch: DB untouched (still whatever saveState() left,
-      // never the stale data), BUT `resolved` -- the exact object respond() uses to build the
-      // customer-facing message -- claims CONFIRMED using the caller's own unverified state.
-      expect(resolved.confirmationState).toBe('CONFIRMED');
+      // DB-safety invariant holds regardless of which branch was hit: no corrupted/duplicate row,
+      // and the stale loser data is never durably persisted.
+      const rows = await prisma.sofiaConversationMemory.findMany({ where: { conversationId } });
+      expect(rows.length).toBe(1);
       const dbState = await repo.loadState(conversationId);
-      expect(dbState?.customerId).not.toBe('draftread-loser-STALE-DATA'); // DB never corrupted
-    } else {
-      // The more common (and, per the reachability caveat above, production-realistic) outcome:
-      // the draft read observed CONFIRMED and reconstructed correctly from authoritative data.
-      expect(resolved.customerId).toBe(draftReadCustomer.id);
-    }
+      expect(dbState?.customerId).not.toBe('draftread-loser-STALE-DATA');
 
-    await cleanup(conversationId, draftReadCustomer.id);
-  }, 15000);
+      if (reconcileOutcome.status === 'rejected') {
+        // The precondition-violation interleave was hit (this call's own lock won the race and
+        // observed the pre-confirm row): the hardened method now fails LOUDLY instead of fabricating
+        // -- never a silent 'CONFIRMED' response built from the loser's stale state.
+        expect(reconcileOutcome.reason).toBeInstanceOf(SofiaReconcileConfirmationUnverifiableError);
+      } else {
+        // The more common interleave: the locked draft read observed the genuinely-committed
+        // CONFIRMED row and reconstructed correctly from authoritative data -- NEVER the stale
+        // loser's customerId, and NEVER a fabricated result.
+        expect(reconcileOutcome.value.confirmationState).toBe('CONFIRMED');
+        expect(reconcileOutcome.value.customerId).toBe(draftReadCustomer.id);
+        expect(reconcileOutcome.value.customerId).not.toBe('draftread-loser-STALE-DATA');
+      }
+
+      await cleanup(conversationId, draftReadCustomer.id);
+    }
+  }, 30000);
 });

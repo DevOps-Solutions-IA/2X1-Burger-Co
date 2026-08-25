@@ -2,7 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { OrderTicketType, Prisma, SofiaOrderDraftStatus, SofiaPaymentPreference } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { commercialDraftHash } from '../commercial-draft-hash';
-import { DraftAlreadyConfirmedError, type CommercialConfirmedDraftRecord, type CommercialRepository } from '../commercial.repository';
+import { DraftAlreadyConfirmedError, SofiaReconcileConfirmationUnverifiableError, type CommercialConfirmedDraftRecord, type CommercialRepository } from '../commercial.repository';
 import type { CommercialConversationState, CommercialItem } from '../commercial.types';
 
 @Injectable()
@@ -368,10 +368,51 @@ export class PrismaCommercialRepository implements CommercialRepository {
       );
       const current = this.parseCanonicalState(rows[0]?.current_order_intent_json);
 
-      const draft = await tx.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+      // SOFIA Round 5 / A50 CLOSURE (A49 blind red-team finding, LOW, defense-in-depth) — take a
+      // real row lock on the authoritative `SofiaOrderDraft` row too, not just a plain
+      // `findUnique()`. Without this, a genuinely concurrent writer to THIS row (a raw
+      // `sofiaOrderDraft.update()`, or any future caller's own write) could commit its change in the
+      // gap between an unlocked read starting and that concurrent write committing, letting this
+      // read observe a pre-commit, about-to-be-stale snapshot even though the memory row itself was
+      // already lock-protected. `SELECT ... FOR UPDATE` forces this transaction to wait for any such
+      // in-flight writer to commit (or be forced to wait for THIS transaction, if this lock request
+      // wins the race) before proceeding — so the subsequent typed read below always observes a
+      // value Postgres has already fully committed to, never a torn/in-flight one.
+      const draftLockRows = await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT "id" FROM "sofia_order_drafts" WHERE "id" = ${draftId} FOR UPDATE`,
+      );
+      const draft = draftLockRows.length > 0 ? await tx.sofiaOrderDraft.findUnique({ where: { id: draftId } }) : null;
       const confirmedDraft = draft ? this.toConfirmedDraftRecord({ ...draft, status: draft.status as string }) : null;
 
       const { resolved, persist } = computeReconciledState({ current, confirmedDraft });
+
+      // SOFIA Round 5 / A50 CLOSURE (A49 blind red-team finding, LOW, defense-in-depth) — never
+      // trust `computeReconciledState`'s own internal honesty about whether a `CONFIRMED` label is
+      // actually verifiable. Independently re-derive, from THIS transaction's own locked
+      // observations only, whether a `CONFIRMED` `resolved.confirmationState` is legitimately backed
+      // by evidence this call itself observed — mirroring the exact two conditions a correctly
+      // implemented callback's legitimate branches would use (the locked memory row already showing
+      // CONFIRMED for this `draftId`, or this call's own locked draft read verifiably confirming it
+      // for this exact `draftId`/`conversationId`). If a callback (this repository's own caller
+      // today, or ANY future caller) ever returns CONFIRMED without either corroborating it, that is
+      // precisely the unenforced-precondition gap A49 found: fail closed by throwing, so this method
+      // itself can never be the source of a fabricated CONFIRMED result leaving the transaction —
+      // regardless of what the callback did or what future callers do.
+      if (resolved.confirmationState === 'CONFIRMED') {
+        const memoryCorroborates = Boolean(
+          current && current.confirmationState === 'CONFIRMED' && current.draftId === draftId,
+        );
+        const draftCorroborates = Boolean(
+          confirmedDraft
+          && confirmedDraft.status === 'CONFIRMED'
+          && confirmedDraft.id === draftId
+          && confirmedDraft.conversationId === conversationId,
+        );
+        if (!memoryCorroborates && !draftCorroborates) {
+          throw new SofiaReconcileConfirmationUnverifiableError(conversationId, draftId);
+        }
+      }
+
       if (!persist) return resolved;
 
       // Defense-in-depth: apply the SAME never-regress-CONFIRMED guard `saveState()` itself
