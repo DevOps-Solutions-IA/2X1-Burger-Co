@@ -118,8 +118,12 @@ export class OrdersController {
 
   @Get(':id/delivery-receipt')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
-  async getDeliveryReceipt(@Param('id') id: string, @Res() res: Response) {
-    const pdf = await this.ordersService.generateCurrentDeliveryReceiptPdf(id);
+  async getDeliveryReceipt(
+    @Param('id') id: string,
+    @Res() res: Response,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    const pdf = await this.ordersService.generateCurrentDeliveryReceiptPdf(id, actor);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="cuenta-domicilio-${id}.pdf"`);
     res.send(pdf);
@@ -127,14 +131,14 @@ export class OrdersController {
 
   @Get(':id/delivery-receipt-status')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
-  getDeliveryReceiptStatus(@Param('id') id: string) {
-    return this.ordersService.getDeliveryReceiptStatus(id);
+  getDeliveryReceiptStatus(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.ordersService.getDeliveryReceiptStatus(id, actor);
   }
 
   @Get(':id/delivery-receipt-history')
   @Roles('admin', 'cashier', 'supervisor', 'delivery')
-  getDeliveryReceiptHistory(@Param('id') id: string) {
-    return this.ordersService.getDeliveryReceiptHistory(id);
+  getDeliveryReceiptHistory(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.ordersService.getDeliveryReceiptHistory(id, actor);
   }
 
   private assertOperationalSearchIsNotInUrl(query: ListOperationalOrdersDto) {

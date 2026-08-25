@@ -9,45 +9,44 @@ import { OrdersService } from './orders.service';
 
 /**
  * A51 (blind red team, round 5 pass 51) — FINDING: IDOR on delivery-receipt read endpoints.
+ * A53 — REMEDIATION.
  *
- * ROOT CAUSE
- * ----------
- * `OrdersController` (apps/api/src/modules/orders/orders.controller.ts) exposes three routes to
- * the `delivery` role, keyed only by the order id in the URL, none of which accept
- * `@CurrentUser()` at all:
+ * ROOT CAUSE (fixed in this pass)
+ * --------------------------------
+ * `OrdersController` (apps/api/src/modules/orders/orders.controller.ts) exposed three routes to
+ * the `delivery` role, keyed only by the order id in the URL, none of which collected
+ * `@CurrentUser()`:
  *
  *   GET  :id/delivery-receipt          -> ordersService.generateCurrentDeliveryReceiptPdf(id)
  *   GET  :id/delivery-receipt-status   -> ordersService.getDeliveryReceiptStatus(id)
  *   GET  :id/delivery-receipt-history  -> ordersService.getDeliveryReceiptHistory(id)
  *
- * None of the three underlying `OrdersService` methods accept (or check) an `actor` at all — the
- * PDF/status/history are generated purely from `id`. This is inconsistent with every OTHER
+ * None of the three underlying `OrdersService` methods accepted (or checked) an `actor` at all —
+ * the PDF/status/history were generated purely from `id`. This was inconsistent with every OTHER
  * delivery-role-accessible mutation on the same order (`claimDelivery`, `updateDeliveryWorkflow` /
  * `delivery-status`), which correctly route through `assertDeliveryWorkflowAccess()`
- * (orders.service.ts:1056) and throw `ConflictException` when the acting `delivery`-role user is
- * not `order.assignedRiderId`. The list endpoint `findDeliveryActive()` (orders.service.ts:764)
- * likewise correctly scopes what a `delivery`-role user is shown to
- * `assignedRiderId: actor.sub OR null` — proving the intended authorization model is
- * "a courier only touches their own (or unclaimed) deliveries". The three receipt-read routes are
- * simply missing that same ownership check, even though `Roles('delivery')` lets any
- * `delivery`-role account reach them for ANY order id, not just their own.
+ * (orders.service.ts) and throw `ConflictException` when the acting `delivery`-role user is not
+ * `order.assignedRiderId`.
  *
- * BUSINESS / PII IMPACT
- * -----------------------
- * A `delivery`-role account (a courier account — an externally-facing, high-turnover role in a
- * fast-food delivery operation) can pull the full PDF receipt (customer name, delivery address,
- * phone, order items, payment method — CLAUDE.md section 17 PII), send-status, and full send
- * history for ANY delivery order in the system, including orders assigned to a DIFFERENT courier
- * or not yet claimed by anyone, by id alone — with zero ownership check, at the exact same
- * `@Roles` gate that correctly enforces ownership one route away. This is a direct RBAC/IDOR
- * violation of the invariant explicitly required for this pass ("Can a `delivery`-role account act
- * on a delivery order not assigned to them?").
+ * FIX
+ * ---
+ * All three controller routes now collect `@CurrentUser() actor: AuthUser` and pass it through to
+ * the corresponding `OrdersService` method, which now fetches `assignedRiderId` /
+ * `assignedRider.fullName` and calls the SAME `assertDeliveryWorkflowAccess()` helper already used
+ * by `claimDelivery()`/`updateDeliveryWorkflow()` — no parallel authorization mechanism was
+ * invented. `allowClaim: true` is passed (matching `findDeliveryActive()`'s visibility rule of
+ * `assignedRiderId: actor.sub OR null`) so a courier can still preview the receipt of an unclaimed
+ * order before claiming it, but never another courier's already-assigned order.
+ *
+ * Staff roles (`admin`/`cashier`/`supervisor`) are exempt from the ownership check, exactly like
+ * every sibling delivery route, because `assertDeliveryWorkflowAccess()` short-circuits via
+ * `isPrivilegedOrderOperator()` before ever looking at `assignedRiderId`.
  *
  * This test proves it against the REAL, unmocked `OrdersService` + real Postgres + the real
- * `assertDeliveryWorkflowAccess` ownership gate (exercised directly as a same-request contrast, not
- * mocked away), through the full Nest DI graph (`createTestApp()`), not a hand-wired stub.
+ * `assertDeliveryWorkflowAccess` ownership gate, through the full Nest DI graph
+ * (`createTestApp()`), not a hand-wired stub.
  */
-describe('A51 — delivery-receipt-status/-history IDOR (no ownership check for the `delivery` role)', () => {
+describe('A51/A53 — delivery-receipt-status/-history/-pdf ownership enforcement for the `delivery` role', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let orders: OrdersService;
@@ -55,7 +54,7 @@ describe('A51 — delivery-receipt-status/-history IDOR (no ownership check for 
   beforeAll(async () => {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
     if (!process.env.DATABASE_URL?.includes('_test')) {
-      throw new Error('A51 delivery-receipt IDOR tests require an isolated _test database.');
+      throw new Error('A51/A53 delivery-receipt IDOR tests require an isolated _test database.');
     }
     const testApp = await createTestApp();
     app = testApp.app;
@@ -78,7 +77,35 @@ describe('A51 — delivery-receipt-status/-history IDOR (no ownership check for 
     };
   }
 
-  it('a delivery-role account NOT assigned to an order can read its receipt status + history, while the identical order/actor pair is correctly REJECTED by the sibling ownership-checked delivery-workflow endpoint', async () => {
+  async function createAssignedDeliveryOrder(input: {
+    prisma: PrismaService;
+    createdById: string;
+    assignedRiderId: string;
+  }) {
+    const cashSession = await input.prisma.cashSession.create({
+      data: { openedById: input.createdById, openingAmount: 0 },
+    });
+
+    return input.prisma.orderTicket.create({
+      data: {
+        number: `A53-IDOR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: OrderTicketType.DELIVERY,
+        status: OrderTicketStatus.SERVED,
+        cashSessionId: cashSession.id,
+        createdById: input.createdById,
+        assignedRiderId: input.assignedRiderId,
+        deliveryWorkflowStatus: DeliveryWorkflowStatus.ASSIGNED,
+        deliveryWorkflowVersion: 0,
+        customerName: 'Cliente Confidencial A51',
+        customerPhone: '3011234567',
+        deliveryReference: 'Torre 4, apto 501 - datos personales sensibles',
+        deliveryFee: 0,
+        subtotal: 45_000,
+      },
+    });
+  }
+
+  it('REGRESSION: a delivery-role account NOT assigned to an order is REJECTED from receipt status/history/pdf, matching the sibling ownership-checked delivery-workflow endpoint', async () => {
     const seed = await seedTestData(prisma);
 
     // A second, independent courier account — the actual assigned rider for the order under test.
@@ -92,27 +119,11 @@ describe('A51 — delivery-receipt-status/-history IDOR (no ownership check for 
       },
     });
 
-    const cashSession = await prisma.cashSession.create({
-      data: { openedById: seed.adminUser.id, openingAmount: 0 },
-    });
-
     // Order is assigned to `otherRider`, NOT to `seed.deliveryUser` (our attacking actor below).
-    const order = await prisma.orderTicket.create({
-      data: {
-        number: `A51-IDOR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: OrderTicketType.DELIVERY,
-        status: OrderTicketStatus.SERVED,
-        cashSessionId: cashSession.id,
-        createdById: seed.adminUser.id,
-        assignedRiderId: otherRider.id,
-        deliveryWorkflowStatus: DeliveryWorkflowStatus.ASSIGNED,
-        deliveryWorkflowVersion: 0,
-        customerName: 'Cliente Confidencial A51',
-        customerPhone: '3011234567',
-        deliveryReference: 'Torre 4, apto 501 - datos personales sensibles',
-        deliveryFee: 0,
-        subtotal: 45_000,
-      },
+    const order = await createAssignedDeliveryOrder({
+      prisma,
+      createdById: seed.adminUser.id,
+      assignedRiderId: otherRider.id,
     });
 
     // The attacker: an authenticated `delivery`-role account that is explicitly NOT the assigned
@@ -128,22 +139,101 @@ describe('A51 — delivery-receipt-status/-history IDOR (no ownership check for 
       ),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    // --- VIOLATION: the receipt-status/-history routes have no ownership check at all and leak
-    //     the other rider's assigned order's data (customer PII, send history) to this same
-    //     unauthorized actor. Neither service method even accepts an actor parameter — proving
-    //     the gap is structural (the controller never collects `@CurrentUser()` for these routes),
-    //     not merely an unlucky missing `if`.
-    const status = await orders.getDeliveryReceiptStatus(order.id);
+    // --- FIXED: the receipt-status/-history/-pdf routes now enforce the SAME ownership check and
+    //     reject the unauthorized actor exactly like the sibling mutation route above. ---
+    await expect(orders.getDeliveryReceiptStatus(order.id, attackerActor)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(orders.getDeliveryReceiptHistory(order.id, attackerActor)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(
+      orders.generateCurrentDeliveryReceiptPdf(order.id, attackerActor),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // The service methods now require an actor — the controller can no longer reach them without
+    // one, closing the structural gap (no `@CurrentUser()` collected) that caused the original
+    // finding.
+    expect(orders.getDeliveryReceiptStatus.length).toBe(2);
+    expect(orders.getDeliveryReceiptHistory.length).toBe(2);
+    expect(orders.generateCurrentDeliveryReceiptPdf.length).toBe(2);
+  });
+
+  it('POSITIVE CONTROL: the ASSIGNED rider can still retrieve receipt status/history/pdf for their own order', async () => {
+    const seed = await seedTestData(prisma);
+
+    const order = await createAssignedDeliveryOrder({
+      prisma,
+      createdById: seed.adminUser.id,
+      assignedRiderId: seed.deliveryUser.id,
+    });
+
+    const assignedActor = authUserFor(seed.deliveryUser, ['delivery']);
+
+    const status = await orders.getDeliveryReceiptStatus(order.id, assignedActor);
     expect(status.orderId).toBe(order.id);
     expect(status.orderNumber).toBe(order.number);
 
-    const history = await orders.getDeliveryReceiptHistory(order.id);
+    const history = await orders.getDeliveryReceiptHistory(order.id, assignedActor);
     expect(history).toBeTruthy();
 
-    // Confirm the underlying service methods are (still, as of this round) actor-less by
-    // construction — 1-arg signatures — which is exactly why the controller cannot pass an actor
-    // through even if it wanted to without a signature change.
-    expect(orders.getDeliveryReceiptStatus.length).toBe(1);
-    expect(orders.getDeliveryReceiptHistory.length).toBe(1);
+    const pdf = await orders.generateCurrentDeliveryReceiptPdf(order.id, assignedActor);
+    expect(Buffer.isBuffer(pdf)).toBe(true);
+    expect(pdf.length).toBeGreaterThan(0);
+  });
+
+  it('POSITIVE CONTROL: a delivery-role account can still preview receipt status/history/pdf for an UNCLAIMED order (parity with findDeliveryActive() visibility)', async () => {
+    const seed = await seedTestData(prisma);
+
+    const order = await createAssignedDeliveryOrder({
+      prisma,
+      createdById: seed.adminUser.id,
+      assignedRiderId: seed.deliveryUser.id,
+    });
+
+    // Unassign it — simulates an order visible to any courier in findDeliveryActive() because
+    // assignedRiderId is null.
+    await prisma.orderTicket.update({ where: { id: order.id }, data: { assignedRiderId: null } });
+
+    const unrelatedCourierActor = authUserFor(seed.deliveryUser, ['delivery']);
+
+    const status = await orders.getDeliveryReceiptStatus(order.id, unrelatedCourierActor);
+    expect(status.orderId).toBe(order.id);
+
+    const history = await orders.getDeliveryReceiptHistory(order.id, unrelatedCourierActor);
+    expect(history).toBeTruthy();
+  });
+
+  it('POSITIVE CONTROL: staff roles (admin/cashier/supervisor) retain unrestricted receipt access for ANY order, matching claimDelivery()/updateDeliveryWorkflow()\'s isPrivilegedOrderOperator() exemption', async () => {
+    const seed = await seedTestData(prisma);
+
+    const deliveryRole = await prisma.role.findFirstOrThrow({ where: { name: 'delivery' } });
+    const someRider = await prisma.user.create({
+      data: {
+        email: 'staff-visibility-rider-a53@2x1burgerco.local',
+        fullName: 'Domiciliario Staff Visibility A53',
+        passwordHash: await hash('SomeRider12345*', 12),
+        roles: { create: [{ roleId: deliveryRole.id }] },
+      },
+    });
+
+    const order = await createAssignedDeliveryOrder({
+      prisma,
+      createdById: seed.adminUser.id,
+      assignedRiderId: someRider.id,
+    });
+
+    const adminActor = authUserFor(seed.adminUser, ['admin']);
+
+    // Staff is not the assigned rider, yet must still succeed — same policy as
+    // updateDeliveryWorkflow()/claimDelivery() for privileged operators.
+    const status = await orders.getDeliveryReceiptStatus(order.id, adminActor);
+    expect(status.orderId).toBe(order.id);
+
+    const history = await orders.getDeliveryReceiptHistory(order.id, adminActor);
+    expect(history).toBeTruthy();
+
+    const pdf = await orders.generateCurrentDeliveryReceiptPdf(order.id, adminActor);
+    expect(Buffer.isBuffer(pdf)).toBe(true);
   });
 });

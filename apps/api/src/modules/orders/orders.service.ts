@@ -1377,8 +1377,33 @@ export class OrdersService {
   }
 
   /* Cuenta vigente para visualización: renderiza el estado actual de la orden
-     con el tipo correcto (inicial o actualizada) sin generar auditoría nueva. */
-  async generateCurrentDeliveryReceiptPdf(id: string) {
+     con el tipo correcto (inicial o actualizada) sin generar auditoría nueva.
+     `actor` se exige para reutilizar la misma verificación de propiedad que ya
+     protege claimDelivery()/updateDeliveryWorkflow() sobre este mismo recurso:
+     un domiciliario solo puede ver la cuenta de sus propios domicilios (o de
+     domicilios aún sin asignar), nunca de un domicilio ajeno. */
+  async generateCurrentDeliveryReceiptPdf(id: string, actor: AuthUser) {
+    const order = await this.prisma.orderTicket.findUnique({
+      where: { id },
+      include: {
+        assignedRider: {
+          select: {
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('No se encontró la comanda.');
+    }
+
+    if (order.type !== OrderTicketType.DELIVERY) {
+      throw new BadRequestException('Solo las comandas de domicilio pueden generar una cuenta pendiente.');
+    }
+
+    this.assertDeliveryWorkflowAccess(order, actor, { allowClaim: true });
+
     const version = await this.getDeliveryCommercialVersion(id);
     return this.generateDeliveryReceiptPdf(id, { updated: version > 1, skipAudit: true });
   }
@@ -1504,15 +1529,26 @@ export class OrdersService {
     return refreshed + 1;
   }
 
-  async getDeliveryReceiptStatus(orderId: string) {
+  async getDeliveryReceiptStatus(orderId: string, actor: AuthUser) {
     const order = await this.prisma.orderTicket.findUnique({
       where: { id: orderId },
-      select: { id: true, type: true, number: true, subtotal: true, deliveryFee: true, openedAt: true },
+      select: {
+        id: true,
+        type: true,
+        number: true,
+        subtotal: true,
+        deliveryFee: true,
+        openedAt: true,
+        assignedRiderId: true,
+        assignedRider: { select: { fullName: true } },
+      },
     });
     if (!order) throw new NotFoundException('No se encontró la comanda.');
     if (order.type !== OrderTicketType.DELIVERY) {
       throw new BadRequestException('Solo las comandas de domicilio tienen cuenta de domicilio.');
     }
+
+    this.assertDeliveryWorkflowAccess(order, actor, { allowClaim: true });
 
     const version = await this.getDeliveryCommercialVersion(orderId);
     const sendEvents = await this.prisma.auditLog.findMany({
@@ -1573,15 +1609,25 @@ export class OrdersService {
     };
   }
 
-  async getDeliveryReceiptHistory(orderId: string) {
+  async getDeliveryReceiptHistory(orderId: string, actor: AuthUser) {
     const order = await this.prisma.orderTicket.findUnique({
       where: { id: orderId },
-      select: { id: true, type: true, number: true, subtotal: true, openedAt: true },
+      select: {
+        id: true,
+        type: true,
+        number: true,
+        subtotal: true,
+        openedAt: true,
+        assignedRiderId: true,
+        assignedRider: { select: { fullName: true } },
+      },
     });
     if (!order) throw new NotFoundException('No se encontró la comanda.');
     if (order.type !== OrderTicketType.DELIVERY) {
       throw new BadRequestException('Solo las comandas de domicilio tienen historial de cuenta.');
     }
+
+    this.assertDeliveryWorkflowAccess(order, actor, { allowClaim: true });
 
     const [refreshEvents, itemEvents, createEvent] = await Promise.all([
       this.prisma.auditLog.findMany({
