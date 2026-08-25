@@ -80,4 +80,21 @@ export interface CommercialRepository {
    * conversation-memory write. Returns `null` only if the draft row itself does not exist.
    */
   loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null>;
+  /**
+   * SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) — a LOCKED re-read of
+   * `sofiaConversationMemory`, using the exact same `SELECT ... FOR UPDATE` row-lock discipline
+   * `saveState()`/`saveLegacyConversationContext()` already use to serialize concurrent writers
+   * (`prisma-commercial.repository.ts`, A26/A30 CLOSURE). Unlike `loadState()` (a bare, unlocked
+   * `SELECT` that can race a concurrent writer and simply miss a commit that has, in fact, already
+   * landed or is still in-flight), a `SELECT ... FOR UPDATE` genuinely BLOCKS until any concurrent
+   * transaction holding a conflicting lock on the SAME row commits or rolls back, and then reads the
+   * true post-commit state — real serialization against a concurrent committer, not a polling guess.
+   *
+   * `respondDraftAlreadyConfirmed()` uses this as the FINAL authoritative check, after its bounded
+   * unlocked-poll retry budget is exhausted, before ever concluding that the rich narration genuinely
+   * never existed and falling back to `stateFromConfirmedDraftRecord()`'s neutral-default
+   * reconstruction. Returns `null` if no row exists, or if the row exists but does not carry a
+   * canonical (`schemaVersion === 4`) record — same shape/contract as `loadState()`.
+   */
+  loadStateForUpdate(conversationId: string): Promise<CommercialConversationState | null>;
 }

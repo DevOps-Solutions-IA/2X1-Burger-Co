@@ -56,6 +56,7 @@ class ThirdTurnInjectingRepository implements CommercialRepository {
   saveDraft(input: Parameters<CommercialRepository['saveDraft']>[0]) { return this.real.saveDraft(input); }
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
+  loadStateForUpdate(conversationId: string) { return this.real.loadStateForUpdate(conversationId); }
 }
 
 describe('A38 self-verification: three-way collision degrades safely (no crash, no data loss)', () => {
@@ -144,6 +145,7 @@ describe('A38 self-verification: three-way collision degrades safely (no crash, 
       confirmDraft: (i) => repository.confirmDraft(i),
       loadDraftVersion: (id) => repository.loadDraftVersion(id),
       loadConfirmedDraftRecord: (id) => repository.loadConfirmedDraftRecord(id),
+      loadStateForUpdate: (id) => repository.loadStateForUpdate(id),
     };
     const serviceBPinned = buildService(pinnedOnceRepo);
 

@@ -1,8 +1,35 @@
 /**
- * SOFIA Round 5 / A45 BLIND RED TEAM -- fresh, independent attack pass on the A44 closure
- * (`respondDraftAlreadyConfirmed()`'s bounded retry + `SofiaOrderDraft`-reconstruction fallback,
- * plus the new `loadConfirmedDraftRecord()` / `stateFromConfirmedDraftRecord()` methods). This pass
- * had NOT seen any prior design rationale beyond what is in the current source comments.
+ * SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) -- PERMANENT REGRESSION TEST.
+ *
+ * This file originally documented and reproduced the A45 finding below (`respondDraftAlreadyConfirmed()`'s
+ * retry-exhausted fallback silently wiping an already-durably-persisted, rich CONFIRMED narration --
+ * `destinationSnapshot`, `deliveryQuoteDestinationBinding`, `confidence`, `intent`, `lastResolvedIntent`,
+ * `ambiguities` -- whenever the calling turn's `loadState()` reads, including every bounded retry, simply
+ * never observed a commit that had, in fact, already landed). The finding is now FIXED
+ * (`commercial-checkout.service.ts::respondDraftAlreadyConfirmed()` +
+ * `PrismaCommercialRepository.loadStateForUpdate()`): after the bounded unlocked-poll retry budget is
+ * exhausted, the method now performs ONE final LOCKED re-check (`loadStateForUpdate()`, the exact same
+ * `SELECT ... FOR UPDATE` row-lock discipline `saveState()` itself uses to serialize concurrent writers)
+ * before ever concluding the rich narration genuinely never existed. A locked read forces real
+ * serialization against any concurrent committer -- it either observes the true, already-committed value
+ * immediately, or blocks until a still-in-flight concurrent write commits and THEN observes it -- closing
+ * the exact gap a bare polling `SELECT` cannot close. The test below is KEPT and UPDATED (not
+ * deleted/weakened) to assert the FIXED behavior permanently: the real, already-committed
+ * `destinationSnapshot` (with its GPS coordinate evidence), `deliveryQuoteDestinationBinding`,
+ * `confidence`, `intent`, `lastResolvedIntent` and `ambiguities` must now all SURVIVE correctly even when
+ * `loadState()`'s bare read (and every one of its bounded retries) loses the race against a winning
+ * concurrent turn. A second test below proves the fix does not regress A43/A44's own genuine-reconstruction
+ * case: when the rich narration truly was never persisted (the winning process crashed between
+ * `confirmDraft()` and `persistAndAudit()`), the locked check correctly ALSO fails to observe it, and
+ * `stateFromConfirmedDraftRecord()`'s neutral-default reconstruction fallback still correctly fires.
+ *
+ * ============================================================================================
+ * ORIGINAL A45 BLIND RED TEAM (Round 5, closing pass) TRACE -- kept for historical/audit record.
+ * ============================================================================================
+ * fresh, independent attack pass on the A44 closure (`respondDraftAlreadyConfirmed()`'s bounded retry +
+ * `SofiaOrderDraft`-reconstruction fallback, plus the `loadConfirmedDraftRecord()` /
+ * `stateFromConfirmedDraftRecord()` methods). This pass had NOT seen any prior design rationale beyond
+ * what is in the current source comments.
  *
  * ============================================================================================
  * FINDING (HIGH) -- `respondDraftAlreadyConfirmed()`'s retry-exhausted reconstruction fallback
@@ -114,11 +141,18 @@ class AlwaysStaleReadRepository implements CommercialRepository {
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
   loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
+  // SOFIA Round 5 / A46 CLOSURE: deliberately NOT pinned/stale, same as `loadConfirmedDraftRecord()`
+  // above -- a `SELECT ... FOR UPDATE` locked read cannot be served from a stale replica/cache by
+  // construction (Postgres does not allow taking a row lock against anything but the primary), so a
+  // reader whose bare `loadState()` is persistently stale would still observe truth here. This is
+  // exactly the real-world distinction the fix relies on: passing this through to the REAL repository
+  // models that correctly, rather than "gaming" this test double.
+  loadStateForUpdate(conversationId: string) { return this.real.loadStateForUpdate(conversationId); }
 }
 
 const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
-describe('A45 BLIND RED TEAM: respondDraftAlreadyConfirmed() retry-exhausted fallback silently destroys already-persisted rich CONFIRMED narration (destinationSnapshot / confidence / intent / lastResolvedIntent / ambiguities)', () => {
+describe('A46 CLOSURE (A45 blind red-team finding, HIGH, permanent regression): respondDraftAlreadyConfirmed() never destroys already-persisted rich CONFIRMED narration (destinationSnapshot / confidence / intent / lastResolvedIntent / ambiguities), even when every bounded unlocked retry loses the race', () => {
   let prisma: PrismaService;
   let realRepository: PrismaCommercialRepository;
 
@@ -192,7 +226,7 @@ describe('A45 BLIND RED TEAM: respondDraftAlreadyConfirmed() retry-exhausted fal
     return { service };
   }
 
-  it('A45 FINDING: a real, already-durably-persisted destinationSnapshot (GPS coordinate evidence) for a CONFIRMED DELIVERY order is silently wiped to null when a racing turn\'s loadState() retries never catch up and the reconstruction fallback fires', async () => {
+  it('A46 CLOSURE (FIXED): a real, already-durably-persisted destinationSnapshot (GPS coordinate evidence) for a CONFIRMED DELIVERY order SURVIVES even when a racing turn\'s loadState() retries never catch up -- the final locked re-check observes the true committed narration instead of reconstructing over it', async () => {
     const conversationId = `a45-clobber-${randomUUID()}`;
     await prisma.customer.create({ data: { id: 'cust-a45-real', displayName: 'Cliente Real A45' } });
     await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112399', provider: 'mock' } });
@@ -253,30 +287,99 @@ describe('A45 BLIND RED TEAM: respondDraftAlreadyConfirmed() retry-exhausted fal
     const turnB = await serviceB.process({ conversationId, phone: '573001112399', message: 'Sí, confirmo', actor });
     expect(turnB.nextAction).toBe('DRAFT_CONFIRMED');
 
-    // THE FINDING: re-read the TRUE, durable narration straight from Postgres again. It is STILL the
-    // SAME confirmed draft (`draftId` unchanged, `confirmationState` still CONFIRMED) -- but the rich
+    // THE FIX: re-read the TRUE, durable narration straight from Postgres again. It is STILL the SAME
+    // confirmed draft (`draftId` unchanged, `confirmationState` still CONFIRMED) -- AND the rich
     // destination/coordinate evidence and conversational bookkeeping that were genuinely, durably
-    // persisted a moment ago have been silently WIPED by the fallback's neutral-default
-    // reconstruction, even though nothing about the true confirmed order actually changed.
+    // persisted a moment ago now correctly SURVIVE, because the final locked re-check
+    // (`loadStateForUpdate()`) observed the true committed narration instead of the reconstruction
+    // fallback firing on a false "nothing else was ever written" premise.
     const finalNarration = await realRepository.loadState(conversationId);
     expect(finalNarration?.confirmationState).toBe('CONFIRMED');
     expect(finalNarration?.draftId).toBe(trueDraftId);
 
-    // Real GPS coordinate evidence for a CONFIRMED DELIVERY order, silently destroyed:
+    // Real GPS coordinate evidence for a CONFIRMED DELIVERY order, correctly PRESERVED:
+    expect(finalNarration?.destinationSnapshot).not.toBeNull();
+    expect(finalNarration?.destinationSnapshot?.latitude).toBeCloseTo(6.244203, 5);
+    expect(finalNarration?.destinationSnapshot?.longitude).toBeCloseTo(-75.581212, 5);
+    expect(finalNarration?.deliveryQuoteDestinationBinding).not.toBeNull();
+    expect(finalNarration?.deliveryQuoteDestinationBinding).toEqual(trueNarrationBeforeRace?.deliveryQuoteDestinationBinding);
+
+    // Conversational bookkeeping also correctly PRESERVED, matching exactly what the true confirmed
+    // turn had actually resolved -- never reset to neutral defaults and never overwritten with any
+    // stale/pinned value either:
+    expect(finalNarration?.confidence).toBe(trueNarrationBeforeRace?.confidence);
+    expect(finalNarration?.confidence).not.toBe('LOW');
+    expect(finalNarration?.intent).toBe(trueNarrationBeforeRace?.intent);
+    expect(finalNarration?.intent).not.toBe('UNKNOWN');
+    expect(finalNarration?.lastResolvedIntent).toBe(trueNarrationBeforeRace?.lastResolvedIntent);
+    expect(finalNarration?.lastResolvedIntent).not.toBeNull();
+    expect(finalNarration?.ambiguities).toEqual(trueNarrationBeforeRace?.ambiguities);
+
+    // The financial authority remains untouched, exactly as before -- and now the narration copy
+    // genuinely matches it instead of diverging into a clean-but-wrong impoverished reconstruction.
+    const trueDraftRowAfter = await prisma.sofiaOrderDraft.findUnique({ where: { id: trueDraftId } });
+    expect(trueDraftRowAfter?.status).toBe('CONFIRMED');
+    expect(trueDraftRowAfter?.deliveryAddress).toBe('Calle 80 # 15-30');
+  });
+
+  it('A46 CLOSURE regression guard: when the rich narration GENUINELY was never persisted (the winning process crashed between confirmDraft() and persistAndAudit()), the new locked re-check also correctly fails to observe it, and stateFromConfirmedDraftRecord()\'s neutral-default reconstruction fallback still correctly fires -- proving the fix does not regress A43/A44\'s original closure', async () => {
+    const conversationId = `a45-genuine-${randomUUID()}`;
+    await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112400', provider: 'mock' } });
+
+    // Turn A: reach READY_TO_CONFIRM for real (draft + PENDING conversation-memory narration both
+    // genuinely persisted, including a real destinationSnapshot).
+    const { service: serviceA } = buildService(realRepository, { customerId: null });
+    const draftTurn = await serviceA.process({
+      conversationId, phone: '573001112400',
+      message: 'Mándame un combo 2x1 a la Calle 90 # 20-40 y pago cuando llegue',
+      location: { latitude: 6.25, longitude: -75.58 },
+      actor,
+    });
+    expect(draftTurn.nextAction).toBe('READY_TO_CONFIRM');
+    const draftId = draftTurn.state.draftId!;
+
+    // Simulate the exact pathological case A44's own docstring names: the winning process's
+    // `confirmDraft()` CAS succeeds (the financial authority, `SofiaOrderDraft`, is genuinely
+    // CONFIRMED) but it crashes BEFORE `persistAndAudit()` -> `saveState()` ever runs -- so the
+    // conversation-memory narration genuinely, permanently never observes the confirmation. Applied
+    // directly at the Postgres level (bypassing `confirmDraft()`'s own CAS plumbing) to model this
+    // deterministically rather than trying to kill a process mid-flight.
+    await prisma.sofiaOrderDraft.update({
+      where: { id: draftId },
+      data: { status: 'CONFIRMED', confirmedAt: new Date(), confirmationHash: 'a46-simulated-crash-confirmation' },
+    });
+    const draftRowAfterSimulatedConfirm = await prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+    expect(draftRowAfterSimulatedConfirm?.status).toBe('CONFIRMED');
+
+    // The conversation-memory row still genuinely reads PENDING -- this is the TRUE state, not a stale
+    // pin -- because the (simulated-crashed) winning write never touched it.
+    const trueNarrationStillPending = await realRepository.loadState(conversationId);
+    expect(trueNarrationStillPending?.confirmationState).toBe('PENDING');
+
+    // Turn B: a plain, non-stale service instance (real repository throughout, no pinning at all)
+    // sends "Sí, confirmo". `confirmDraft()`'s own CAS fails (the draft is no longer READY_TO_CONFIRM),
+    // routing this into `recoverStaleConfirmation()` -> `respondDraftAlreadyConfirmed()`. Both the
+    // bounded unlocked-poll retries AND the new locked re-check correctly observe the TRUE state
+    // (genuinely still PENDING, not CONFIRMED) every single time, because there is truly nothing else
+    // to observe -- proving the locked check does not create any false positives of its own.
+    const { service: serviceB } = buildService(realRepository, { customerId: null });
+    const turnB = await serviceB.process({ conversationId, phone: '573001112400', message: 'Sí, confirmo', actor });
+    expect(turnB.nextAction).toBe('DRAFT_CONFIRMED');
+
+    // The reconstruction fallback correctly fires: the persisted narration is now CONFIRMED, sourced
+    // from the authoritative `SofiaOrderDraft` row, with neutral defaults for the fields that record
+    // genuinely never carried -- exactly A43/A44's original, still-correct behavior for this genuine
+    // case.
+    const finalNarration = await realRepository.loadState(conversationId);
+    expect(finalNarration?.confirmationState).toBe('CONFIRMED');
+    expect(finalNarration?.draftId).toBe(draftId);
+    expect(finalNarration?.fulfillment).toBe('DELIVERY');
+    expect(finalNarration?.address).toBe('Calle 90 # 20-40');
     expect(finalNarration?.destinationSnapshot).toBeNull();
     expect(finalNarration?.deliveryQuoteDestinationBinding).toBeNull();
-
-    // Conversational bookkeeping also silently reset, even though the true confirmed turn had
-    // resolved, non-neutral values for every one of these:
     expect(finalNarration?.confidence).toBe('LOW');
     expect(finalNarration?.intent).toBe('UNKNOWN');
     expect(finalNarration?.lastResolvedIntent).toBeNull();
     expect(finalNarration?.ambiguities).toEqual([]);
-
-    // The financial authority itself is untouched (as designed) -- but that is exactly why this loss
-    // is UNRECOVERABLE: `SofiaOrderDraft` never carried `destinationSnapshot` in the first place.
-    const trueDraftRowAfter = await prisma.sofiaOrderDraft.findUnique({ where: { id: trueDraftId } });
-    expect(trueDraftRowAfter?.status).toBe('CONFIRMED');
-    expect(trueDraftRowAfter?.deliveryAddress).toBe('Calle 80 # 15-30');
   });
 });

@@ -129,6 +129,7 @@ class PinnedFirstReadRepository implements CommercialRepository {
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
   loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
+  loadStateForUpdate(conversationId: string) { return this.real.loadStateForUpdate(conversationId); }
 }
 
 describe('A37: concurrent address-correction vs. GPS-only turn — recoverDraftConflict() retry silently reverts a customer\'s explicit address correction', () => {

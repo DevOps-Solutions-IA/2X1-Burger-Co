@@ -256,6 +256,32 @@ export class PrismaCommercialRepository implements CommercialRepository {
    * independently knows (via `loadDraftVersion()`/`saveDraft()`'s own CAS) that this exact draft is
    * CONFIRMED, so there is no lost-update hazard in reading it directly here.
    */
+  /**
+   * SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) — see interface docstring
+   * (`commercial.repository.ts`). Reuses the EXACT SAME `SELECT ... FOR UPDATE` transactional
+   * primitive `saveState()` (above) already uses, but read-only: the row lock is acquired, the
+   * current committed value is read, and the transaction is allowed to commit immediately
+   * (releasing the lock right away) without writing anything. Because Postgres row locks force real
+   * serialization against ANY concurrent transaction that is mid-write to the same row (not just
+   * "not yet visible to a polling SELECT"), this call either (a) returns instantly with the true,
+   * already-committed value if no concurrent writer currently holds the lock, or (b) BLOCKS until a
+   * concurrent `saveState()`/`saveLegacyConversationContext()` transaction that IS currently holding
+   * it commits or rolls back, and then returns the true post-commit value — eliminating the
+   * "genuinely-committed-but-not-yet-observed-by-my-bare-SELECT" gap a bounded unlocked poll cannot
+   * close.
+   */
+  async loadStateForUpdate(conversationId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
+        Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${conversationId} FOR UPDATE`,
+      );
+      const value = rows[0]?.current_order_intent_json;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const candidate = value as Record<string, unknown>;
+      return candidate.schemaVersion === 4 ? (candidate as unknown as CommercialConversationState) : null;
+    });
+  }
+
   async loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null> {
     const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
     if (!draft) return null;

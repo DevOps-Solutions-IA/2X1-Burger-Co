@@ -305,15 +305,44 @@ export class CommercialCheckoutService {
    *      `RESPOND_ALREADY_CONFIRMED_MAX_RETRIES`) before concluding it truly cannot observe the
    *      winning turn's commit -- closing the race in the overwhelming majority of real cases instead
    *      of trusting the very first read unconditionally.
-   *   2. If the retry budget is exhausted, NEVER fall back to the caller's own stale `state`.
-   *      Reconstruct the narration to persist straight from the authoritative `SofiaOrderDraft` row
-   *      itself (`loadConfirmedDraftRecord()` -- financial truth, independent of whichever
-   *      conversation-memory snapshot either turn happened to read) via
+   *   2. If the retry budget is exhausted, do NOT immediately conclude the rich narration never
+   *      existed. Perform ONE final LOCKED re-check (`loadStateForUpdate()`) using the exact same
+   *      `SELECT ... FOR UPDATE` row-lock discipline `saveState()` itself uses to serialize concurrent
+   *      writers. See SOFIA Round 5 / A46 CLOSURE below.
+   *   3. Only if THAT locked check also fails to observe a matching CONFIRMED record does this method
+   *      fall back to reconstructing the narration to persist straight from the authoritative
+   *      `SofiaOrderDraft` row itself (`loadConfirmedDraftRecord()` -- financial truth, independent of
+   *      whichever conversation-memory snapshot either turn happened to read) via
    *      `stateFromConfirmedDraftRecord()`. If even that draft row is somehow unavailable (should not
    *      normally happen -- this method is only ever reached once the caller already knows the draft
    *      is CONFIRMED), fail closed: respond to THIS turn with the best-known state but persist
    *      NOTHING, rather than risk writing an unverified snapshot over a CONFIRMED order's durable
    *      evidence.
+   *
+   * SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) — the bounded unlocked-poll retry
+   * above (step 1) cannot distinguish "the rich narration genuinely never existed" from "the rich
+   * narration exists and is already durably committed, but every one of THIS caller's bare `SELECT`
+   * reads simply hasn't observed it yet" -- a realistic outcome under connection-pool visibility lag
+   * or DB load, not just an adversarial timing attack (see the A45 finding docstring, kept in
+   * `commercial-checkout.a45-blind-redteam.spec.ts`, now converted into a permanent regression
+   * assertion of the FIXED behavior below). When the retry-exhausted fallback used to fire in that
+   * second case, `stateFromConfirmedDraftRecord()` unconditionally reset `destinationSnapshot` and
+   * other narration-only fields to neutral defaults and persisted that straight over the TRUE,
+   * already-landed rich narration -- silently, permanently destroying real evidence with no error and
+   * no distinguishing audit signal.
+   *
+   * The fix: before ever trusting "the retry budget is exhausted" as proof that nothing richer exists,
+   * perform ONE more read -- but this time a LOCKED one (`loadStateForUpdate()`), inside its own short
+   * transaction, using the identical `SELECT ... FOR UPDATE` primitive `saveState()` uses to write.
+   * This is not "one more poll with the same blind spot": a locked read genuinely BLOCKS if a
+   * concurrent transaction is mid-write to the same row (real serialization, not a race), and if no
+   * such transaction is in flight, it deterministically observes whatever is truly, currently
+   * committed in Postgres -- never a caller's own possibly-stale in-memory view or a bare `SELECT`'s
+   * luck of the draw. Only once THIS check ALSO fails to observe a matching CONFIRMED record is it
+   * safe to conclude the rich narration genuinely never existed (e.g. the winning process crashed
+   * between `confirmDraft()` and `persistAndAudit()`), at which point reconstructing from
+   * `SofiaOrderDraft` with neutral defaults for non-financial fields remains the correct, safe
+   * fallback -- A43/A44's original closure is preserved unchanged for that genuine case.
    */
   private async respondDraftAlreadyConfirmed(
     state: CommercialConversationState,
@@ -330,6 +359,22 @@ export class CommercialCheckoutService {
       alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
     }
 
+    // SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) -- the unlocked poll above can be
+    // unlucky (or genuinely stale) for its entire bounded budget even though the true rich narration is
+    // already fully committed. Before falling back to reconstruction, force real serialization against
+    // any concurrent writer with ONE locked re-check -- see the method docstring above.
+    if (!alreadyCorrect) {
+      try {
+        authoritative = await this.repository.loadStateForUpdate(command.conversationId);
+        alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
+      } catch {
+        // Fail closed: if the locked re-check itself cannot complete (e.g. transaction timeout under
+        // extreme contention), treat it exactly like "did not observe CONFIRMED" -- fall through to the
+        // reconstruction fallback below rather than risk hanging this customer-facing turn indefinitely.
+        authoritative = null;
+      }
+    }
+
     let resolved: CommercialConversationState;
     let shouldPersist = false;
     if (alreadyCorrect) {
@@ -338,18 +383,28 @@ export class CommercialCheckoutService {
       const confirmedRecord = await this.repository.loadConfirmedDraftRecord(error.draftId);
       // Defensive (fail-closed): only trust this record as reconstruction ground truth if it actually
       // confirms `status === 'CONFIRMED'` for the SAME draft this call already independently knows was
-      // confirmed. Should always be true given every call site established that before ever reaching
-      // this method -- but never assume; a mismatch here falls through to the no-persist branch below
-      // exactly like the record being entirely unavailable.
-      if (confirmedRecord && confirmedRecord.status === 'CONFIRMED' && confirmedRecord.id === error.draftId) {
+      // confirmed, AND for the SAME conversation this turn is actually running against (SOFIA Round 5 /
+      // A46 CLOSURE, A45 secondary observation -- cheap defense-in-depth: `loadConfirmedDraftRecord()`
+      // is keyed purely by `draftId`, so an independent check that the record's own `conversationId`
+      // matches `state.conversationId` costs nothing and closes off any scenario where this method
+      // were ever reached with a `draftId` that does not actually belong to this conversation). Should
+      // always be true given every call site established that before ever reaching this method -- but
+      // never assume; a mismatch here falls through to the no-persist branch below exactly like the
+      // record being entirely unavailable.
+      if (
+        confirmedRecord
+        && confirmedRecord.status === 'CONFIRMED'
+        && confirmedRecord.id === error.draftId
+        && confirmedRecord.conversationId === state.conversationId
+      ) {
         resolved = this.stateFromConfirmedDraftRecord(state.conversationId, confirmedRecord);
         shouldPersist = true;
       } else {
-        // Fail closed (A44): the draft row itself is unavailable even though this method is only ever
-        // reached once the caller already knows (via `saveDraft()`'s own CAS / `loadDraftVersion()`)
-        // that it is CONFIRMED -- this should not normally happen. Respond to THIS turn with the
-        // best-known in-memory view, but never persist it: an unverifiable snapshot must not become
-        // this CONFIRMED order's durable narration.
+        // Fail closed (A44): the draft row itself is unavailable, or does not verifiably belong to this
+        // conversation, even though this method is only ever reached once the caller already knows (via
+        // `saveDraft()`'s own CAS / `loadDraftVersion()`) that it is CONFIRMED -- this should not
+        // normally happen. Respond to THIS turn with the best-known in-memory view, but never persist
+        // it: an unverifiable snapshot must not become this CONFIRMED order's durable narration.
         resolved = { ...state, draftId: error.draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null };
       }
     }

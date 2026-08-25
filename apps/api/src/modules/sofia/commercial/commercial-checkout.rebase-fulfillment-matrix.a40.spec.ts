@@ -72,6 +72,7 @@ class PinnedFirstReadRepository implements CommercialRepository {
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
   loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
+  loadStateForUpdate(conversationId: string) { return this.real.loadStateForUpdate(conversationId); }
 }
 
 const NEAR = { latitude: 6.244, longitude: -75.581 };
