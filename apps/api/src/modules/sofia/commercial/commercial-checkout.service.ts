@@ -423,6 +423,22 @@ export class CommercialCheckoutService {
    * all (should not normally happen once a draft/conversation exists) — the caller must treat that as
    * "cannot safely retry" and fall through to the safe response, never call `prepareDraft()` with an
    * un-rebased state.
+   *
+   * SOFIA Round 5 / A40 CLOSURE (A39 blind red-team finding, HIGH) — this method rebases axes drawn
+   * from potentially TWO DIFFERENT turns (THIS turn's own `parsed`/`acceptCoordinates`, and a
+   * DIFFERENT, concurrently-committed turn's `freshState`), so an ordering assumption that is safe in
+   * `process()` (every block always acts on the SAME single message) is NOT automatically safe here.
+   * The DESTINATION axis block below now explicitly checks what the FULFILLMENT axis block just
+   * resolved `rebased.fulfillment` to before ever applying THIS turn's own destination edit — see that
+   * block's own comment for the full incident writeup and fix rationale. Every OTHER block in this
+   * method was re-audited for the same class of hazard as part of the A40 closure: `paymentPreference`/
+   * `paymentReadiness` derivation only ever reads `rebased.fulfillment` (already fully resolved by that
+   * point) and `rebased.paymentPreference` (this turn's own override or the fresh inherited value, both
+   * already finalized) — no stale cross-turn read. `applyItemsMutation()` is a pure function of
+   * `freshState.items`/`parsed`/`command.message` alone and has no fulfillment dependency anywhere in
+   * the underlying `ProductAvailabilityService`/`RecipeAvailabilityService` contracts (verified: both
+   * take only `{ productId, quantity }`) — a fulfillment change occurring on a different turn cannot
+   * corrupt an item mutation rebased on top of it.
    */
   private async rebaseTurnOntoFreshState(
     state: CommercialConversationState,
@@ -464,12 +480,28 @@ export class CommercialCheckoutService {
     }
     if (parsed.paymentPreference !== 'UNKNOWN') rebased.paymentPreference = parsed.paymentPreference;
 
-    // DESTINATION axis (A37 CRITICAL finding): reapply THIS TURN's own destination edit (address text
-    // and/or a shared GPS point — exactly the same edit `process()` originally computed) on top of the
-    // FRESH authoritative destination snapshot, never the stale one. A coordinate-only edit (RULE 3 —
-    // no revision bump) now refines whatever address is CURRENTLY authoritative instead of silently
-    // reviving an address a concurrent winner already corrected away from.
-    if (parsed.address || acceptCoordinates) {
+    // DESTINATION axis (A37 CRITICAL finding; A39 HIGH finding hardening): reapply THIS TURN's own
+    // destination edit (address text and/or a shared GPS point — exactly the same edit `process()`
+    // originally computed) on top of the FRESH authoritative destination snapshot, never the stale
+    // one. A coordinate-only edit (RULE 3 — no revision bump) now refines whatever address is
+    // CURRENTLY authoritative instead of silently reviving an address a concurrent winner already
+    // corrected away from.
+    //
+    // A39 CLOSURE (HIGH): this block used to run UNCONDITIONALLY whenever `parsed.address ||
+    // acceptCoordinates`, with no check of what `rebased.fulfillment` was just set/inherited to two
+    // lines above. `process()` has the exact same ordering (fulfillment block before destination
+    // block) and it IS safe there, because both blocks always act on the SAME single message from
+    // the SAME turn — a TAKEAWAY-only message never carries an unrelated address, and an
+    // address-only message never touches fulfillment. That safety does NOT carry over to the rebase
+    // path: `rebased.fulfillment` can now come from a totally DIFFERENT, concurrently-committed
+    // turn's message (inherited from `freshState` a few lines above), while `parsed`/`acceptCoordinates`
+    // still describe THIS turn's own, unrelated message. Applying a destination edit on top of a
+    // fulfillment that just became TAKEAWAY for reasons THIS turn knows nothing about reproduced
+    // exactly the same "pickup order with a delivery address" invariant violation the TAKEAWAY-
+    // clearing branch above exists to prevent — just one turn later. A pickup order has no
+    // destination, full stop: gate this block on `rebased.fulfillment === 'DELIVERY'`, matching that
+    // same invariant.
+    if (rebased.fulfillment === 'DELIVERY' && (parsed.address || acceptCoordinates)) {
       const destinationEdit: DestinationEdit = {};
       if (parsed.address) destinationEdit.rawReferenceText = parsed.address;
       if (acceptCoordinates && command.location) {
@@ -487,6 +519,21 @@ export class CommercialCheckoutService {
       rebased.location = isCoordinateProvisionallyUsable(snapshot)
         ? { latitude: snapshot.latitude!, longitude: snapshot.longitude! }
         : null;
+    } else if (rebased.fulfillment !== 'DELIVERY' && (parsed.address || acceptCoordinates)) {
+      // THIS turn's own destination edit no longer applies to the fulfillment it was just rebased
+      // onto — either THIS turn itself just switched to TAKEAWAY (parsed.fulfillment === 'TAKEAWAY',
+      // already cleared above) or a DIFFERENT, concurrently-committed turn did while this turn was
+      // mid-flight (rebased.fulfillment inherited as TAKEAWAY/null from `freshState`). Silently
+      // keeping the stale address text would recreate the exact A39 hybrid; silently discarding it
+      // with no trace at all would quietly eat a genuine customer message with no record anywhere.
+      // Record it as an ambiguity instead: `rebased.missingFields` becomes non-empty below, which is
+      // exactly the signal `recoverDraftConflict()` already checks to decide whether this rebase is
+      // safe to hand to `prepareDraft()` — a non-empty result makes it intentionally NOT treat this
+      // rebase as a clean success, and instead fall through to the existing safe `QUOTE_EXPIRED`
+      // re-sync response, which reloads the true authoritative (self-consistent) state and asks the
+      // customer to confirm/resend. Same "ask again" discipline already used for every other kind of
+      // second collision — no inconsistent hybrid is ever handed to `prepareDraft()`/persisted.
+      rebased.ambiguities = [...rebased.ambiguities, 'destinationFulfillmentMismatch'];
     }
 
     try { this.policy.validatePayment(rebased.fulfillment, rebased.paymentPreference); }

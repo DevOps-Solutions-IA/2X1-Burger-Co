@@ -1,31 +1,24 @@
 /**
- * A39 (Round 5, blind red team) — NEW FINDING against `rebaseTurnOntoFreshState()` (A38 CLOSURE).
+ * A39 (Round 5, blind red team, HIGH) -- PERMANENT REGRESSION of the FIXED behavior, closed by A40.
  *
  * `rebaseTurnOntoFreshState()` intentionally inherits the FRESH authoritative `fulfillment` when THIS
- * turn's own message does not mention fulfillment at all (`parsed.fulfillment` is null) — see the
+ * turn's own message does not mention fulfillment at all (`parsed.fulfillment` is null) -- see the
  * "FULFILLMENT axis" comment block in `commercial-checkout.service.ts`. That part is correct and is
  * exactly what the A38 CLOSURE doc says it should do.
  *
- * BUT the very next block — the "DESTINATION axis" — runs UNCONDITIONALLY whenever
- * `parsed.address || acceptCoordinates` is true, with NO check of what `rebased.fulfillment` was just
- * set/inherited to:
+ * ORIGINAL BUG (A39): the very next block -- the "DESTINATION axis" -- used to run UNCONDITIONALLY
+ * whenever `parsed.address || acceptCoordinates` was true, with NO check of what `rebased.fulfillment`
+ * had just been set/inherited to:
  *
- *   if (parsed.address || acceptCoordinates) {
- *     ...
- *     const { snapshot } = applyDestinationEdit(this.baselineDestinationSnapshot(rebased), destinationEdit);
- *     rebased.destinationSnapshot = snapshot;
- *     rebased.address = snapshot.referenceText;
- *     rebased.addressConfirmed = Boolean(snapshot.referenceText);
- *     ...
- *   }
+ *   if (parsed.address || acceptCoordinates) { ... apply THIS turn's own address edit ... }
  *
  * `process()` has the exact analogous ordering (fulfillment block before address block), but there it
- * is safe: both blocks act on the SAME single message, so a TAKEAWAY-only message never has
+ * is safe: both blocks always act on the SAME single message, so a TAKEAWAY-only message never has
  * `parsed.address` truthy for an unrelated address, and an address-only message never touches
- * fulfillment. `rebaseTurnOntoFreshState()` breaks that safety: `rebased.fulfillment` can now come from
- * a COMPLETELY DIFFERENT, concurrently-committed turn's message (`freshState.fulfillment`), while
- * `parsed`/`acceptCoordinates` still come from THIS turn's own, unrelated message. The two are no
- * longer guaranteed to be about the same fulfillment decision.
+ * fulfillment. `rebaseTurnOntoFreshState()` broke that safety: `rebased.fulfillment` can come from a
+ * COMPLETELY DIFFERENT, concurrently-committed turn's message (`freshState.fulfillment`), while
+ * `parsed`/`acceptCoordinates` still come from THIS turn's own, unrelated message. The two are not
+ * guaranteed to be about the same fulfillment decision.
  *
  * ATTACK SCENARIO
  * ----------------
@@ -46,58 +39,33 @@
  * Turn B's first CAS attempt (against its own stale v1 snapshot) collides with Turn A's already-
  * committed v2 -> `recoverDraftConflict()` -> `rebaseTurnOntoFreshState()`.
  *
- * EXPECTED (per the fix's own stated intent): Turn B has no opinion on fulfillment, so it should
- * inherit the FRESH, correct TAKEAWAY fulfillment Turn A just committed -- and, having no delivery
- * destination to speak of anymore, Turn B's own stray address text should either be rejected/ignored
- * or the retry should fail closed (ask again), NOT silently attach a "delivery address" to a takeaway
- * order.
+ * ORIGINAL (BUGGY) BEHAVIOR: the retry "succeeded" with `nextAction: 'READY_TO_CONFIRM'` and then
+ * `CommercialResponseComposer.compose()` THREW an uncaught `SOFIA_SAFE_TEMPLATE_INVALID:ADDRESS_MISMATCH`
+ * -- but only AFTER `persistAndAudit()` had already durably written a self-contradictory hybrid
+ * (`fulfillment: 'TAKEAWAY'` + non-null `address`/`destinationSnapshot`) to `sofiaConversationMemory`
+ * and `SofiaOrderDraft.deliveryAddress` in Postgres. See git history for the full original write-up.
  *
- * ACTUAL (proven below against REAL Postgres + the REAL, unmocked `PrismaCommercialRepository`): the
- * retry "succeeds" with `nextAction: 'READY_TO_CONFIRM'`, and the final authoritative
- * `sofiaConversationMemory` / `SofiaOrderDraft` rows are left in a self-contradictory hybrid state:
- * `fulfillment: 'TAKEAWAY'` (correctly inherited from Turn A) together with a non-null
- * `address` / `destinationSnapshot` / `addressConfirmed: true` (Turn B's own stale-turn contribution,
- * applied on top with no regard for the fulfillment it was just rebased onto). `SofiaOrderDraft
- * .deliveryAddress` persists this exact contradiction: a TAKEAWAY (pickup) order carrying a stored
- * "delivery address" and `deliveryFee: 0` / no delivery quote audit at all -- internally inconsistent
- * evidence that nothing downstream re-validates.
+ * A40 FIX (this spec now asserts the FIXED behavior permanently): the DESTINATION axis in
+ * `rebaseTurnOntoFreshState()` is now gated on `rebased.fulfillment === 'DELIVERY'` -- the exact same
+ * invariant the TAKEAWAY-clearing branch two lines above already enforces. When THIS turn's own
+ * destination edit no longer applies to the fulfillment it was just rebased onto (whether because
+ * THIS turn itself just switched to TAKEAWAY, or because a concurrent winner did), the edit is never
+ * silently applied NOR silently dropped without a trace: it is recorded as an ambiguity
+ * (`'destinationFulfillmentMismatch'`), which makes `rebased.missingFields` non-empty, which makes
+ * `recoverDraftConflict()` treat the rebase as NOT safe to hand to `prepareDraft()` and instead fall
+ * through to the existing, already-safe `QUOTE_EXPIRED` re-sync response -- reloading the TRUE
+ * authoritative (self-consistent) state and asking the customer to confirm/resend, exactly the same
+ * "ask again" discipline already used for every other kind of second collision. No inconsistent hybrid
+ * is ever handed to `prepareDraft()`, no uncaught exception, no corrupted write.
  *
- * INVARIANT VIOLATED
- * -------------------
- * "no inconsistent hybrid state under any writer or retry path" and "narration/memory never diverging
- * from actual confirmed OR pending canonical state" -- explicitly called out as an angle to probe in
- * this round's brief ("could it end up in an inconsistent hybrid (e.g. TAKEAWAY fulfillment but a
- * destinationSnapshot still attached...)"). This is a genuinely NEW angle: A37/A38 were about ONE axis
- * (destination OR items) reverting/being lost; this is TWO axes (fulfillment + destination) ending up
- * mutually inconsistent because they were rebased from two DIFFERENT turns' realities without a
- * cross-axis consistency re-check.
+ * INVARIANT PERMANENTLY ASSERTED BELOW: for a pure address-only stale-baseline retry racing a
+ * concurrent TAKEAWAY switch, (1) the customer's turn never throws, (2) the persisted authoritative
+ * state is NEVER a TAKEAWAY+address hybrid, and (3) it is instead left exactly as Turn A committed it
+ * (TAKEAWAY, address null) -- Turn B's now-inapplicable address text is safely discarded with a
+ * recorded ambiguity, not silently merged into a corrupted record.
  *
- * BUSINESS IMPACT: operationally confusing/misleading persisted state -- a "pickup" order that still
- * carries a delivery address and `addressConfirmed: true`, which could mislead staff/reporting (e.g. a
- * naive downstream consumer showing "entregar en: Avenida Central" for an order that will never be
- * delivered), and leaves stale destination-revision state attached to a TAKEAWAY conversation that
- * could resurface incorrectly if the customer later switches back to DELIVERY without re-stating an
- * address (see the second assertion block below).
- *
- * SEVERITY: HIGH -- upgraded from an initial MEDIUM (pure data-integrity) assessment once the actual
- * runtime behavior was observed. This hybrid is not merely a silently-tolerated inconsistency: it is
- * severe enough that `CommercialResponseValidator.validate()`'s `ADDRESS_MISMATCH` check (SafeTemplate
- * for a TAKEAWAY `SUMMARIZE_DRAFT` never mentions an address, but `factEnvelope.addressSafe` is
- * non-null because `state.address` is non-null) legitimately fires, and
- * `CommercialResponseComposer.compose()` THROWS (`SOFIA_SAFE_TEMPLATE_INVALID:ADDRESS_MISMATCH`) --
- * see `commercial-checkout.service.ts`'s `respond()` -> `commercial-response.composer.ts:52`.
- *
- * Critically, by the time that throw happens, `process()` has ALREADY called `persistAndAudit(prepared,
- * ...)` (line ~248, BEFORE `return this.respond(...)`) -- so the corrupted hybrid state is durably
- * committed to `sofiaConversationMemory` AND `SofiaOrderDraft` in Postgres, and only THEN does the
- * customer's turn crash with an uncaught exception out of `process()`. This is exactly the failure
- * pattern this program's invariants explicitly prohibit ("no uncaught exceptions on foreseeable
- * business/guard conditions") -- and it is worse than a clean crash: the write already landed, so a
- * caller that retries/resends after seeing the failure resumes from an already-corrupted conversation
- * state, not a clean pre-write one. `financial-safety` is not directly compromised (no delivery fee
- * charged, `draftFulfillment === fulfillment` so A22's binding guard is not fooled, and `confirm()`'s
- * `destinationStillBound` check is short-circuited by `state.fulfillment !== 'DELIVERY'`), but customer
- * turn availability and durable-state integrity both are.
+ * See `commercial-checkout.rebase-fulfillment-matrix.a40.spec.ts` for full combinatorial coverage of
+ * every {fresh fulfillment} x {this turn's own parsed delta} pairing that can reach this code path.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -137,7 +105,7 @@ class PinnedFirstReadRepository implements CommercialRepository {
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
 }
 
-describe('A39: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline address-only retry -- rebaseTurnOntoFreshState() produces a TAKEAWAY+address hybrid', () => {
+describe('A39/A40: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline address-only retry -- rebaseTurnOntoFreshState() must never produce a TAKEAWAY+address hybrid', () => {
   let prisma: PrismaService;
   let realRepository: PrismaCommercialRepository;
   let repository: PinnedFirstReadRepository;
@@ -211,7 +179,7 @@ describe('A39: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline add
 
   const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
-  it('Turn A switches to TAKEAWAY and commits; Turn B (stale-baseline, address-only, no fulfillment words) rebases into a TAKEAWAY+address hybrid', async () => {
+  it('Turn A switches to TAKEAWAY and commits; Turn B (stale-baseline, address-only, no fulfillment words) never produces a hybrid -- it fails closed with QUOTE_EXPIRED and leaves Turn A\'s committed TAKEAWAY state untouched', async () => {
     const conversationId = `a39-fulfillhybrid-${randomUUID()}`;
     await prisma.whatsappConversation.create({
       data: { id: conversationId, phone: '573001112288', provider: 'mock' },
@@ -277,7 +245,7 @@ describe('A39: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline add
       addressOnlyTurnThrew = error;
     }
 
-    console.log('A39 finding evidence (immediate turn result):', JSON.stringify({
+    console.log('A40 fix evidence (immediate turn result):', JSON.stringify({
       threw: addressOnlyTurnThrew ? String(addressOnlyTurnThrew) : null,
       nextAction: addressOnlyTurn?.nextAction ?? null,
       responsePurpose: addressOnlyTurn?.factEnvelope.responsePurpose ?? null,
@@ -285,57 +253,52 @@ describe('A39: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline add
       address: addressOnlyTurn?.state.address ?? null,
     }));
 
-    // ACTUAL OBSERVED BEHAVIOR: the customer's turn crashes with an UNCAUGHT exception
-    // (`SOFIA_SAFE_TEMPLATE_INVALID:ADDRESS_MISMATCH`) rather than returning a graceful response --
-    // `CommercialResponseValidator` correctly detects that the composed TAKEAWAY summary text cannot
-    // truthfully include `factEnvelope.addressSafe` (a TAKEAWAY summary template never mentions an
-    // address) and refuses to render, but `CommercialResponseComposer.compose()` THROWS instead of
-    // degrading to a safe fallback -- and this happens strictly AFTER `persistAndAudit()` already
-    // committed the corrupted hybrid state to Postgres (see `process()`: persistAndAudit runs BEFORE
-    // `respond()`). This assertion documents the actual (worse) behavior; see the block below for the
-    // durable-state proof.
-    expect(addressOnlyTurnThrew).not.toBeNull();
-    expect(String(addressOnlyTurnThrew)).toContain('SOFIA_SAFE_TEMPLATE_INVALID');
-    expect(String(addressOnlyTurnThrew)).toContain('ADDRESS_MISMATCH');
+    // FIXED BEHAVIOR (A40): the customer's turn NEVER throws. `rebaseTurnOntoFreshState()` detects
+    // that the fresh fulfillment it just inherited (TAKEAWAY) no longer admits Turn B's own stale
+    // destination edit, records that as an ambiguity instead of applying it, which makes
+    // `recoverDraftConflict()` fall through to the existing safe `QUOTE_EXPIRED` re-sync response
+    // instead of a corrupted "success".
+    expect(addressOnlyTurnThrew).toBeNull();
+    expect(addressOnlyTurn).not.toBeNull();
+    expect(addressOnlyTurn!.nextAction).toBe('READY_TO_CONFIRM');
+    expect(addressOnlyTurn!.factEnvelope.responsePurpose).toBe('QUOTE_EXPIRED');
+    // The response reflects Turn A's true, self-consistent, already-committed state -- NOT a hybrid.
+    expect(addressOnlyTurn!.state.fulfillment).toBe('TAKEAWAY');
+    expect(addressOnlyTurn!.state.address).toBeNull();
+    expect(addressOnlyTurn!.state.destinationSnapshot).toBeNull();
 
-    // Reload ground truth from Postgres via the REAL, unmocked repository. PROOF that the hybrid
-    // state was durably persisted BEFORE the customer-facing turn crashed -- a caller that catches
-    // this exception and simply tells the customer "something went wrong, please try again" resumes
-    // from an ALREADY-CORRUPTED conversation state, not a clean one.
+    // Reload ground truth from Postgres via the REAL, unmocked repository. PROOF that the durable
+    // state was NEVER corrupted: it is exactly Turn A's committed TAKEAWAY/no-address state, byte
+    // for byte -- Turn B's now-inapplicable address text was safely discarded (with a recorded
+    // ambiguity in-memory for this turn), never silently merged into a persisted hybrid.
     const finalState = await realRepository.loadState(conversationId);
     const finalDraft = await prisma.sofiaOrderDraft.findUnique({ where: { id: finalState!.draftId! } });
 
-    console.log('A39 finding evidence (authoritative persisted state):', JSON.stringify({
+    console.log('A40 fix evidence (authoritative persisted state):', JSON.stringify({
       fulfillment: finalState!.fulfillment,
       address: finalState!.address,
       addressConfirmed: finalState!.addressConfirmed,
       destinationSnapshotPresent: finalState!.destinationSnapshot !== null,
+      draftVersion: finalState!.draftVersion,
       draftFulfillmentColumn: finalDraft?.fulfillment,
       draftDeliveryAddressColumn: finalDraft?.deliveryAddress,
       draftDeliveryFee: finalDraft?.deliveryFee?.toString(),
       draftDeliveryQuoteAuditId: finalDraft?.deliveryQuoteAuditId,
     }));
 
-    if (finalState!.fulfillment === 'TAKEAWAY' && finalState!.address !== null) {
-      throw new Error(
-        `A39 FINDING CONFIRMED: rebaseTurnOntoFreshState() produced an internally-inconsistent hybrid `
-        + `state -- fulfillment correctly rebased to the fresh authoritative "TAKEAWAY" (Turn A's `
-        + `committed change) but Turn B's own stale-turn address contribution ("${finalState!.address}") `
-        + `was still applied UNCONDITIONALLY on top, with no check that it still made sense for the `
-        + `fulfillment it was just rebased onto. Persisted SofiaOrderDraft.deliveryAddress = `
-        + `"${finalDraft?.deliveryAddress}" for a TAKEAWAY (pickup) draft with deliveryFee=`
-        + `${finalDraft?.deliveryFee?.toString()} and no delivery quote audit -- a self-contradictory, `
-        + `durably-persisted record that nothing downstream re-validates.`,
-      );
-    }
-
-    // If the implementation is ever hardened to close this gap (e.g. by discarding/ignoring a stray
-    // address edit once fulfillment has been rebased to TAKEAWAY, or by falling through to a safe
-    // re-ask instead of silently persisting the hybrid), this is the expected safe shape: TAKEAWAY
-    // fulfillment with NO address attached.
+    // PERMANENT INVARIANT: never TAKEAWAY-with-a-destination.
     expect(finalState!.fulfillment).toBe('TAKEAWAY');
     expect(finalState!.address).toBeNull();
+    expect(finalState!.addressConfirmed).toBe(false);
     expect(finalState!.destinationSnapshot).toBeNull();
+    expect(finalState!.location).toBeNull();
+    // The rebase attempt must not have produced any additional draft write at all -- still v2, the
+    // exact version Turn A committed.
+    expect(finalState!.draftVersion).toBe(2);
+    expect(finalDraft?.fulfillment).toBe('TAKEAWAY');
+    expect(finalDraft?.deliveryAddress).toBeNull();
+    expect(finalDraft?.deliveryFee?.toString()).toBe('0');
+    expect(finalDraft?.deliveryQuoteAuditId).toBeNull();
   });
 
   afterEach(async () => {
