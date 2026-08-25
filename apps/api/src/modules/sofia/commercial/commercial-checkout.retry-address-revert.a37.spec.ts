@@ -81,6 +81,14 @@
  * against real Postgres via the unmodified `PrismaCommercialRepository` — nothing about the actual
  * remediation logic under test is mocked or bypassed. This is the same technique used to deterministically
  * pin lost-update races in the codebase's own A26/A31 test suites when exact interleaving matters.
+ *
+ * SOFIA Round 5 / A38 CLOSURE — this finding is FIXED. `recoverDraftConflict()`'s retry now rebases
+ * onto a freshly reloaded authoritative conversation state (`CommercialCheckoutService
+ * .rebaseTurnOntoFreshState()`) instead of blindly replaying the losing turn's own stale in-memory
+ * `state`, so a coordinate-only retry now refines whatever address is CURRENTLY authoritative instead
+ * of reviving a superseded one. This spec is kept as a PERMANENT regression test of the fixed
+ * behavior (see the assertions after `gpsTurn` below) — the original finding narrative above is
+ * retained as historical documentation of the exact mechanism that must never regress.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -89,7 +97,7 @@ import { CommercialCheckoutService } from './commercial-checkout.service';
 import { CommercialIntentEngine } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
-import { COMMERCIAL_REPOSITORY, type CommercialRepository } from './commercial.repository';
+import { type CommercialRepository } from './commercial.repository';
 import type { CommercialConversationState } from './commercial.types';
 import { PrismaCommercialRepository } from './persistence/prisma-commercial.repository';
 import { CommercialResponseComposer } from './response/commercial-response.composer';
@@ -257,14 +265,16 @@ describe('A37: concurrent address-correction vs. GPS-only turn — recoverDraftC
     expect(gpsTurn.nextAction).toBe('READY_TO_CONFIRM');
     expect(gpsTurn.state.confirmationState).toBe('PENDING');
 
-    // THE FINDING: reload ground truth. The customer's explicit "Calle 80 # 20-30" correction --
-    // already durably committed and already returned to the customer as this conversation's current
-    // address in `corrected.state.address` -- has been silently reverted.
+    // SOFIA Round 5 / A38 CLOSURE: reload ground truth. `recoverDraftConflict()` now rebases Turn B's
+    // retry against a FRESHLY reloaded authoritative `sofiaConversationMemory` state
+    // (`rebaseTurnOntoFreshState()`) instead of blindly replaying Turn B's own stale in-memory
+    // `state`, so Turn B's coordinate-only edit (RULE 3 — no revision bump) now refines the CURRENT
+    // ("Calle 80 # 20-30") destination instead of reviving the superseded one. The customer's explicit
+    // correction MUST survive intact.
     const finalState = await realRepository.loadState(conversationId);
     const finalDraft = await realRepository.loadDraftVersion(finalState!.draftId!);
 
-    // eslint-disable-next-line no-console
-    console.log('A37 address-revert finding evidence:', JSON.stringify({
+    console.log('A38 regression evidence (A37 address-revert FIXED):', JSON.stringify({
       correctedAddressAfterTurnA: corrected.state.address,
       correctedRevisionAfterTurnA: corrected.state.destinationSnapshot?.revision,
       finalAddressAfterTurnB: finalState!.address,
@@ -273,43 +283,46 @@ describe('A37: concurrent address-correction vs. GPS-only turn — recoverDraftC
     }));
 
     if (finalState!.address === 'Calle 50 # 10-20') {
-      // Reproduced: the address silently reverted to the value the customer explicitly corrected
-      // AWAY FROM, with no error and no trace in the conversation that anything was lost. Worse: the
-      // internal state remains SELF-consistent (revision/fingerprint/binding all agree), so
-      // `confirm()`'s own `isQuoteBoundToCurrentDestination` guard cannot detect anything is wrong --
-      // a subsequent "Confirmo" would silently confirm delivery to the WRONG, superseded address.
-      expect(finalState!.destinationSnapshot?.revision).toBe(1); // reverted, not the corrected revision 2
-      expect(finalState!.deliveryQuoteDestinationBinding?.destinationRevision).toBe(finalState!.destinationSnapshot?.revision);
-
-      // END-TO-END PROOF: the customer, having just been told (via `gpsTurn`'s own response) that
-      // their draft is READY_TO_CONFIRM, says "Confirmo" next. Prove this actually confirms the order
-      // to the WRONG, superseded address -- not merely that the intermediate state looks wrong.
-      const confirmTurn = await service.process({
-        conversationId, phone: '573001112266', message: 'Confirmo', actor,
-      });
-      expect(confirmTurn.state.confirmationState).toBe('CONFIRMED');
-      // This is the crux of the CRITICAL severity: the CONFIRMED order's address is the one the
-      // customer explicitly corrected AWAY FROM two turns ago, with no guard anywhere in `confirm()`
-      // (including `isQuoteBoundToCurrentDestination`) able to detect it, because the reverted state
-      // is internally self-consistent.
-      expect(confirmTurn.state.address).toBe('Calle 50 # 10-20');
-      const confirmedDraft = await prisma.sofiaOrderDraft.findUnique({ where: { id: finalState!.draftId! } });
-      expect(confirmedDraft?.status).toBe('CONFIRMED');
-      expect(confirmedDraft?.deliveryAddress).toBe('Calle 50 # 10-20');
-
-      // eslint-disable-next-line no-console
-      console.log('A37 end-to-end confirmation evidence:', JSON.stringify({
-        confirmedAddress: confirmedDraft?.deliveryAddress,
-        confirmedStatus: confirmedDraft?.status,
-        customerLastExplicitCorrection: 'Calle 80 # 20-30',
-      }));
-    } else {
-      // If this ever fails to reproduce (e.g. a future fix adds a monotonic/CAS guard on
-      // destinationSnapshot inside saveState(), or re-validates destination freshness before an
-      // item/coordinate-only retry persists), that is GOOD news -- fail loudly rather than silently
-      // pass as "still broken".
-      throw new Error(`A37 did not reproduce: final address is "${finalState!.address}", expected the corrected "Calle 80 # 20-30" to have survived (finding fixed) rather than the STALE "Calle 50 # 10-20" -- if it now genuinely survived intact, update/remove this spec.`);
+      // REGRESSION: the A37 CRITICAL finding has come back. The address silently reverted to the
+      // value the customer explicitly corrected AWAY FROM, with no error and no trace in the
+      // conversation that anything was lost. See the A37 spec history (git log this file) and the
+      // A38 CLOSURE doc on `CommercialCheckoutService.rebaseTurnOntoFreshState()` for the exact
+      // mechanism this must never regress to.
+      throw new Error(
+        `A38 REGRESSION: the A37 address-revert finding reproduced again -- final address is the STALE `
+        + `"Calle 50 # 10-20" instead of the customer's explicit correction "Calle 80 # 20-30". `
+        + `recoverDraftConflict()'s retry is once again replaying a stale destination snapshot instead of `
+        + `rebasing onto fresh authoritative state.`,
+      );
     }
+
+    // FIXED BEHAVIOR (permanent assertion): Turn A's explicit address correction survives Turn B's
+    // stale-baseline coordinate-only retry intact.
+    expect(finalState!.address).toBe('Calle 80 # 20-30');
+    expect(finalState!.destinationSnapshot?.revision).toBe(2); // the corrected revision, never reverted to 1
+    expect(finalState!.deliveryQuoteDestinationBinding?.destinationRevision).toBe(2);
+    expect(finalState!.deliveryQuoteDestinationBinding?.destinationRevision).toBe(finalState!.destinationSnapshot?.revision);
+    // Turn B's own GPS refinement was not lost either -- it was correctly applied ON TOP of the
+    // corrected address (coordinate-only edit, RULE 3 -- same revision, new coordinate evidence).
+    expect(finalState!.location).toEqual({ latitude: NEAR_B.latitude, longitude: NEAR_B.longitude });
+
+    // END-TO-END PROOF: the customer, having just been told (via `gpsTurn`'s own response) that their
+    // draft is READY_TO_CONFIRM, says "Confirmo" next. Prove this confirms the order to the CORRECT,
+    // customer-intended address -- not merely that the intermediate state looks right.
+    const confirmTurn = await service.process({
+      conversationId, phone: '573001112266', message: 'Confirmo', actor,
+    });
+    expect(confirmTurn.state.confirmationState).toBe('CONFIRMED');
+    expect(confirmTurn.state.address).toBe('Calle 80 # 20-30');
+    const confirmedDraft = await prisma.sofiaOrderDraft.findUnique({ where: { id: finalState!.draftId! } });
+    expect(confirmedDraft?.status).toBe('CONFIRMED');
+    expect(confirmedDraft?.deliveryAddress).toBe('Calle 80 # 20-30');
+
+    console.log('A38 end-to-end confirmation evidence (A37 FIXED):', JSON.stringify({
+      confirmedAddress: confirmedDraft?.deliveryAddress,
+      confirmedStatus: confirmedDraft?.status,
+      customerExplicitCorrection: 'Calle 80 # 20-30',
+    }));
   });
 
   afterEach(async () => {

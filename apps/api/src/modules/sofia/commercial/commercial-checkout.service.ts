@@ -21,7 +21,7 @@ import { CommercialIntentEngine, normalizeCommercialText } from './commercial-in
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
 import { COMMERCIAL_REPOSITORY, DraftAlreadyConfirmedError, type CommercialRepository } from './commercial.repository';
-import type { CommercialConversationState, CommercialMessageCommand, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
+import type { CommercialConversationState, CommercialItem, CommercialMessageCommand, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
 import { CommercialResponseComposer } from './response/commercial-response.composer';
 import type { CommercialFactEnvelope, CommercialResponsePurpose } from './response/commercial-response.types';
 import {
@@ -33,6 +33,8 @@ import {
   type DestinationQuoteBinding,
 } from '../../../delivery/destination-state/destination-revision';
 import type { DestinationEdit, DestinationSnapshot } from '../../../delivery/destination-state/destination-snapshot.types';
+
+type CommercialParsedMessage = ReturnType<CommercialIntentEngine['interpret']>;
 
 const emptyState = (conversationId: string): CommercialConversationState => ({
   schemaVersion: 4, conversationId, customerId: null, intent: 'UNKNOWN', items: [], fulfillment: null, address: null, addressConfirmed: false, location: null,
@@ -224,7 +226,7 @@ export class CommercialCheckoutService {
     state.missingFields = this.policy.missing(state);
     if (state.ambiguities.length) state.missingFields = [...new Set([...state.missingFields, ...state.ambiguities])];
 
-    if (parsed.intent === 'CONFIRM') return this.confirm(state, command, previous);
+    if (parsed.intent === 'CONFIRM') return this.confirm(state, command, previous, { parsed, acceptCoordinates });
     if (state.missingFields.length) {
       state.lastQuestionPurpose = this.policy.questionPurpose(state.missingFields);
       state.confirmationState = 'NONE';
@@ -236,7 +238,7 @@ export class CommercialCheckoutService {
     try {
       prepared = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
     } catch (error) {
-      const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+      const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) }, { parsed, acceptCoordinates });
       if (!outcome.recovered) throw error;
       if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
       prepared = outcome.prepared;
@@ -322,12 +324,28 @@ export class CommercialCheckoutService {
    * and `STALE_DRAFT_VERSION` share one recovery path, while still letting each call site apply its own
    * post-success bookkeeping (audit action codes, site-specific metrics, response purpose) when a retry
    * actually succeeds.
+   *
+   * SOFIA Round 5 / A38 CLOSURE (A37 blind red-team findings, CRITICAL + HIGH) — the retry no longer
+   * patches ONLY `draftVersion` onto this turn's own (by-then-proven-stale) in-memory `state` and
+   * replays it as-is. That let a losing turn silently re-persist a stale destination/items snapshot
+   * over a concurrent winner's already-committed, already customer-facing change (a reverted address
+   * correction; a permanently erased sibling item addition) -- worse than the pre-A36 uncaught
+   * exception, because it reported full success while quietly destroying evidence. The retry now
+   * reloads the FULL authoritative conversation state (`repository.loadState()`, not just the draft's
+   * version number) and re-applies THIS TURN's own genuine delta (`turnDelta`, captured by the caller
+   * at the moment it was originally derived) on top of that fresh baseline via
+   * `rebaseTurnOntoFreshState()` -- exactly what re-running this turn against current reality would
+   * produce, so the retry naturally incorporates whatever the concurrent winner already committed
+   * instead of clobbering it. "Retry once, then safe QUOTE_EXPIRED respond" discipline is unchanged: a
+   * genuine second collision after the corrected retry still falls through to the safe response below
+   * rather than looping.
    */
   private async recoverDraftConflict(
     error: unknown,
     state: CommercialConversationState,
     command: CommercialMessageCommand,
     options: { allowNewDraftAfterConfirm: boolean },
+    turnDelta: { parsed: CommercialParsedMessage; acceptCoordinates: boolean },
   ): Promise<
     | { recovered: false }
     | { recovered: true; kind: 'ALREADY_CONFIRMED' | 'RETRY_EXHAUSTED'; result: CommercialTurnResult }
@@ -351,11 +369,21 @@ export class CommercialCheckoutService {
     }
     if (fresh) {
       // Retry ONCE against the now-current authoritative version (read directly from `SofiaOrderDraft`,
-      // not the possibly-not-yet-committed conversation-memory snapshot) so this turn's own genuine
-      // intent is still honored against current reality instead of being silently dropped.
+      // not the possibly-not-yet-committed conversation-memory snapshot) AND against the now-current
+      // authoritative conversation state (destination/items/fulfillment/payment) -- see A38 CLOSURE
+      // doc above -- so this turn's own genuine intent is still honored against current reality
+      // instead of being silently dropped, and without clobbering a concurrent winner's own change.
       try {
-        const prepared = await this.prepareDraft({ ...state, draftVersion: fresh.version }, command, options);
-        return { recovered: true, kind: 'RETRY_SUCCEEDED', prepared };
+        const rebased = await this.rebaseTurnOntoFreshState(state, command, turnDelta);
+        if (rebased && !rebased.missingFields.length) {
+          const prepared = await this.prepareDraft({ ...rebased, draftVersion: fresh.version }, command, options);
+          return { recovered: true, kind: 'RETRY_SUCCEEDED', prepared };
+        }
+        // Either there was no authoritative conversation-memory row to rebase onto (should not
+        // normally happen once a draft exists), or re-deriving this turn against fresh reality now
+        // leaves required fields missing (e.g. a concurrent winner reset fulfillment) -- never call
+        // `prepareDraft()` with an incomplete/unrebased state; fall through to the safe response below
+        // instead of guessing.
       } catch (retryError) {
         if (retryError instanceof DraftAlreadyConfirmedError) {
           return { recovered: true, kind: 'ALREADY_CONFIRMED', result: await this.respondDraftAlreadyConfirmed(state, command, retryError) };
@@ -379,6 +407,143 @@ export class CommercialCheckoutService {
       after: { draftId: authoritative.draftId, draftVersion: authoritative.draftVersion },
     });
     return { recovered: true, kind: 'RETRY_EXHAUSTED', result: await this.respond(authoritative, 'QUOTE_EXPIRED', 'READY_TO_CONFIRM') };
+  }
+
+  /**
+   * SOFIA Round 5 / A38 CLOSURE (A37 blind red-team findings, CRITICAL + HIGH) — re-derives THIS
+   * turn's own genuine delta (`turnDelta`, captured by the caller at the exact point it was originally
+   * computed in `process()`/`confirm()`, BEFORE the CAS conflict was ever discovered) against a
+   * freshly reloaded AUTHORITATIVE conversation state, instead of trusting `state`'s own
+   * already-proven-stale in-memory snapshot of axes this turn never touched. This is the fix for both
+   * A37 findings, which shared one root cause: a losing turn's retry blindly replaying its own stale
+   * `state.items`/`state.destinationSnapshot` (computed against a `previous` read BEFORE a concurrent
+   * winner committed) as a whole-value overwrite at the new version number.
+   *
+   * Returns `null` only when there is no authoritative `sofiaConversationMemory` row to rebase onto at
+   * all (should not normally happen once a draft/conversation exists) — the caller must treat that as
+   * "cannot safely retry" and fall through to the safe response, never call `prepareDraft()` with an
+   * un-rebased state.
+   */
+  private async rebaseTurnOntoFreshState(
+    state: CommercialConversationState,
+    command: CommercialMessageCommand,
+    turnDelta: { parsed: CommercialParsedMessage; acceptCoordinates: boolean },
+  ): Promise<CommercialConversationState | null> {
+    const freshState = await this.repository.loadState(command.conversationId);
+    if (!freshState) return null;
+    const { parsed, acceptCoordinates } = turnDelta;
+
+    const rebased: CommercialConversationState = {
+      ...freshState,
+      // This turn's own parse-derived bookkeeping — purely this turn's own interpretation of its own
+      // message, not a concurrency-sensitive axis, so it is always safe to carry forward as-is.
+      intent: state.intent,
+      confidence: state.confidence,
+      ambiguities: [...state.ambiguities],
+      domainErrors: state.domainErrors,
+      lastResolvedIntent: state.lastResolvedIntent,
+      customerId: state.customerId ?? freshState.customerId,
+    };
+
+    // FULFILLMENT axis: only overwrite when THIS turn's own message actually specified a fulfillment
+    // — otherwise inherit the FRESH authoritative value instead of the possibly-stale one `state`
+    // carried forward from the original (now-proven-stale) `previous` read.
+    if (parsed.fulfillment) {
+      rebased.fulfillment = parsed.fulfillment;
+      if (parsed.fulfillment === 'TAKEAWAY') {
+        rebased.address = null;
+        rebased.addressConfirmed = false;
+        rebased.location = null;
+        rebased.destinationSnapshot = null;
+        rebased.deliveryFee = 0;
+        rebased.deliveryQuoteAuditId = null;
+        rebased.deliveryQuoteVersion = null;
+        rebased.deliveryQuoteExpiresAt = null;
+        rebased.deliveryQuoteDestinationBinding = null;
+      }
+    }
+    if (parsed.paymentPreference !== 'UNKNOWN') rebased.paymentPreference = parsed.paymentPreference;
+
+    // DESTINATION axis (A37 CRITICAL finding): reapply THIS TURN's own destination edit (address text
+    // and/or a shared GPS point — exactly the same edit `process()` originally computed) on top of the
+    // FRESH authoritative destination snapshot, never the stale one. A coordinate-only edit (RULE 3 —
+    // no revision bump) now refines whatever address is CURRENTLY authoritative instead of silently
+    // reviving an address a concurrent winner already corrected away from.
+    if (parsed.address || acceptCoordinates) {
+      const destinationEdit: DestinationEdit = {};
+      if (parsed.address) destinationEdit.rawReferenceText = parsed.address;
+      if (acceptCoordinates && command.location) {
+        destinationEdit.coordinates = {
+          latitude: command.location.latitude,
+          longitude: command.location.longitude,
+          source: 'GPS_SHARE',
+          confidence: 'HIGH',
+        };
+      }
+      const { snapshot } = applyDestinationEdit(this.baselineDestinationSnapshot(rebased), destinationEdit);
+      rebased.destinationSnapshot = snapshot;
+      rebased.address = snapshot.referenceText;
+      rebased.addressConfirmed = Boolean(snapshot.referenceText);
+      rebased.location = isCoordinateProvisionallyUsable(snapshot)
+        ? { latitude: snapshot.latitude!, longitude: snapshot.longitude! }
+        : null;
+    }
+
+    try { this.policy.validatePayment(rebased.fulfillment, rebased.paymentPreference); }
+    catch { rebased.paymentPreference = 'UNKNOWN'; rebased.ambiguities = [...rebased.ambiguities, 'paymentPreference']; }
+    rebased.paymentReadiness = rebased.paymentPreference === 'ONLINE'
+      ? 'PAYMENT_READY_ONLINE'
+      : rebased.paymentPreference === 'CASH_ON_DELIVERY'
+        ? 'PAYMENT_COD'
+        : rebased.paymentPreference === 'PAY_AT_PICKUP'
+          ? 'PAYMENT_AT_PICKUP'
+          : 'PAYMENT_UNRESOLVED';
+
+    // ITEMS axis (A37 HIGH finding): re-run THIS TURN's own item mutation (product mention / bare
+    // quantity change / modifier change) against the FRESH authoritative items list, instead of
+    // blindly persisting the stale whole-array `state.items` snapshot already computed against the
+    // old baseline — see `applyItemsMutation()`. This is what naturally preserves a concurrent
+    // winner's own, different item addition instead of silently overwriting it.
+    rebased.items = await this.applyItemsMutation(freshState.items, parsed, command);
+
+    rebased.missingFields = this.policy.missing(rebased);
+    if (rebased.ambiguities.length) rebased.missingFields = [...new Set([...rebased.missingFields, ...rebased.ambiguities])];
+
+    return rebased;
+  }
+
+  /**
+   * SOFIA Round 5 / A38 CLOSURE — the exact item-mutation logic `process()` applies inline (product
+   * mention resolution, bare-quantity change, modifier changes), factored out and parameterized on
+   * `baseItems` so `rebaseTurnOntoFreshState()` can re-run THIS turn's own item delta against a FRESH
+   * authoritative items list instead of the stale one `process()` originally computed against. Pure
+   * function of `baseItems`/`parsed`/`command.message` (plus a live catalog read) — never reads
+   * `this.repository` — so it is safe to call a second time during retry without side effects beyond
+   * the idempotent catalog lookup.
+   */
+  private async applyItemsMutation(
+    baseItems: CommercialItem[],
+    parsed: CommercialParsedMessage,
+    command: CommercialMessageCommand,
+  ): Promise<CommercialItem[]> {
+    const products = await this.resolveProducts(command.message);
+    if (products === 'AMBIGUOUS' || !products.length) {
+      if (baseItems.length === 1 && parsed.quantity) return [{ ...baseItems[0]!, quantity: parsed.quantity }];
+      if (baseItems.length && parsed.clearModifiers) return [{ ...baseItems[0]!, modifiers: [] }, ...baseItems.slice(1)];
+      if (baseItems.length && parsed.modifiers.length) return [{ ...baseItems[0]!, modifiers: parsed.modifiers }, ...baseItems.slice(1)];
+      return baseItems;
+    }
+    const normalized = normalizeCommercialText(command.message);
+    const nextItems = products.map((product, index) => ({
+      productId: product.id,
+      code: product.code,
+      name: product.name,
+      quantity: this.quantityForProduct(normalized, product, products.length === 1 ? parsed.quantity : null),
+      unitPrice: product.persistedPrice,
+      modifiers: index === 0 ? parsed.modifiers : [],
+    }));
+    const mentioned = new Set(nextItems.map((item) => item.productId));
+    return [...baseItems.filter((item) => !mentioned.has(item.productId)), ...nextItems];
   }
 
   /**
@@ -513,7 +678,12 @@ export class CommercialCheckoutService {
     }));
   }
 
-  private async confirm(state: CommercialConversationState, command: CommercialMessageCommand, previous: CommercialConversationState): Promise<CommercialTurnResult> {
+  private async confirm(
+    state: CommercialConversationState,
+    command: CommercialMessageCommand,
+    previous: CommercialConversationState,
+    turnDelta: { parsed: CommercialParsedMessage; acceptCoordinates: boolean },
+  ): Promise<CommercialTurnResult> {
     if (state.lastQuestionPurpose !== 'CONFIRM_ORDER' || !state.draftId || !state.draftVersion || !state.draftHash || !state.expiresAt) return this.handoff(state, command, 'SOFIA_CONTEXTUAL_CONFIRMATION_INVALID');
     // QUOTE BINDING (SOFIA Round 5 / A10): a single WhatsApp message can carry BOTH a CONFIRM
     // intent AND a new address/GPS in the same text (e.g. "Confirmo, mejor envíamelo a la calle 80
@@ -578,7 +748,7 @@ export class CommercialCheckoutService {
       try {
         refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
       } catch (error) {
-        const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+        const outcome = await this.recoverDraftConflict(error, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) }, turnDelta);
         if (!outcome.recovered) throw error;
         if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
         refreshed = outcome.prepared;
@@ -613,7 +783,7 @@ export class CommercialCheckoutService {
         try {
           refreshed = await this.prepareDraft(state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
         } catch (priceRefreshError) {
-          const outcome = await this.recoverDraftConflict(priceRefreshError, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) });
+          const outcome = await this.recoverDraftConflict(priceRefreshError, state, command, { allowNewDraftAfterConfirm: this.allowsNewDraftAfterConfirm(previous, state) }, turnDelta);
           if (!outcome.recovered) throw priceRefreshError;
           if (outcome.kind !== 'RETRY_SUCCEEDED') return outcome.result;
           refreshed = outcome.prepared;

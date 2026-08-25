@@ -67,6 +67,14 @@
  * Proven against REAL, unmocked `CommercialCheckoutService` + `PrismaCommercialRepository` + REAL
  * Postgres (only the catalog/availability/quote/audit/order-creation SOFIA_DOMAIN_CONTRACTS ports are
  * doubled, exactly as every sibling A33/A35/A36 spec in this directory already does).
+ *
+ * SOFIA Round 5 / A38 CLOSURE — this finding is FIXED. `recoverDraftConflict()`'s retry now re-derives
+ * the retry-loser's OWN item delta (`CommercialCheckoutService.applyItemsMutation()`) on top of a
+ * freshly reloaded authoritative items list (`rebaseTurnOntoFreshState()`) instead of blindly
+ * persisting its own stale whole-array `state.items` snapshot. This spec is kept as a PERMANENT
+ * regression test of the fixed behavior (see the assertions at the end of the test below) — the
+ * original finding narrative above is retained as historical documentation of the exact mechanism
+ * that must never regress.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -175,10 +183,10 @@ describe('A37: recoverDraftConflict() retry-once silently drops a DIFFERENT conc
       expect(entry.value.state.draftId).toBe(built.state.draftId);
     }
 
-    // THE FINDING: each turn's OWN CommercialTurnResult narrates ONLY its own product as having been
-    // added (never both) -- i.e. whichever turn was the retry-loser told its customer their item was
-    // added, when moments later it silently was not, OR the turn's own narration never even reflects
-    // the other, already-committed sibling item. Collect what each individual response claimed:
+    // Collect what each individual turn's own response claimed was in the draft (useful evidence
+    // regardless of outcome -- the retry-loser's own response necessarily predates the OTHER turn's
+    // eventual merge onto fresh state, so it may legitimately claim fewer items than the final
+    // authoritative truth; that alone is not a bug, see assertions below for what MUST hold).
     const claimedProductSets = fulfilled.map((entry) => entry.value.state.items.map((item) => item.productId).sort());
 
     // Reload ground truth: what is ACTUALLY left in the authoritative SofiaOrderDraft/conversation
@@ -187,40 +195,42 @@ describe('A37: recoverDraftConflict() retry-once silently drops a DIFFERENT conc
     const finalDraft = await repository.loadDraftVersion(built.state.draftId!);
     const finalProducts = finalState!.items.map((item) => item.productId).sort();
 
-    // eslint-disable-next-line no-console
-    console.log('A37 finding evidence:', JSON.stringify({
+    console.log('A38 regression evidence (A37 item-loss FIXED):', JSON.stringify({
       claimedProductSets,
       finalProducts,
       finalDraftVersion: finalDraft,
     }));
 
-    // EXPECTED (if the invariants held): the final authoritative state should contain BOTH
-    // concurrently-added products (Combo + Coca Cola + Papas) -- nothing a customer was told was
-    // added should ever be silently dropped by a LATER turn's unrelated retry.
-    //
-    // ACTUAL (this assertion documents the violation): the retry-loser's whole-array item replace
-    // means the final state contains AT MOST the retry-loser's own single addition on top of the
-    // baseline Combo -- the retry-winner's item is gone, with no error surfaced anywhere.
+    // SOFIA Round 5 / A38 CLOSURE: `recoverDraftConflict()`'s retry now re-derives the retry-loser's
+    // OWN item delta (`applyItemsMutation()`) on top of a FRESHLY reloaded authoritative items list
+    // (`rebaseTurnOntoFreshState()`) instead of blindly persisting its own stale whole-array
+    // `state.items` snapshot. Both concurrently-added, genuinely different products MUST survive in
+    // the final authoritative draft -- neither turn's already-committed contribution may be silently
+    // erased by the other's retry.
     const bothProductsSurvived = finalProducts.includes('p2') && finalProducts.includes('p3');
     if (!bothProductsSurvived) {
-      // Confirm this is a genuine, reproducible silent-loss finding, not test flakiness: exactly one
-      // of the two concurrently-added products survived in the authoritative draft, even though BOTH
-      // turns independently reported (via their own CommercialTurnResult) that their product had been
-      // added, and neither turn's process() call ever rejected or asked the customer to retry.
-      expect(finalProducts).toContain('p1'); // baseline combo always present
-      expect(finalProducts.length).toBe(2); // combo + exactly ONE of the two added items
-      const survivingAddedProduct = finalProducts.find((id) => id !== 'p1');
-      expect(['p2', 'p3']).toContain(survivingAddedProduct);
-      // At least one fulfilled turn claimed the NOW-MISSING product as present in its own response --
-      // proving the narration this specific turn delivered to its customer diverged from the durable
-      // truth left moments later, with zero corrective signal.
-      const missingProduct = survivingAddedProduct === 'p2' ? 'p3' : 'p2';
-      const aTurnClaimedTheNowMissingProduct = claimedProductSets.some((set) => set.includes(missingProduct));
-      expect(aTurnClaimedTheNowMissingProduct).toBe(true);
-    } else {
-      // If this ever fails to reproduce (e.g. a future fix adds real per-field merge on retry), that
-      // is GOOD news -- fail the test loudly so it is not silently treated as "still broken".
-      throw new Error('A37 did not reproduce: both concurrently-added products survived. If recoverDraftConflict() now merges items on retry instead of blindly overwriting, this finding is FIXED -- update/remove this spec.');
+      // REGRESSION: the A37 HIGH finding has come back -- exactly one of the two concurrently-added
+      // products survived, even though BOTH turns independently reported success. See the A37 spec
+      // history (git log this file) and the A38 CLOSURE doc on
+      // `CommercialCheckoutService.rebaseTurnOntoFreshState()` / `applyItemsMutation()` for the exact
+      // mechanism this must never regress to.
+      throw new Error(
+        `A38 REGRESSION: the A37 item-loss finding reproduced again -- final products are `
+        + `${JSON.stringify(finalProducts)}, expected BOTH "p2" (Coca Cola) and "p3" (Papas) to survive `
+        + `alongside the baseline "p1" (Combo). recoverDraftConflict()'s retry is once again `
+        + `whole-array-overwriting items instead of rebasing this turn's own delta onto fresh `
+        + `authoritative state.`,
+      );
+    }
+
+    // FIXED BEHAVIOR (permanent assertion): the baseline Combo plus BOTH concurrently-added products
+    // all survive intact in the final authoritative draft -- nothing a customer was told was added is
+    // ever silently dropped by a sibling turn's unrelated retry.
+    expect(finalProducts).toEqual(['p1', 'p2', 'p3']);
+    expect(finalState!.items).toHaveLength(3);
+    for (const productId of ['p1', 'p2', 'p3']) {
+      const item = finalState!.items.find((entry) => entry.productId === productId);
+      expect(item?.quantity).toBe(1);
     }
   });
 
