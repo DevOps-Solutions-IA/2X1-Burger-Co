@@ -148,6 +148,7 @@ class AlwaysStaleReadRepository implements CommercialRepository {
   // exactly the real-world distinction the fix relies on: passing this through to the REAL repository
   // models that correctly, rather than "gaming" this test double.
   loadStateForUpdate(conversationId: string) { return this.real.loadStateForUpdate(conversationId); }
+  reconcileConfirmedState(conversationId: string, draftId: string, computeReconciledState: Parameters<CommercialRepository['reconcileConfirmedState']>[2]) { return this.real.reconcileConfirmedState(conversationId, draftId, computeReconciledState); }
 }
 
 const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };

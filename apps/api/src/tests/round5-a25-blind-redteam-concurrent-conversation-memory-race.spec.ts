@@ -131,6 +131,7 @@ function staleFirstReadRepository(real: CommercialRepository, staleSnapshot: Com
     loadDraftVersion: (draftId) => real.loadDraftVersion(draftId),
     loadConfirmedDraftRecord: (draftId) => real.loadConfirmedDraftRecord(draftId),
     loadStateForUpdate: (conversationId) => real.loadStateForUpdate(conversationId),
+    reconcileConfirmedState: (conversationId, draftId, computeReconciledState) => real.reconcileConfirmedState(conversationId, draftId, computeReconciledState),
   };
 }
 

@@ -97,4 +97,53 @@ export interface CommercialRepository {
    * canonical (`schemaVersion === 4`) record — same shape/contract as `loadState()`.
    */
   loadStateForUpdate(conversationId: string): Promise<CommercialConversationState | null>;
+  /**
+   * SOFIA Round 5 / A48 CLOSURE (A47 blind red-team finding, HIGH) — closes the check-then-act gap
+   * `loadStateForUpdate()` (above) left open: that method's row lock is acquired and released
+   * INSIDE ITS OWN, separate, read-only transaction, so it commits (releasing the lock) the instant
+   * the `SELECT` resolves. `respondDraftAlreadyConfirmed()` then, in a SEPARATE subsequent step
+   * (outside any lock), decided what to persist and called `saveState()` — a classic check-then-act
+   * race: a genuinely late (not crashed, merely slow) winning turn's OWN `saveState()` call could
+   * land its real, rich CONFIRMED narration in exactly that gap and be silently clobbered a moment
+   * later by the losing turn's own reconstruction-fallback write, because BOTH writes carry
+   * `confirmationState: 'CONFIRMED'` for the same `draftId` — outside the scope of the
+   * never-regress-CONFIRMED guard, which only blocks CONFIRMED -> non-CONFIRMED regressions.
+   *
+   * This method makes the ENTIRE sequence — acquire the row lock, read the current
+   * `sofiaConversationMemory` row, ALSO read the authoritative `SofiaOrderDraft` record for
+   * `draftId` (both inside the SAME transaction, so neither can be stale relative to the other),
+   * hand both to the caller-supplied `computeReconciledState` callback to decide what (if anything)
+   * needs to be persisted, and — if it decides a write is needed — perform that write BEFORE the
+   * transaction commits — happen as ONE indivisible unit, with the row lock held CONTINUOUSLY from
+   * the first `SELECT ... FOR UPDATE` through the final `upsert`. Because Postgres row locks force
+   * real serialization against ANY concurrent transaction trying to write the SAME row (not just
+   * "not yet visible to a polling SELECT"), no concurrent committer can land unobserved in a gap:
+   * either it commits before this transaction's lock is acquired (and `current` already reflects
+   * it), or it is forced to wait until this transaction commits or rolls back (and therefore can
+   * never be silently overwritten by this transaction's own decision, and always gets the final say
+   * once it does proceed).
+   *
+   * `computeReconciledState` is a SYNCHRONOUS, pure decision function — it must not perform its own
+   * I/O — so the transaction it runs inside stays short. It receives the locked, mutually-consistent
+   * `{ current, confirmedDraft }` pair and returns `{ resolved, persist }`:
+   *   - `persist: false` — nothing needs to change; `resolved` is what the caller should respond
+   *     with (typically `current` itself, when it already reflects the correct CONFIRMED state, or a
+   *     caller-constructed fail-closed fallback when neither `current` nor `confirmedDraft` verifies
+   *     — in which case NOTHING is written, exactly matching A44's original fail-closed discipline).
+   *   - `persist: true` — `resolved` should be persisted as the new durable narration before this
+   *     transaction commits.
+   * As defense-in-depth, this method independently re-applies the SAME never-regress-CONFIRMED guard
+   * `saveState()` itself enforces before actually writing a `persist: true` result, even though a
+   * correctly-implemented `computeReconciledState` should never legitimately propose a regression
+   * from this call site (it is only ever reached once the caller already knows `draftId` is
+   * CONFIRMED).
+   */
+  reconcileConfirmedState(
+    conversationId: string,
+    draftId: string,
+    computeReconciledState: (locked: {
+      current: CommercialConversationState | null;
+      confirmedDraft: CommercialConfirmedDraftRecord | null;
+    }) => { resolved: CommercialConversationState; persist: boolean },
+  ): Promise<CommercialConversationState>;
 }

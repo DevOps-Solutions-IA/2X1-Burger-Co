@@ -11,10 +11,37 @@ export class PrismaCommercialRepository implements CommercialRepository {
 
   async loadState(conversationId: string) {
     const memory = await this.prisma.sofiaConversationMemory.findUnique({ where: { conversationId } });
-    const value = memory?.currentOrderIntentJson;
+    return this.parseCanonicalState(memory?.currentOrderIntentJson);
+  }
+
+  /**
+   * Shared parsing discipline for `current_order_intent_json` — a valid canonical
+   * `CommercialConversationState` is any non-null, non-array object carrying `schemaVersion === 4`.
+   * Factored out (SOFIA Round 5 / A48) so `loadState()`, `loadStateForUpdate()`, `saveState()`'s own
+   * existing-value guard, and `reconcileConfirmedState()`'s locked read all share exactly one
+   * definition of "what counts as a canonical record", instead of four independent inline copies
+   * that could silently drift apart.
+   */
+  private parseCanonicalState(value: unknown): CommercialConversationState | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const candidate = value as Record<string, unknown>;
-    return candidate.schemaVersion === 4 ? candidate as unknown as CommercialConversationState : null;
+    return candidate.schemaVersion === 4 ? (candidate as unknown as CommercialConversationState) : null;
+  }
+
+  /**
+   * Shared write primitive for the canonical `sofiaConversationMemory` columns — factored out
+   * (SOFIA Round 5 / A48) so `saveState()` and `reconcileConfirmedState()` perform the EXACT SAME
+   * `upsert` shape, whether called from `saveState()`'s own transaction or from
+   * `reconcileConfirmedState()`'s. Takes the transaction client explicitly so the write always
+   * happens inside whichever transaction currently holds the row lock — never on a bare
+   * `this.prisma` outside of one.
+   */
+  private async writeCanonicalState(tx: Prisma.TransactionClient, toPersist: CommercialConversationState) {
+    await tx.sofiaConversationMemory.upsert({
+      where: { conversationId: toPersist.conversationId },
+      create: { conversationId: toPersist.conversationId, currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
+      update: { currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
+    });
   }
 
   /**
@@ -46,10 +73,7 @@ export class PrismaCommercialRepository implements CommercialRepository {
       const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
         Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${state.conversationId} FOR UPDATE`,
       );
-      const existingRaw = rows[0]?.current_order_intent_json;
-      const existing = existingRaw && typeof existingRaw === 'object' && !Array.isArray(existingRaw) && (existingRaw as Record<string, unknown>).schemaVersion === 4
-        ? (existingRaw as unknown as CommercialConversationState)
-        : null;
+      const existing = this.parseCanonicalState(rows[0]?.current_order_intent_json);
 
       const wouldRegressConfirmedMarker = Boolean(
         existing
@@ -60,11 +84,7 @@ export class PrismaCommercialRepository implements CommercialRepository {
       );
       const toPersist = wouldRegressConfirmedMarker ? existing! : state;
 
-      await tx.sofiaConversationMemory.upsert({
-        where: { conversationId: toPersist.conversationId },
-        create: { conversationId: toPersist.conversationId, currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
-        update: { currentIntent: toPersist.intent, currentOrderIntentJson: toPersist as unknown as Prisma.InputJsonValue, missingFieldsJson: toPersist.missingFields, expiresAt: toPersist.expiresAt ? new Date(toPersist.expiresAt) : null },
-      });
+      await this.writeCanonicalState(tx, toPersist);
     });
   }
 
@@ -275,21 +295,30 @@ export class PrismaCommercialRepository implements CommercialRepository {
       const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
         Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${conversationId} FOR UPDATE`,
       );
-      const value = rows[0]?.current_order_intent_json;
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-      const candidate = value as Record<string, unknown>;
-      return candidate.schemaVersion === 4 ? (candidate as unknown as CommercialConversationState) : null;
+      return this.parseCanonicalState(rows[0]?.current_order_intent_json);
     });
   }
 
-  async loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null> {
-    const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
-    if (!draft) return null;
+  /**
+   * Shared mapping from a raw `SofiaOrderDraft` row (however it was fetched — a plain
+   * `findUnique()`, or a `tx.sofiaOrderDraft.findUnique()` inside `reconcileConfirmedState()`'s
+   * transaction) to the narrower `CommercialConfirmedDraftRecord` shape. Factored out (SOFIA Round 5
+   * / A48) so both call sites stay byte-for-byte identical instead of risking silent drift between
+   * two independently-maintained copies.
+   */
+  private toConfirmedDraftRecord(draft: {
+    id: string; conversationId: string | null; version: number; status: string; draftHash: string | null;
+    customerId: string | null; fulfillment: string | null; paymentPreference: string;
+    itemsSnapshot: unknown; deliveryAddress: string | null; addressConfirmedAt: Date | null;
+    subtotal: unknown; deliveryFee: unknown; total: unknown; deliveryQuoteAuditId: string | null;
+    deliveryQuoteVersion: number | null; deliveryQuoteExpiresAt: Date | null; availabilitySnapshot: unknown;
+    expiresAt: Date | null;
+  }): CommercialConfirmedDraftRecord {
     return {
       id: draft.id,
       conversationId: draft.conversationId,
       version: draft.version,
-      status: draft.status as string,
+      status: draft.status,
       draftHash: draft.draftHash,
       customerId: draft.customerId,
       fulfillment: draft.fulfillment as CommercialConfirmedDraftRecord['fulfillment'],
@@ -306,5 +335,59 @@ export class PrismaCommercialRepository implements CommercialRepository {
       availabilitySnapshot: (draft.availabilitySnapshot ?? []) as unknown as CommercialConfirmedDraftRecord['availabilitySnapshot'],
       expiresAt: draft.expiresAt ? draft.expiresAt.toISOString() : null,
     };
+  }
+
+  async loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null> {
+    const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+    return draft ? this.toConfirmedDraftRecord({ ...draft, status: draft.status as string }) : null;
+  }
+
+  /**
+   * SOFIA Round 5 / A48 CLOSURE (A47 blind red-team finding, HIGH) — see interface docstring
+   * (`commercial.repository.ts`) for the full incident writeup and the guarantee this establishes.
+   * Reuses the EXACT SAME `SELECT ... FOR UPDATE` primitive `saveState()`/`loadStateForUpdate()`
+   * already use, but now holds the lock across the FULL "read current -> read confirmed draft ->
+   * decide -> (maybe) write" sequence in ONE transaction, instead of `loadStateForUpdate()` releasing
+   * it the instant its own read-only transaction commits. `computeReconciledState` is invoked
+   * synchronously, inside the transaction, with both locked reads already resolved — its decision is
+   * therefore made against a mutually-consistent, definitely-current snapshot, and if it asks for a
+   * write, that write lands before ANY other transaction can observe (or interleave with) this one's
+   * commit.
+   */
+  async reconcileConfirmedState(
+    conversationId: string,
+    draftId: string,
+    computeReconciledState: (locked: {
+      current: CommercialConversationState | null;
+      confirmedDraft: CommercialConfirmedDraftRecord | null;
+    }) => { resolved: CommercialConversationState; persist: boolean },
+  ): Promise<CommercialConversationState> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ current_order_intent_json: unknown }>>(
+        Prisma.sql`SELECT "current_order_intent_json" FROM "sofia_conversation_memories" WHERE "conversation_id" = ${conversationId} FOR UPDATE`,
+      );
+      const current = this.parseCanonicalState(rows[0]?.current_order_intent_json);
+
+      const draft = await tx.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+      const confirmedDraft = draft ? this.toConfirmedDraftRecord({ ...draft, status: draft.status as string }) : null;
+
+      const { resolved, persist } = computeReconciledState({ current, confirmedDraft });
+      if (!persist) return resolved;
+
+      // Defense-in-depth: apply the SAME never-regress-CONFIRMED guard `saveState()` itself
+      // enforces, even though a correctly-implemented `computeReconciledState` should never
+      // legitimately propose a regression from this call site (only ever reached once the caller
+      // already knows `draftId` is CONFIRMED).
+      const wouldRegressConfirmedMarker = Boolean(
+        current
+        && current.confirmationState === 'CONFIRMED'
+        && current.draftId !== null
+        && current.draftId === resolved.draftId
+        && resolved.confirmationState !== 'CONFIRMED',
+      );
+      const toPersist = wouldRegressConfirmedMarker ? current! : resolved;
+      await this.writeCanonicalState(tx, toPersist);
+      return toPersist;
+    });
   }
 }

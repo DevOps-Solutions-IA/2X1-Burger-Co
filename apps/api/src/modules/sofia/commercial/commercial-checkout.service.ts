@@ -306,18 +306,20 @@ export class CommercialCheckoutService {
    *      winning turn's commit -- closing the race in the overwhelming majority of real cases instead
    *      of trusting the very first read unconditionally.
    *   2. If the retry budget is exhausted, do NOT immediately conclude the rich narration never
-   *      existed. Perform ONE final LOCKED re-check (`loadStateForUpdate()`) using the exact same
-   *      `SELECT ... FOR UPDATE` row-lock discipline `saveState()` itself uses to serialize concurrent
-   *      writers. See SOFIA Round 5 / A46 CLOSURE below.
-   *   3. Only if THAT locked check also fails to observe a matching CONFIRMED record does this method
-   *      fall back to reconstructing the narration to persist straight from the authoritative
-   *      `SofiaOrderDraft` row itself (`loadConfirmedDraftRecord()` -- financial truth, independent of
-   *      whichever conversation-memory snapshot either turn happened to read) via
-   *      `stateFromConfirmedDraftRecord()`. If even that draft row is somehow unavailable (should not
-   *      normally happen -- this method is only ever reached once the caller already knows the draft
-   *      is CONFIRMED), fail closed: respond to THIS turn with the best-known state but persist
-   *      NOTHING, rather than risk writing an unverified snapshot over a CONFIRMED order's durable
-   *      evidence.
+   *      existed, and do NOT perform a separate locked "check" followed by a separate later "act".
+   *      Perform ONE atomic locked reconcile (`reconcileConfirmedState()`) that acquires the row
+   *      lock, reads BOTH the current conversation-memory row AND the authoritative `SofiaOrderDraft`
+   *      record, decides what (if anything) needs to be persisted, and performs that write -- all
+   *      inside the SAME transaction, before the lock is ever released. See SOFIA Round 5 / A48
+   *      CLOSURE below.
+   *   3. Reconstructing the narration to persist straight from the authoritative `SofiaOrderDraft`
+   *      row itself (financial truth, independent of whichever conversation-memory snapshot either
+   *      turn happened to read) via `stateFromConfirmedDraftRecord()` only happens as PART OF that
+   *      SAME atomic step, when the locked read of conversation-memory does not already show the
+   *      correct CONFIRMED record. If even the draft row is somehow unavailable (should not normally
+   *      happen -- this method is only ever reached once the caller already knows the draft is
+   *      CONFIRMED), fail closed: respond to THIS turn with the best-known state but persist NOTHING,
+   *      rather than risk writing an unverified snapshot over a CONFIRMED order's durable evidence.
    *
    * SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) — the bounded unlocked-poll retry
    * above (step 1) cannot distinguish "the rich narration genuinely never existed" from "the rich
@@ -343,6 +345,40 @@ export class CommercialCheckoutService {
    * between `confirmDraft()` and `persistAndAudit()`), at which point reconstructing from
    * `SofiaOrderDraft` with neutral defaults for non-financial fields remains the correct, safe
    * fallback -- A43/A44's original closure is preserved unchanged for that genuine case.
+   *
+   * SOFIA Round 5 / A48 CLOSURE (A47 blind red-team finding, HIGH; SIXTH consecutive red-team pass on
+   * this exact mechanism -- A37/A39/A41/A43/A45/A47) — A46's own locked re-check (immediately above)
+   * closed the OLD race but, by design, ran as its OWN, separate, read-only transaction: the row lock
+   * was acquired and released the instant `loadStateForUpdate()`'s `SELECT` resolved (nothing is
+   * written inside a read-only transaction, so it commits immediately), and THIS method then, in a
+   * SEPARATE subsequent step outside any lock, decided what to persist and called `saveState()`. A
+   * genuinely late (not crashed, merely slow -- realistic under DB load, connection-pool contention,
+   * or an intervening `await` elsewhere in the winning turn's own call graph) winning turn's own
+   * `persistAndAudit()` -> `saveState()` call could land its real, rich CONFIRMED narration in EXACTLY
+   * that gap -- between the locked read's transaction committing and this method's own later
+   * `saveState()` call -- and be silently overwritten a moment later by the reconstruction fallback,
+   * because both writes carry `confirmationState: 'CONFIRMED'` for the same `draftId`, outside the
+   * scope of the never-regress-CONFIRMED guard (which only blocks CONFIRMED -> non-CONFIRMED
+   * regressions). This was architecturally the SAME defect class A43/A45 already fixed, reopened
+   * through a narrower window each successive "fix" introduced, because each one (A44, A46) still
+   * performed "read/decide" and "write" as separate transactions/steps rather than one.
+   *
+   * The fix: steps 2 and 3 above are no longer two separate calls (`loadStateForUpdate()` then,
+   * later, `saveState()`). They are now ONE call to `repository.reconcileConfirmedState()`, which
+   * acquires the row lock, reads the current conversation-memory row AND the authoritative
+   * `SofiaOrderDraft` record for `draftId` (both inside the SAME transaction), invokes
+   * `decideConfirmedReconciliation()` (below) synchronously to decide what to do, and -- if a write
+   * is needed -- performs it BEFORE that transaction commits, with the row lock held continuously
+   * from the first `SELECT ... FOR UPDATE` through the final `upsert`. No concurrent transaction can
+   * commit a conflicting write to the SAME row in between: Postgres genuinely blocks any other
+   * transaction's own write to that row (including a late winner's own `saveState()`, which acquires
+   * the identical row lock) until this one commits or rolls back. Whichever write is TRULY the most
+   * recent (this reconcile's own decision, or a late winner's real commit that was forced to wait for
+   * this transaction to finish) is therefore always the one left standing -- never an arbitrary,
+   * silent clobber of already-durable, richer evidence. See `apps/api/src/modules/sofia/commercial/
+   * commercial-checkout.a47-blind-redteam.spec.ts` (converted into a permanent regression assertion
+   * of this fixed behavior) and `commercial-checkout.a47-concurrency-sanity.spec.ts` (extended with
+   * `reconcileConfirmedState()`'s own concurrency/deadlock-freedom coverage).
    */
   private async respondDraftAlreadyConfirmed(
     state: CommercialConversationState,
@@ -359,56 +395,32 @@ export class CommercialCheckoutService {
       alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
     }
 
-    // SOFIA Round 5 / A46 CLOSURE (A45 blind red-team finding, HIGH) -- the unlocked poll above can be
+    // SOFIA Round 5 / A48 CLOSURE (A47 blind red-team finding, HIGH) -- the unlocked poll above can be
     // unlucky (or genuinely stale) for its entire bounded budget even though the true rich narration is
-    // already fully committed. Before falling back to reconstruction, force real serialization against
-    // any concurrent writer with ONE locked re-check -- see the method docstring above.
-    if (!alreadyCorrect) {
-      try {
-        authoritative = await this.repository.loadStateForUpdate(command.conversationId);
-        alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
-      } catch {
-        // Fail closed: if the locked re-check itself cannot complete (e.g. transaction timeout under
-        // extreme contention), treat it exactly like "did not observe CONFIRMED" -- fall through to the
-        // reconstruction fallback below rather than risk hanging this customer-facing turn indefinitely.
-        authoritative = null;
-      }
-    }
-
+    // already fully committed, or is about to be committed by a genuinely late (not crashed) winning
+    // turn. Rather than a separate locked "check" (`loadStateForUpdate()`) followed by a separate later
+    // "act" (`saveState()`) -- the exact two-step gap A47 found still open in A46's own fix -- read,
+    // decide, and (if needed) write now happen as ONE atomic, continuously-locked step. See the method
+    // docstring above and `decideConfirmedReconciliation()` below for the actual decision logic.
     let resolved: CommercialConversationState;
-    let shouldPersist = false;
     if (alreadyCorrect) {
       resolved = authoritative!;
     } else {
-      const confirmedRecord = await this.repository.loadConfirmedDraftRecord(error.draftId);
-      // Defensive (fail-closed): only trust this record as reconstruction ground truth if it actually
-      // confirms `status === 'CONFIRMED'` for the SAME draft this call already independently knows was
-      // confirmed, AND for the SAME conversation this turn is actually running against (SOFIA Round 5 /
-      // A46 CLOSURE, A45 secondary observation -- cheap defense-in-depth: `loadConfirmedDraftRecord()`
-      // is keyed purely by `draftId`, so an independent check that the record's own `conversationId`
-      // matches `state.conversationId` costs nothing and closes off any scenario where this method
-      // were ever reached with a `draftId` that does not actually belong to this conversation). Should
-      // always be true given every call site established that before ever reaching this method -- but
-      // never assume; a mismatch here falls through to the no-persist branch below exactly like the
-      // record being entirely unavailable.
-      if (
-        confirmedRecord
-        && confirmedRecord.status === 'CONFIRMED'
-        && confirmedRecord.id === error.draftId
-        && confirmedRecord.conversationId === state.conversationId
-      ) {
-        resolved = this.stateFromConfirmedDraftRecord(state.conversationId, confirmedRecord);
-        shouldPersist = true;
-      } else {
-        // Fail closed (A44): the draft row itself is unavailable, or does not verifiably belong to this
-        // conversation, even though this method is only ever reached once the caller already knows (via
-        // `saveDraft()`'s own CAS / `loadDraftVersion()`) that it is CONFIRMED -- this should not
-        // normally happen. Respond to THIS turn with the best-known in-memory view, but never persist
-        // it: an unverifiable snapshot must not become this CONFIRMED order's durable narration.
+      try {
+        resolved = await this.repository.reconcileConfirmedState(
+          command.conversationId,
+          error.draftId,
+          (locked) => this.decideConfirmedReconciliation(state, error.draftId, locked),
+        );
+      } catch {
+        // Fail closed: if the atomic reconcile itself cannot complete (e.g. transaction timeout under
+        // extreme contention), do not persist an unverified guess over a CONFIRMED order's durable
+        // evidence -- respond to THIS turn with the best-known in-memory view, but write nothing,
+        // exactly mirroring the fail-closed branch `decideConfirmedReconciliation()` itself uses when
+        // it cannot verify a confirmed draft record.
         resolved = { ...state, draftId: error.draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null };
       }
     }
-    if (shouldPersist) await this.repository.saveState(resolved);
     await this.audit.record({
       actor: command.actor,
       action: 'SOFIA_DRAFT_ALREADY_CONFIRMED_RACE_DETECTED',
@@ -418,6 +430,53 @@ export class CommercialCheckoutService {
       after: { draftId: resolved.draftId, confirmationState: resolved.confirmationState },
     });
     return this.respond(resolved, resolved.fulfillment === 'DELIVERY' ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED', 'DRAFT_CONFIRMED');
+  }
+
+  /**
+   * SOFIA Round 5 / A48 CLOSURE (A47 blind red-team finding, HIGH) — the SYNCHRONOUS decision logic
+   * passed as `computeReconciledState` to `repository.reconcileConfirmedState()`. Invoked by the
+   * repository INSIDE its single locked transaction, after both the current conversation-memory row
+   * (`locked.current`) and the authoritative `SofiaOrderDraft` record (`locked.confirmedDraft`) have
+   * already been read under the SAME row lock — so this function never needs to (and, being
+   * synchronous, structurally cannot) perform its own I/O or reach outside that already-consistent
+   * snapshot. Preserves A43/A44/A46's exact three-way outcome, merely relocated so the decision and
+   * the resulting write are no longer separated by a released lock:
+   *
+   *   1. `locked.current` already shows the correct CONFIRMED record for this `draftId` — nothing to
+   *      do; respond with it, persist nothing (the common case: a winning turn's own write already
+   *      landed, either before this call started or, since the SAME transaction did the reading,
+   *      genuinely observed as already-committed truth).
+   *   2. Otherwise, if `locked.confirmedDraft` verifiably confirms `status === 'CONFIRMED'` for this
+   *      EXACT `draftId` and belongs to THIS conversation (SOFIA Round 5 / A46 CLOSURE, A45 secondary
+   *      observation — cheap defense-in-depth against a `draftId` that does not actually belong to
+   *      this conversation), reconstruct the durable narration from that financial record via
+   *      `stateFromConfirmedDraftRecord()` and ask the repository to persist it.
+   *   3. Otherwise (the draft row is unavailable or does not verifiably belong to this conversation —
+   *      should not normally happen; this method is only ever reached once the caller already knows
+   *      the draft is CONFIRMED), fail closed exactly like A44's original discipline: respond to THIS
+   *      turn with the best-known in-memory `state`, but ask the repository to persist NOTHING.
+   */
+  private decideConfirmedReconciliation(
+    state: CommercialConversationState,
+    draftId: string,
+    locked: { current: CommercialConversationState | null; confirmedDraft: CommercialConfirmedDraftRecord | null },
+  ): { resolved: CommercialConversationState; persist: boolean } {
+    const { current, confirmedDraft } = locked;
+    if (current?.confirmationState === 'CONFIRMED' && current.draftId === draftId) {
+      return { resolved: current, persist: false };
+    }
+    if (
+      confirmedDraft
+      && confirmedDraft.status === 'CONFIRMED'
+      && confirmedDraft.id === draftId
+      && confirmedDraft.conversationId === state.conversationId
+    ) {
+      return { resolved: this.stateFromConfirmedDraftRecord(state.conversationId, confirmedDraft), persist: true };
+    }
+    return {
+      resolved: { ...state, draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null },
+      persist: false,
+    };
   }
 
   /**
