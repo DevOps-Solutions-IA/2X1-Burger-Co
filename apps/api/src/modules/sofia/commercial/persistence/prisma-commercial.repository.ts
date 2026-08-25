@@ -2,8 +2,8 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { OrderTicketType, Prisma, SofiaOrderDraftStatus, SofiaPaymentPreference } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { commercialDraftHash } from '../commercial-draft-hash';
-import { DraftAlreadyConfirmedError, type CommercialRepository } from '../commercial.repository';
-import type { CommercialConversationState } from '../commercial.types';
+import { DraftAlreadyConfirmedError, type CommercialConfirmedDraftRecord, type CommercialRepository } from '../commercial.repository';
+import type { CommercialConversationState, CommercialItem } from '../commercial.types';
 
 @Injectable()
 export class PrismaCommercialRepository implements CommercialRepository {
@@ -247,5 +247,38 @@ export class PrismaCommercialRepository implements CommercialRepository {
   async loadDraftVersion(draftId: string) {
     const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId }, select: { version: true, status: true } });
     return draft ? { version: draft.version, status: draft.status as string } : null;
+  }
+
+  /**
+   * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — see interface docstring
+   * (`commercial.repository.ts`). Same direct, unlocked `findUnique` discipline `loadDraftVersion()`
+   * already uses — the caller (`respondDraftAlreadyConfirmed()`) only ever calls this once it already
+   * independently knows (via `loadDraftVersion()`/`saveDraft()`'s own CAS) that this exact draft is
+   * CONFIRMED, so there is no lost-update hazard in reading it directly here.
+   */
+  async loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null> {
+    const draft = await this.prisma.sofiaOrderDraft.findUnique({ where: { id: draftId } });
+    if (!draft) return null;
+    return {
+      id: draft.id,
+      conversationId: draft.conversationId,
+      version: draft.version,
+      status: draft.status as string,
+      draftHash: draft.draftHash,
+      customerId: draft.customerId,
+      fulfillment: draft.fulfillment as CommercialConfirmedDraftRecord['fulfillment'],
+      paymentPreference: draft.paymentPreference as CommercialConfirmedDraftRecord['paymentPreference'],
+      items: (draft.itemsSnapshot ?? []) as unknown as CommercialItem[],
+      address: draft.deliveryAddress,
+      addressConfirmed: draft.addressConfirmedAt !== null,
+      subtotal: Number(draft.subtotal),
+      deliveryFee: Number(draft.deliveryFee),
+      total: Number(draft.total),
+      deliveryQuoteAuditId: draft.deliveryQuoteAuditId,
+      deliveryQuoteVersion: draft.deliveryQuoteVersion,
+      deliveryQuoteExpiresAt: draft.deliveryQuoteExpiresAt ? draft.deliveryQuoteExpiresAt.toISOString() : null,
+      availabilitySnapshot: (draft.availabilitySnapshot ?? []) as unknown as CommercialConfirmedDraftRecord['availabilitySnapshot'],
+      expiresAt: draft.expiresAt ? draft.expiresAt.toISOString() : null,
+    };
   }
 }

@@ -103,6 +103,7 @@ class PinnedFirstReadRepository implements CommercialRepository {
   saveDraft(input: Parameters<CommercialRepository['saveDraft']>[0]) { return this.real.saveDraft(input); }
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
+  loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
 }
 
 describe('A39/A40: concurrent fulfillment-switch (TAKEAWAY) vs. a stale-baseline address-only retry -- rebaseTurnOntoFreshState() must never produce a TAKEAWAY+address hybrid', () => {

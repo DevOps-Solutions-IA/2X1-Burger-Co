@@ -20,8 +20,8 @@ import { commercialDraftHash, commercialItemsFingerprint } from './commercial-dr
 import { CommercialIntentEngine, normalizeCommercialText } from './commercial-intent.engine';
 import { CommercialMetricsService } from './commercial-metrics.service';
 import { CommercialPolicyService } from './commercial-policy.service';
-import { COMMERCIAL_REPOSITORY, DraftAlreadyConfirmedError, type CommercialRepository } from './commercial.repository';
-import type { CommercialConversationState, CommercialItem, CommercialMessageCommand, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
+import { COMMERCIAL_REPOSITORY, DraftAlreadyConfirmedError, type CommercialConfirmedDraftRecord, type CommercialRepository } from './commercial.repository';
+import type { CommercialConversationState, CommercialItem, CommercialMessageCommand, CommercialPaymentPreference, CommercialTurnResult, LastQuestionPurpose } from './commercial.types';
 import { CommercialResponseComposer } from './response/commercial-response.composer';
 import type { CommercialFactEnvelope, CommercialResponsePurpose } from './response/commercial-response.types';
 import {
@@ -35,6 +35,20 @@ import {
 import type { DestinationEdit, DestinationSnapshot } from '../../../delivery/destination-state/destination-snapshot.types';
 
 type CommercialParsedMessage = ReturnType<CommercialIntentEngine['interpret']>;
+
+/**
+ * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — bounded retry budget for
+ * `respondDraftAlreadyConfirmed()`'s `loadState()` re-check. The winning concurrent turn's own
+ * `persistAndAudit()` -> `saveState()` call runs synchronously moments after the SAME `confirmDraft()`
+ * CAS that made THIS turn discover `DraftAlreadyConfirmedError` / `SOFIA_STALE_CONFIRMATION` in the
+ * first place, so a short, small-delay retry window closes the race in every but the most
+ * pathological case (e.g. the winning process crashing between `confirmDraft()` and
+ * `persistAndAudit()`) without adding meaningful customer-facing latency.
+ */
+const RESPOND_ALREADY_CONFIRMED_MAX_RETRIES = 4;
+const RESPOND_ALREADY_CONFIRMED_RETRY_DELAY_MS = 25;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const emptyState = (conversationId: string): CommercialConversationState => ({
   schemaVersion: 4, conversationId, customerId: null, intent: 'UNKNOWN', items: [], fulfillment: null, address: null, addressConfirmed: false, location: null,
@@ -184,13 +198,7 @@ export class CommercialCheckoutService {
 
     try { this.policy.validatePayment(state.fulfillment, state.paymentPreference); }
     catch { state.paymentPreference = 'UNKNOWN'; state.ambiguities.push('paymentPreference'); }
-    state.paymentReadiness = state.paymentPreference === 'ONLINE'
-      ? 'PAYMENT_READY_ONLINE'
-      : state.paymentPreference === 'CASH_ON_DELIVERY'
-        ? 'PAYMENT_COD'
-        : state.paymentPreference === 'PAY_AT_PICKUP'
-          ? 'PAYMENT_AT_PICKUP'
-          : 'PAYMENT_UNRESOLVED';
+    state.paymentReadiness = this.paymentReadinessFor(state.paymentPreference);
 
     const products = await this.resolveProducts(command.message);
     if (products === 'AMBIGUOUS') state.ambiguities.push('product');
@@ -262,6 +270,16 @@ export class CommercialCheckoutService {
     return previous.confirmationState === 'CONFIRMED' && previous.draftId !== null && previous.draftId === state.draftId;
   }
 
+  private paymentReadinessFor(paymentPreference: CommercialPaymentPreference): CommercialConversationState['paymentReadiness'] {
+    return paymentPreference === 'ONLINE'
+      ? 'PAYMENT_READY_ONLINE'
+      : paymentPreference === 'CASH_ON_DELIVERY'
+        ? 'PAYMENT_COD'
+        : paymentPreference === 'PAY_AT_PICKUP'
+          ? 'PAYMENT_AT_PICKUP'
+          : 'PAYMENT_UNRESOLVED';
+  }
+
   /**
    * SOFIA Round 5 / A26 CLOSURE (root cause #2) — recovery path when `saveDraft()` reports that the
    * draft this turn was tracking is already CONFIRMED and this turn had no idea (see
@@ -272,6 +290,30 @@ export class CommercialCheckoutService {
    * read already reflects the confirmation (the expected case -- the confirming turn's own
    * `saveState()` already committed it, protected by root cause #1's row lock), this makes NO
    * additional write at all.
+   *
+   * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — the "not yet caught up" fallback
+   * used to persist `{ ...state, draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null }`
+   * WHOLESALE the instant a single unconditional `loadState()` read lost its race against the WINNING
+   * concurrent turn's own conversation-memory write -- silently overwriting the true confirmed
+   * narration with the CALLING (losing) turn's own stale in-memory fields (`customerId` and, just as
+   * dangerously, anything else `state` happened to carry: `handoffState`, `consentState`,
+   * `lastResolvedIntent`, `confidence`...). Fixed in two layers, mirroring the same "never trust a
+   * snapshot that might predate a concurrent winner" principle `rebaseTurnOntoFreshState()` already
+   * established for the sibling `STALE_DRAFT_VERSION` retry path:
+   *
+   *   1. Retry the `loadState()` read a short, bounded number of times (see
+   *      `RESPOND_ALREADY_CONFIRMED_MAX_RETRIES`) before concluding it truly cannot observe the
+   *      winning turn's commit -- closing the race in the overwhelming majority of real cases instead
+   *      of trusting the very first read unconditionally.
+   *   2. If the retry budget is exhausted, NEVER fall back to the caller's own stale `state`.
+   *      Reconstruct the narration to persist straight from the authoritative `SofiaOrderDraft` row
+   *      itself (`loadConfirmedDraftRecord()` -- financial truth, independent of whichever
+   *      conversation-memory snapshot either turn happened to read) via
+   *      `stateFromConfirmedDraftRecord()`. If even that draft row is somehow unavailable (should not
+   *      normally happen -- this method is only ever reached once the caller already knows the draft
+   *      is CONFIRMED), fail closed: respond to THIS turn with the best-known state but persist
+   *      NOTHING, rather than risk writing an unverified snapshot over a CONFIRMED order's durable
+   *      evidence.
    */
   private async respondDraftAlreadyConfirmed(
     state: CommercialConversationState,
@@ -279,12 +321,39 @@ export class CommercialCheckoutService {
     error: DraftAlreadyConfirmedError,
   ): Promise<CommercialTurnResult> {
     this.metrics.increment('draft_already_confirmed_race_detected');
-    const authoritative = await this.repository.loadState(command.conversationId);
-    const alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
-    const resolved: CommercialConversationState = alreadyCorrect
-      ? authoritative!
-      : { ...state, draftId: error.draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null };
-    if (!alreadyCorrect) await this.repository.saveState(resolved);
+
+    let authoritative = await this.repository.loadState(command.conversationId);
+    let alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
+    for (let attempt = 0; !alreadyCorrect && attempt < RESPOND_ALREADY_CONFIRMED_MAX_RETRIES; attempt++) {
+      await sleep(RESPOND_ALREADY_CONFIRMED_RETRY_DELAY_MS);
+      authoritative = await this.repository.loadState(command.conversationId);
+      alreadyCorrect = authoritative?.confirmationState === 'CONFIRMED' && authoritative.draftId === error.draftId;
+    }
+
+    let resolved: CommercialConversationState;
+    let shouldPersist = false;
+    if (alreadyCorrect) {
+      resolved = authoritative!;
+    } else {
+      const confirmedRecord = await this.repository.loadConfirmedDraftRecord(error.draftId);
+      // Defensive (fail-closed): only trust this record as reconstruction ground truth if it actually
+      // confirms `status === 'CONFIRMED'` for the SAME draft this call already independently knows was
+      // confirmed. Should always be true given every call site established that before ever reaching
+      // this method -- but never assume; a mismatch here falls through to the no-persist branch below
+      // exactly like the record being entirely unavailable.
+      if (confirmedRecord && confirmedRecord.status === 'CONFIRMED' && confirmedRecord.id === error.draftId) {
+        resolved = this.stateFromConfirmedDraftRecord(state.conversationId, confirmedRecord);
+        shouldPersist = true;
+      } else {
+        // Fail closed (A44): the draft row itself is unavailable even though this method is only ever
+        // reached once the caller already knows (via `saveDraft()`'s own CAS / `loadDraftVersion()`)
+        // that it is CONFIRMED -- this should not normally happen. Respond to THIS turn with the
+        // best-known in-memory view, but never persist it: an unverifiable snapshot must not become
+        // this CONFIRMED order's durable narration.
+        resolved = { ...state, draftId: error.draftId, confirmationState: 'CONFIRMED', lastQuestionPurpose: null };
+      }
+    }
+    if (shouldPersist) await this.repository.saveState(resolved);
     await this.audit.record({
       actor: command.actor,
       action: 'SOFIA_DRAFT_ALREADY_CONFIRMED_RACE_DETECTED',
@@ -294,6 +363,51 @@ export class CommercialCheckoutService {
       after: { draftId: resolved.draftId, confirmationState: resolved.confirmationState },
     });
     return this.respond(resolved, resolved.fulfillment === 'DELIVERY' ? 'DELIVERY_CONFIRMED' : 'TAKEAWAY_CONFIRMED', 'DRAFT_CONFIRMED');
+  }
+
+  /**
+   * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — reconstructs a CORRECT,
+   * internally self-consistent `CommercialConversationState` to persist as a CONFIRMED order's durable
+   * narration, sourced ENTIRELY from the authoritative `SofiaOrderDraft` row
+   * (`loadConfirmedDraftRecord()`) -- never from a caller-supplied, possibly-stale in-memory `state`.
+   * Fields with no equivalent column on `SofiaOrderDraft` (destination-state snapshot, live GPS point,
+   * and purely conversational bookkeeping like `handoffState`/`consentState`/`confidence`/`intent`/
+   * `ambiguities`/`lastResolvedIntent`) are NOT financially binding and are given the SAME neutral,
+   * safe defaults `emptyState()` already uses for a brand-new conversation -- never the stale caller
+   * `state`'s own values for them, which is exactly the corruption class this closure fixes (A43 used
+   * `customerId` as its concrete, unambiguous reproduction but explicitly named these other fields as
+   * equally vulnerable to the same stale-wholesale-overwrite mechanism).
+   */
+  private stateFromConfirmedDraftRecord(
+    conversationId: string,
+    record: CommercialConfirmedDraftRecord,
+  ): CommercialConversationState {
+    return {
+      ...emptyState(conversationId),
+      customerId: record.customerId,
+      items: record.items,
+      fulfillment: record.fulfillment,
+      address: record.address,
+      addressConfirmed: record.addressConfirmed,
+      paymentPreference: record.paymentPreference,
+      paymentReadiness: this.paymentReadinessFor(record.paymentPreference),
+      subtotal: record.subtotal,
+      deliveryFee: record.deliveryFee,
+      total: record.total,
+      deliveryQuoteAuditId: record.deliveryQuoteAuditId,
+      deliveryQuoteVersion: record.deliveryQuoteVersion,
+      deliveryQuoteExpiresAt: record.deliveryQuoteExpiresAt,
+      availabilitySnapshot: record.availabilitySnapshot,
+      draftId: record.id,
+      draftVersion: record.version,
+      draftHash: record.draftHash,
+      draftFulfillment: record.fulfillment,
+      draftItemsFingerprint: commercialItemsFingerprint(record.items),
+      draftPaymentPreference: record.paymentPreference,
+      confirmationState: 'CONFIRMED',
+      lastQuestionPurpose: null,
+      expiresAt: record.expiresAt,
+    };
   }
 
   private conflictCode(error: unknown): string | null {
@@ -577,13 +691,7 @@ export class CommercialCheckoutService {
 
     try { this.policy.validatePayment(rebased.fulfillment, rebased.paymentPreference); }
     catch { rebased.paymentPreference = 'UNKNOWN'; rebased.ambiguities = [...rebased.ambiguities, 'paymentPreference']; }
-    rebased.paymentReadiness = rebased.paymentPreference === 'ONLINE'
-      ? 'PAYMENT_READY_ONLINE'
-      : rebased.paymentPreference === 'CASH_ON_DELIVERY'
-        ? 'PAYMENT_COD'
-        : rebased.paymentPreference === 'PAY_AT_PICKUP'
-          ? 'PAYMENT_AT_PICKUP'
-          : 'PAYMENT_UNRESOLVED';
+    rebased.paymentReadiness = this.paymentReadinessFor(rebased.paymentPreference);
 
     // ITEMS axis (A37 HIGH finding): re-run THIS TURN's own item mutation (product mention / bare
     // quantity change / modifier change) against the FRESH authoritative items list, instead of

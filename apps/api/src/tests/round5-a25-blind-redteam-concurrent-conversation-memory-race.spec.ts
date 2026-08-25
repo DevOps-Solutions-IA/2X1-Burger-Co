@@ -129,6 +129,7 @@ function staleFirstReadRepository(real: CommercialRepository, staleSnapshot: Com
     saveDraft: (input) => real.saveDraft(input),
     confirmDraft: (input) => real.confirmDraft(input),
     loadDraftVersion: (draftId) => real.loadDraftVersion(draftId),
+    loadConfirmedDraftRecord: (draftId) => real.loadConfirmedDraftRecord(draftId),
   };
 }
 

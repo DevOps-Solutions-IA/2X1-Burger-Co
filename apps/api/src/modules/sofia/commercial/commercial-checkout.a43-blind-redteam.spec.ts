@@ -1,5 +1,24 @@
 /**
- * A43 BLIND RED TEAM (Round 5, closing pass) -- fresh, independent attack on the SOFIA commercial
+ * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) -- PERMANENT REGRESSION TEST.
+ *
+ * This file originally documented and reproduced the A43 finding below (`respondDraftAlreadyConfirmed()`
+ * clobbering a CONFIRMED order's durable narration with a stale caller snapshot). The finding is now
+ * FIXED (`commercial-checkout.service.ts::respondDraftAlreadyConfirmed()` +
+ * `stateFromConfirmedDraftRecord()`): a stale `loadState()` read is now retried a short, bounded number
+ * of times, and if the retry budget is exhausted without observing the winning turn's commit, the
+ * narration to persist is reconstructed straight from the authoritative `SofiaOrderDraft` row
+ * (`loadConfirmedDraftRecord()`) instead of the caller's own possibly-stale in-memory `state` -- never a
+ * wholesale overwrite of a CONFIRMED order's evidence with unverified data. The test below is KEPT and
+ * UPDATED (not deleted/weakened) to assert the FIXED behavior permanently: `customerId` (the finding's
+ * original concrete reproduction) AND several other fields the finding explicitly named as vulnerable to
+ * the exact same stale-wholesale-overwrite mechanism (`handoffState`, `consentState`) must now all
+ * survive correctly even when `loadState()`'s read (and every one of its bounded retries) loses the race
+ * against a winning concurrent turn.
+ *
+ * ============================================================================================
+ * ORIGINAL A43 BLIND RED TEAM (Round 5, closing pass) TRACE -- kept for historical/audit record.
+ * ============================================================================================
+ * fresh, independent attack on the SOFIA commercial
  * checkout / destination-state system. This pass had NOT seen any prior design rationale beyond what
  * is in the current source comments; the finding below was derived by re-tracing
  * `respondDraftAlreadyConfirmed()` from scratch against a REAL, unmocked Postgres +
@@ -109,11 +128,12 @@ class AlwaysStaleReadRepository implements CommercialRepository {
   saveDraft(input: Parameters<CommercialRepository['saveDraft']>[0]) { return this.real.saveDraft(input); }
   confirmDraft(input: Parameters<CommercialRepository['confirmDraft']>[0]) { return this.real.confirmDraft(input); }
   loadDraftVersion(draftId: string) { return this.real.loadDraftVersion(draftId); }
+  loadConfirmedDraftRecord(draftId: string) { return this.real.loadConfirmedDraftRecord(draftId); }
 }
 
 const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
 
-describe('A43 blind red-team: respondDraftAlreadyConfirmed() fresh pass', () => {
+describe('A44 CLOSURE (A43 blind red-team finding, HIGH, permanent regression): respondDraftAlreadyConfirmed() never persists a stale/corrupted snapshot as a CONFIRMED order\'s durable narration', () => {
   let prisma: PrismaService;
   let realRepository: PrismaCommercialRepository;
 
@@ -187,7 +207,7 @@ describe('A43 blind red-team: respondDraftAlreadyConfirmed() fresh pass', () => 
     return { service };
   }
 
-  it('FINDING (HIGH): a stale loadState() read racing respondDraftAlreadyConfirmed() clobbers a CONFIRMED order\'s durable narration (customerId reverted to null) while the true SofiaOrderDraft record stays correct', async () => {
+  it('A44 CLOSURE (FIXED): a stale loadState() read racing respondDraftAlreadyConfirmed() (even across every bounded retry) NO LONGER clobbers a CONFIRMED order\'s durable narration -- customerId, handoffState and consentState all survive correctly, matching true confirmed truth', async () => {
     const conversationId = `a43-clobber-${randomUUID()}`;
     await prisma.customer.create({ data: { id: 'cust-real', displayName: 'Cliente Real' } });
     await prisma.whatsappConversation.create({ data: { id: conversationId, phone: '573001112299', provider: 'mock' } });
@@ -206,16 +226,24 @@ describe('A43 blind red-team: respondDraftAlreadyConfirmed() fresh pass', () => 
 
     // Snapshot exactly what a genuinely concurrent SECOND turn (e.g. a double-tapped "Sí") would have
     // read as `previous` at this same instant -- self-consistent (all four binding checks will pass),
-    // but crucially with `customerId: null`, representing a turn whose CRM identity resolution had not
-    // (yet) linked to the same customer this conversation was truly resolved to (a completely ordinary
-    // occurrence: `customers.resolve()` is itself an independent, non-atomic external call per turn --
-    // see `process()`'s own `if (!state.customerId) { state.customerId = await this.customers.resolve(...) }`
-    // guard, which means any turn that starts with a null-customerId state and loses a CRM-resolution
-    // race, or is simply replaying an older un-linked snapshot, legitimately carries `customerId: null`
-    // while every draft/items/destination/payment fingerprint still matches the current draft exactly).
+    // but corrupted on MULTIPLE independent axes, modeling a turn whose own in-memory view diverged
+    // from truth on more than just customer identity:
+    //  - `customerId: null` -- the ORIGINAL A43 reproduction (CRM identity resolution race).
+    //  - `handoffState: 'HUMAN_REQUIRED'` / `consentState: 'REVOKED'` -- the finding's own docstring
+    //    explicitly names these as "just as dangerously" vulnerable to the SAME stale-wholesale-
+    //    overwrite mechanism, since neither is covered by any of the four binding checks
+    //    (fulfillment/items/payment/destination) and both survive `process()`'s top-of-turn spread
+    //    untouched for a CONFIRM message (see `process()`: only `intent`/`confidence`/`ambiguities`/
+    //    `domainErrors`/`lastResolvedIntent` are unconditionally recomputed every turn; `handoffState`/
+    //    `consentState` are not).
     const preConfirmSnapshot = await realRepository.loadState(conversationId);
     expect(preConfirmSnapshot).not.toBeNull();
-    const staleTurnBView: CommercialConversationState = { ...preConfirmSnapshot!, customerId: null };
+    const staleTurnBView: CommercialConversationState = {
+      ...preConfirmSnapshot!,
+      customerId: null,
+      handoffState: 'HUMAN_REQUIRED',
+      consentState: 'REVOKED',
+    };
 
     // Turn A actually confirms for real -- the true, authoritative commercial record.
     const confirmed = await serviceA.process({ conversationId, phone: '573001112299', message: 'Sí, confirmo', actor });
@@ -226,41 +254,54 @@ describe('A43 blind red-team: respondDraftAlreadyConfirmed() fresh pass', () => 
     const trueDraftRow = await prisma.sofiaOrderDraft.findUnique({ where: { id: trueDraftId } });
     expect(trueDraftRow?.status).toBe('CONFIRMED');
     expect(trueDraftRow?.customerId).toBe('cust-real');
+    expect(trueDraftRow?.fulfillment).toBe('DELIVERY');
 
-    // Turn B: a SEPARATE service instance whose `loadState()` NEVER observes Turn A's commit (the
-    // race `loadDraftVersion()`'s own docstring names) -- both the top-of-`process()` `previous` read
-    // AND `respondDraftAlreadyConfirmed()`'s own "authoritative" reload return the pinned, pre-confirm,
-    // customerId=null snapshot. `loadDraftVersion()` (the deliberately race-proof financial-authority
-    // read) still correctly and truthfully reports CONFIRMED, exactly as it would in the real race.
+    // Turn B: a SEPARATE service instance whose `loadState()` NEVER observes Turn A's commit -- not
+    // just once, but for EVERY read, including all of `respondDraftAlreadyConfirmed()`'s bounded
+    // retries (A44 CLOSURE). Both the top-of-`process()` `previous` read AND every retry attempt
+    // return the pinned, pre-confirm, corrupted snapshot -- deliberately the WORST case, where the
+    // retry loop cannot possibly close the race and the fix must fall all the way through to
+    // reconstructing the narration from the authoritative `SofiaOrderDraft` row itself.
+    // `loadDraftVersion()` (the deliberately race-proof financial-authority read) still correctly and
+    // truthfully reports CONFIRMED, exactly as it would in the real race.
     const staleRepo = new AlwaysStaleReadRepository(realRepository);
     staleRepo.pin(conversationId, staleTurnBView);
     const { service: serviceB } = buildService(staleRepo, { customerId: null });
 
-    // This must resolve gracefully (it does -- respondDraftAlreadyConfirmed() never throws), which is
-    // exactly why the clobber below goes undetected: from the caller's point of view this looks like a
-    // completely normal, correct "your order is already confirmed" recovery.
+    // This must resolve gracefully (it does -- respondDraftAlreadyConfirmed() never throws).
     const turnB = await serviceB.process({ conversationId, phone: '573001112299', message: 'Sí, confirmo', actor });
     expect(turnB.nextAction).toBe('DRAFT_CONFIRMED');
 
-    // THE FINDING: the durable conversation-memory narration for this CONFIRMED order now says
-    // customerId: null -- silently diverged from the true, still-correct SofiaOrderDraft record.
+    // THE FIX: the durable conversation-memory narration for this CONFIRMED order correctly reflects
+    // what was ACTUALLY confirmed, regardless of which turn's corrupted in-memory view called
+    // respondDraftAlreadyConfirmed() first -- never diverging from the true SofiaOrderDraft record.
     const finalMemory = await realRepository.loadState(conversationId);
     expect(finalMemory?.confirmationState).toBe('CONFIRMED');
     expect(finalMemory?.draftId).toBe(trueDraftId);
 
-    // This assertion is the bug: it currently PASSES, proving the clobber, when the CORRECT/fixed
-    // behavior would be for finalMemory.customerId to still read 'cust-real' (either by never writing
-    // over an already/concurrently-confirmed record with a stale snapshot at all, or by re-deriving
-    // the safe patch from truly fresh data the same way rebaseTurnOntoFreshState() does for the
-    // sibling STALE_DRAFT_VERSION recovery path).
-    expect(finalMemory?.customerId).toBeNull();
-    expect(finalMemory?.customerId).not.toBe(trueDraftRow?.customerId);
+    // customerId: the ORIGINAL A43 reproduction -- must now correctly read 'cust-real', matching the
+    // true confirmed SofiaOrderDraft, NOT the stale turn's corrupted `null`.
+    expect(finalMemory?.customerId).toBe('cust-real');
+    expect(finalMemory?.customerId).toBe(trueDraftRow?.customerId);
 
-    // Confirm the true financial authority is untouched by any of this -- the corruption is confined
-    // to the narration/memory layer, which is exactly what makes it dangerous: nothing about the
-    // *financial* record looks wrong, so nothing flags this conversation for review, yet every reader
-    // of `sofiaConversationMemory` (CRM linkage, Customer360, admin conversation views, audit-adjacent
-    // narration) now sees a CONFIRMED order with no customer attached.
+    // handoffState / consentState: the finding's OWN docstring names these as equally vulnerable to
+    // the same corruption class. Neither has a `SofiaOrderDraft` column equivalent (they are purely
+    // conversational, not financially binding), so the fix must never persist the stale turn's
+    // corrupted values for them either -- it uses the same neutral, safe defaults a brand-new
+    // conversation gets (see `emptyState()`/`stateFromConfirmedDraftRecord()`), never 'HUMAN_REQUIRED'
+    // / 'REVOKED' from the losing, stale turn.
+    expect(finalMemory?.handoffState).not.toBe('HUMAN_REQUIRED');
+    expect(finalMemory?.handoffState).toBe('SOFIA_ACTIVE');
+    expect(finalMemory?.consentState).not.toBe('REVOKED');
+    expect(finalMemory?.consentState).toBe('SERVICE');
+
+    // Sanity: the reconstructed narration also correctly reflects OTHER true confirmed content
+    // (fulfillment, items) sourced from the authoritative draft row -- not just the two axes this
+    // specific attack corrupted.
+    expect(finalMemory?.fulfillment).toBe('DELIVERY');
+    expect(finalMemory?.items).toEqual([expect.objectContaining({ productId: 'p1', code: 'COMBO-2X1' })]);
+
+    // Confirm the true financial authority is untouched by any of this.
     const trueDraftRowAfter = await prisma.sofiaOrderDraft.findUnique({ where: { id: trueDraftId } });
     expect(trueDraftRowAfter?.customerId).toBe('cust-real');
   });

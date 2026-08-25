@@ -1,6 +1,38 @@
-import type { CommercialConversationState } from './commercial.types';
+import type { CommercialConversationState, CommercialFulfillment, CommercialItem, CommercialPaymentPreference } from './commercial.types';
 
 export const COMMERCIAL_REPOSITORY = Symbol('CommercialRepository');
+
+/**
+ * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — the subset of the authoritative
+ * `SofiaOrderDraft` row's own columns needed to reconstruct a CORRECT, self-consistent conversational
+ * narration for an already-CONFIRMED draft, without ever trusting a caller-supplied in-memory
+ * `CommercialConversationState` that might have been computed before a concurrent winner committed.
+ * Deliberately narrower than the full `CommercialConversationState` shape: fields with no equivalent
+ * column on `SofiaOrderDraft` (destination-state snapshot, live GPS point, conversational bookkeeping
+ * like `handoffState`/`consentState`/`confidence`/`intent`) are NOT financially binding and are never
+ * reconstructed from this record — see `CommercialCheckoutService.stateFromConfirmedDraftRecord()`.
+ */
+export type CommercialConfirmedDraftRecord = {
+  id: string;
+  conversationId: string | null;
+  version: number;
+  status: string;
+  draftHash: string | null;
+  customerId: string | null;
+  fulfillment: CommercialFulfillment;
+  paymentPreference: CommercialPaymentPreference;
+  items: CommercialItem[];
+  address: string | null;
+  addressConfirmed: boolean;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  deliveryQuoteAuditId: string | null;
+  deliveryQuoteVersion: number | null;
+  deliveryQuoteExpiresAt: string | null;
+  availabilitySnapshot: Array<{ productId: string; quantity: number; checkedAt: string; reasonCode: string }>;
+  expiresAt: string | null;
+};
 
 /**
  * SOFIA Round 5 / A26 CLOSURE (root cause #2, HIGH) — thrown by `saveDraft()` when its
@@ -39,4 +71,13 @@ export interface CommercialRepository {
    * resolve reliably). Returns `null` only if the draft row itself does not exist.
    */
   loadDraftVersion(draftId: string): Promise<{ version: number; status: string } | null>;
+  /**
+   * SOFIA Round 5 / A44 CLOSURE (A43 blind red-team finding, HIGH) — reads the full authoritative
+   * `SofiaOrderDraft` row directly (same direct, unlocked `findUnique` discipline `loadDraftVersion()`
+   * already uses), so `respondDraftAlreadyConfirmed()` can reconstruct a correct durable narration for
+   * an already-CONFIRMED draft straight from financial truth instead of a caller's possibly-stale
+   * in-memory `state`, when its own bounded `loadState()` retry never observes the winning turn's
+   * conversation-memory write. Returns `null` only if the draft row itself does not exist.
+   */
+  loadConfirmedDraftRecord(draftId: string): Promise<CommercialConfirmedDraftRecord | null>;
 }
