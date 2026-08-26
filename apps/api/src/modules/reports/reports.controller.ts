@@ -15,30 +15,34 @@ export class ReportsController {
 
   @Get('daily')
   @Roles('reports.read')
-  getDaily(@Query('date') date?: string) {
-    return this.reportsService.getDaily(date);
+  getDaily(@Query('date') date?: string, @CurrentUser('permissions') permissions?: string[]) {
+    // A67: route stays reachable to every role holding 'reports.read' (cashier/supervisor rely
+    // on it for the daily summary), but ReportsService now redacts cost/margin/profit fields
+    // unless the caller holds 'products.update' (admin/inventory) — same tier as A65's
+    // ProductsService cost-visibility gate.
+    return this.reportsService.getDaily(date, permissions);
   }
 
   @Get('operational')
   @Roles('reports.read')
-  getOperational() {
-    return this.reportsService.getOperational();
+  getOperational(@CurrentUser('permissions') permissions?: string[]) {
+    return this.reportsService.getOperational(permissions);
   }
 
   @Get('operational/pdf')
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
   @Permissions('reports.pdf')
-  async getOperationalPdf(@Res() response: Response) {
-    const buffer = await this.reportsService.generateOperationalPdf();
+  async getOperationalPdf(@Res() response: Response, @CurrentUser('permissions') permissions?: string[]) {
+    const buffer = await this.reportsService.generateOperationalPdf(permissions);
     response.setHeader('Content-Disposition', 'inline; filename="jornada-actual.pdf"');
     response.send(buffer);
   }
 
   @Get('range')
   @Roles('reports.read')
-  getRange(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reportsService.getRange(from, to);
+  getRange(@Query('from') from?: string, @Query('to') to?: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.reportsService.getRange(from, to, permissions);
   }
 
   @Get('best-sellers')
@@ -55,8 +59,12 @@ export class ReportsController {
 
   @Get('product-margins')
   @Roles('reports.read')
-  getProductMargins(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reportsService.getProductMargins(from, to);
+  getProductMargins(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    return this.reportsService.getProductMargins(from, to, permissions);
   }
 
   @Get('ingredient-rotation')
@@ -73,34 +81,42 @@ export class ReportsController {
 
   @Get('inventory-summary')
   @Roles('reports.read')
-  getInventorySummary() {
-    return this.reportsService.getInventorySummary();
+  getInventorySummary(@CurrentUser('permissions') permissions?: string[]) {
+    return this.reportsService.getInventorySummary(permissions);
   }
 
   @Get('supply-alerts')
   @Roles('reports.read')
-  getSupplyAlerts() {
-    return this.reportsService.getSupplyAlerts();
+  getSupplyAlerts(@CurrentUser('permissions') permissions?: string[]) {
+    return this.reportsService.getSupplyAlerts(permissions);
   }
 
   @Get('daily-closures')
   @Roles('reports.read')
-  getDailyClosures(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reportsService.getDailyClosures(from, to);
+  getDailyClosures(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    return this.reportsService.getDailyClosures(from, to, permissions);
   }
 
   @Get('daily-closures/:id')
   @Roles('reports.read')
-  getDailyClosure(@Param('id') id: string) {
-    return this.reportsService.getDailyClosure(id);
+  getDailyClosure(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.reportsService.getDailyClosure(id, permissions);
   }
 
   @Get('daily-closures/:id/pdf')
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
   @Permissions('reports.pdf')
-  async getDailyClosurePdf(@Param('id') id: string, @Res() response: Response) {
-    const buffer = await this.reportsService.generateDailyClosurePdf(id);
+  async getDailyClosurePdf(
+    @Param('id') id: string,
+    @Res() response: Response,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    const buffer = await this.reportsService.generateDailyClosurePdf(id, permissions);
     response.setHeader('Content-Disposition', `inline; filename="cierre-diario-${id}.pdf"`);
     response.send(buffer);
   }
@@ -126,8 +142,12 @@ export class ReportsController {
   @Header('Content-Type', 'application/pdf')
   @Roles('admin', 'supervisor')
   @Permissions('reports.pdf')
-  async getDailyPdf(@Param('date') date: string, @Res() response: Response) {
-    const buffer = await this.reportsService.generateDailyPdf(date);
+  async getDailyPdf(
+    @Param('date') date: string,
+    @Res() response: Response,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    const buffer = await this.reportsService.generateDailyPdf(date, permissions);
     response.setHeader('Content-Disposition', `inline; filename="daily-close-${date}.pdf"`);
     response.send(buffer);
   }

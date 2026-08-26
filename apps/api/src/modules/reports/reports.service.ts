@@ -18,6 +18,18 @@ import { SafeRemoteAssetFetcher } from '../../common/security/safe-remote-asset-
 
 const DAILY_CLOSURE_TYPE = 'DAILY_CLOSURE';
 
+// A67: same privilege tier that products.service.ts's COST_VISIBILITY_PERMISSION already gates
+// (see A65) — costPrice / cost-of-sales / margin / profit are the same underlying sensitive
+// resource no matter which module surfaces them, so Reports reuses the exact same permission
+// instead of inventing a parallel `reports.cost`-style permission. Only 'admin' and 'inventory'
+// hold 'products.update' per prisma/seed.ts — 'cashier' and 'supervisor' both hold
+// 'reports.read'/'reports.pdf' but must never see cost/margin numbers.
+const COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(COST_VISIBILITY_PERMISSION);
+}
+
 type ClosurePayload = Awaited<ReturnType<ReportsService['buildSummary']>>;
 type ReportPdfData = Omit<ClosurePayload, 'journey' | 'sales'> & {
   journey: Omit<ClosurePayload['journey'], 'status'> & {
@@ -42,7 +54,7 @@ export class ReportsService {
     private readonly cashReconciliationService: CashReconciliationService,
   ) {}
 
-  async getDaily(date?: string) {
+  async getDaily(date?: string, viewerPermissions?: string[]) {
     const { start, end } = getDayRange(date);
     const snapshot = await this.findDailyClosureSnapshot(start, end);
 
@@ -55,7 +67,7 @@ export class ReportsService {
 
     if (snapshot && !openSession) {
       return {
-        ...(snapshot.payload as ClosurePayload),
+        ...this.redactClosurePayloadCost(snapshot.payload as ClosurePayload, viewerPermissions),
         metadata: {
           source: 'snapshot',
           generatedAt: snapshot.createdAt.toISOString(),
@@ -66,7 +78,7 @@ export class ReportsService {
 
     const payload = await this.buildSummary(start, end);
     return {
-      ...payload,
+      ...this.redactClosurePayloadCost(payload, viewerPermissions),
       metadata: {
         source: 'live',
         generatedAt: new Date().toISOString(),
@@ -75,11 +87,11 @@ export class ReportsService {
     };
   }
 
-  async getRange(from?: string, to?: string) {
+  async getRange(from?: string, to?: string, viewerPermissions?: string[]) {
     const { start, end } = getRange(from, to);
     const payload = await this.buildSummary(start, end);
     return {
-      ...payload,
+      ...this.redactClosurePayloadCost(payload, viewerPermissions),
       metadata: {
         source: 'live',
         generatedAt: new Date().toISOString(),
@@ -88,7 +100,7 @@ export class ReportsService {
     };
   }
 
-  async getOperational() {
+  async getOperational(viewerPermissions?: string[]) {
     const [currentSession, supply, occupiedTables, activeOrders, latestClosure] = await Promise.all([
       this.prisma.cashSession.findFirst({
         where: { status: CashSessionStatus.OPEN },
@@ -260,7 +272,7 @@ export class ReportsService {
     });
 
     return {
-      ...payload,
+      ...this.redactClosurePayloadCost(payload, viewerPermissions),
       operations: {
         activeOrdersCount: activeOrders.filter((order) => order.cashSessionId === currentSession.id).length,
         occupiedTablesCount: occupiedTables,
@@ -312,8 +324,8 @@ export class ReportsService {
     });
   }
 
-  async getInventorySummary() {
-    const supply = await this.getSupplyAlerts();
+  async getInventorySummary(viewerPermissions?: string[]) {
+    const supply = await this.getSupplyAlerts(viewerPermissions);
     return {
       lowStockProducts: supply.lowStockProducts,
       lowStockIngredients: supply.lowStockIngredients,
@@ -354,7 +366,7 @@ export class ReportsService {
     return buckets;
   }
 
-  async getProductMargins(from?: string, to?: string) {
+  async getProductMargins(from?: string, to?: string, viewerPermissions?: string[]) {
     const { start, end } = getRange(from, to);
     const items = await this.prisma.saleItem.findMany({
       where: {
@@ -368,7 +380,7 @@ export class ReportsService {
       },
     });
 
-    return Object.values(
+    const margins = Object.values(
       items.reduce<
         Record<string, { productId: string; name: string; quantity: number; revenue: number; cost: number; margin: number }>
       >((acc, item) => {
@@ -390,6 +402,15 @@ export class ReportsService {
         return acc;
       }, {}),
     ).sort((left, right) => right.margin - left.margin);
+
+    // A67: mirror products.service.ts's stripProductCost — this is a standalone flat payload
+    // (not threaded through buildSummary()/ClosurePayload/the PDF renderer), so we can strip the
+    // sensitive keys outright rather than redact-to-zero.
+    if (canViewCost(viewerPermissions)) {
+      return margins;
+    }
+
+    return margins.map(({ cost: _cost, margin: _margin, ...rest }) => rest);
   }
 
   async getIngredientRotation(from?: string, to?: string) {
@@ -481,8 +502,8 @@ export class ReportsService {
     };
   }
 
-  async getSupplyAlerts() {
-    const [products, ingredients, purchaseItems] = await Promise.all([
+  async getSupplyAlerts(viewerPermissions?: string[]) {
+    const [rawProducts, rawIngredients, purchaseItems] = await Promise.all([
       this.prisma.product.findMany({
         where: {
           isActive: true,
@@ -518,6 +539,18 @@ export class ReportsService {
         },
       }),
     ]);
+
+    // A67: `GET /reports/supply-alerts` and `GET /reports/inventory-summary` are gated only by
+    // `@Roles('reports.read')` — a permission `cashier`/`supervisor` both hold per
+    // prisma/seed.ts — but these raw Prisma reads (no curated `select`) carry every scalar
+    // column of Product/Ingredient, including `costPrice`. Nothing downstream in this method
+    // (stock-alert severity, supplier grouping, WhatsApp reorder messages) reads `costPrice`, so
+    // mirror products.service.ts/ingredients.service.ts and strip it unless the caller holds
+    // `products.update`.
+    const products = canViewCost(viewerPermissions) ? rawProducts : rawProducts.map((product) => this.stripCostPrice(product));
+    const ingredients = canViewCost(viewerPermissions)
+      ? rawIngredients
+      : rawIngredients.map((ingredient) => this.stripCostPrice(ingredient));
 
     const latestSupplierByIngredient = new Map<
       string,
@@ -686,7 +719,7 @@ export class ReportsService {
     return result;
   }
 
-  async getDailyClosures(from?: string, to?: string) {
+  async getDailyClosures(from?: string, to?: string, viewerPermissions?: string[]) {
     const { start, end } = getRange(from, to);
     const snapshots = await this.prisma.reportSnapshot.findMany({
       where: {
@@ -723,7 +756,10 @@ export class ReportsService {
           : null,
         journey: payload.journey,
         cash: payload.cash,
-        metrics: payload.metrics,
+        // A67: this list view carries `metrics` (costOfSales/grossProfit/netProfit) straight
+        // from the persisted snapshot with no shaping — redact for non-cost-visible viewers, same
+        // as the live daily/range/operational routes.
+        metrics: canViewCost(viewerPermissions) ? payload.metrics : { costOfSales: 0, grossProfit: 0, netProfit: 0 },
         sales: {
           total: payload.sales.total,
           count: payload.sales.count,
@@ -736,7 +772,7 @@ export class ReportsService {
     });
   }
 
-  async getDailyClosure(id: string) {
+  async getDailyClosure(id: string, viewerPermissions?: string[]) {
     const snapshot = await this.prisma.reportSnapshot.findFirst({
       where: {
         id,
@@ -751,8 +787,14 @@ export class ReportsService {
       throw new NotFoundException('No se encontró el cierre diario.');
     }
 
+    // A67: the persisted `ReportSnapshot.payload` is always captured in full (captureDailyClosure()
+    // never shapes it — the audit-trail/financial-record copy must stay complete regardless of who
+    // triggers the capture). Shaping happens here, at read time, based on the CURRENT caller's
+    // permissions — this is preferred over shaping at capture/write time because it doesn't
+    // require touching the persisted snapshot format or re-running historical captures, and it
+    // stays correct even if a user's role/permissions change after a snapshot was captured.
     return {
-      ...(snapshot.payload as ClosurePayload),
+      ...this.redactClosurePayloadCost(snapshot.payload as ClosurePayload, viewerPermissions),
       metadata: {
         source: 'snapshot',
         generatedAt: snapshot.createdAt.toISOString(),
@@ -902,18 +944,23 @@ export class ReportsService {
     };
   }
 
-  async generateDailyPdf(date?: string) {
-    const data = await this.getDaily(date);
+  async generateDailyPdf(date?: string, viewerPermissions?: string[]) {
+    // A67: `GET /reports/daily/:date/pdf` is reachable to 'admin' AND 'supervisor' (@Roles +
+    // 'reports.pdf'), but only 'admin' holds 'products.update' per the seed — the PDF must not
+    // print real cost-of-sales/gross-profit/net-profit figures to 'supervisor'. getDaily() already
+    // redacts those fields for non-cost-visible callers, so the PDF renderer (which just formats
+    // whatever numbers it's given) inherits the redaction automatically.
+    const data = await this.getDaily(date, viewerPermissions);
     return this.renderDailyPdf(data);
   }
 
-  async generateOperationalPdf() {
-    const data = await this.getOperational();
+  async generateOperationalPdf(viewerPermissions?: string[]) {
+    const data = await this.getOperational(viewerPermissions);
     return this.renderDailyPdf(data);
   }
 
-  async generateDailyClosurePdf(id: string) {
-    const data = await this.getDailyClosure(id);
+  async generateDailyClosurePdf(id: string, viewerPermissions?: string[]) {
+    const data = await this.getDailyClosure(id, viewerPermissions);
     return this.renderDailyPdf(data);
   }
 
@@ -2363,6 +2410,48 @@ export class ReportsService {
   private safeValue(value: unknown, fallback = '—') {
     const text = String(value ?? '').trim();
     return text || fallback;
+  }
+
+  // A67: mirror products.service.ts's stripProductCost — strips the raw `costPrice` scalar from
+  // a Product/Ingredient record for viewers without cost visibility. Used by getSupplyAlerts()
+  // (and, transitively, getInventorySummary()).
+  private stripCostPrice<T extends { costPrice: unknown }>(record: T): Omit<T, 'costPrice'> {
+    const { costPrice: _costPrice, ...rest } = record;
+    return rest;
+  }
+
+  // A67: cost/margin fields inside the buildSummary()/ClosurePayload shape are threaded through
+  // getDaily()/getRange()/getOperational(), the persisted daily-closure snapshot, and the PDF
+  // renderer (renderDailyPdf() takes a value whose type is derived from this exact payload
+  // shape). Deleting keys here (the products.service.ts approach) would require re-deriving
+  // ClosurePayload/ReportPdfData as partial types and threading that through ~500 lines of PDF
+  // rendering code that assumes the fields exist. Redacting the sensitive numeric fields to 0
+  // instead keeps the type intact end-to-end (including for the PDF renderer, which then simply
+  // prints $0 for cost/profit rows instead of the real figures) while remaining precisely
+  // testable. Every other field (revenue, quantities, stock, cash reconciliation, etc.) passes
+  // through unchanged — this is purely subtractive for non-cost-visible viewers.
+  private redactClosurePayloadCost(payload: ClosurePayload, viewerPermissions?: string[]): ClosurePayload {
+    if (canViewCost(viewerPermissions)) {
+      return payload;
+    }
+
+    const zeroCost = <T extends { cost: number }>(item: T): T => ({ ...item, cost: 0 });
+
+    return {
+      ...payload,
+      sales: {
+        ...payload.sales,
+        byProduct: payload.sales.byProduct.map(zeroCost),
+        bestSellers: payload.sales.bestSellers.map(zeroCost),
+        leastSellers: payload.sales.leastSellers.map(zeroCost),
+        nonMovingProducts: payload.sales.nonMovingProducts.map(zeroCost),
+      },
+      metrics: {
+        costOfSales: 0,
+        grossProfit: 0,
+        netProfit: 0,
+      },
+    };
   }
 
   private mapProductStockAlert(
