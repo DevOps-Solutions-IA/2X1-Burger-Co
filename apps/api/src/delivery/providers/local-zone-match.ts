@@ -24,6 +24,63 @@ const strongAliases = [
 
 const ambiguousPrefixes = ['cerca de ', 'por ', 'cerca a ', 'al lado de ', 'via '];
 
+// ---------------------------------------------------------------------------------------------
+// RULE 11 (A52 — cross-field ambiguous-prefix bypass fix, blind red team round 5 pass 51).
+//
+// `ambiguousPrefixes` above only ever matches a literal `${prefix}${alias}` SUBSTRING inside ONE
+// candidate field. `matchLocalZone`/`isZoneOnlyReferenceStructurallyComplete` are always called
+// with THREE independent fields (addressText/neighborhood/reference), so a customer's "vivo cerca
+// de alborada" can arrive pre-split by a structured intake (e.g. neighborhood: 'alborada',
+// reference: 'cerca') with the connector word ("de"/"a") dropped entirely — no single field ever
+// contains the phrase, so the substring check above never fires, and bare "cerca" is *also* a
+// legitimate CONTENT_VOCAB_TOKENS landmark word (e.g. "casa cerca del parque"), so the
+// completeness check was independently fooled into treating the ambiguity marker as proof of
+// genuine content.
+//
+// Fix: reason about the marker word ACROSS ALL FIELDS TOGETHER, independent of which field each
+// half landed in and independent of adjacency/order. The key disambiguating signal is not "does
+// this field contain the word 'cerca'" (too broad — that's also true of "casa cerca del parque
+// azul", a perfectly complete, unambiguous address) but "is there a field that contributes NOTHING
+// BUT the marker word itself" (plus pure connector filler) — i.e. the field names no landmark at
+// all, exactly the shape produced when a structured intake splits "cerca de X" into a zone field
+// and a one-word free-text field. A field that pairs the marker with a real landmark noun (e.g.
+// "cerca del parque azul") is NOT bare and is left untouched by this rule.
+// ---------------------------------------------------------------------------------------------
+
+/** Bare "head" tokens of the ambiguous-prefix phrases above (`cerca`, `por`, `via`, and `al`/`lado`
+ * from "al lado de"), used to detect a field that is ONLY the ambiguity marker with no genuine
+ * landmark content — see RULE 11 header above. */
+const AMBIGUOUS_MARKER_VOCAB = new Set(['cerca', 'por', 'via', 'al', 'lado']);
+
+/** Tiny closed set of grammatical connectors that never rescue a bare-marker field into genuine
+ * content — "cerca de" is still just the marker plus filler, no landmark named. */
+const MARKER_CONNECTOR_TOKENS = new Set(['de', 'a']);
+
+/** True when `field` (already normalized) contributes NOTHING beyond the ambiguity marker itself
+ * (optionally plus pure connector filler) — no landmark/descriptor content of its own. */
+function isBareAmbiguousMarkerField(field: string): boolean {
+  const meaningfulTokens = field.split(' ').filter((token) => token && !MARKER_CONNECTOR_TOKENS.has(token));
+  return meaningfulTokens.length > 0 && meaningfulTokens.every((token) => AMBIGUOUS_MARKER_VOCAB.has(token));
+}
+
+/** True when `field` (already normalized) IS or CONTAINS a known local-free-zone alias. */
+function fieldContainsZoneAlias(field: string): boolean {
+  return strongAliases.some((alias) => field === alias || field.includes(alias));
+}
+
+/**
+ * RULE 11: cross-field ambiguity — true when some candidate field is a bare ambiguity marker (no
+ * landmark content of its own) while some field (the same one or a different one) names a known
+ * zone alias. This is what closes the A52 bypass: `{ neighborhood: 'alborada', reference: 'cerca'
+ * }` has a bare-marker field ("cerca") and an alias field ("alborada") — ambiguous, regardless of
+ * which structured field each half arrived in.
+ */
+function hasCrossFieldAmbiguousMarker(candidates: readonly string[]): boolean {
+  const hasBareMarkerField = candidates.some(isBareAmbiguousMarkerField);
+  if (!hasBareMarkerField) return false;
+  return candidates.some(fieldContainsZoneAlias);
+}
+
 /**
  * Zero-width / invisible-format Unicode characters that must be STRIPPED OUTRIGHT (not replaced
  * with a space, which would fragment an otherwise-legitimate word into two tokens). This is a
@@ -107,6 +164,18 @@ export function matchLocalZone(input: ZoneReferenceCandidateInput): LocalZoneMat
         reason: 'Referencia local ambigua, requiere confirmación manual.',
       };
     }
+  }
+
+  // RULE 11 (A52): same ambiguity, detected across fields instead of within a single one — see
+  // header comment above `hasCrossFieldAmbiguousMarker`.
+  if (hasCrossFieldAmbiguousMarker(candidates)) {
+    return {
+      matched: false,
+      zoneLabel: null,
+      confidence: 'LOW',
+      ambiguous: true,
+      reason: 'Referencia local ambigua (marcador de cercanía y alias de zona en campos distintos), requiere confirmación manual.',
+    };
   }
 
   for (const candidate of candidates) {
@@ -220,6 +289,17 @@ export function isZoneOnlyReferenceStructurallyComplete(input: ZoneAddressComple
   const normalizedFields = rawFields.map((field) => normalizeStructuralAddressText(field)).filter((field) => field.length > 0);
 
   if (normalizedFields.length === 0) {
+    return false;
+  }
+
+  // RULE 11 (A52): a field that is nothing but a bare ambiguity marker ("cerca", "por", "via",
+  // "al lado") while a zone alias appears anywhere (same field or a different one) is never a
+  // structurally complete, courier-actionable reference — it is the exact split-field "I'm near X,
+  // not sure I'm in it" case this function exists to refuse. Checked independently of
+  // `matchLocalZone`'s own RULE 11 check (defense in depth — see local-zone-match.spec.ts /
+  // delivery-pricing.spec.ts for callers that can supply a pre-computed `localZoneMatch` and reach
+  // this function directly).
+  if (hasCrossFieldAmbiguousMarker(normalizedFields)) {
     return false;
   }
 
