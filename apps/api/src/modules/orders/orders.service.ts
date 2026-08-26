@@ -513,6 +513,32 @@ export function resolveDeliveryReceiptPayment(paymentMethod?: string | null) {
 
 @Injectable()
 export class OrdersService {
+  /**
+   * A56/A57 (round 5) — module-scope allowlist for the `OrdersController`-exposed
+   * `/orders/operational-alerts*` routes.
+   *
+   * `OperationalAlert` is a SHARED table: this service only ever creates rows with
+   * `module: 'orders'` / `'deliveries'` / `'waiters'` (POS/kitchen/delivery/waiter-operational
+   * signals meant for cashier/supervisor/waiter/delivery staff — e.g. "comanda lista para
+   * cobro"), while SOFIA governance/production-safety alerts (`module: 'sofia'`, e.g.
+   * `SOFIA_REAL_SEND_ATTEMPT_BLOCKED`, `SOFIA_NO_ACTIVE_PROMPT`) are created and owned by
+   * `SofiaAlertsService` and are intentionally restricted to `@Roles('admin','supervisor')` +
+   * `settings.read`/`settings.update` on their own dedicated route (`GET/POST
+   * /admin/sofia/alerts*`, see `sofia.controller.ts`).
+   *
+   * Because both routes read/write the same table, this allowlist is the single source of
+   * truth that keeps the two authorization surfaces from silently drifting apart again: any
+   * module NOT in this list (most importantly `'sofia'`) must never be readable or mutable
+   * through this less-privileged, POS-facing route, regardless of role or permission grants
+   * on `OrdersController`. If a new operational-alert-producing module is added to this
+   * service, add it here explicitly — do not widen this to "everything except sofia".
+   */
+  private static readonly ORDERS_OPERATIONAL_ALERT_MODULES: readonly string[] = [
+    'orders',
+    'deliveries',
+    'waiters',
+  ];
+
   private readonly deliveryLocationPolicy = new DeliveryLocationPolicy();
 
   constructor(
@@ -5053,9 +5079,15 @@ export class OrdersService {
   }
 
   async listOperationalAlerts(module?: string) {
+    // A56/A57: this route must never surface alerts outside its allowlisted modules (see
+    // ORDERS_OPERATIONAL_ALERT_MODULES) — in particular never `module: 'sofia'`, which is
+    // admin/supervisor-only data owned by the dedicated /admin/sofia/alerts route.
+    if (module && !OrdersService.ORDERS_OPERATIONAL_ALERT_MODULES.includes(module)) {
+      throw new ForbiddenException('No tiene acceso a alertas operativas de este módulo.');
+    }
     return this.prisma.operationalAlert.findMany({
       where: {
-        ...(module ? { module } : {}),
+        module: module ? module : { in: [...OrdersService.ORDERS_OPERATIONAL_ALERT_MODULES] },
         status: {
           in: [OperationalAlertStatus.OPEN, OperationalAlertStatus.ACKNOWLEDGED],
         },
@@ -5077,6 +5109,13 @@ export class OrdersService {
 
     if (!current) {
       throw new NotFoundException('No se encontró la alerta operativa.');
+    }
+
+    // A56/A57: mirror the read-side module allowlist so this route can never mutate an alert
+    // (e.g. silently RESOLVE a SOFIA governance alert) that belongs to a module it is not
+    // authorized to touch — closing the same cross-module RBAC gap for writes.
+    if (!OrdersService.ORDERS_OPERATIONAL_ALERT_MODULES.includes(current.module)) {
+      throw new ForbiddenException('No tiene acceso a alertas operativas de este módulo.');
     }
 
     const currentMetadata =
