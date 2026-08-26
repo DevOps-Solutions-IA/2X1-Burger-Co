@@ -4,6 +4,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import type { AuthUser } from '../../common/types/auth-user.type';
 import { CashRegisterService } from './cash-register.service';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto';
 import { CreateManualCashMovementDto } from './dto/create-manual-cash-movement.dto';
@@ -17,8 +18,8 @@ export class CashRegisterController {
 
   @Get('current')
   @Roles('cash.read', 'waiter')
-  async getCurrent(@Res() response: Response) {
-    const session = await this.cashRegisterService.getCurrent();
+  async getCurrent(@Res() response: Response, @CurrentUser() actor: AuthUser) {
+    const session = await this.cashRegisterService.getCurrent(actor);
     return response.json(session);
   }
 

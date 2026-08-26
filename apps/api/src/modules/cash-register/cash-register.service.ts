@@ -7,6 +7,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { AuthUser } from '../../common/types/auth-user.type';
 import { AuditService } from '../audit/audit.service';
 import { toDecimal, toNumber } from '../../common/utils/decimal.util';
 import { CloseCashSessionDto } from './dto/close-cash-session.dto';
@@ -28,7 +29,21 @@ export class CashRegisterService {
     private readonly cashReconciliationService: CashReconciliationService,
   ) {}
 
-  async getCurrent() {
+  /**
+   * NOTE (A60 remediation of A59 finding, HIGH): this route is gated `@Roles('cash.read', 'waiter')`
+   * so the waiter-facing POS screen can poll "is the register open" before saving an order — the
+   * waiter frontend only ever reads the response for truthiness/`.id`
+   * (`apps/web/src/app/(waiter)/waiter/page.client.tsx`). A caller reaching this method WITHOUT
+   * `cash.read` (i.e. via the `waiter` role clause of the gate) must never receive the full
+   * `CashSession` — the movements ledger (amounts, classifications, descriptions) and the PII
+   * (`fullName`/`email`) of whoever opened the session or recorded each movement — because every
+   * sibling route over the identical `CashSession`/`CashMovement` resource (`/history`,
+   * `/operational-log`, `/daily-summary`, `/close-checklist`, `/movements/manual`) correctly
+   * restricts that data to admin/cashier/supervisor. Only a privileged actor (holds `cash.read`, or
+   * is admin/cashier/supervisor) gets the full, unmodified payload; everyone else gets the minimal
+   * `{ id, isOpen }` shape needed to answer "is a session currently open".
+   */
+  async getCurrent(actor: AuthUser) {
     const session = await this.prisma.cashSession.findFirst({
       where: { status: CashSessionStatus.OPEN },
       include: {
@@ -57,7 +72,25 @@ export class CashRegisterService {
       orderBy: { openedAt: 'desc' },
     });
 
-    return session ?? null;
+    if (!session) {
+      return null;
+    }
+
+    if (!this.isPrivilegedCashOperator(actor)) {
+      return {
+        id: session.id,
+        isOpen: session.status === CashSessionStatus.OPEN,
+      };
+    }
+
+    return session;
+  }
+
+  private isPrivilegedCashOperator(actor: AuthUser) {
+    return (
+      actor.permissions.includes('cash.read') ||
+      actor.roles.some((role) => ['admin', 'cashier', 'supervisor'].includes(role))
+    );
   }
 
   history() {
