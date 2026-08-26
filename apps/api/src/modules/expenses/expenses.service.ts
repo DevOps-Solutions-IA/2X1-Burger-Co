@@ -103,16 +103,39 @@ export class ExpensesService {
       throw new BadRequestException('No puedes editar un gasto de una sesión de caja ya cerrada.');
     }
 
-    const expense = await this.prisma.expense.update({
-      where: { id },
-      data: {
-        concept: dto.concept,
-        classification: dto.classification?.trim() || undefined,
-        description: dto.description,
-        amount: dto.amount != null ? toDecimal(dto.amount) : undefined,
-        paymentMethodId: dto.paymentMethodId,
-        spentAt: dto.spentAt ? new Date(dto.spentAt) : undefined,
-      },
+    const expense = await this.prisma.$transaction(async (tx) => {
+      const updatedExpense = await tx.expense.update({
+        where: { id },
+        data: {
+          concept: dto.concept,
+          classification: dto.classification?.trim() || undefined,
+          description: dto.description,
+          amount: dto.amount != null ? toDecimal(dto.amount) : undefined,
+          paymentMethodId: dto.paymentMethodId,
+          spentAt: dto.spentAt ? new Date(dto.spentAt) : undefined,
+        },
+      });
+
+      // A65: keep the linked CashMovement ledger entry (created in create(), see
+      // `referenceType: 'expense'` / `referenceId: expense.id`) in sync when the expense amount
+      // is edited while its cash session is still open. close() re-reads Expense.amount live via
+      // CashReconciliationService.buildForSession(), so this was never a cash-closing math bug —
+      // but the CashMovement row itself (used by the movements list/forensic log) went stale
+      // after an edit, which is a ledger-detail inconsistency this closes.
+      if (dto.amount != null && existing.cashSessionId) {
+        await tx.cashMovement.updateMany({
+          where: {
+            cashSessionId: existing.cashSessionId,
+            referenceType: 'expense',
+            referenceId: id,
+          },
+          data: {
+            amount: toDecimal(dto.amount),
+          },
+        });
+      }
+
+      return updatedExpense;
     });
 
     await this.auditService.log({
