@@ -37,8 +37,12 @@ export class SalesController {
 
   @Post()
   @Roles('admin', 'cashier', 'supervisor')
-  create(@Body() dto: CreateSaleDto, @CurrentUser('sub') actorId: string) {
-    return this.salesService.create(dto, actorId);
+  create(
+    @Body() dto: CreateSaleDto,
+    @CurrentUser('sub') actorId: string,
+    @CurrentUser('roles') actorRoles: string[],
+  ) {
+    return this.salesService.create(dto, actorId, actorRoles?.join(','));
   }
 
   @Post(':id/convert-to-order')
