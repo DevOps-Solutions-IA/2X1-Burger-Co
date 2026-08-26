@@ -7,6 +7,34 @@ import { toDecimal } from '../../common/utils/decimal.util';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
+// A65: same privilege tier that is already allowed to CREATE/UPDATE product cost data
+// (see ProductsController's `@Roles('admin', 'inventory')` on POST/PATCH /products) is the
+// only tier allowed to READ costPrice / recipe cost breakdown. Any other authenticated caller
+// (cashier, supervisor, waiter, delivery) can still call GET /products and GET /products/:id —
+// several legitimate frontend flows (POS product browser, etc.) depend on the route staying
+// reachable to those roles — but the response is shaped to omit cost/margin fields for them.
+const COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(COST_VISIBILITY_PERMISSION);
+}
+
+type ProductWithRecipeCost = Prisma.ProductGetPayload<{
+  include: {
+    category: true;
+    unit: true;
+    recipes: {
+      include: {
+        items: {
+          include: {
+            ingredient: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -14,8 +42,8 @@ export class ProductsService {
     private readonly auditService: AuditService,
   ) {}
 
-  findAll() {
-    return this.prisma.product.findMany({
+  async findAll(viewerPermissions?: string[]) {
+    const products = await this.prisma.product.findMany({
       where: {
         NOT: {
           isActive: false,
@@ -41,6 +69,12 @@ export class ProductsService {
         name: 'asc',
       },
     });
+
+    if (canViewCost(viewerPermissions)) {
+      return products;
+    }
+
+    return products.map((product) => this.stripProductCost(product));
   }
 
   findSellable(brand?: string) {
@@ -80,7 +114,7 @@ export class ProductsService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewerPermissions?: string[]) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
@@ -102,7 +136,11 @@ export class ProductsService {
       throw new NotFoundException('No se encontró el producto.');
     }
 
-    return product;
+    if (canViewCost(viewerPermissions)) {
+      return product;
+    }
+
+    return this.stripProductAndRecipeCost(product);
   }
 
   async create(dto: CreateProductDto, actorId: string, auditContext?: AuditContext) {
@@ -129,7 +167,10 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpdateProductDto, actorId: string, auditContext?: AuditContext) {
-    const existing = await this.findOne(id);
+    // A65: internal read for audit-log oldValues / stock-shape validation must always see the
+    // full record (including costPrice) regardless of who is calling update() — cost visibility
+    // shaping only applies to the viewer-facing GET routes above, never to the audit trail.
+    const existing = await this.findOne(id, [COST_VISIBILITY_PERMISSION]);
     this.assertStockShape(dto.kind ?? existing.kind, dto.trackStock ?? existing.trackStock, dto.currentStock);
 
     const product = await this.prisma.product.update({
@@ -155,7 +196,8 @@ export class ProductsService {
   }
 
   async remove(id: string, actorId: string, auditContext?: AuditContext) {
-    const existing = await this.findOne(id);
+    // A65: same rationale as update() above — the audit trail must retain costPrice.
+    const existing = await this.findOne(id, [COST_VISIBILITY_PERMISSION]);
 
     const usage = await this.prisma.product.findUnique({
       where: { id },
@@ -265,6 +307,39 @@ export class ProductsService {
             : undefined,
       stockMin: dto.stockMin != null ? toDecimal(dto.stockMin) : undefined,
       isActive: dto.isActive,
+    };
+  }
+
+  // A65: strip costPrice from a product payload for viewers without cost visibility.
+  // Generic over the exact include shape so it works for both the plain
+  // (category + unit) findAll() result and the richer findOne() result below.
+  private stripProductCost<T extends { costPrice: unknown }>(product: T): Omit<T, 'costPrice'> {
+    const { costPrice: _costPrice, ...rest } = product;
+    return rest;
+  }
+
+  // A65: strip costPrice from the product itself AND from every ingredient nested inside its
+  // recipe (recipes[].items[].ingredient.costPrice) — findOne()'s full recipe cost breakdown is
+  // exactly what the red-team finding flagged as leaking the product's margin structure.
+  private stripProductAndRecipeCost(product: ProductWithRecipeCost) {
+    const { costPrice: _costPrice, recipes, ...rest } = product;
+
+    return {
+      ...rest,
+      recipes: recipes.map((recipe) => {
+        const { items, ...recipeRest } = recipe;
+        return {
+          ...recipeRest,
+          items: items.map((item) => {
+            const { ingredient, ...itemRest } = item;
+            const { costPrice: _ingredientCostPrice, ...ingredientRest } = ingredient;
+            return {
+              ...itemRest,
+              ingredient: ingredientRest,
+            };
+          }),
+        };
+      }),
     };
   }
 

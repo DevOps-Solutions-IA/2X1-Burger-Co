@@ -175,6 +175,16 @@ export class UsersService {
       await this.invalidateUserSessions(id);
     }
 
+    // A65: rotating a user's password must revoke their currently active
+    // sessions (refresh tokens + sessionVersion bump), otherwise a
+    // previously-stolen token keeps working after the credential reset —
+    // defeating the purpose of the rotation. This is independent of the
+    // operational-role branch above (which only applies to waiter/delivery
+    // accessCode/accessName/fullName changes and never sets passwordHash).
+    if (passwordHash !== undefined) {
+      await this.invalidateUserSessions(id);
+    }
+
     await this.auditService.log({
       userId: actorId,
       action: 'UPDATE',
