@@ -1761,7 +1761,9 @@ export class OrdersService {
           if (actor.roles.includes('waiter') && !this.isPrivilegedOrderOperator(actor)) {
             await this.tablesService.assertWaiterCanOperateTable(actor, table?.id, tx);
           }
-          const items = await this.buildOrderItems(tx, dto.items);
+          const { items, priceOverrides } = await this.buildOrderItems(tx, dto.items, {
+            trustProvidedUnitPrice: this.isPrivilegedOrderOperator(actor),
+          });
           const itemsSubtotal = items.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
           const deliverySnapshot =
             type === OrderTicketType.DELIVERY
@@ -1853,6 +1855,8 @@ export class OrdersService {
             tx,
           );
 
+          await this.auditItemPriceOverrides(tx, actor, created.id, priceOverrides);
+
           return created;
         });
         break;
@@ -1920,7 +1924,14 @@ export class OrdersService {
       }
 
       const itemSnapshots = this.parseCanonicalCheckoutItems(checkout.itemsSnapshot);
-      const items = await this.buildOrderItems(tx, itemSnapshots);
+      // `itemSnapshots` are already server-derived from `product.persistedPrice` at draft time
+      // by SOFIA's commercial authority (`SofiaService.buildItemsSnapshot`) — never raw client
+      // input reachable by `waiter` — and are independently cross-checked below against
+      // `checkout.total` (`CHECKOUT_PRICE_CHANGED`), so it is safe and correct to keep trusting
+      // them here.
+      const { items } = await this.buildOrderItems(tx, itemSnapshots, {
+        trustProvidedUnitPrice: true,
+      });
       const itemsSubtotal = items.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0));
       const expectedItemsSubtotal = checkout.total.sub(checkout.deliveryFee);
       if (!itemsSubtotal.equals(expectedItemsSubtotal)) {
@@ -2430,7 +2441,9 @@ export class OrdersService {
     }
 
     const updateResult = await this.prisma.$transaction(async (tx) => {
-      const items = await this.buildOrderItems(tx, dto.items);
+      const { items, priceOverrides } = await this.buildOrderItems(tx, dto.items, {
+        trustProvidedUnitPrice: this.isPrivilegedOrderOperator(actor),
+      });
       const itemsSubtotal = items.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
       const currentOrder = await tx.orderTicket.findUniqueOrThrow({
         where: { id },
@@ -2609,6 +2622,8 @@ export class OrdersService {
         tx,
       );
 
+      await this.auditItemPriceOverrides(tx, actor, id, priceOverrides);
+
       let receiptVersion: number | null = null;
       if (updatedOrder.type === OrderTicketType.DELIVERY) {
         const refreshedCount = await tx.auditLog.count({
@@ -2769,7 +2784,9 @@ export class OrdersService {
           });
         }
 
-        const items = await this.buildOrderItems(tx, dto.items);
+        const { items, priceOverrides } = await this.buildOrderItems(tx, dto.items, {
+          trustProvidedUnitPrice: this.isPrivilegedOrderOperator(actor),
+        });
         const subtotal = items.reduce((acc, item) => acc.add(item.totalPrice), new Prisma.Decimal(0));
 
         if (current) {
@@ -2846,6 +2863,8 @@ export class OrdersService {
             },
           });
 
+          await this.auditItemPriceOverrides(tx, actor, order.id, priceOverrides);
+
           return {
             order,
             action: access.shouldAssign ? ('WAITER_SYNC_CLAIM' as const) : ('WAITER_SYNC_UPDATE' as const),
@@ -2896,6 +2915,8 @@ export class OrdersService {
             orderTicketId: order.id,
           },
         });
+
+        await this.auditItemPriceOverrides(tx, actor, order.id, priceOverrides);
 
         return { order, action: 'WAITER_SYNC_CREATE' as const };
       });
@@ -4089,6 +4110,34 @@ export class OrdersService {
     return table;
   }
 
+  /**
+   * SOFIA Round 5 / A55 CLOSURE (CRITICAL, A54 blind red-team finding) — `item.unitPrice` is a
+   * CLIENT-SUPPLIED number that must NEVER be trusted as the actual charged price unless the
+   * acting operator independently holds price-setting authority. Before this fix, every caller
+   * (`create`, `replaceItems`, `syncWaiterOrder` — all reachable by the `waiter` role, which
+   * deliberately holds no `orders.checkout`/`cash.*`/discount permission) trusted
+   * `item.unitPrice ?? product.salePrice` verbatim, letting `waiter` set any item's persisted,
+   * later-checked-out price to anything (down to 0).
+   *
+   * Investigation confirmed a LEGITIMATE existing use of client-supplied `unitPrice`: the POS
+   * screen (`apps/web/src/app/(app)/pos/page.tsx`, `updateItemPrice`) lets a privileged operator
+   * (admin/cashier/supervisor — never waiter) manually override an item's price before
+   * create/replaceItems, using the SAME shared DTO field. Removing the field entirely (blanket
+   * Option A) would have broken that real feature, so the fix instead gates trust behind
+   * `isPrivilegedOrderOperator(actor)` — the SAME admin/cashier/supervisor-vs-waiter boundary
+   * this file already uses elsewhere (see `assertWaiterCanOperateTable` call sites) — and reuses
+   * the existing generic `AuditService`/`AuditLog` (no new column, no migration) to record any
+   * actual override (who/when/product/catalog price/overridden price), mirroring the
+   * `deliveryFeeEdited`/`deliveryFeeEditReason` audit pattern used for delivery-fee overrides.
+   *
+   * `trustProvidedUnitPrice`:
+   *  - `false` (waiter, or any non-privileged role): `item.unitPrice` is ALWAYS ignored;
+   *    `product.salePrice` is the sole source of truth for the persisted/charged price.
+   *  - `true` (admin/cashier/supervisor via `create`/`replaceItems`/`syncWaiterOrder`, OR the
+   *    internal `createFromCanonicalCheckout` call whose `itemSnapshots` are already
+   *    server-derived from `product.persistedPrice` by SOFIA's commercial authority, never raw
+   *    client input): `item.unitPrice` is honored when present, exactly as before.
+   */
   private async buildOrderItems(
     tx: Prisma.TransactionClient,
     items: Array<{
@@ -4098,6 +4147,7 @@ export class OrdersService {
       notes?: string;
       modifiersSnapshot?: Prisma.InputJsonValue;
     }>,
+    options: { trustProvidedUnitPrice: boolean },
   ) {
     const result: Array<{
       productId: string;
@@ -4106,6 +4156,12 @@ export class OrdersService {
       totalPrice: Prisma.Decimal;
       notes?: string;
       modifiersSnapshot?: Prisma.InputJsonValue;
+    }> = [];
+    const priceOverrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
     }> = [];
 
     for (const item of items) {
@@ -4121,8 +4177,22 @@ export class OrdersService {
       }
 
       const quantity = toDecimal(item.quantity);
-      const unitPrice = toDecimal(item.unitPrice ?? product.salePrice);
+      const catalogUnitPrice = toDecimal(product.salePrice);
+      const providedUnitPrice =
+        options.trustProvidedUnitPrice && item.unitPrice !== undefined && item.unitPrice !== null
+          ? toDecimal(item.unitPrice)
+          : null;
+      const unitPrice = providedUnitPrice ?? catalogUnitPrice;
       const totalPrice = quantity.mul(unitPrice);
+
+      if (providedUnitPrice && !providedUnitPrice.equals(catalogUnitPrice)) {
+        priceOverrides.push({
+          productId: product.id,
+          productName: product.name,
+          catalogUnitPrice: toNumber(catalogUnitPrice),
+          overriddenUnitPrice: toNumber(providedUnitPrice),
+        });
+      }
 
       if (
         product.kind === ProductKind.DIRECT_STOCK &&
@@ -4142,7 +4212,45 @@ export class OrdersService {
       });
     }
 
-    return result;
+    return { items: result, priceOverrides };
+  }
+
+  /**
+   * SOFIA Round 5 / A55 CLOSURE: writes one `AuditLog` row per manual item-price override so a
+   * privileged operator's (admin/cashier/supervisor) decision to charge something other than
+   * `product.salePrice` is never silent, mirroring the `deliveryFeeEdited`/`deliveryFeeEditReason`
+   * audit pattern used for delivery-fee overrides. No-op when there are no overrides.
+   */
+  private async auditItemPriceOverrides(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    orderId: string,
+    overrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
+    }>,
+  ) {
+    for (const override of overrides) {
+      await this.auditService.log(
+        {
+          userId: actor.sub,
+          actorRole: actor.roles.join(','),
+          action: 'ORDER_ITEM_PRICE_OVERRIDDEN',
+          module: 'orders',
+          entity: 'order_ticket_item',
+          entityId: orderId,
+          newValues: {
+            productId: override.productId,
+            productName: override.productName,
+            catalogUnitPrice: override.catalogUnitPrice,
+            overriddenUnitPrice: override.overriddenUnitPrice,
+          },
+        },
+        tx,
+      );
+    }
   }
 
   private parseCanonicalCheckoutItems(value: Prisma.JsonValue) {
