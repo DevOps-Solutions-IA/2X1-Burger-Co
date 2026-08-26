@@ -14,7 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { toDecimal } from '../../common/utils/decimal.util';
+import { toDecimal, toNumber } from '../../common/utils/decimal.util';
 import { formatReceiptNumber } from '../../common/utils/receipt-number.util';
 import { ConvertSaleToOrderDto } from './dto/convert-sale-to-order.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -261,10 +261,10 @@ export class SalesService {
     };
   }
 
-  async create(dto: CreateSaleDto, actorId: string) {
+  async create(dto: CreateSaleDto, actorId: string, actorRole?: string) {
     const session = await this.getOpenCashSession();
     const sale = await this.prisma.$transaction(async (tx) => {
-      const created = await this.createInTransaction(tx, dto, actorId, session.id);
+      const created = await this.createInTransaction(tx, dto, actorId, session.id, { actorRole });
       await this.auditService.log({
         userId: actorId,
         action: 'CREATE',
@@ -578,7 +578,7 @@ export class SalesService {
     dto: CreateSaleDto,
     actorId: string,
     cashSessionId: string,
-    options?: { orderTicketId?: string; paymentIntentId?: string },
+    options?: { orderTicketId?: string; paymentIntentId?: string; actorRole?: string },
   ) {
     const paymentMethodIds = [...new Set(dto.payments.map((payment) => payment.paymentMethodId))];
     const paymentMethods = await tx.paymentMethod.findMany({
@@ -651,6 +651,12 @@ export class SalesService {
     }> = [];
 
     let itemsSubtotal = new Prisma.Decimal(0);
+    const priceOverrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
+    }> = [];
 
     for (const item of dto.items) {
       // BLOQUEO CONCURRENCIA: Bloquear fila del producto antes de leer
@@ -676,9 +682,26 @@ export class SalesService {
       }
 
       const quantity = toDecimal(item.quantity);
-      const unitPrice = toDecimal(item.unitPrice ?? Number(product.salePrice));
+      const catalogUnitPrice = toDecimal(product.salePrice);
+      const unitPrice = item.unitPrice != null ? toDecimal(item.unitPrice) : catalogUnitPrice;
       const totalPrice = quantity.mul(unitPrice);
       let estimatedCost = new Prisma.Decimal(0);
+
+      // SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — mirrors the
+      // ORDER_ITEM_PRICE_OVERRIDDEN audit pattern already enforced on the sibling `/orders` path
+      // (`OrdersService.buildOrderItems`/`auditItemPriceOverrides`, orders.service.ts). Every role
+      // reachable on `POST /sales` (admin/cashier/supervisor) is already authorized to override an
+      // item's price, so this does NOT gate or block the override — it only ensures it is never
+      // silent. Collected here and written to AuditLog once the sale row exists (see
+      // `auditSaleItemPriceOverrides` below), inside the same transaction.
+      if (item.unitPrice != null && !unitPrice.equals(catalogUnitPrice)) {
+        priceOverrides.push({
+          productId: product.id,
+          productName: product.name,
+          catalogUnitPrice: toNumber(catalogUnitPrice),
+          overriddenUnitPrice: toNumber(unitPrice),
+        });
+      }
 
       if (product.kind === ProductKind.DIRECT_STOCK) {
         if (!product.trackStock) {
@@ -868,6 +891,17 @@ export class SalesService {
       },
     });
 
+    await this.auditSaleItemPriceOverrides(tx, actorId, options?.actorRole, createdSale.id, priceOverrides);
+    await this.auditSaleDiscountIfDiverged(
+      tx,
+      actorId,
+      options?.actorRole,
+      createdSale.id,
+      adjustedSubtotal,
+      baseSubtotal,
+      discount,
+    );
+
     await Promise.all(
       normalizedPayments.map((payment) =>
         tx.cashMovement.create({
@@ -904,6 +938,88 @@ export class SalesService {
     );
 
     return createdSale;
+  }
+
+  /**
+   * SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — writes one `AuditLog` row
+   * per manual item-price override on `/sales`, mirroring `OrdersService.auditItemPriceOverrides`
+   * (`ORDER_ITEM_PRICE_OVERRIDDEN`, orders.service.ts) exactly in spirit: same generic
+   * `AuditService`/`AuditLog` mechanism, no new column, no new migration. Every role reachable on
+   * `POST /sales` (admin/cashier/supervisor) already legitimately holds price-override authority —
+   * this does not gate or block the override, it only ensures it is never silent. No-op when there
+   * are no overrides.
+   */
+  private async auditSaleItemPriceOverrides(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    actorRole: string | undefined,
+    saleId: string,
+    overrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
+    }>,
+  ) {
+    for (const override of overrides) {
+      await this.auditService.log(
+        {
+          userId: actorId,
+          actorRole,
+          action: 'SALE_ITEM_PRICE_OVERRIDDEN',
+          module: 'sales',
+          entity: 'sale_item',
+          entityId: saleId,
+          newValues: {
+            productId: override.productId,
+            productName: override.productName,
+            catalogUnitPrice: override.catalogUnitPrice,
+            overriddenUnitPrice: override.overriddenUnitPrice,
+          },
+        },
+        tx,
+      );
+    }
+  }
+
+  /**
+   * SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — `CreateSaleDto.baseSubtotal`
+   * is a client-supplied number; when it diverges upward from the server-computed
+   * `itemsSubtotal + deliveryFee`, the difference is persisted as `Sale.discount`. Before this fix
+   * nothing recorded who authorized that divergence or why. Mirrors the same generic
+   * `AuditService`/`AuditLog` mechanism used for `SALE_ITEM_PRICE_OVERRIDDEN` above and for
+   * `ORDER_ITEM_PRICE_OVERRIDDEN` on the sibling `/orders` path — no new column, no new migration.
+   * A no-op when `baseSubtotal` matches the computed subtotal (the normal, non-discounted case).
+   */
+  private async auditSaleDiscountIfDiverged(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    actorRole: string | undefined,
+    saleId: string,
+    computedSubtotal: Prisma.Decimal,
+    submittedBaseSubtotal: Prisma.Decimal,
+    discount: Prisma.Decimal,
+  ) {
+    if (!discount.greaterThan(0)) {
+      return;
+    }
+
+    await this.auditService.log(
+      {
+        userId: actorId,
+        actorRole,
+        action: 'SALE_DISCOUNT_APPLIED',
+        module: 'sales',
+        entity: 'sale',
+        entityId: saleId,
+        newValues: {
+          computedSubtotal: toNumber(computedSubtotal),
+          submittedBaseSubtotal: toNumber(submittedBaseSubtotal),
+          discountAmount: toNumber(discount),
+        },
+      },
+      tx,
+    );
   }
 
   async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string) {
