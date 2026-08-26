@@ -53,8 +53,15 @@ import { resetDatabase, seedTestData } from '../../tests/helpers/test-data';
  * `JwtAuthGuard` chain through the full Nest DI graph (`createTestApp()`) against real Postgres,
  * exactly mirroring how a browser client calls `/auth/login`, `/auth/logout`, then reuses the
  * access token it already holds in memory (or an attacker reuses a leaked one).
+ *
+ * SOFIA Round 5 / A64 CLOSURE — this finding is FIXED. `AuthService.logout()` now bumps
+ * `User.sessionVersion` in both its call branches (single-device: presented refresh token
+ * revoked + sessionVersion bumped in the same transaction; all-devices: routed through the
+ * existing `revokeTokenFamily()`, which already bumped it). This file is kept as a PERMANENT
+ * regression test of the fixed behavior — the original finding narrative above is retained as
+ * historical documentation of the exact mechanism that must never regress.
  */
-describe('A63 — POST /auth/logout does not invalidate the still-live access token (sessionVersion not bumped)', () => {
+describe('A63/A64 — POST /auth/logout immediately invalidates the caller\'s live access token (sessionVersion bumped)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
@@ -82,7 +89,7 @@ describe('A63 — POST /auth/logout does not invalidate the still-live access to
     return (refreshCookie.split(';')[0] as string | undefined) ?? refreshCookie;
   }
 
-  it('FINDING: a logged-out access token still authenticates GET /auth/me — sessionVersion is untouched by logout()', async () => {
+  it('FIXED: a logged-out access token no longer authenticates GET /auth/me — sessionVersion is bumped by logout()', async () => {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .set('X-Forwarded-For', '10.63.1.1')
@@ -115,24 +122,22 @@ describe('A63 — POST /auth/logout does not invalidate the still-live access to
     expect(logout.status).toBe(201);
     expect(logout.body).toEqual({ success: true });
 
-    // ROOT CAUSE, proven directly: sessionVersion was never bumped by logout() alone.
+    // FIXED (A64): sessionVersion IS bumped by logout() alone — no refresh-replay needed.
     const cashierAfter = await prisma.user.findUniqueOrThrow({
       where: { email: 'cashier@2x1burgerco.local' },
     });
-    expect(cashierAfter.sessionVersion).toBe(cashierBefore.sessionVersion);
+    expect(cashierAfter.sessionVersion).toBe(cashierBefore.sessionVersion + 1);
 
-    // THE FINDING: the SAME access token that authenticated pre-logout still authenticates
-    // post-logout, and can still be used to act as the user, e.g. reading `/auth/me`'s PII
-    // (email/fullName/roles/permissions) or hitting any other JwtAuthGuard route the user's
-    // role permits — even though the API told the caller `{ success: true }` for logout.
+    // FIXED: the SAME access token that authenticated pre-logout is immediately rejected
+    // post-logout — it can no longer be used to act as the user or read PII (email/fullName/
+    // roles/permissions) via `/auth/me` or any other JwtAuthGuard route.
     const postLogout = await request(app.getHttpServer())
       .get('/auth/me')
       .set('Authorization', `Bearer ${accessToken}`);
-    expect(postLogout.status).toBe(200);
-    expect(postLogout.body.email).toBe('cashier@2x1burgerco.local');
+    expect(postLogout.status).toBe(401);
   });
 
-  it('NUANCE: a subsequent /auth/refresh replay of the dead refresh token happens to kill the access token too, via reuse-detection — but this is not logout(), and never fires if only the access token leaked', async () => {
+  it('FIXED: logout() alone kills the access token without ever touching /auth/refresh — no reliance on the unrelated reuse-detection safety net', async () => {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .set('X-Forwarded-For', '10.63.1.2')
@@ -145,24 +150,15 @@ describe('A63 — POST /auth/logout does not invalidate the still-live access to
       .set('Authorization', `Bearer ${accessToken}`)
       .set('Cookie', refreshCookie);
 
-    // The now-dead access token still works right after logout (same finding as above).
-    const stillWorks = await request(app.getHttpServer())
+    // FIXED: the access token is already dead immediately after logout — deliberately without
+    // ever calling /auth/refresh in this test, proving the fix does not depend on the separate,
+    // narrower reuse-detection safety net (H-06) that only fires if the dead refresh token is
+    // later replayed. A holder of only the access token (XSS, shared-terminal history) never
+    // touches the refresh token at all, so that net is irrelevant to this fix's correctness.
+    const deadImmediately = await request(app.getHttpServer())
       .get('/auth/me')
       .set('Authorization', `Bearer ${accessToken}`);
-    expect(stillWorks.status).toBe(200);
-
-    // If (and only if) something separately replays the revoked refresh token, reuse-detection
-    // (H-06) treats it as compromise, bumps sessionVersion, and THAT finally kills the access
-    // token — as a side effect of an unrelated defense, not because logout() invalidated it.
-    const refreshReplay = await request(app.getHttpServer())
-      .post('/auth/refresh')
-      .set('Cookie', refreshCookie);
-    expect(refreshReplay.status).toBe(401);
-
-    const nowDead = await request(app.getHttpServer())
-      .get('/auth/me')
-      .set('Authorization', `Bearer ${accessToken}`);
-    expect(nowDead.status).toBe(401);
+    expect(deadImmediately.status).toBe(401);
   });
 
   it('CONTRAST: the codebase already has a working immediate-invalidation mechanism (sessionVersion bump) — cash-session force-logout uses it, logout() does not', async () => {
