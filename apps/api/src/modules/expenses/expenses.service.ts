@@ -13,12 +13,23 @@ export class ExpensesService {
     private readonly auditService: AuditService,
   ) {}
 
+  // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize the
+  // FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of `GET /expenses`, reachable by any `cashier`. Shaped to the same
+  // `{ id, fullName, email }` tier used elsewhere in this codebase for staff (email/password)
+  // creators (expenses are only ever recorded by admin/cashier/supervisor).
   findAll() {
     return this.prisma.expense.findMany({
       include: {
         paymentMethod: true,
         cashSession: true,
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
       orderBy: {
         spentAt: 'desc',

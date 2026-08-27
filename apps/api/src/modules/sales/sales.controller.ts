@@ -16,14 +16,14 @@ export class SalesController {
 
   @Get()
   @Roles('sales.read')
-  findAll() {
-    return this.salesService.findAll();
+  findAll(@CurrentUser('permissions') permissions?: string[]) {
+    return this.salesService.findAll(permissions);
   }
 
   @Get(':id')
   @Roles('sales.read')
-  findOne(@Param('id') id: string) {
-    return this.salesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.salesService.findOne(id, permissions);
   }
 
   @Get(':id/receipt-pdf')

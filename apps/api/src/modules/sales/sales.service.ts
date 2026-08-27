@@ -20,6 +20,18 @@ import { ConvertSaleToOrderDto } from './dto/convert-sale-to-order.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ReopenConvertedSaleDto } from './dto/reopen-converted-sale.dto';
 
+// A69: same privilege tier that products.service.ts's COST_VISIBILITY_PERMISSION (A65) and
+// reports.service.ts's identically-named gate (A67) already use — cost/margin data is the same
+// underlying sensitive resource no matter which module surfaces it, so this reuses the permission
+// rather than inventing a parallel one. `sales.read` (held by cashier/supervisor) must stay
+// reachable for the receipt/history UI, but `items[].product.costPrice` is stripped unless the
+// caller also holds `products.update` (admin/inventory).
+const COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(COST_VISIBILITY_PERMISSION);
+}
+
 @Injectable()
 export class SalesService {
   constructor(
@@ -27,8 +39,17 @@ export class SalesService {
     private readonly auditService: AuditService,
   ) {}
 
-  findAll() {
-    return this.prisma.sale.findMany({
+  // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize the
+  // FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of `GET /sales`, reachable by any `cashier`. Shaped to the same
+  // `{ id, fullName, email }` tier the codebase already uses for staff (email/password) creators
+  // elsewhere (see `CashRegisterService.history()`'s `openedBy`/`closedBy`/`reopenedBy` `select`,
+  // and `InventoryService.findMovements()`'s `performedBy` `select`) — `accessName` is the
+  // PIN-login field for waiter/delivery, not relevant to who can create a sale (admin/cashier/
+  // supervisor). The frontend (`apps/web`) never reads anything off `sale.createdBy` besides
+  // `.fullName`, so this is not a breaking shape change.
+  async findAll(viewerPermissions?: string[]) {
+    const sales = await this.prisma.sale.findMany({
       include: {
         orderTicket: {
           include: {
@@ -50,13 +71,25 @@ export class SalesService {
             orderTicket: true,
           },
         },
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
       orderBy: { soldAt: 'desc' },
     });
+
+    if (canViewCost(viewerPermissions)) {
+      return sales;
+    }
+
+    return sales.map((sale) => this.stripSaleCost(sale));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewerPermissions?: string[]) {
     const sale = await this.prisma.sale.findUnique({
       where: { id },
       include: {
@@ -87,7 +120,21 @@ export class SalesService {
       throw new NotFoundException('No se encontró la venta.');
     }
 
-    return sale;
+    return canViewCost(viewerPermissions) ? sale : this.stripSaleCost(sale);
+  }
+
+  // A69: mirror products.service.ts's stripProductCost() — strip the raw `costPrice` scalar from
+  // every nested `items[].product` so a cashier viewing a receipt/sale list cannot read supplier
+  // cost. `findOne()` never fetched `createdBy` in the first place (no credential exposure there),
+  // so this helper only needs to handle the cost leak.
+  private stripSaleCost<T extends { items: Array<{ product: { costPrice: unknown } }> }>(sale: T) {
+    return {
+      ...sale,
+      items: sale.items.map((item) => {
+        const { costPrice: _costPrice, ...productRest } = item.product;
+        return { ...item, product: productRest };
+      }),
+    };
   }
 
   async convertToOrder(id: string, dto: ConvertSaleToOrderDto, actorId: string) {

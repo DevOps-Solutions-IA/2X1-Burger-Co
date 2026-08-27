@@ -810,11 +810,24 @@ export class ReportsService {
     };
   }
 
+  // A69/A70 (CRITICAL, blind red-team finding — found while auditing the reported list, not
+  // itself in the auditor's original PoC): `createdBy: true` used to fetch and serialize the FULL
+  // `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of `GET /reports/supplier-notifications`, reachable by `supervisor`/`inventory` (who
+  // do NOT hold `admin`) — a cross-role leak of the SAME class as the rest of this fix. Shaped to
+  // the same `{ id, fullName, email }` tier this file already uses for `generatedBy` in
+  // `getDailyClosures()`/`getDailyClosure()` above.
   async listSupplierNotifications() {
     return this.prisma.supplierNotification.findMany({
       include: {
         supplier: true,
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
