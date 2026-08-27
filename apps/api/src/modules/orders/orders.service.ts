@@ -149,7 +149,21 @@ const orderInclude = {
       },
     },
   },
-  createdBy: true,
+  // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize the
+  // FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of every route sharing this single `orderInclude` object (~30 call sites across this
+  // file: findAll()/findOne()/create()/checkout()/kitchen transitions/delivery assignment/etc),
+  // reachable by any `cashier`. Shaped to the SAME `{ id, fullName, accessName }` tier already
+  // used two lines below for `assignedWaiter` — an order's creator can be a waiter (PIN/accessName
+  // login) just as easily as a cashier/admin (email/password login), so `accessName` stays
+  // relevant here unlike the email/password-only modules (sales/purchases/cash-register/expenses).
+  createdBy: {
+    select: {
+      id: true,
+      fullName: true,
+      accessName: true,
+    },
+  },
   assignedWaiter: {
     select: {
       id: true,
@@ -498,6 +512,18 @@ const ACTIVE_DELIVERY_WORKFLOW_STATUSES: DeliveryWorkflowStatus[] = [
 
 const DELIVERY_PAYMENT_TARGET = '3160527403';
 
+// A69/A70: same COST_VISIBILITY_PERMISSION gate as products.service.ts (A65)/reports.service.ts
+// (A67)/sales.service.ts (A69) — `orders.read` (held by cashier) stays reachable for
+// findAll()/findOne(), but `items[].product.costPrice` is stripped unless the caller also holds
+// `products.update` (admin/inventory). Scoped to the list/detail read surface only — the other
+// ~28 call sites of `orderInclude` (create/checkout/kitchen/delivery flows) are mutation/workflow
+// endpoints outside this finding's reported blast radius and are not touched here.
+const ORDER_COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewOrderCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(ORDER_COST_VISIBILITY_PERMISSION);
+}
+
 export function resolveDeliveryReceiptPayment(paymentMethod?: string | null) {
   if (paymentMethod === 'NEQUI_MANUAL') {
     return { label: 'Nequi', target: DELIVERY_PAYMENT_TARGET };
@@ -814,14 +840,14 @@ export class OrdersService {
     });
   }
 
-  findAll(status?: string, activeOnly = false) {
+  async findAll(status?: string, activeOnly = false, viewerPermissions?: string[]) {
     const filterStatuses = activeOnly
       ? ACTIVE_ORDER_STATUSES
       : status
         ? [status as OrderTicketStatus]
         : undefined;
 
-    return this.prisma.orderTicket.findMany({
+    const orders = await this.prisma.orderTicket.findMany({
       where: {
         ...(filterStatuses
           ? {
@@ -834,6 +860,32 @@ export class OrdersService {
       include: orderInclude,
       orderBy: { openedAt: 'desc' },
     });
+
+    if (canViewOrderCost(viewerPermissions)) {
+      return orders;
+    }
+
+    return orders.map((order) => this.stripOrderItemsCost(order));
+  }
+
+  // A69: mirror products.service.ts's stripProductCost() / sales.service.ts's stripSaleCost() —
+  // strip the raw `costPrice` scalar from every nested `items[].product` so a cashier viewing the
+  // order list/detail cannot read supplier cost. Every real Prisma read through `orderInclude`
+  // always includes `items`, but some pre-existing unit tests construct narrower mock payloads
+  // (e.g. orders.phase8-operations.spec.ts's canonical-checkout-only fixture) that omit `items`
+  // entirely — tolerate that shape rather than throwing, since there is nothing to strip.
+  private stripOrderItemsCost<T extends { items?: Array<{ product: { costPrice: unknown } }> }>(order: T) {
+    if (!order.items) {
+      return order;
+    }
+
+    return {
+      ...order,
+      items: order.items.map((item) => {
+        const { costPrice: _costPrice, ...productRest } = item.product;
+        return { ...item, product: productRest };
+      }),
+    };
   }
 
   async listOperational(query: ListOperationalOrdersDto) {
@@ -1389,7 +1441,7 @@ export class OrdersService {
     return order ? { order, rule: decision.rule } : null;
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewerPermissions?: string[]) {
     const order = await this.prisma.orderTicket.findUnique({
       where: { id },
       include: orderInclude,
@@ -1399,7 +1451,7 @@ export class OrdersService {
       throw new NotFoundException('No se encontró la comanda.');
     }
 
-    return order;
+    return canViewOrderCost(viewerPermissions) ? order : this.stripOrderItemsCost(order);
   }
 
   /* Cuenta vigente para visualización: renderiza el estado actual de la orden

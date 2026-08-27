@@ -75,8 +75,12 @@ export class OrdersController {
 
   @Get()
   @Roles('admin', 'cashier', 'supervisor')
-  findAll(@Query('status') status?: string, @Query('activeOnly') activeOnly?: string) {
-    return this.ordersService.findAll(status, activeOnly === 'true');
+  findAll(
+    @Query('status') status?: string,
+    @Query('activeOnly') activeOnly?: string,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    return this.ordersService.findAll(status, activeOnly === 'true', permissions);
   }
 
   @Get('operations/list')
@@ -149,8 +153,8 @@ export class OrdersController {
 
   @Get(':id')
   @Roles('admin', 'cashier', 'supervisor')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.ordersService.findOne(id, permissions);
   }
 
   @Post()

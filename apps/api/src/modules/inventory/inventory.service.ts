@@ -387,9 +387,26 @@ export class InventoryService {
 
       const completed = await tx.stockCountSession.findUniqueOrThrow({
         where: { id: createdSession.id },
+        // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true`/`approvedBy: true` used to
+        // fetch and serialize the FULL `User` row — including `passwordHash`/`accessCodeHash`/
+        // `sessionVersion` — into the JSON response of `POST /inventory/stock-counts`, reachable
+        // by the `inventory` role. Shaped to the same `{ id, fullName, email }` tier this file
+        // already uses for `performedBy` in `findMovements()` above.
         include: {
-          createdBy: true,
-          approvedBy: true,
+          createdBy: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
+          },
           items: {
             include: {
               product: true,
@@ -413,11 +430,25 @@ export class InventoryService {
     return session;
   }
 
+  // A69/A70 (CRITICAL, blind red-team finding): same unshaped `createdBy: true`/`approvedBy: true`
+  // leak as createStockCount() above, on `GET /inventory/stock-counts`.
   findStockCounts() {
     return this.prisma.stockCountSession.findMany({
       include: {
-        createdBy: true,
-        approvedBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        approvedBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
         items: {
           include: {
             product: true,
