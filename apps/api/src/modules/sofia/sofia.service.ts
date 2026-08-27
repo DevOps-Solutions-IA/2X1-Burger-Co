@@ -105,6 +105,20 @@ type InboxAggregateSummary = {
   outboundSent: Record<InboxScope, number>;
 };
 
+// A71: same COST_VISIBILITY_PERMISSION gate as orders.service.ts (A69/A70) / products.service.ts /
+// reports.service.ts / ingredients.service.ts / sales.service.ts — `delivery.read` (held by
+// cashier) stays reachable for listDeliveryOrders()/findDeliveryOrder(), but the nested
+// `orderTicket.items[].product.costPrice` is stripped unless the caller also holds
+// `products.update` (admin/inventory). Scoped to the two controller-facing GET read methods only —
+// internal reuse of findDeliveryOrder() by updateDeliveryOrderStatus() (an admin/supervisor-only
+// mutation endpoint, outside this finding's reported blast radius) is unaffected because that call
+// site never passes a `viewerPermissions` argument.
+const SOFIA_DELIVERY_COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewDeliveryOrderCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(SOFIA_DELIVERY_COST_VISIBILITY_PERMISSION);
+}
+
 const inboxConversationSelect = {
   id: true,
   phone: true,
@@ -1245,8 +1259,8 @@ export class SofiaService {
     return updated;
   }
 
-  listDeliveryOrders() {
-    return this.prisma.whatsappDeliveryOrder.findMany({
+  async listDeliveryOrders(viewerPermissions?: string[]) {
+    const orders = await this.prisma.whatsappDeliveryOrder.findMany({
       include: {
         conversation: true,
         orderDraft: true,
@@ -1260,9 +1274,42 @@ export class SofiaService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    if (canViewDeliveryOrderCost(viewerPermissions)) {
+      return orders;
+    }
+
+    return orders.map((order) => this.stripDeliveryOrderItemsCost(order));
   }
 
-  async findDeliveryOrder(id: string) {
+  // A71: mirror orders.service.ts's stripOrderItemsCost() — strip the raw `costPrice` scalar from
+  // every nested `orderTicket.items[].product` so a cashier viewing SOFIA delivery orders cannot
+  // read supplier cost. `orderTicket` itself is nullable (a delivery order created from a draft
+  // that was never materialized into a POS ticket), and even a present `orderTicket` may have no
+  // `items` in narrower fixtures — tolerate both rather than throwing.
+  private stripDeliveryOrderItemsCost<
+    T extends { orderTicket: { items: Array<{ product: { costPrice: unknown } }> } | null },
+  >(order: T) {
+    if (!order.orderTicket?.items) {
+      return order;
+    }
+
+    return {
+      ...order,
+      orderTicket: {
+        ...order.orderTicket,
+        items: order.orderTicket.items.map((item) => {
+          const { costPrice: _costPrice, ...productRest } = item.product;
+          return { ...item, product: productRest };
+        }),
+      },
+    };
+  }
+
+  // A71: raw fetch, no cost gating — kept separate from the public findDeliveryOrder() below so
+  // internal reuse (updateDeliveryOrderStatus()) is completely unaffected by the cost-visibility
+  // fix, which is scoped to the two controller-facing GET read methods only.
+  private async getDeliveryOrderRecord(id: string) {
     const order = await this.prisma.whatsappDeliveryOrder.findUnique({
       where: { id },
       include: {
@@ -1283,6 +1330,11 @@ export class SofiaService {
     return order;
   }
 
+  async findDeliveryOrder(id: string, viewerPermissions?: string[]) {
+    const order = await this.getDeliveryOrderRecord(id);
+    return canViewDeliveryOrderCost(viewerPermissions) ? order : this.stripDeliveryOrderItemsCost(order);
+  }
+
   async createDeliveryOrderFromDraft(draftId: string, actorId: string) {
     if (process.env.NODE_ENV === 'production') {
       throw new ForbiddenException({ code: 'SOFIA_PROD_DELIVERY_ORDER_CREATION_FORBIDDEN' });
@@ -1300,7 +1352,7 @@ export class SofiaService {
   }
 
   async updateDeliveryOrderStatus(id: string, status: WhatsappDeliveryOrderStatus, actorId: string) {
-    await this.findDeliveryOrder(id);
+    await this.getDeliveryOrderRecord(id);
     const updated = await this.prisma.whatsappDeliveryOrder.update({
       where: { id },
       data: { status },
@@ -1315,7 +1367,7 @@ export class SofiaService {
       newValues: { status },
     });
 
-    return this.findDeliveryOrder(updated.id);
+    return this.getDeliveryOrderRecord(updated.id);
   }
 
   private maskPhone(value: string) {

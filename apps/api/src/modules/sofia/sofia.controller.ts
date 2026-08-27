@@ -426,14 +426,14 @@ export class SofiaController {
 
   @Get('delivery-orders')
   @Permissions('delivery.read')
-  listDeliveryOrders() {
-    return this.sofiaService.listDeliveryOrders();
+  listDeliveryOrders(@CurrentUser('permissions') permissions?: string[]) {
+    return this.sofiaService.listDeliveryOrders(permissions);
   }
 
   @Get('delivery-orders/:id')
   @Permissions('delivery.read')
-  findDeliveryOrder(@Param('id') id: string) {
-    return this.sofiaService.findDeliveryOrder(id);
+  findDeliveryOrder(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.sofiaService.findDeliveryOrder(id, permissions);
   }
 
   @Patch('delivery-orders/:id/status')
