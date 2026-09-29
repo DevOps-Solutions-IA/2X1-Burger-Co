@@ -137,7 +137,19 @@ export class SalesService {
     };
   }
 
-  async convertToOrder(id: string, dto: ConvertSaleToOrderDto, actorId: string) {
+  // A73/A74: public wrapper around canViewCost()/stripSaleCost() so callers OUTSIDE this module —
+  // specifically OrdersService.checkout(), which embeds a raw `Sale` (created via
+  // `createInTransaction()` below) directly inside its own HTTP response — can reuse the exact
+  // same cost-visibility gate this module already enforces on findAll()/findOne()/create(),
+  // instead of duplicating (and risking drifting from) the stripping logic in orders.service.ts.
+  stripSaleCostForViewer<T extends { items: Array<{ product: { costPrice: unknown } }> }>(
+    sale: T,
+    viewerPermissions: string[] | undefined,
+  ) {
+    return canViewCost(viewerPermissions) ? sale : this.stripSaleCost(sale);
+  }
+
+  async convertToOrder(id: string, dto: ConvertSaleToOrderDto, actorId: string, viewerPermissions?: string[]) {
     const reason = dto.reason.trim();
     const type = dto.type as OrderTicketType;
 
@@ -300,15 +312,23 @@ export class SalesService {
       return { sale, order, conversion };
     });
 
+    // A73/A74 (CRITICAL — exhaustive sweep finding, same class as the audited create()/
+    // OrdersService.create()/update() leak): POST /sales/:id/convert-to-order returned the newly
+    // created `OrderTicket` with a raw, unshaped `include: { product: { include: { category: true
+    // } } }` — including `items[].product.costPrice` — to any caller holding the route's
+    // `@Roles('admin', 'cashier', 'supervisor')`, none of whom besides admin hold
+    // `products.update`. Reuses `stripSaleCost()`'s generic `{ items: [{ product: { costPrice }
+    // }] }` shape gate (the check is structural, not sale-specific) exactly like every other cost
+    // gate in this codebase — same permission tier as findAll()/findOne()/create() (A69/A73).
     return {
       success: true,
       saleId: id,
-      orderTicket: result.order,
+      orderTicket: canViewCost(viewerPermissions) ? result.order : this.stripSaleCost(result.order),
       conversionId: result.conversion.id,
     };
   }
 
-  async create(dto: CreateSaleDto, actorId: string, actorRole?: string) {
+  async create(dto: CreateSaleDto, actorId: string, actorRole?: string, viewerPermissions?: string[]) {
     const session = await this.getOpenCashSession();
     const sale = await this.prisma.$transaction(async (tx) => {
       const created = await this.createInTransaction(tx, dto, actorId, session.id, { actorRole });
@@ -324,7 +344,12 @@ export class SalesService {
       return created;
     });
 
-    return sale;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): POST /sales returned the raw
+    // `createInTransaction()` sale — including `items[].product.costPrice` via its unshaped
+    // `include: { product: true }` — to any caller holding the route's `@Roles('admin', 'cashier',
+    // 'supervisor')`, none of whom besides admin hold `products.update`. Same gate as
+    // findAll()/findOne() (A69).
+    return this.stripSaleCostForViewer(sale, viewerPermissions);
   }
 
   async generateReceiptPdf(id: string) {
@@ -1069,7 +1094,7 @@ export class SalesService {
     );
   }
 
-  async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string) {
+  async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string, viewerPermissions?: string[]) {
     const reason = dto.reason.trim();
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1271,9 +1296,15 @@ export class SalesService {
       return { sourceSale, order: reopenedOrder };
     });
 
+    // A73/A74 (CRITICAL — exhaustive sweep finding, same class as the audited create()/
+    // OrdersService.create()/update() leak): POST /sales/:id/reopen-converted-order returned the
+    // restored `OrderTicket` with a raw, unshaped `include: { product: { include: { category: true
+    // } } }` — including `items[].product.costPrice` — to any caller holding the route's
+    // `@Roles('admin', 'cashier', 'supervisor')`, none of whom besides admin hold
+    // `products.update`. Same gate as convertToOrder()/findAll()/findOne() (A69/A73).
     return {
       success: true,
-      orderTicket: result.order,
+      orderTicket: canViewCost(viewerPermissions) ? result.order : this.stripSaleCost(result.order),
     };
   }
 

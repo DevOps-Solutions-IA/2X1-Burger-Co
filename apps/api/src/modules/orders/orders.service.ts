@@ -445,12 +445,36 @@ const ACTIVE_DELIVERY_WORKFLOW_STATUSES: DeliveryWorkflowStatus[] = [
 
 const DELIVERY_PAYMENT_TARGET = '3160527403';
 
-// A69/A70: same COST_VISIBILITY_PERMISSION gate as products.service.ts (A65)/reports.service.ts
-// (A67)/sales.service.ts (A69) — `orders.read` (held by cashier) stays reachable for
-// findAll()/findOne(), but `items[].product.costPrice` is stripped unless the caller also holds
-// `products.update` (admin/inventory). Scoped to the list/detail read surface only — the other
-// ~28 call sites of `orderInclude` (create/checkout/kitchen/delivery flows) are mutation/workflow
-// endpoints outside this finding's reported blast radius and are not touched here.
+// A69/A70/A73/A74: same COST_VISIBILITY_PERMISSION gate as products.service.ts (A65)/
+// reports.service.ts (A67)/sales.service.ts (A69) — `orders.read`/`orders.create`/`orders.update`/
+// `orders.checkout`/`delivery.*` (held by cashier/supervisor/waiter/delivery) stay reachable, but
+// `items[].product.costPrice` is stripped from every HTTP response unless the caller also holds
+// `products.update` (admin/inventory).
+//
+// A73 (CRITICAL, blind red-team finding, live PoC-confirmed): A69/A70 only applied this gate to
+// findAll()/findOne(). Every OTHER call site below that reads `orderInclude`/`orderInclude`-shaped
+// data and returns it straight to an HTTP response reachable by a non-cost-visible role
+// (waiter/cashier/supervisor/delivery — only admin/inventory hold `products.update` per
+// prisma/seed.ts) leaked the exact same `costPrice` scalar right back out through create()/
+// update()/replaceItems()/syncWaiterOrder()/claim()/claimDelivery()/assignDeliveryRider()/
+// updateDeliveryWorkflow()/checkout()/reopen()/transitionKitchen()/resolveDeliveryLocationInbox().
+// All of those now strip via canViewOrderCost()/stripOrderItemsCost() too, exactly like
+// findAll()/findOne() already did.
+//
+// Left UNCHANGED (verified not reachable with raw cost by any HTTP caller, see A73/A74 fix
+// commit message for the full sweep table): createFromCanonicalCheckout() (only consumer is
+// SofiaCreateOrderCommandHandler, which discards the result down to {id, number, replayed}
+// scalars before it ever reaches a SecureCommand HTTP response — never serializes the order
+// itself); generateCurrentDeliveryReceiptPdf()/generateDeliveryReceiptPdf() (renders a PDF from an
+// explicit field allowlist — name/quantity/unitPrice/totalPrice — costPrice is never read into the
+// render payload); captureDeliveryLocationFromWhatsapp()/applyDeliveryLocationFromWhatsapp() (no
+// production caller anywhere in the codebase — only exercised by tests, not wired to any
+// controller/webhook today); reconcileDeliveryWorkflowConsequences()/
+// reconcilePendingDeliveryWorkflowConsequences() (private/worker-only — the HTTP-facing callers
+// that consume their result — assignDeliveryRider()/claimDelivery()/updateDeliveryWorkflow() — are
+// where the strip is applied instead); findWaiterActive()/findDeliveryActive()/listOperational()/
+// listKitchenQueue()/findDeliveryLocationInbox() (all `select`-shaped with an explicit field
+// allowlist that never includes `costPrice`).
 const ORDER_COST_VISIBILITY_PERMISSION = 'products.update';
 
 function canViewOrderCost(viewerPermissions: string[] | undefined) {
@@ -961,7 +985,7 @@ export class OrdersService {
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('orders');
-    return updated;
+    return canViewOrderCost(actor.permissions) ? updated : this.stripOrderItemsCost(updated);
   }
 
   private assertKitchenStatusIsNotChangedOutsideKitchenAuthority(
@@ -1624,7 +1648,10 @@ export class OrdersService {
     }
     const assignToWaiter = actor.roles.includes('waiter') ? this.getWaiterAssignmentSnapshot(actor) : {};
 
-    let order: Awaited<ReturnType<typeof this.prisma.orderTicket.create>> | null = null;
+    // A73: typed against the actual `orderInclude` shape (not the untyped generic default of
+    // `ReturnType<typeof this.prisma.orderTicket.create>`, which has no `items` relation at all)
+    // so `stripOrderItemsCost()` below can see `items[].product.costPrice` and type-check.
+    let order: Prisma.OrderTicketGetPayload<{ include: typeof orderInclude }> | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         order = await this.prisma.$transaction(async (tx) => {
@@ -1760,7 +1787,11 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('all');
 
-    return order;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): POST /orders returned the raw
+    // `orderInclude`-shaped order — including `items[].product.costPrice` — to any caller holding
+    // `orders.create` (admin/cashier/supervisor/waiter), none of whom besides admin hold
+    // `products.update`. Same gate as findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? order : this.stripOrderItemsCost(order);
   }
 
   async createFromCanonicalCheckout(checkoutId: string, actor: AuthUser) {
@@ -2067,7 +2098,11 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('all');
 
-    return updated;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): PATCH /orders/:id returned the
+    // raw `orderInclude`-shaped order — including `items[].product.costPrice` — to any caller
+    // holding `orders.update` (admin/cashier/supervisor/waiter), none of whom besides admin hold
+    // `products.update`. Same gate as findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? updated : this.stripOrderItemsCost(updated);
   }
 
   async replaceItems(id: string, dto: ReplaceOrderTicketItemsDto, actor: AuthUser) {
@@ -2360,7 +2395,11 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('all');
 
-    return updated;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): PUT /orders/:id/items returned
+    // the raw `orderInclude`-shaped order — including `items[].product.costPrice` — to any caller
+    // holding `orders.update` (admin/cashier/supervisor/waiter), none of whom besides admin hold
+    // `products.update`. Same gate as findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? updated : this.stripOrderItemsCost(updated);
   }
 
   async syncWaiterOrder(dto: SyncWaiterOrderDto, actor: AuthUser) {
@@ -2378,7 +2417,11 @@ export class OrdersService {
         throw new ConflictException('La operación pendiente pertenece a otra sesión.');
       }
 
-      return cachedReceipt.orderTicket;
+      // A73 (CRITICAL, blind red-team finding): same gate as the fresh-write paths below — an
+      // idempotent replay must not leak `costPrice` any more than the original write did.
+      return canViewOrderCost(actor.permissions)
+        ? cachedReceipt.orderTicket
+        : this.stripOrderItemsCost(cachedReceipt.orderTicket);
     }
 
     const session = await this.getCurrentCashSession();
@@ -2634,7 +2677,11 @@ export class OrdersService {
         actorId: actor.sub,
       });
       this.realtimeService.publishOperationalRefresh('all');
-      return result.order;
+      // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): POST /orders/waiter-sync
+      // returned the raw `orderInclude`-shaped order — including `items[].product.costPrice` — to
+      // any caller holding `orders.create` (admin/cashier/supervisor/waiter), none of whom besides
+      // admin hold `products.update`. Same gate as findAll()/findOne() (A69/A70).
+      return canViewOrderCost(actor.permissions) ? result.order : this.stripOrderItemsCost(result.order);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -2650,7 +2697,9 @@ export class OrdersService {
             },
           },
         });
-        return receipt.orderTicket;
+        return canViewOrderCost(actor.permissions)
+          ? receipt.orderTicket
+          : this.stripOrderItemsCost(receipt.orderTicket);
       }
 
       throw error;
@@ -2690,10 +2739,12 @@ export class OrdersService {
     }
 
     if (current.assignedWaiterId === actor.sub) {
-      return this.prisma.orderTicket.findUniqueOrThrow({
+      const alreadyOwned = await this.prisma.orderTicket.findUniqueOrThrow({
         where: { id },
         include: orderInclude,
       });
+      // A73 (CRITICAL, blind red-team finding): same gate as the fresh-claim path below.
+      return canViewOrderCost(actor.permissions) ? alreadyOwned : this.stripOrderItemsCost(alreadyOwned);
     }
 
     if (actor.roles.includes('waiter') && !this.isPrivilegedOrderOperator(actor)) {
@@ -2751,7 +2802,11 @@ export class OrdersService {
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('all');
-    return claimed;
+    // A73 (CRITICAL, blind red-team finding): POST /orders/:id/claim returned the raw
+    // `orderInclude`-shaped order — including `items[].product.costPrice` — to any caller holding
+    // `orders.update` (admin/cashier/supervisor/waiter), none of whom besides admin hold
+    // `products.update`. Same gate as findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? claimed : this.stripOrderItemsCost(claimed);
   }
 
   async assignDeliveryRider(id: string, dto: AssignDeliveryRiderDto, actor: AuthUser) {
@@ -2820,7 +2875,12 @@ export class OrdersService {
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('all');
-    return assigned;
+    // A73 (CRITICAL, blind red-team finding): POST /orders/:id/assign-rider (and its /assign-
+    // delivery alias) returned the raw `orderInclude`-shaped order — including
+    // `items[].product.costPrice` — to any caller holding `delivery.assign`
+    // (admin/cashier/supervisor), none of whom besides admin hold `products.update`. Same gate as
+    // findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? assigned : this.stripOrderItemsCost(assigned);
   }
 
   async claimDelivery(id: string, dto: ClaimOrderTicketDto, actor: AuthUser) {
@@ -2845,10 +2905,14 @@ export class OrdersService {
     });
 
     if (current.assignedRiderId === actor.sub) {
-      return this.prisma.orderTicket.findUniqueOrThrow({
+      const alreadyOwned = await this.prisma.orderTicket.findUniqueOrThrow({
         where: { id },
         include: orderInclude,
       });
+      // A73 (CRITICAL, blind red-team finding): same gate as assignDeliveryRider() below (which
+      // this method delegates to for the fresh-claim path) — an already-owned-delivery replay must
+      // not leak `costPrice` any more than a fresh assignment would.
+      return canViewOrderCost(actor.permissions) ? alreadyOwned : this.stripOrderItemsCost(alreadyOwned);
     }
 
     if (!access.shouldAssignToActor) {
@@ -3313,10 +3377,15 @@ export class OrdersService {
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('all');
-    return updated;
+    // A73 (CRITICAL, blind red-team finding): POST /orders/:id/delivery-workflow (and its PATCH
+    // /orders/:id/delivery-status alias) returned the raw `orderInclude`-shaped order — including
+    // `items[].product.costPrice` — to any caller holding `delivery.update`
+    // (admin/cashier/supervisor/delivery), none of whom besides admin hold `products.update`. Same
+    // gate as findAll()/findOne() (A69/A70).
+    return canViewOrderCost(actor.permissions) ? updated : this.stripOrderItemsCost(updated);
   }
 
-  async checkout(id: string, dto: CheckoutOrderTicketDto, actorId: string) {
+  async checkout(id: string, dto: CheckoutOrderTicketDto, actorId: string, viewerPermissions?: string[]) {
     const current = await this.prisma.orderTicket.findUnique({
       where: { id },
       include: {
@@ -3476,7 +3545,19 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('all');
 
-    return result;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): POST /orders/:id/checkout
+    // returned BOTH the raw `orderInclude`-shaped order (`items[].product.costPrice`) AND the raw
+    // `Sale` created via `SalesService.createInTransaction()` (`items[].product.costPrice` again,
+    // via that same unshaped `include: { product: true }`) to any caller holding
+    // `orders.checkout` (admin/cashier/supervisor), none of whom besides admin hold
+    // `products.update`. `result.order` uses this module's own gate; `result.sale` reuses
+    // `SalesService.stripSaleCostForViewer()` (the exact same `canViewCost()`/`stripSaleCost()`
+    // gate `SalesService.create()`/`findAll()`/`findOne()` already enforce) rather than
+    // reimplementing it here.
+    return {
+      order: canViewOrderCost(viewerPermissions) ? result.order : this.stripOrderItemsCost(result.order),
+      sale: this.salesService.stripSaleCostForViewer(result.sale, viewerPermissions),
+    };
   }
 
   private assertDeliveryCheckoutAllowed(order: {
@@ -3509,7 +3590,7 @@ export class OrdersService {
     }
   }
 
-  async reopen(id: string, dto: ReopenOrderTicketDto, actorId: string) {
+  async reopen(id: string, dto: ReopenOrderTicketDto, actorId: string, viewerPermissions?: string[]) {
     const reason = dto.reason.trim();
 
     const current = await this.prisma.orderTicket.findUnique({
@@ -3680,9 +3761,13 @@ export class OrdersService {
     });
     this.realtimeService.publishOperationalRefresh('all');
 
+    // A73 (CRITICAL, blind red-team finding): POST /orders/:id/reopen returned the raw
+    // `orderInclude`-shaped order — including `items[].product.costPrice` — to any caller holding
+    // `orders.update` (admin/cashier/supervisor), none of whom besides admin hold
+    // `products.update`. Same gate as findAll()/findOne() (A69/A70).
     return {
       success: true,
-      orderTicket: result,
+      orderTicket: canViewOrderCost(viewerPermissions) ? result : this.stripOrderItemsCost(result),
     };
   }
 
@@ -4552,7 +4637,14 @@ export class OrdersService {
       actorId: actor.sub,
     });
     this.realtimeService.publishOperationalRefresh('all');
-    return { inbox: result.inbox, order: result.order };
+    // A73 (CRITICAL, blind red-team finding): POST /orders/delivery-location-inbox/:id/resolve
+    // returned the raw `orderInclude`-shaped order — including `items[].product.costPrice` — to
+    // any caller holding `delivery.update` (admin/cashier/supervisor), none of whom besides admin
+    // hold `products.update`. Same gate as findAll()/findOne() (A69/A70).
+    return {
+      inbox: result.inbox,
+      order: canViewOrderCost(actor.permissions) ? result.order : this.stripOrderItemsCost(result.order),
+    };
   }
 
   async listOperationalAlerts(module?: string) {

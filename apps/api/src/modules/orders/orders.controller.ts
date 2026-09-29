@@ -258,8 +258,9 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: CheckoutOrderTicketDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.ordersService.checkout(id, dto, actorId);
+    return this.ordersService.checkout(id, dto, actorId, permissions);
   }
 
   @Post(':id/reopen')
@@ -269,8 +270,9 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: ReopenOrderTicketDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.ordersService.reopen(id, dto, actorId);
+    return this.ordersService.reopen(id, dto, actorId, permissions);
   }
 
   @Get('delivery-fee/estimate')
