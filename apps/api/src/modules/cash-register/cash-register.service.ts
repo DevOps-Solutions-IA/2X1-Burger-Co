@@ -342,7 +342,21 @@ export class CashRegisterService {
           paymentMethodId: dto.paymentMethodId,
           createdById: actorId,
         },
-        include: { paymentMethod: true, createdBy: true },
+        // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize
+        // the FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into
+        // the JSON response of `POST /cash-register/movements/manual`, reachable by any `cashier`.
+        // Shaped to the same `{ id, fullName, email }` tier this file already uses for `openedBy`/
+        // `closedBy`/`reopenedBy` in `getCurrent()`/`history()` above.
+        include: {
+          paymentMethod: true,
+          createdBy: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
+          },
+        },
       });
       await this.auditService.log({
         userId: actorId,

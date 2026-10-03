@@ -12,13 +12,30 @@ export class PurchasesService {
     private readonly auditService: AuditService,
   ) {}
 
+  // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize the
+  // FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of `GET /purchases`, reachable by the `inventory` role (which does NOT hold
+  // `products.update`, so this cross-role leak could expose an admin's password hash to an
+  // inventory-only account). Shaped to the same `{ id, fullName, email }` tier used elsewhere in
+  // this codebase for staff (email/password) creators — a purchase is only ever recorded by
+  // admin/inventory/cashier/supervisor, never a PIN-login waiter/delivery user, so `accessName`
+  // (unlike orders.service.ts's `orderInclude.createdBy`) is not relevant here. Unlike
+  // sales/orders, `costPrice` on `items[].product`/`items[].ingredient` is intentionally left
+  // untouched: a purchase order inherently deals with cost (that's the entire point of the
+  // domain), so there is no equivalent finding to fix for that field in this file.
   findAll() {
     return this.prisma.purchase.findMany({
       include: {
         supplier: true,
         paymentMethod: true,
         cashSession: true,
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
         items: {
           include: {
             ingredient: true,
@@ -39,7 +56,13 @@ export class PurchasesService {
         supplier: true,
         paymentMethod: true,
         cashSession: true,
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
         items: {
           include: {
             ingredient: true,

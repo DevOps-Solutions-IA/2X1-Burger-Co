@@ -14,11 +14,23 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { toDecimal } from '../../common/utils/decimal.util';
+import { toDecimal, toNumber } from '../../common/utils/decimal.util';
 import { formatReceiptNumber } from '../../common/utils/receipt-number.util';
 import { ConvertSaleToOrderDto } from './dto/convert-sale-to-order.dto';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ReopenConvertedSaleDto } from './dto/reopen-converted-sale.dto';
+
+// A69: same privilege tier that products.service.ts's COST_VISIBILITY_PERMISSION (A65) and
+// reports.service.ts's identically-named gate (A67) already use — cost/margin data is the same
+// underlying sensitive resource no matter which module surfaces it, so this reuses the permission
+// rather than inventing a parallel one. `sales.read` (held by cashier/supervisor) must stay
+// reachable for the receipt/history UI, but `items[].product.costPrice` is stripped unless the
+// caller also holds `products.update` (admin/inventory).
+const COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(COST_VISIBILITY_PERMISSION);
+}
 
 @Injectable()
 export class SalesService {
@@ -27,8 +39,17 @@ export class SalesService {
     private readonly auditService: AuditService,
   ) {}
 
-  findAll() {
-    return this.prisma.sale.findMany({
+  // A69/A70 (CRITICAL, blind red-team finding): `createdBy: true` used to fetch and serialize the
+  // FULL `User` row — including `passwordHash`/`accessCodeHash`/`sessionVersion` — into the JSON
+  // response of `GET /sales`, reachable by any `cashier`. Shaped to the same
+  // `{ id, fullName, email }` tier the codebase already uses for staff (email/password) creators
+  // elsewhere (see `CashRegisterService.history()`'s `openedBy`/`closedBy`/`reopenedBy` `select`,
+  // and `InventoryService.findMovements()`'s `performedBy` `select`) — `accessName` is the
+  // PIN-login field for waiter/delivery, not relevant to who can create a sale (admin/cashier/
+  // supervisor). The frontend (`apps/web`) never reads anything off `sale.createdBy` besides
+  // `.fullName`, so this is not a breaking shape change.
+  async findAll(viewerPermissions?: string[]) {
+    const sales = await this.prisma.sale.findMany({
       include: {
         orderTicket: {
           include: {
@@ -50,13 +71,25 @@ export class SalesService {
             orderTicket: true,
           },
         },
-        createdBy: true,
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
       orderBy: { soldAt: 'desc' },
     });
+
+    if (canViewCost(viewerPermissions)) {
+      return sales;
+    }
+
+    return sales.map((sale) => this.stripSaleCost(sale));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewerPermissions?: string[]) {
     const sale = await this.prisma.sale.findUnique({
       where: { id },
       include: {
@@ -87,10 +120,36 @@ export class SalesService {
       throw new NotFoundException('No se encontró la venta.');
     }
 
-    return sale;
+    return canViewCost(viewerPermissions) ? sale : this.stripSaleCost(sale);
   }
 
-  async convertToOrder(id: string, dto: ConvertSaleToOrderDto, actorId: string) {
+  // A69: mirror products.service.ts's stripProductCost() — strip the raw `costPrice` scalar from
+  // every nested `items[].product` so a cashier viewing a receipt/sale list cannot read supplier
+  // cost. `findOne()` never fetched `createdBy` in the first place (no credential exposure there),
+  // so this helper only needs to handle the cost leak.
+  private stripSaleCost<T extends { items: Array<{ product: { costPrice: unknown } }> }>(sale: T) {
+    return {
+      ...sale,
+      items: sale.items.map((item) => {
+        const { costPrice: _costPrice, ...productRest } = item.product;
+        return { ...item, product: productRest };
+      }),
+    };
+  }
+
+  // A73/A74: public wrapper around canViewCost()/stripSaleCost() so callers OUTSIDE this module —
+  // specifically OrdersService.checkout(), which embeds a raw `Sale` (created via
+  // `createInTransaction()` below) directly inside its own HTTP response — can reuse the exact
+  // same cost-visibility gate this module already enforces on findAll()/findOne()/create(),
+  // instead of duplicating (and risking drifting from) the stripping logic in orders.service.ts.
+  stripSaleCostForViewer<T extends { items: Array<{ product: { costPrice: unknown } }> }>(
+    sale: T,
+    viewerPermissions: string[] | undefined,
+  ) {
+    return canViewCost(viewerPermissions) ? sale : this.stripSaleCost(sale);
+  }
+
+  async convertToOrder(id: string, dto: ConvertSaleToOrderDto, actorId: string, viewerPermissions?: string[]) {
     const reason = dto.reason.trim();
     const type = dto.type as OrderTicketType;
 
@@ -253,18 +312,26 @@ export class SalesService {
       return { sale, order, conversion };
     });
 
+    // A73/A74 (CRITICAL — exhaustive sweep finding, same class as the audited create()/
+    // OrdersService.create()/update() leak): POST /sales/:id/convert-to-order returned the newly
+    // created `OrderTicket` with a raw, unshaped `include: { product: { include: { category: true
+    // } } }` — including `items[].product.costPrice` — to any caller holding the route's
+    // `@Roles('admin', 'cashier', 'supervisor')`, none of whom besides admin hold
+    // `products.update`. Reuses `stripSaleCost()`'s generic `{ items: [{ product: { costPrice }
+    // }] }` shape gate (the check is structural, not sale-specific) exactly like every other cost
+    // gate in this codebase — same permission tier as findAll()/findOne()/create() (A69/A73).
     return {
       success: true,
       saleId: id,
-      orderTicket: result.order,
+      orderTicket: canViewCost(viewerPermissions) ? result.order : this.stripSaleCost(result.order),
       conversionId: result.conversion.id,
     };
   }
 
-  async create(dto: CreateSaleDto, actorId: string) {
+  async create(dto: CreateSaleDto, actorId: string, actorRole?: string, viewerPermissions?: string[]) {
     const session = await this.getOpenCashSession();
     const sale = await this.prisma.$transaction(async (tx) => {
-      const created = await this.createInTransaction(tx, dto, actorId, session.id);
+      const created = await this.createInTransaction(tx, dto, actorId, session.id, { actorRole });
       await this.auditService.log({
         userId: actorId,
         action: 'CREATE',
@@ -277,7 +344,12 @@ export class SalesService {
       return created;
     });
 
-    return sale;
+    // A73 (CRITICAL, blind red-team finding, live PoC-confirmed): POST /sales returned the raw
+    // `createInTransaction()` sale — including `items[].product.costPrice` via its unshaped
+    // `include: { product: true }` — to any caller holding the route's `@Roles('admin', 'cashier',
+    // 'supervisor')`, none of whom besides admin hold `products.update`. Same gate as
+    // findAll()/findOne() (A69).
+    return this.stripSaleCostForViewer(sale, viewerPermissions);
   }
 
   async generateReceiptPdf(id: string) {
@@ -578,7 +650,7 @@ export class SalesService {
     dto: CreateSaleDto,
     actorId: string,
     cashSessionId: string,
-    options?: { orderTicketId?: string; paymentIntentId?: string },
+    options?: { orderTicketId?: string; paymentIntentId?: string; actorRole?: string },
   ) {
     const paymentMethodIds = [...new Set(dto.payments.map((payment) => payment.paymentMethodId))];
     const paymentMethods = await tx.paymentMethod.findMany({
@@ -651,6 +723,12 @@ export class SalesService {
     }> = [];
 
     let itemsSubtotal = new Prisma.Decimal(0);
+    const priceOverrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
+    }> = [];
 
     for (const item of dto.items) {
       // BLOQUEO CONCURRENCIA: Bloquear fila del producto antes de leer
@@ -676,9 +754,26 @@ export class SalesService {
       }
 
       const quantity = toDecimal(item.quantity);
-      const unitPrice = toDecimal(item.unitPrice ?? Number(product.salePrice));
+      const catalogUnitPrice = toDecimal(product.salePrice);
+      const unitPrice = item.unitPrice != null ? toDecimal(item.unitPrice) : catalogUnitPrice;
       const totalPrice = quantity.mul(unitPrice);
       let estimatedCost = new Prisma.Decimal(0);
+
+      // SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — mirrors the
+      // ORDER_ITEM_PRICE_OVERRIDDEN audit pattern already enforced on the sibling `/orders` path
+      // (`OrdersService.buildOrderItems`/`auditItemPriceOverrides`, orders.service.ts). Every role
+      // reachable on `POST /sales` (admin/cashier/supervisor) is already authorized to override an
+      // item's price, so this does NOT gate or block the override — it only ensures it is never
+      // silent. Collected here and written to AuditLog once the sale row exists (see
+      // `auditSaleItemPriceOverrides` below), inside the same transaction.
+      if (item.unitPrice != null && !unitPrice.equals(catalogUnitPrice)) {
+        priceOverrides.push({
+          productId: product.id,
+          productName: product.name,
+          catalogUnitPrice: toNumber(catalogUnitPrice),
+          overriddenUnitPrice: toNumber(unitPrice),
+        });
+      }
 
       if (product.kind === ProductKind.DIRECT_STOCK) {
         if (!product.trackStock) {
@@ -868,6 +963,17 @@ export class SalesService {
       },
     });
 
+    await this.auditSaleItemPriceOverrides(tx, actorId, options?.actorRole, createdSale.id, priceOverrides);
+    await this.auditSaleDiscountIfDiverged(
+      tx,
+      actorId,
+      options?.actorRole,
+      createdSale.id,
+      adjustedSubtotal,
+      baseSubtotal,
+      discount,
+    );
+
     await Promise.all(
       normalizedPayments.map((payment) =>
         tx.cashMovement.create({
@@ -906,7 +1012,89 @@ export class SalesService {
     return createdSale;
   }
 
-  async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string) {
+  /**
+   * SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — writes one `AuditLog` row
+   * per manual item-price override on `/sales`, mirroring `OrdersService.auditItemPriceOverrides`
+   * (`ORDER_ITEM_PRICE_OVERRIDDEN`, orders.service.ts) exactly in spirit: same generic
+   * `AuditService`/`AuditLog` mechanism, no new column, no new migration. Every role reachable on
+   * `POST /sales` (admin/cashier/supervisor) already legitimately holds price-override authority —
+   * this does not gate or block the override, it only ensures it is never silent. No-op when there
+   * are no overrides.
+   */
+  private async auditSaleItemPriceOverrides(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    actorRole: string | undefined,
+    saleId: string,
+    overrides: Array<{
+      productId: string;
+      productName: string;
+      catalogUnitPrice: number;
+      overriddenUnitPrice: number;
+    }>,
+  ) {
+    for (const override of overrides) {
+      await this.auditService.log(
+        {
+          userId: actorId,
+          actorRole,
+          action: 'SALE_ITEM_PRICE_OVERRIDDEN',
+          module: 'sales',
+          entity: 'sale_item',
+          entityId: saleId,
+          newValues: {
+            productId: override.productId,
+            productName: override.productName,
+            catalogUnitPrice: override.catalogUnitPrice,
+            overriddenUnitPrice: override.overriddenUnitPrice,
+          },
+        },
+        tx,
+      );
+    }
+  }
+
+  /**
+   * SOFIA Round 5 / A58 CLOSURE (MEDIUM, A56 blind red-team finding) — `CreateSaleDto.baseSubtotal`
+   * is a client-supplied number; when it diverges upward from the server-computed
+   * `itemsSubtotal + deliveryFee`, the difference is persisted as `Sale.discount`. Before this fix
+   * nothing recorded who authorized that divergence or why. Mirrors the same generic
+   * `AuditService`/`AuditLog` mechanism used for `SALE_ITEM_PRICE_OVERRIDDEN` above and for
+   * `ORDER_ITEM_PRICE_OVERRIDDEN` on the sibling `/orders` path — no new column, no new migration.
+   * A no-op when `baseSubtotal` matches the computed subtotal (the normal, non-discounted case).
+   */
+  private async auditSaleDiscountIfDiverged(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    actorRole: string | undefined,
+    saleId: string,
+    computedSubtotal: Prisma.Decimal,
+    submittedBaseSubtotal: Prisma.Decimal,
+    discount: Prisma.Decimal,
+  ) {
+    if (!discount.greaterThan(0)) {
+      return;
+    }
+
+    await this.auditService.log(
+      {
+        userId: actorId,
+        actorRole,
+        action: 'SALE_DISCOUNT_APPLIED',
+        module: 'sales',
+        entity: 'sale',
+        entityId: saleId,
+        newValues: {
+          computedSubtotal: toNumber(computedSubtotal),
+          submittedBaseSubtotal: toNumber(submittedBaseSubtotal),
+          discountAmount: toNumber(discount),
+        },
+      },
+      tx,
+    );
+  }
+
+  async reopenConvertedOrder(id: string, dto: ReopenConvertedSaleDto, actorId: string, viewerPermissions?: string[]) {
     const reason = dto.reason.trim();
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1108,9 +1296,15 @@ export class SalesService {
       return { sourceSale, order: reopenedOrder };
     });
 
+    // A73/A74 (CRITICAL — exhaustive sweep finding, same class as the audited create()/
+    // OrdersService.create()/update() leak): POST /sales/:id/reopen-converted-order returned the
+    // restored `OrderTicket` with a raw, unshaped `include: { product: { include: { category: true
+    // } } }` — including `items[].product.costPrice` — to any caller holding the route's
+    // `@Roles('admin', 'cashier', 'supervisor')`, none of whom besides admin hold
+    // `products.update`. Same gate as convertToOrder()/findAll()/findOne() (A69/A73).
     return {
       success: true,
-      orderTicket: result.order,
+      orderTicket: canViewCost(viewerPermissions) ? result.order : this.stripSaleCost(result.order),
     };
   }
 

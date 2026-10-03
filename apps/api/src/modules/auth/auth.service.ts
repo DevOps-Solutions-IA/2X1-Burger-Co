@@ -143,22 +143,69 @@ export class AuthService {
     }
   }
 
+  /**
+   * A63 remediation: logout() must invalidate the caller's already-issued access token
+   * immediately, not just at its natural TTL. Revoking the RefreshToken row alone (the
+   * pre-fix behavior) does nothing to an access token already in the caller's hands —
+   * `JwtStrategy.validate()` never looks at RefreshToken rows, only at
+   * `User.sessionVersion` baked into the access token payload at issuance. So both
+   * branches below now also bump `sessionVersion`, the SAME mechanism this codebase
+   * already uses elsewhere for immediate, non-TTL-bounded access-token revocation
+   * (`revokeTokenFamily()` below, for refresh-token reuse detection; and
+   * `CashRegisterService.invalidateAllWaiterSessions()`, for force-logout on cash-session
+   * close).
+   *
+   * IMPORTANT — granularity: `sessionVersion` is a single per-USER counter in this
+   * schema (there is no per-session/per-device counter). Bumping it therefore
+   * invalidates the access token on every device/session currently issued for this
+   * user, not only the one presenting `refreshToken` here. This is a deliberate,
+   * accepted trade-off, not an oversight:
+   *   - It is the SAME granularity already used throughout this codebase (see the two
+   *     call sites above) — there is no existing per-device primitive to preserve.
+   *   - Building a genuine per-device counter would require a schema/migration change,
+   *     which is explicitly out of scope for this fix (sessionVersion already exists;
+   *     no new migration is authorized here).
+   *   - The blast radius is small and self-healing: only the OTHER devices' *access*
+   *     tokens die early — their refresh tokens are left untouched in the single-device
+   *     branch below (only the presented token is revoked), so their very next
+   *     `/auth/refresh` call transparently re-authenticates them with the new
+   *     `sessionVersion` baked into a freshly issued access token. It is a forced
+   *     silent re-auth on other devices, not a forced logout of them.
+   *   - Fail-closed (CLAUDE.md ยง5) favors this: an explicit, user-initiated "logout"
+   *     that leaves ANY live access token usable anywhere is a stronger violation than
+   *     briefly forcing a silent refresh on a concurrent session.
+   *
+   * Single-device vs. all-devices call patterns (both now correctly invalidate):
+   *   - `refreshToken` present (the real frontend's normal call: bearer access token +
+   *     refresh cookie) -> revoke ONLY that refresh token (unchanged), but still bump
+   *     `sessionVersion` so THIS session's access token dies immediately too.
+   *   - `refreshToken` absent, `userId` present (e.g. cookie missing/already expired at
+   *     logout time) -> revoke ALL of the user's refresh tokens (unchanged, this was
+   *     already "log out everywhere" semantics) via `revokeTokenFamily`, which already
+   *     bumps `sessionVersion` as part of that same operation.
+   */
   async logout(refreshToken: string | undefined, userId?: string) {
     if (refreshToken) {
-      await this.prisma.refreshToken.updateMany({
-        where: {
-          tokenHash: this.hashToken(refreshToken),
-          revokedAt: null,
-        },
-        data: { revokedAt: new Date() },
+      const tokenHash = this.hashToken(refreshToken);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refreshToken.updateMany({
+          where: {
+            tokenHash,
+            revokedAt: null,
+          },
+          data: { revokedAt: new Date() },
+        });
+
+        if (userId) {
+          await tx.user.update({
+            where: { id: userId },
+            data: { sessionVersion: { increment: 1 } },
+          });
+        }
       });
     } else if (userId) {
-      await this.prisma.refreshToken.updateMany({
-        where: {
-          userId,
-          revokedAt: null,
-        },
-        data: { revokedAt: new Date() },
+      await this.prisma.$transaction(async (tx) => {
+        await this.revokeTokenFamily(tx, userId);
       });
     }
 
