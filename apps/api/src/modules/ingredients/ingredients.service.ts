@@ -5,6 +5,18 @@ import { toDecimal } from '../../common/utils/decimal.util';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
 
+// A67: not currently exploitable — `ingredients.read` (the permission gating findAll()/findOne()
+// below) is only held by 'admin'/'inventory' per prisma/seed.ts, and both already hold
+// 'products.update' too. This exists for defense-in-depth consistency with products.service.ts
+// (A65), which explicitly treats ingredient `costPrice` as sensitive enough to strip when nested
+// inside a product's recipe — so if `ingredients.read` is ever granted more broadly in the
+// future, cost doesn't leak automatically. Same permission tier, reused rather than duplicated.
+const COST_VISIBILITY_PERMISSION = 'products.update';
+
+function canViewCost(viewerPermissions: string[] | undefined) {
+  return (viewerPermissions ?? []).includes(COST_VISIBILITY_PERMISSION);
+}
+
 @Injectable()
 export class IngredientsService {
   constructor(
@@ -12,16 +24,22 @@ export class IngredientsService {
     private readonly auditService: AuditService,
   ) {}
 
-  findAll() {
-    return this.prisma.ingredient.findMany({
+  async findAll(viewerPermissions?: string[]) {
+    const ingredients = await this.prisma.ingredient.findMany({
       include: {
         unit: true,
       },
       orderBy: { name: 'asc' },
     });
+
+    if (canViewCost(viewerPermissions)) {
+      return ingredients;
+    }
+
+    return ingredients.map((ingredient) => this.stripCost(ingredient));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, viewerPermissions?: string[]) {
     const ingredient = await this.prisma.ingredient.findUnique({
       where: { id },
       include: {
@@ -33,7 +51,11 @@ export class IngredientsService {
       throw new NotFoundException('No se encontró el insumo.');
     }
 
-    return ingredient;
+    if (canViewCost(viewerPermissions)) {
+      return ingredient;
+    }
+
+    return this.stripCost(ingredient);
   }
 
   async create(dto: CreateIngredientDto, actorId: string) {
@@ -65,7 +87,10 @@ export class IngredientsService {
   }
 
   async update(id: string, dto: UpdateIngredientDto, actorId: string) {
-    const existing = await this.findOne(id);
+    // A67: internal read for audit-log oldValues must always see the full record (including
+    // costPrice) regardless of who is calling update() — cost visibility shaping only applies to
+    // the viewer-facing GET routes above, never to the audit trail (mirrors products.service.ts).
+    const existing = await this.findOne(id, [COST_VISIBILITY_PERMISSION]);
     const ingredient = await this.prisma.ingredient.update({
       where: { id },
       data: {
@@ -96,7 +121,8 @@ export class IngredientsService {
   }
 
   async remove(id: string, actorId: string) {
-    const existing = await this.findOne(id);
+    // A67: same rationale as update() above — the audit trail must retain costPrice.
+    const existing = await this.findOne(id, [COST_VISIBILITY_PERMISSION]);
 
     const usage = await this.prisma.ingredient.findUnique({
       where: { id },
@@ -145,5 +171,12 @@ export class IngredientsService {
       success: true,
       id,
     };
+  }
+
+  // A67: mirror products.service.ts's stripProductCost — strips costPrice from an ingredient
+  // payload for viewers without cost visibility.
+  private stripCost<T extends { costPrice: unknown }>(ingredient: T): Omit<T, 'costPrice'> {
+    const { costPrice: _costPrice, ...rest } = ingredient;
+    return rest;
   }
 }

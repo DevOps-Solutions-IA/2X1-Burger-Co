@@ -14,14 +14,18 @@ export class IngredientsController {
 
   @Get()
   @Roles('ingredients.read')
-  findAll() {
-    return this.ingredientsService.findAll();
+  findAll(@CurrentUser('permissions') permissions?: string[]) {
+    // A67: not exploitable under the default seed ('ingredients.read' is only held by
+    // admin/inventory, both of whom already hold 'products.update' too) — this is proactive
+    // defense-in-depth shaping so cost doesn't leak automatically if 'ingredients.read' is ever
+    // granted more broadly. Mirrors products.service.ts's A65 cost-visibility gate.
+    return this.ingredientsService.findAll(permissions);
   }
 
   @Get(':id')
   @Roles('ingredients.read')
-  findOne(@Param('id') id: string) {
-    return this.ingredientsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.ingredientsService.findOne(id, permissions);
   }
 
   @Post()

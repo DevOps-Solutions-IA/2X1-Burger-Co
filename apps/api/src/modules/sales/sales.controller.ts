@@ -16,14 +16,14 @@ export class SalesController {
 
   @Get()
   @Roles('sales.read')
-  findAll() {
-    return this.salesService.findAll();
+  findAll(@CurrentUser('permissions') permissions?: string[]) {
+    return this.salesService.findAll(permissions);
   }
 
   @Get(':id')
   @Roles('sales.read')
-  findOne(@Param('id') id: string) {
-    return this.salesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.salesService.findOne(id, permissions);
   }
 
   @Get(':id/receipt-pdf')
@@ -37,8 +37,13 @@ export class SalesController {
 
   @Post()
   @Roles('admin', 'cashier', 'supervisor')
-  create(@Body() dto: CreateSaleDto, @CurrentUser('sub') actorId: string) {
-    return this.salesService.create(dto, actorId);
+  create(
+    @Body() dto: CreateSaleDto,
+    @CurrentUser('sub') actorId: string,
+    @CurrentUser('roles') actorRoles: string[],
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    return this.salesService.create(dto, actorId, actorRoles?.join(','), permissions);
   }
 
   @Post(':id/convert-to-order')
@@ -47,8 +52,9 @@ export class SalesController {
     @Param('id') id: string,
     @Body() dto: ConvertSaleToOrderDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.salesService.convertToOrder(id, dto, actorId);
+    return this.salesService.convertToOrder(id, dto, actorId, permissions);
   }
 
   @Post(':id/reopen-converted-order')
@@ -57,7 +63,8 @@ export class SalesController {
     @Param('id') id: string,
     @Body() dto: ReopenConvertedSaleDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.salesService.reopenConvertedOrder(id, dto, actorId);
+    return this.salesService.reopenConvertedOrder(id, dto, actorId, permissions);
   }
 }

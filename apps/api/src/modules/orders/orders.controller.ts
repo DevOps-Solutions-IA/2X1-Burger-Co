@@ -75,8 +75,12 @@ export class OrdersController {
 
   @Get()
   @Roles('admin', 'cashier', 'supervisor')
-  findAll(@Query('status') status?: string, @Query('activeOnly') activeOnly?: string) {
-    return this.ordersService.findAll(status, activeOnly === 'true');
+  findAll(
+    @Query('status') status?: string,
+    @Query('activeOnly') activeOnly?: string,
+    @CurrentUser('permissions') permissions?: string[],
+  ) {
+    return this.ordersService.findAll(status, activeOnly === 'true', permissions);
   }
 
   @Get('operations/list')
@@ -145,8 +149,8 @@ export class OrdersController {
 
   @Get(':id')
   @Roles('admin', 'cashier', 'supervisor')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions?: string[]) {
+    return this.ordersService.findOne(id, permissions);
   }
 
   @Post()
@@ -254,8 +258,9 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: CheckoutOrderTicketDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.ordersService.checkout(id, dto, actorId);
+    return this.ordersService.checkout(id, dto, actorId, permissions);
   }
 
   @Post(':id/reopen')
@@ -265,8 +270,9 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: ReopenOrderTicketDto,
     @CurrentUser('sub') actorId: string,
+    @CurrentUser('permissions') permissions?: string[],
   ) {
-    return this.ordersService.reopen(id, dto, actorId);
+    return this.ordersService.reopen(id, dto, actorId, permissions);
   }
 
   @Get('delivery-fee/estimate')
