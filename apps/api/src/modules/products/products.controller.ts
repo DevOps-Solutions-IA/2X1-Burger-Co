@@ -24,8 +24,12 @@ export class ProductsController {
   }
 
   @Get()
-  findAll() {
-    return this.productsService.findAll();
+  findAll(@CurrentUser('permissions') permissions: string[]) {
+    // A65: route stays reachable to every authenticated role (POS product browser and other
+    // legitimate flows for cashier/supervisor rely on this), but ProductsService now strips
+    // costPrice from the response unless the caller holds 'products.update' (admin/inventory —
+    // the same tier already gated on POST/PATCH /products below).
+    return this.productsService.findAll(permissions);
   }
 
   @Get('sellable')
@@ -35,8 +39,9 @@ export class ProductsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser('permissions') permissions: string[]) {
+    // A65: same cost-visibility shaping as findAll() above, plus recipe ingredient cost.
+    return this.productsService.findOne(id, permissions);
   }
 
   @Post()

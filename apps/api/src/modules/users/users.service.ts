@@ -45,7 +45,26 @@ export class UsersService {
       },
     });
 
-    return users.map((user) => ({
+    return users.map((user) => this.toSafeUserDto(user));
+  }
+
+  // A71: `passwordHash` (bcrypt) and `accessCodeHash` (bcrypt of the operational-role PIN) must
+  // never reach an HTTP response — `findAll()` already applied this shaping, but `create()`,
+  // `update()`, and `updateStatus()` returned the raw Prisma `User` row (with hashes) straight to
+  // the controller. This helper is now the single source of truth for the safe shape, used by all
+  // four methods, so the shape can never drift between them again.
+  private toSafeUserDto(user: {
+    id: string;
+    email: string;
+    fullName: string;
+    accessName: string | null;
+    accessCodeHash: string | null;
+    isActive: boolean;
+    lastLoginAt: Date | null;
+    createdAt: Date;
+    roles: Array<{ role: { id: string; name: string } }>;
+  }) {
+    return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
@@ -58,7 +77,7 @@ export class UsersService {
         id: role.id,
         name: role.name,
       })),
-    }));
+    };
   }
 
   async create(dto: CreateUserDto, actorId: string) {
@@ -111,7 +130,7 @@ export class UsersService {
       },
     });
 
-    return user;
+    return this.toSafeUserDto(user);
   }
 
   async update(id: string, dto: UpdateUserDto, actorId: string) {
@@ -175,6 +194,16 @@ export class UsersService {
       await this.invalidateUserSessions(id);
     }
 
+    // A65: rotating a user's password must revoke their currently active
+    // sessions (refresh tokens + sessionVersion bump), otherwise a
+    // previously-stolen token keeps working after the credential reset —
+    // defeating the purpose of the rotation. This is independent of the
+    // operational-role branch above (which only applies to waiter/delivery
+    // accessCode/accessName/fullName changes and never sets passwordHash).
+    if (passwordHash !== undefined) {
+      await this.invalidateUserSessions(id);
+    }
+
     await this.auditService.log({
       userId: actorId,
       action: 'UPDATE',
@@ -195,13 +224,20 @@ export class UsersService {
       },
     });
 
-    return updated;
+    return this.toSafeUserDto(updated);
   }
 
   async updateStatus(id: string, dto: UpdateUserStatusDto, actorId: string) {
     const user = await this.prisma.user.update({
       where: { id },
       data: { isActive: dto.isActive },
+      include: {
+        roles: {
+          include: {
+            role: true,
+          },
+        },
+      },
     });
 
     if (!dto.isActive) {
@@ -217,7 +253,7 @@ export class UsersService {
       newValues: dto,
     });
 
-    return user;
+    return this.toSafeUserDto(user);
   }
 
   async remove(id: string, actorId: string) {
