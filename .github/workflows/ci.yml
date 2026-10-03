@@ -227,6 +227,66 @@ jobs:
         run: TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest src/tests/phase5-order-payment.integration.spec.ts --runInBand --detectOpenHandles
       - name: Critical integration
         run: pnpm --dir apps/api exec jest src/tests/app.critical.spec.ts --runInBand --detectOpenHandles
+      - name: Linea C - PR#40 security regression coverage guard
+        # Este step existe porque ninguno de los steps anteriores de este job (que
+        # enumeran suites explicitamente por nombre, ej. "Phase 6/7/8", "WhatsApp
+        # timeout", "Delivery Phase A") menciona los 19 specs de regresion anadidos
+        # por el PR de seguridad (round5-security-local-a74-audit). Sin este guard,
+        # esas suites NUNCA se ejecutarian en una corrida normal de CI: no corren
+        # aunque pasen localmente, porque jest no las descubre salvo que alguien las
+        # liste por nombre, y ningun step existente lo hace.
+        #
+        # El step falla en dos frentes:
+        #   1. Si `jest --listTests` deja de encontrar exactamente los 19 archivos
+        #      (por ejemplo, si alguno se renombra o se elimina en el futuro), el
+        #      conteo no sera 19 y el step falla antes de intentar ejecutar nada.
+        #   2. Si los tests dejan de pasar (regresion real), jest devuelve codigo
+        #      de salida distinto de cero y el step falla.
+        #
+        # Esta lista debe conservarse/actualizarse cuando la integracion definitiva
+        # de PR#40 (seguridad) y PR#41 (dependencias) se fusione a `main`: en ese
+        # punto este guard debe migrar con los archivos (o ser sustituido por un
+        # step equivalente que cubra la misma superficie) para que CI siga
+        # detectando una futura regresion de cualquiera de estos hallazgos
+        # (A54-A74 round 5 security audit). No debe eliminarse como parte de un
+        # "cleanup" de esta rama de integracion sin que un step equivalente lo
+        # reemplace en la rama destino.
+        run: |
+          set -euo pipefail
+          SPEC_FILES=(
+            src/modules/auth/auth.a63-logout-access-token-not-invalidated.spec.ts
+            src/modules/cash-register/cash-register.a69-credential-leak-fix.spec.ts
+            src/modules/expenses/expenses.a65-cash-movement-amount-sync.spec.ts
+            src/modules/expenses/expenses.a69-credential-leak-fix.spec.ts
+            src/modules/ingredients/ingredients.a67-costprice-defense-in-depth.spec.ts
+            src/modules/inventory/inventory.a69-credential-leak-fix.spec.ts
+            src/modules/orders/orders.a54-waiter-price-manipulation.spec.ts
+            src/modules/orders/orders.a69-credential-leak-fix.spec.ts
+            src/modules/orders/orders.a73-mutation-cost-leak-fix.spec.ts
+            src/modules/products/products.a65-costprice-leak-fix.spec.ts
+            src/modules/purchases/purchases.a69-credential-leak-fix.spec.ts
+            src/modules/reports/reports.a67-cost-leak-fix.spec.ts
+            src/modules/reports/reports.a69-credential-leak-fix.spec.ts
+            src/modules/sales/sales.a56-unaudited-item-price-override.spec.ts
+            src/modules/sales/sales.a69-credential-leak-fix.spec.ts
+            src/modules/sales/sales.a73-mutation-cost-leak-fix.spec.ts
+            src/modules/sofia/sofia.a71-delivery-cost-leak-fix.spec.ts
+            src/modules/users/users.a65-password-rotation-session-invalidation.spec.ts
+            src/modules/users/users.a71-credential-leak-fix.spec.ts
+          )
+          EXPECTED_COUNT=${#SPEC_FILES[@]}
+          FOUND_COUNT=$(pnpm --dir apps/api exec jest --listTests "${SPEC_FILES[@]}" | wc -l)
+          echo "Specs esperados: $EXPECTED_COUNT — encontrados por jest --listTests: $FOUND_COUNT"
+          if [ "$FOUND_COUNT" -ne "$EXPECTED_COUNT" ]; then
+            echo "ERROR: jest --listTests no encontro los 19 specs de regresion de PR#40 esperados."
+            echo "Esto indica que alguno de los archivos fue renombrado, movido o eliminado."
+            pnpm --dir apps/api exec jest --listTests "${SPEC_FILES[@]}" || true
+            exit 1
+          fi
+          TEST_DATABASE_URL="$DATABASE_URL" pnpm --dir apps/api exec jest \
+            "${SPEC_FILES[@]}" \
+            --runInBand \
+            --detectOpenHandles
       - name: Generate CycloneDX SBOM
         run: SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) node infra/release/generate-sbom.mjs --output .release/sbom.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
