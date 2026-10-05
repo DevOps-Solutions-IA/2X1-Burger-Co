@@ -67,3 +67,15 @@ test-results/
 # Python generated files
 __pycache__/
 *.py[cod]
+
+# CVE-2026-14456 image base fix, independent review (reserves 3 and 4):
+# small, already-sanitized evidence files that ARE meant to be versioned
+# live under these two evidence directories (see SUMMARY.json
+# evidence_index and each round's own *-summary.json). The blanket "*.log"
+# and "screenshots/" rules above exist to exclude real runtime logs and
+# ad-hoc local captures elsewhere in the repo; un-ignore only these
+# specific evidence subpaths (these negations must stay AFTER the rules
+# above, since gitignore applies later rules last).
+!.engineering/evidence/cve-2026-14456-image-base-fix/https-rehearsal-reserve3/*.log
+!.engineering/evidence/cve-2026-14456-image-base-fix/browser-rehearsal-reserve4/*.log
+!.engineering/evidence/cve-2026-14456-image-base-fix/browser-rehearsal-reserve4/screenshots/
