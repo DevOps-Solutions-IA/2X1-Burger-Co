@@ -287,6 +287,22 @@ jobs:
             "${SPEC_FILES[@]}" \
             --runInBand \
             --detectOpenHandles
+      - name: Test-DB harness isolation guard (CVE-2026-14456 review, reserve 1)
+        # infra/scripts/wait-for-postgres.sh used to call `docker compose up -d
+        # postgres` with no dedicated test project/compose file, reusing the
+        # main docker-compose.yml service whose host port (127.0.0.1:5432) is
+        # the SAME port the real operational Postgres container binds to — and
+        # it never called assert_test_database_url() before touching Docker,
+        # so it only ever failed by accident (port collision), not by design.
+        # infra/scripts/__tests__/wait-for-postgres.test.sh is the permanent
+        # regression guard for the fix: it proves, with mocked `docker compose`
+        # invocations, that an operational-looking DATABASE_URL (wrong suffix,
+        # or the real operational port) is rejected BEFORE Docker is ever
+        # invoked, and that a genuine, well-formed test target still proceeds
+        # (using its own disposable Postgres on a non-operational port). This
+        # step must keep running on every CI build — removing it would let the
+        # unsafe fail-by-accident behavior regress silently.
+        run: bash infra/scripts/__tests__/wait-for-postgres.test.sh
       - name: Generate CycloneDX SBOM
         run: SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) node infra/release/generate-sbom.mjs --output .release/sbom.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
