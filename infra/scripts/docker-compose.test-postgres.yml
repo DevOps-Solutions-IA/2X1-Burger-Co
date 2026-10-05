@@ -1,0 +1,35 @@
+# Docker Compose DEDICADO y EXCLUSIVO para el harness de pruebas locales
+# (jest/playwright no-ephemeral, invocado por infra/scripts/wait-for-postgres.sh).
+#
+# Reserva 1 — revisión independiente CVE-2026-14456 (2026-10-05):
+# El hallazgo original era que wait-for-postgres.sh hacía
+# `docker compose up -d postgres` contra el docker-compose.yml OPERATIVO
+# principal del repo, cuyo servicio "postgres" está hardcodeado al puerto
+# host 127.0.0.1:5432 — el MISMO puerto que usa el contenedor operativo real
+# (p.ej. inventario-postgres-1). Si el contenedor operativo no estuviera
+# corriendo, ese flujo levantaría silenciosamente un Postgres nuevo en el
+# puerto compartido.
+#
+# Este archivo NUNCA se fusiona con el docker-compose.yml principal y NUNCA
+# se levanta sin un proyecto Compose explícito (-p) ni sin declarar
+# TEST_HARNESS_POSTGRES_PORT. Ver infra/scripts/wait-for-postgres.sh para los
+# guards que validan esto ANTES de invocar `docker compose up`.
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:${TEST_HARNESS_POSTGRES_PORT:?TEST_HARNESS_POSTGRES_PORT debe estar declarado y no puede ser el puerto operativo}:5432"
+    volumes:
+      - test_harness_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  test_harness_postgres_data:
