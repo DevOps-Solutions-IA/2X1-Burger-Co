@@ -3,6 +3,13 @@ node_modules
 dist
 .turbo
 .pnpm-store
+
+# Reserva 2 (revisión independiente CVE-2026-14456, 2026-10-05): almacén
+# content-addressed de binarios grandes de evidencia (tarballs docker save).
+# Nunca se commitean a git; el índice pequeño en archive-index.json sí se
+# commitea y referencia estos archivos por hash. Ver
+# .engineering/evidence/cve-2026-14456-image-base-fix/archive-index.json
+.engineering/evidence/cve-2026-14456-image-base-fix/object-store/
 coverage
 .env
 .env.*
