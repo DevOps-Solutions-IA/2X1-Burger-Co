@@ -1,8 +1,16 @@
-export function customerDisplayName(displayName: string | null) {
-  return displayName?.trim() || 'Cliente sin nombre registrado';
+/** Helpers de presentación puramente derivados — sin llamadas a red ni estado. */
+
+/** Nombre de cliente listo para mostrar, con fallback cuando el CRM no tiene displayName capturado. */
+export function customerDisplayName(name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : 'Cliente sin nombre';
 }
 
-export function humanizeCrmCode(value: string) {
-  const normalized = value.replace(/_/g, ' ').toLocaleLowerCase('es-CO');
-  return normalized.charAt(0).toLocaleUpperCase('es-CO') + normalized.slice(1);
+/** Iniciales de un cliente para el avatar del directorio y de Customer 360 (máx. 2 letras). */
+export function customerInitials(name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  if (!trimmed) return '?';
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
+  return initials.join('') || '?';
 }

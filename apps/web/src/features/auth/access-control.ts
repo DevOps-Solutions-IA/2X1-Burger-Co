@@ -17,6 +17,7 @@ const routePermissionMap: Array<{ prefix: string; permission?: string }> = [
   { prefix: '/reports', permission: 'reports.read' },
   { prefix: '/users', permission: 'users.read' },
   { prefix: '/settings', permission: 'settings.read' },
+  { prefix: '/sofia', permission: 'settings.read' },
 ];
 
 export function hasPermission(permissions: string[] | undefined, permission?: string) {

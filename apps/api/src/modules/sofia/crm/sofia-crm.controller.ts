@@ -16,6 +16,7 @@ import {
   CreateCrmTaskDto,
   CreateCustomerTagDto,
   CustomerConsentDto,
+  ListCrmCampaignsDto,
   ListCrmLeadsDto,
   ListCrmNotesDto,
   ListCrmPipelinesDto,
@@ -223,6 +224,12 @@ export class SofiaCrmController {
   @Permissions('orders.update')
   createNote(@Body() dto: CreateCrmNoteDto, @CurrentUser() actor: AuthUser) {
     return this.crmService.createNote(dto, actor);
+  }
+
+  @Get('campaigns')
+  @Roles('admin', 'supervisor', 'cashier')
+  listCampaigns(@Query() dto: ListCrmCampaignsDto) {
+    return this.crmService.listCampaigns(dto);
   }
 
   @Post('campaigns')

@@ -43,9 +43,17 @@ test('operator console handles authentication, safe navigation and logout', asyn
     ['/deliveries', 'deliveries-queue-list'],
     ['/inventory', 'inventory-page'],
     ['/users', 'users-page'],
-    ['/sofia', 'sofia-clean-slate'],
-    ['/sofia/whatsapp-qr', 'sofia-whatsapp-clean-slate'],
-    ['/sofia/crm', 'sofia-crm-clean-slate'],
+    ['/sofia', 'sofia-overview-page'],
+    ['/sofia/performance', 'sofia-performance-page'],
+    ['/sofia/validation', 'sofia-validation-page'],
+    ['/sofia/conversations', 'sofia-conversations-page'],
+    ['/sofia/safety', 'sofia-safety-page'],
+    ['/sofia/whatsapp-qr', 'sofia-whatsapp-qr-page'],
+    ['/sofia/crm', 'sofia-crm-customers-page'],
+    ['/sofia/crm/pipeline', 'sofia-crm-pipeline-page'],
+    ['/sofia/crm/segments', 'sofia-crm-segments-page'],
+    ['/sofia/crm/campaigns', 'sofia-crm-campaigns-page'],
+    ['/sofia/crm/tasks', 'sofia-crm-tasks-page'],
   ] as const;
 
   for (const [route, testId] of routes) {
@@ -56,15 +64,9 @@ test('operator console handles authentication, safe navigation and logout', asyn
     await expectAccessiblePage(page);
   }
 
-  await page.goto('/sofia');
-  await expect(page.getByTestId('sofia-clean-slate')).toContainText('Nueva interfaz en construcción');
-  await page.goto('/sofia/whatsapp-qr');
-  await expect(page.getByTestId('sofia-whatsapp-clean-slate')).toContainText('Nueva interfaz en construcción');
-  await expectAccessiblePage(page);
-
   await page.goto('/sofia/customers');
   await expect(page).toHaveURL(/\/sofia\/crm$/);
-  await expect(page.getByTestId('sofia-crm-clean-slate')).toContainText('Nueva interfaz en construcción');
+  await expect(page.getByTestId('sofia-crm-customers-page')).toBeVisible({ timeout: 20_000 });
   await expectAccessiblePage(page);
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
