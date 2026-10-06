@@ -1,10 +1,110 @@
 # Sofia - Estado actual
 
-Ultima actualizacion: 2026-08-12.
+Ultima actualizacion: 2026-10-06 (Fase 2 del programa "SOFIA operational reintegration").
 
 Este archivo es la fuente de verdad vigente para agentes. Los reportes historicos solo son evidencia de capacidad anterior y no certifican el runtime actual.
 
-## Decision vigente
+## Estado demostrado en el candidato Fase 2 (2026-10-06)
+
+Candidato: rama `fix/sofia-operational-reintegration-20261005`, HEAD
+`5fc0fe75b2f6e39b087384fc4c4aa08f1045f060` (base `08fe398c456d8d5da9f98ddff7a5fbbc644c75ab`).
+Imagenes probadas: `inventory-fastfood-api:0.1.0-5fc0fe75b2f6-1791253207` /
+`inventory-fastfood-web:0.1.0-5fc0fe75b2f6-1791253207`, sin reconstruir, exactamente
+las compiladas desde ese HEAD.
+
+Todo lo siguiente fue verificado en un laboratorio de preproduccion NUEVO y aislado
+(`sofia-phase2-preprod-20261006`: red/volumenes propios, Postgres sintetico en tmpfs,
+HTTPS real via nginx con CA local efimera y perfil Chromium/Playwright con su propia
+base NSS confiando en esa CA, sin `ignoreHTTPSErrors`), destruido por completo al
+terminar (contenedores, red y secretos efimeros eliminados). No se toco
+`inventario-api-1`/`inventario-web-1`/`inventario-postgres-1` ni ningun laboratorio
+previo (`inventario-sofia-qr-canary-*`, `inventario-sofia-phase-a-review-*`): quedaron
+`Up` sin reinicio antes y despues.
+
+- UI: `/sofia`, `/sofia/performance`, `/sofia/validation`, `/sofia/conversations`,
+  `/sofia/safety`, `/sofia/whatsapp-qr` cargan datos reales tipados desde el backend
+  (verificado desde un navegador real; capturas y log de llamadas de red en el
+  laboratorio efimero, no conservadas tras la destruccion salvo JSON sanitizado).
+- CRM: `customers`, `pipeline`/`pipelines`, `segments`, `campaigns`, `tasks` y
+  Customer 360 responden 200 con datos reales del backend (se creo un unico cliente
+  sintetico via la API real de CRM para poder probar Customer 360; resto de colas
+  legitimamente vacias, nunca fabricadas).
+- Envio de campanas: permanece bloqueado de forma incondicional. Prueba real: crear
+  campana -> intentar enviar (desde la UI y via API) -> respuesta
+  `{"status":"BLOCKED","reason":"BAILEYS_PROACTIVE_OUTREACH_DISABLED","sent":false}`.
+- Monitoreo de red del navegador durante toda la sesion (67 llamadas `/api/` reales
+  observadas): ninguna mutacion de POS/Caja/Stock/Checkout/Pagos se origino desde la
+  UI de SOFIA. Las unicas llamadas fuera de `/sofia/*` fueron lecturas (`GET`) de
+  `cash-register/current`, `inventory/movements` y `reports/operational` que alimentan
+  un widget compartido del shell de la app (no SOFIA), todas de solo lectura.
+- SecureCommand/RBAC: `GET/POST /admin/secure-commands*` protegido por
+  `@Roles('admin','supervisor')` + permisos; confirmado con credenciales sinteticas
+  reales: admin -> 200, cashier -> 403, sin token -> 401. No existe ruta de creacion
+  de comandos (solo listar/detalle/aprobar/rechazar).
+- Governance/Runtime Safety: `control/pause-global`, `control/resume-global`,
+  `control/kill-switch/activate`, `control/kill-switch/deactivate` ejercidos en el
+  laboratorio aislado y revertidos al estado seguro documentado
+  (`globalPaused:false`, `killSwitchActive:false`, `qrRealAllowed:false`,
+  `deepSeekRealAllowed:false`, `autoSafeProductionAllowed:false`) antes de destruirlo.
+- DeepSeek: credencial aprobada ya presente en configuracion protegida del host
+  (`.env` del checkout de trabajo, permisos 600), habilitada solo para este
+  laboratorio aislado con `SOFIA_AI_MODE=dry_run`. `admin/sofia/ai/status` real:
+  `deepseekEnabled:true`, `deepseekConfigured:true`, `apiKeyExposed:false`,
+  `backendOnly:true`. `admin/sofia/ai/health-check` real:
+  `ok:true, message:"DeepSeek respondio correctamente al sondeo acotado."` (HTTP real
+  a DeepSeek, no mock). Un caso de analisis dry-run end-to-end (mensaje -> sugerencia
+  IA -> SafetyGuard) **no** se pudo ejercitar en esta imagen de produccion: las rutas
+  `agent/process`, `sandbox/*` y `ai/test` estan protegidas por `SofiaTestOnlyGuard`,
+  que exige `NODE_ENV=test` (deliberadamente no se activo, para no degradar el
+  candidato bajo prueba) y la unica otra via de entrada real es un inbound WhatsApp
+  autentico, bloqueado por el punto de corte fisico descrito abajo. SafetyGuard sigue
+  siendo arquitectonicamente la autoridad final: ninguna ruta de sugerencia de IA
+  aplica una accion sin pasar por el, y las rutas que la bypasean para pruebas estan
+  deshabilitadas en modo produccion.
+- WhatsApp QR receive-only: arranque del contenedor en modo `WHATSAPP_QR_ENABLED=true`
+  sin `WHATSAPP_EXPECTED_ACCOUNT_ID/BUSINESS_IDENTITY/SESSION_OWNER` fue rechazado al
+  boot con `SOFIA_PROD_WHATSAPP_ACCOUNT_BINDING_REQUIRED` (invariante permanente
+  confirmado activo). Con bindings sinteticos de laboratorio (no un numero/`@lid`
+  real) y `WHATSAPP_QR_ALLOW_RECEIVE=true`, `WHATSAPP_QR_SANDBOX_ONLY=false`,
+  `WHATSAPP_MODE=receive_only`, `WHATSAPP_QR_ALLOW_REAL_SEND=false`,
+  `SOFIA_AUTO_REPLY_ENABLED=false`, `SOFIA_AUTO_SAFE_ENABLED=false`: el endpoint de
+  estado respondio `status:"DISABLED"`, `reason:"QR_GOVERNANCE_NOT_APPROVED"`, y el
+  intento explicito de aprobar `qrRealAllowed:true` via
+  `POST admin/sofia/governance/settings` fue rechazado con
+  `{"status":"BLOCKED","reason":"PHASE_NOT_READY"}` porque el gate exige que
+  `WHATSAPP_EXPECTED_ACCOUNT_ID` tenga formato de numero real y
+  `WHATSAPP_EXPECTED_BUSINESS_IDENTITY` tenga formato `@lid` (identidad que solo se
+  observa tras una conexion fisica real previa). **Punto de corte**: generar un QR
+  real escaneable requiere que el owner fisico conecte primero una cuenta de WhatsApp
+  Business real para obtener su `@lid`, configure ese binding exacto, y solo entonces
+  el gate de gobernanza puede aprobarse. No se fabrico ni se simulo ese binding.
+  `whatsappOutbound`, `boldMutation` y `orderExecution` se mantuvieron
+  `DISABLED_BY_POLICY` durante toda la prueba.
+
+Matriz de capacidades (estado real demostrado, no inferido, al cierre de Fase 2):
+
+| Capacidad | Estado |
+| --- | --- |
+| UI SOFIA (overview/performance/validation/conversations/safety/whatsapp-qr) | GO (datos reales) |
+| CRM (customers/pipeline/segments/campaigns/tasks/360) | GO (datos reales) |
+| SecureCommand (listar/detalle/aprobar/rechazar, sin creacion) | GO (RBAC confirmado) |
+| Gobernanza (pause/resume/kill-switch) | GO (ejercido y revertido) |
+| Safety/Runtime Safety | GO (estado real, sin gates debilitados) |
+| DeepSeek dry-run (conectividad/health) | GO (HTTP real, sin mock) |
+| DeepSeek dry-run (caso conversacional end-to-end) | BLOCKED (ver nota arriba) |
+| QR receive-only (arquitectura y guards) | GO (bindings/guard enforcement reales) |
+| QR receive-only (conexion real/CONNECTED) | BLOCKED_PHYSICAL_OWNER_ACTION_REQUIRED |
+| Envio real WhatsApp | OFF (bloqueado, confirmado) |
+| Auto Reply | OFF (confirmado) |
+| Auto Safe productivo | OFF (confirmado) |
+| Produccion | NO activada (fuera de alcance de esta fase) |
+
+## Decision vigente (HISTORICO / OBSOLETO respecto al candidato Fase 2 de arriba)
+
+La seccion siguiente describe el estado de un release anterior
+(`291d541f408d14b3c9b66942583dc6a8c7522bcb`, 2026-08-12) y se conserva como evidencia
+forense. No certifica el runtime del candidato `5fc0fe75` descrito arriba, que
+restaura la Torre de Control SOFIA y el CRM sobre ese mismo main seguro.
 
 **El core backend de Phases 3 a 7 esta desplegado en produccion. Las capacidades operativas Sofia, Bold real y WhatsApp automatico permanecen desactivadas y requieren activacion controlada separada.**
 
