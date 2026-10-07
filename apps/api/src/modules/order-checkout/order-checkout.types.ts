@@ -67,6 +67,26 @@ export type CreateOnlinePaymentCommand = {
   actorId: string;
 };
 
+/**
+ * PaymentIntent TOCTOU remediation (reintegrated from historical worktrees
+ * inventario-remediation-p0/p1, never merged to main). Contract for the "at most one
+ * active/non-terminal PaymentIntent per checkout, regardless of idempotencyKey" business
+ * invariant. The repository's `createPaymentIntent` transaction must invoke this callback
+ * immediately after taking the `order_checkouts` row lock (`FOR UPDATE`) and re-reading fresh
+ * checkout + PaymentIntent state under that lock -- never against a pre-transaction read -- and
+ * before the `(provider, idempotencyKey)` replay lookup or any new `PaymentIntent` create. This
+ * is what closes the race: two concurrent (or sequentially retried) attempts with DIFFERENT
+ * idempotencyKeys for the same checkout must never both succeed.
+ */
+export type PaymentIntentRelinkPolicy = (
+  checkout: { status: OrderCheckoutStatus; expiresAt: Date | null },
+  paymentIntents: readonly {
+    idempotencyKey: string;
+    status: PaymentIntentStatus;
+    expiresAt: Date | null;
+  }[],
+) => void;
+
 export type PaymentIntentView = {
   id: string;
   checkoutId: string;
