@@ -67,7 +67,20 @@ export class CommercialCheckoutService {
   async process(command: CommercialMessageCommand): Promise<CommercialTurnResult> {
     const previous = await this.repository.loadState(command.conversationId) ?? emptyState(command.conversationId);
     const parsed = this.intents.interpret(command.message, previous.lastQuestionPurpose);
-    const state: CommercialConversationState = { ...previous, intent: parsed.intent, confidence: parsed.confidence, ambiguities: [], domainErrors: [], lastResolvedIntent: parsed.intent !== 'UNKNOWN' ? parsed.intent : previous.lastResolvedIntent, location: command.location ?? previous.location };
+    // RULE 5 fix (fix/delivery-destination-toctou-reintegration-20261006): a GPS fix is only
+    // trustworthy evidence for the address text it was captured alongside. Previously this
+    // unconditionally carried `previous.location` forward (`command.location ?? previous.location`)
+    // whenever the current turn did not include a fresh pin — even when the customer's new
+    // textual address (`parsed.address`) this same turn was NOT the same address. That let a
+    // customer silently get priced/covered against stale, unrelated GPS. Only carry the previous
+    // turn's location forward when the address text is unchanged (or this turn gave no new
+    // address text at all); a proven textual address change without a fresh pin must drop the
+    // stale location and force re-proof (fail-closed) rather than reuse it.
+    const addressTextChangedThisTurn =
+      parsed.address != null &&
+      normalizeCommercialText(parsed.address) !== normalizeCommercialText(previous.address ?? '');
+    const location = command.location ?? (addressTextChangedThisTurn ? null : previous.location);
+    const state: CommercialConversationState = { ...previous, intent: parsed.intent, confidence: parsed.confidence, ambiguities: [], domainErrors: [], lastResolvedIntent: parsed.intent !== 'UNKNOWN' ? parsed.intent : previous.lastResolvedIntent, location };
 
     if (parsed.adversarial || parsed.intent === 'ASK_HUMAN') return this.handoff(state, command, 'SOFIA_UNTRUSTED_OR_HUMAN_REQUEST');
     if (/descuento|cupon|rebaja/.test(parsed.normalized)) {

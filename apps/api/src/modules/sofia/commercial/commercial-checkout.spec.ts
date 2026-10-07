@@ -172,6 +172,51 @@ describe('commercial intent and checkout', () => {
     expect(result.state).toMatchObject({ address: 'Carrera 10 # 20', location: { latitude: 3.26, longitude: -76.54 }, deliveryQuoteAuditId: 'q1' });
   });
 
+  it('RULE 5: drops a stale GPS fix when the address text changes without a fresh pin', async () => {
+    // MEDIO-6 (independent review, 2026-10-07): regression coverage for the `addressTextChangedThisTurn`
+    // branch in `process()` — a GPS fix from a previous turn must not be reused for a NEW, textually
+    // different address when this turn carries no fresh pin.
+    const { service, actor } = fixture();
+    const first = await service.process({
+      conversationId: 'conv',
+      phone: '573001112233',
+      message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago al recibir',
+      location: { latitude: 3.26, longitude: -76.54 },
+      actor,
+    });
+    expect(first.state).toMatchObject({ address: 'Carrera 10 # 20', location: { latitude: 3.26, longitude: -76.54 } });
+
+    const second = await service.process({
+      conversationId: 'conv',
+      phone: '573001112233',
+      message: 'Mejor llévalo a la Carrera 150 # 200',
+      actor,
+    });
+    expect(second.state.address).toBe('Carrera 150 # 200');
+    expect(second.state.location).toBeNull();
+  });
+
+  it('RULE 5: keeps the GPS fix when the address text is repeated unchanged without a fresh pin', async () => {
+    const { service, actor } = fixture();
+    const first = await service.process({
+      conversationId: 'conv',
+      phone: '573001112233',
+      message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago al recibir',
+      location: { latitude: 3.26, longitude: -76.54 },
+      actor,
+    });
+    expect(first.state.location).toEqual({ latitude: 3.26, longitude: -76.54 });
+
+    const second = await service.process({
+      conversationId: 'conv',
+      phone: '573001112233',
+      message: 'Confirmo, es a la Carrera 10 # 20',
+      actor,
+    });
+    expect(second.state.address).toBe('Carrera 10 # 20');
+    expect(second.state.location).toEqual({ latitude: 3.26, longitude: -76.54 });
+  });
+
   it('fails ambiguous transactional novelty closed', async () => {
     const { service, actor } = fixture();
     const result = await service.process({ conversationId: 'conv', phone: '573001112233', message: 'Déjalo como siempre pero distinto', actor });
