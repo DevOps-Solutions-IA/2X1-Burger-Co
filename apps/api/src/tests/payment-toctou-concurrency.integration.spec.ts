@@ -85,28 +85,51 @@ describe('SOFIA payment TOCTOU remediation -- PostgreSQL concurrency', () => {
     await prisma.cashSession.create({ data: { openedById: actorId, openingAmount: 0 } });
   });
 
-  // Global, scenario-independent invariant: no checkout may ever have more than one PaymentIntent
-  // in a non-terminal (active) status at the same time. Checked directly against the database
-  // after every single test in this file, regardless of what the test itself asserted.
-  // "Active" here means non-terminal by status AND not lazily expired (expiresAt in the
-  // future or null). This codebase has no PaymentExpirationWorker (that PK4 feature was never
-  // merged to main) to durably sweep lazily-expired CREATED/LINK_READY/PENDING rows to EXPIRED,
-  // so a lazily-expired attempt's status column stays LINK_READY forever -- but it is
-  // financially inert (its PaymentLink's own expiresAt has also elapsed, so
-  // resolvePaymentLink/startBoldPayment can never charge it again). The invariant that must
-  // hold is "at most one chargeable PaymentIntent per checkout", not "at most one row with a
-  // non-terminal status column", so both this helper and the query below exclude lazily-expired
-  // rows from the count.
+  // Global, scenario-independent invariant: no checkout may ever have more than one *chargeable*
+  // PaymentIntent at the same time. Checked directly against the database after every single
+  // test in this file, regardless of what the test itself asserted.
+  //
+  // "Chargeable" is NOT simply "non-terminal status column":
+  //   - CREATED/LINK_READY never issued a live provider checkout URL, so once their own
+  //     `expiresAt` has elapsed they are financially inert even though this codebase has no
+  //     PaymentExpirationWorker (that PK4 feature was never merged to main) to durably sweep
+  //     them to EXPIRED -- their PaymentLink's own expiresAt has also elapsed, so
+  //     resolvePaymentLink/startBoldPayment can never charge them again.
+  //   - PENDING is different and must NEVER be excluded by its own `expiresAt`: it is reached
+  //     only after Bold already issued a live checkoutUrl (beginProviderPayment +
+  //     BoldPaymentProvider.createPayment), and nothing in this codebase ever revokes that
+  //     provider-side link. A PENDING row is chargeable for as long as it stays PENDING,
+  //     regardless of our own local TTL -- this is exactly the scenario the ALTO-1 fix in
+  //     PaymentOrchestrationService.assertRelinkAllowed exists to guard (a PENDING intent must
+  //     never be treated as "lazily expired -> safe to relink"). Excluding PENDING by `expiresAt`
+  //     here would make this very oracle blind to a PAYMENT_ATTEMPT_ACTIVE/PAYMENT_RELINK_BLOCKED
+  //     regression on PENDING.
+  //
+  // Uses the typed Prisma Client exclusively (no raw `NOW()`/`$queryRaw`): PaymentIntent.
+  // expiresAt is written exclusively via the typed client (see payment-orchestration.service.ts/
+  // prisma-order-checkout.repository.ts), and comparing it via raw SQL `NOW()` is exactly the
+  // CANONICAL_TEMPORAL_AUTHORITY mismatch class this remediation closed for payment_webhook_events
+  // -- this test oracle must not reintroduce it for PaymentIntent.
+  async function chargeableIntentViolations() {
+    const now = new Date();
+    const rows = await prisma.paymentIntent.groupBy({
+      by: ['checkoutId'],
+      where: {
+        OR: [
+          {
+            status: { in: [PaymentIntentStatus.CREATED, PaymentIntentStatus.LINK_READY] },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+          { status: PaymentIntentStatus.PENDING },
+        ],
+      },
+      _count: { _all: true },
+    });
+    return rows.filter((row) => row._count._all > 1);
+  }
+
   afterEach(async () => {
-    const violations = await prisma.$queryRaw<Array<{ checkout_id: string; active_count: bigint }>>`
-      SELECT checkout_id, COUNT(*) AS active_count
-      FROM payment_intents
-      WHERE status IN ('CREATED', 'LINK_READY', 'PENDING')
-        AND (expires_at IS NULL OR expires_at > NOW())
-      GROUP BY checkout_id
-      HAVING COUNT(*) > 1
-    `;
-    expect(violations).toEqual([]);
+    expect(await chargeableIntentViolations()).toEqual([]);
   });
 
   async function onlineCheckout(label: string) {
@@ -168,12 +191,20 @@ describe('SOFIA payment TOCTOU remediation -- PostgreSQL concurrency', () => {
     return createHmac('sha256', process.env.BOLD_WEBHOOK_SECRET!).update(rawBody.toString('base64')).digest('hex');
   }
 
+  // Mirrors chargeableIntentViolations' definition of "chargeable" above: PENDING always counts
+  // regardless of its own expiresAt; CREATED/LINK_READY only count while not lazily expired.
   async function activeIntentCount(checkoutId: string) {
+    const now = new Date();
     return prisma.paymentIntent.count({
       where: {
         checkoutId,
-        status: { in: [PaymentIntentStatus.CREATED, PaymentIntentStatus.LINK_READY, PaymentIntentStatus.PENDING] },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        OR: [
+          {
+            status: { in: [PaymentIntentStatus.CREATED, PaymentIntentStatus.LINK_READY] },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+          { status: PaymentIntentStatus.PENDING },
+        ],
       },
     });
   }
@@ -351,6 +382,95 @@ describe('SOFIA payment TOCTOU remediation -- PostgreSQL concurrency', () => {
       expect(failure.reason).toMatchObject({ response: expect.objectContaining({ code: 'PAYMENT_RELINK_BLOCKED' }) });
     }
     expect(await prisma.paymentIntent.count({ where: { checkoutId: checkout.id } })).toBe(1);
+  });
+
+  // --- ALTO-1 regression (independent reviewer finding on af4fb9c): a PENDING intent -- one that
+  // already has a live, provider-issued Bold checkoutUrl in the client's hands (beginProviderPayment
+  // + BoldPaymentProvider.createPayment already ran) -- must NEVER be treated as "lazily expired,
+  // therefore safe to relink" just because our own local TTL elapsed. Nothing in this codebase ever
+  // calls revokePaymentLink, so an elapsed local TTL does not mean the Bold-side checkout is dead; a
+  // second, independently chargeable link for the same checkout would violate CLAUDE.md Sec.15 ("no
+  // duplicate charge"). The only acceptable outcome once a PENDING attempt's own TTL has elapsed is
+  // PAYMENT_RELINK_BLOCKED (human reconciliation), never a fresh attemptNumber.
+  it('ALTO-1: a PENDING intent whose own TTL has elapsed is permanently blocked (PAYMENT_RELINK_BLOCKED), never automatically relinked', async () => {
+    const checkout = await onlineCheckout('pending-ttl-elapsed-block');
+    const prepared = await payments.createOnlinePaymentLink({
+      checkoutId: checkout.id,
+      idempotencyKey: 'toctou-pending-ttl-elapsed-1',
+      actorId,
+    });
+    jest.spyOn(bold, 'createPayment').mockResolvedValueOnce({
+      provider: 'BOLD',
+      providerPaymentId: 'provider-payment-pending-ttl-elapsed',
+      providerReference: `checkout_${prepared.paymentIntent.id}`,
+      checkoutUrl: 'https://checkout.bold.co/test-only',
+      status: 'PENDING',
+      rawPayload: { sanitized: true },
+    });
+    const token = prepared.publicPath!.split('/').pop()!;
+    await payments.startBoldPayment(token);
+    const pending = await prisma.paymentIntent.findUniqueOrThrow({ where: { id: prepared.paymentIntent.id } });
+    expect(pending.status).toBe(PaymentIntentStatus.PENDING);
+
+    // No webhook ever arrives; simulate the local TTL elapsing while Bold's own checkoutUrl may
+    // still be genuinely live and payable.
+    await prisma.paymentIntent.update({ where: { id: pending.id }, data: { expiresAt: new Date(0) } });
+
+    const attempts = await Promise.allSettled(Array.from({ length: 5 }, (_, index) =>
+      payments.createOnlinePaymentLink({ checkoutId: checkout.id, idempotencyKey: `toctou-pending-ttl-elapsed-relink-${index}`, actorId })));
+    expect(attempts.every((result) => result.status === 'rejected')).toBe(true);
+    for (const failure of attempts as PromiseRejectedResult[]) {
+      expect(failure.reason).toMatchObject({ response: expect.objectContaining({ code: 'PAYMENT_RELINK_BLOCKED' }) });
+    }
+    expect(await prisma.paymentIntent.count({ where: { checkoutId: checkout.id } })).toBe(1);
+  });
+
+  // --- ALTO-2 regression (independent reviewer finding on af4fb9c): the relink policy must
+  // evaluate EVERY PaymentIntent on the checkout, not just the most recent one by attemptNumber.
+  // Reproduces the reviewer's exact scenario: attempt 1 is still active (LINK_READY, own TTL in
+  // the future) while attempt 2 -- the most recent by attemptNumber -- is terminal (FAILED). A
+  // policy that only inspects paymentIntents[0] would see attempt 2's FAILED status, conclude
+  // relink is allowed, and create attempt 3 -- leaving attempt 1 and attempt 3 simultaneously
+  // chargeable. Attempt 1/2 are inserted directly (bypassing the service) to construct this state
+  // deterministically, mirroring how the independent reviewer verified it.
+  it('ALTO-2: an older still-active intent blocks a new attempt even when the most recent attempt is terminal', async () => {
+    const checkout = await onlineCheckout('older-active-blocks-new');
+    await prisma.orderCheckout.update({ where: { id: checkout.id }, data: { status: 'PAYMENT_PENDING' } });
+    const attempt1 = await prisma.paymentIntent.create({
+      data: {
+        checkoutId: checkout.id,
+        attemptNumber: 1,
+        idempotencyKey: 'toctou-older-active-blocks-new-1',
+        provider: PaymentIntentProvider.BOLD,
+        amount: checkout.total,
+        currency: checkout.currency,
+        status: PaymentIntentStatus.LINK_READY,
+        expiresAt: new Date(Date.now() + 20 * 60_000),
+      },
+    });
+    await prisma.paymentIntent.create({
+      data: {
+        checkoutId: checkout.id,
+        attemptNumber: 2,
+        idempotencyKey: 'toctou-older-active-blocks-new-2',
+        provider: PaymentIntentProvider.BOLD,
+        amount: checkout.total,
+        currency: checkout.currency,
+        status: PaymentIntentStatus.FAILED,
+        completedAt: new Date(),
+        expiresAt: new Date(Date.now() + 20 * 60_000),
+      },
+    });
+
+    await expect(payments.createOnlinePaymentLink({
+      checkoutId: checkout.id,
+      idempotencyKey: 'toctou-older-active-blocks-new-3',
+      actorId,
+    })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PAYMENT_ATTEMPT_ACTIVE' }) });
+
+    expect(await prisma.paymentIntent.count({ where: { checkoutId: checkout.id } })).toBe(2);
+    const survivor = await prisma.paymentIntent.findUniqueOrThrow({ where: { id: attempt1.id } });
+    expect(survivor.status).toBe(PaymentIntentStatus.LINK_READY);
   });
 
   // --- Scenario: existing SUCCEEDED intent -> relink correctly blocked --------------------------
