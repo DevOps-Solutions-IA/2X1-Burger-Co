@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  OrderCheckoutStatus,
   PaymentIntentProvider,
   PaymentIntentStatus,
   PaymentLinkStatus,
@@ -10,7 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { BoldPaymentProvider } from '../sofia/payments/bold-payment.provider';
 import { CheckoutPolicyService } from './checkout-policy.service';
 import { checkoutConflict } from './order-checkout.errors';
-import type { CreateOnlinePaymentCommand, PaymentIntentView } from './order-checkout.types';
+import type { CreateOnlinePaymentCommand, PaymentIntentRelinkPolicy, PaymentIntentView } from './order-checkout.types';
 import { PaymentPublicReferenceService } from './payment-public-reference.service';
 import { Phase5RuntimeGate } from './phase5-runtime-gate.service';
 import { PrismaOrderCheckoutRepository } from './persistence/prisma-order-checkout.repository';
@@ -34,6 +35,17 @@ export class PaymentOrchestrationService {
     if (checkout.paymentPreference !== SofiaPaymentPreference.ONLINE) {
       checkoutConflict('CHECKOUT_PAYMENT_COMBINATION_INVALID');
     }
+    // PaymentIntent TOCTOU remediation: the "at most one active/blocked attempt per checkout"
+    // check must run against fresh, locked state, never against this pre-transaction `checkout`
+    // read (which can be stale by the time the transaction below actually acquires the row
+    // lock on `order_checkouts`). The policy is passed as a callback so the repository's
+    // `createPaymentIntent` transaction can invoke it immediately after the `FOR UPDATE` lock +
+    // a fresh `PaymentIntent` re-read, before the `(provider, idempotencyKey)` replay lookup and
+    // before creating a new intent. There is no pre-transaction call here -- keeping one as a
+    // "fast path" would reintroduce the same race for any caller whose stale read happens to
+    // pass it.
+    const relinkPolicy: PaymentIntentRelinkPolicy = (lockedCheckout, currentPaymentIntents) =>
+      this.assertRelinkAllowed(lockedCheckout, currentPaymentIntents, input.idempotencyKey);
     const expiresAt = new Date(Date.now() + this.paymentTtlMinutes() * 60_000);
     const intent = await withBoundedTransactionRetry(() =>
       this.repository.createPaymentIntent({
@@ -41,6 +53,7 @@ export class PaymentOrchestrationService {
         idempotencyKey: input.idempotencyKey,
         provider: PaymentIntentProvider.BOLD,
         expiresAt,
+        relinkPolicy,
       }),
     );
     const existingLink = await this.repository.findActivePaymentLink(intent.id);
@@ -155,6 +168,77 @@ export class PaymentOrchestrationService {
       source: checkout.source,
       message: 'El pago productivo permanece bloqueado hasta la activación controlada.',
     };
+  }
+
+  /**
+   * PaymentIntent TOCTOU remediation -- re-link / retry policy: a checkout may have at most one
+   * non-terminal PaymentIntent at a time, and may never accept a new attempt once it has left
+   * the payable window (CONFIRMED / PAYMENT_PENDING). This is the upstream guard that keeps
+   * "at most one active link" and "at most one successful payment" true at the point of
+   * creation, complementing (never replacing) the existing downstream financial safety net in
+   * CanonicalPaymentWebhookService (successfulPaymentCount / markFinancialReview), which remains
+   * untouched and is still the last-resort backstop for paths that bypass this service.
+   *
+   * MUST be invoked only by the repository, inside the `createPaymentIntent` transaction,
+   * immediately after the `order_checkouts` row lock (`FOR UPDATE`) and a fresh re-read of both
+   * the checkout and every PaymentIntent for it (see `PaymentIntentRelinkPolicy` in
+   * order-checkout.types.ts). Never call this against a pre-transaction read.
+   *
+   * - Replaying the *same* command idempotencyKey is always allowed and checked first, before
+   *   any checkout-state check: it falls straight through to repository.createPaymentIntent's
+   *   own idempotent replay (the `provider_idempotencyKey` unique-key lookup), unchanged by this
+   *   guard. This preserves existing lost-response recovery semantics even if the checkout has
+   *   since expired -- a client retrying its own already-accepted request must still get back
+   *   the same result, never a fresh conflict.
+   * - A *new* attempt (new idempotencyKey) is rejected (CHECKOUT_NOT_PAYABLE) once the checkout
+   *   has left CONFIRMED/PAYMENT_PENDING -- e.g. KITCHEN_ELIGIBLE, ORDER_CREATED, CANCELLED,
+   *   EXPIRED, FINANCIAL_REVIEW_REQUIRED, or PAYMENT_VERIFIED. Payment is either already resolved
+   *   or the checkout is otherwise terminal; no new attempt is ever appropriate.
+   * - A *new* attempt is rejected (CHECKOUT_EXPIRED) once checkout.expiresAt has elapsed, checked
+   *   synchronously here at call time.
+   * - A *new* attempt is blocked (PAYMENT_ATTEMPT_ACTIVE) while the latest attempt is still
+   *   CREATED / LINK_READY / PENDING *and* its own TTL has not elapsed -- i.e. genuinely in
+   *   flight or awaiting a result.
+   * - A *new* attempt is permanently blocked (PAYMENT_RELINK_BLOCKED, never auto-retried) while
+   *   the latest attempt is UNKNOWN_RESULT, FINANCIAL_REVIEW_REQUIRED, or SUCCEEDED -- all three
+   *   require human reconciliation, never a blind retry that could risk a second charge.
+   * - A fresh attempt (re-link) is allowed once the latest attempt has reached a genuinely
+   *   retryable terminal state: EXPIRED, FAILED, CANCELLED, or -- checked synchronously here too
+   *   -- a CREATED/LINK_READY/PENDING attempt whose own expiresAt has already elapsed (lazy
+   *   expiry; this codebase has no PaymentExpirationWorker sweeping these to EXPIRED, so relink
+   *   must never depend on a durable status flip that will never happen).
+   */
+  private assertRelinkAllowed(
+    checkout: { status: OrderCheckoutStatus; expiresAt: Date | null },
+    paymentIntents: readonly { idempotencyKey: string; status: PaymentIntentStatus; expiresAt: Date | null }[],
+    idempotencyKey: string,
+  ) {
+    if (paymentIntents.some((intent) => intent.idempotencyKey === idempotencyKey)) return;
+    const payableCheckoutStatuses: OrderCheckoutStatus[] = [
+      OrderCheckoutStatus.CONFIRMED,
+      OrderCheckoutStatus.PAYMENT_PENDING,
+    ];
+    if (!payableCheckoutStatuses.includes(checkout.status)) checkoutConflict('CHECKOUT_NOT_PAYABLE');
+    if (checkout.expiresAt && checkout.expiresAt.getTime() <= Date.now()) checkoutConflict('CHECKOUT_EXPIRED');
+
+    const latest = paymentIntents[0];
+    if (!latest) return;
+    const active: PaymentIntentStatus[] = [
+      PaymentIntentStatus.CREATED,
+      PaymentIntentStatus.LINK_READY,
+      PaymentIntentStatus.PENDING,
+    ];
+    const blocked: PaymentIntentStatus[] = [
+      PaymentIntentStatus.UNKNOWN_RESULT,
+      PaymentIntentStatus.FINANCIAL_REVIEW_REQUIRED,
+      PaymentIntentStatus.SUCCEEDED,
+    ];
+    const lazilyExpired =
+      active.includes(latest.status) && latest.expiresAt != null && latest.expiresAt.getTime() <= Date.now();
+    if (active.includes(latest.status) && !lazilyExpired) checkoutConflict('PAYMENT_ATTEMPT_ACTIVE');
+    if (blocked.includes(latest.status)) checkoutConflict('PAYMENT_RELINK_BLOCKED');
+    // EXPIRED / FAILED / CANCELLED / lazily-expired active -> retryable, fall through to create a
+    // fresh attempt.
   }
 
   private paymentTtlMinutes() {

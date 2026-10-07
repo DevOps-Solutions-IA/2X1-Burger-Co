@@ -16,6 +16,7 @@ import type {
   CheckoutCustomerSnapshot,
   CheckoutItemSnapshot,
   CreateSofiaCheckoutCommand,
+  PaymentIntentRelinkPolicy,
 } from '../order-checkout.types';
 import { assertPaymentTransition } from '../payment-lifecycle';
 
@@ -234,11 +235,27 @@ export class PrismaOrderCheckoutRepository {
     idempotencyKey: string;
     provider: PaymentIntentProvider;
     expiresAt: Date;
+    relinkPolicy: PaymentIntentRelinkPolicy;
   }) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "order_checkouts" WHERE id = ${input.checkoutId} FOR UPDATE`;
       const checkout = await tx.orderCheckout.findUnique({ where: { id: input.checkoutId } });
       if (!checkout) checkoutNotFound();
+      // PaymentIntent TOCTOU remediation: re-read all PaymentIntent rows for this checkout
+      // fresh, under the FOR UPDATE lock just taken above, and re-run the full relink/
+      // active-attempt policy against that freshly-locked state -- never against a
+      // pre-transaction snapshot. This must happen before the (provider, idempotencyKey) replay
+      // lookup below so that a concurrent (or serialization-retried) attempt with a *different*
+      // idempotencyKey for the same checkout is rejected here instead of falling through to
+      // create a second, independent PaymentIntent. withBoundedTransactionRetry retries this
+      // entire method -- a fresh `$transaction` per call -- so every retry re-runs this
+      // check-then-create sequence atomically against a brand-new snapshot and a freshly
+      // acquired lock; there is no partial-progress path that resumes past this check.
+      const currentPaymentIntents = await tx.paymentIntent.findMany({
+        where: { checkoutId: checkout.id },
+        orderBy: { attemptNumber: 'desc' },
+      });
+      input.relinkPolicy(checkout, currentPaymentIntents);
       const existing = await tx.paymentIntent.findUnique({
         where: { provider_idempotencyKey: { provider: input.provider, idempotencyKey: input.idempotencyKey } },
       });
