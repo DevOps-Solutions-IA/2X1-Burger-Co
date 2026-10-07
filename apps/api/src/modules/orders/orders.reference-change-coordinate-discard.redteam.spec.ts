@@ -195,24 +195,21 @@ describe('RED TEAM: reference-text change discards real coordinates, reopening L
       deliveryFee: Number(second.deliveryFee),
     });
 
-    // PRE-FIX: this is the fraud. POST-FIX: the assertions in this block flip (see the paired
-    // "fix closes" test below) -- kept here, unmodified from the reproduction, as the historical
-    // record of what was proven BEFORE the fix landed. Do not edit these expectations to make
-    // them pass after the fix; see the second `it` below for the post-fix contract.
+    // Coordinates are still correctly nulled (RULE 3's own discard, unrelated to this fix) and
+    // geocoding is still never attempted for a bare zone-alias-only reference -- neither of those
+    // is the bug. The fix closes what happens next: a bare zone-alias match that never triggered
+    // geocoding must never upgrade an order away from its prior proven-non-free pricing status.
+    // Before this fix, this exact scenario produced deliveryPricingStatus:'LOCAL_FREE',
+    // deliveryFee:0, deliveryRequiresManualQuote:false, canCheckout:true -- a real 42km-away
+    // order shipping free. Verified by reverting this file's fix via `git stash` (pathspec-
+    // isolated) and re-running: identical fraud reproduced. See the commit message for the
+    // full before/after evidence.
     expect(second.deliveryLatitude).toBeNull();
     expect(second.deliveryLongitude).toBeNull();
     expect(geocodeCalls).toBe(0);
-    if (process.env.REDTEAM_EXPECT_FRAUD_CLOSED === 'true') {
-      // Post-fix contract.
-      expect(second.deliveryPricingStatus).not.toBe('LOCAL_FREE');
-      expect(secondAuth.canCheckout).toBe(false);
-    } else {
-      // Pre-fix reproduction (default).
-      expect(second.deliveryPricingStatus).toBe('LOCAL_FREE');
-      expect(Number(second.deliveryFee)).toBe(0);
-      expect(second.deliveryRequiresManualQuote).toBe(false);
-      expect(secondAuth.canCheckout).toBe(true); // FRAUD: real 42km-away order now ships free
-    }
+    expect(second.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(second.deliveryRequiresManualQuote).toBe(true);
+    expect(secondAuth.canCheckout).toBe(false);
   });
 
   it('REGRESSION GUARD: a genuine address change that successfully re-geocodes to a real near point still prices and checks out normally (fix must not block legitimate moves)', async () => {
