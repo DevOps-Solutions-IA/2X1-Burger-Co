@@ -4958,9 +4958,63 @@ export class OrdersService {
             }
           : null,
     });
-    const deliveryFee = new Prisma.Decimal(pricing.finalFee ?? 0);
-    const deliveryZoneLabel = pricing.zoneLabel;
-    const deliveryFeeSuggested = pricing.suggestedFee != null ? new Prisma.Decimal(pricing.suggestedFee) : null;
+    // RULE 1/2 fix (fix/delivery-destination-rule1-rule2-reintegration-20261007): RULE 3 above
+    // correctly discards stale coordinates when the reference-text change is classified
+    // SPATIAL/AMBIGUOUS. But if THIS SAME turn supplies no new explicit latitude/longitude, the
+    // `pricing` call just above ran with latitude=null/longitude=null. If the new reference text
+    // ALSO happens to satisfy the bare textual zone-alias vocabulary ("condados"/"alborada" — see
+    // local-zone-match.ts), `DeliveryExternalDataService.resolveDeliveryContext` short-circuits to
+    // LOCAL_FREE BEFORE ever attempting geocoding or checking any coordinate — i.e. with ZERO
+    // independent spatial re-verification. For an order whose PREVIOUS snapshot already proved a
+    // real, non-free pricing status (e.g. OUT_OF_COVERAGE at 42km), this lets the reference text
+    // alone "walk" a proven-far order to LOCAL_FREE/fee=0/canCheckout=true — reopening exactly the
+    // "textual zone alias overrides trusted spatial data" fraud the TRUSTED_SPATIAL_DATA >
+    // TEXTUAL_ZONE_ALIAS architecture exists to prevent (see
+    // orders.reference-change-coordinate-discard.redteam.spec.ts for the PoC).
+    //
+    // Fail closed: a bare zone-alias text match that never triggered geocoding (no
+    // `providerUsage.geocodingProvider`) is NOT new positive spatial evidence. It can never
+    // upgrade an order away from a previous real, non-LOCAL_FREE pricing status unless this turn
+    // also supplies a fresh explicit coordinate pair (checked above, independent of this branch)
+    // or the new text independently re-geocodes successfully (also independent of this branch,
+    // since geocoding only runs when `localZoneMatch` does NOT match/no-op the bare-alias path).
+    // Scope is intentionally narrow: it does not touch the (separate, pre-existing, out-of-scope)
+    // fact that `DeliveryPricingEngine.quote()` checks the textual zone alias before any
+    // coordinate at all, even outside an edit/discard flow — that is a materially larger,
+    // all-orders change and was not authorized here; see delivery report.
+    const priorNonFreeEvidence = Boolean(
+      input.existing?.deliveryPricingStatus && input.existing.deliveryPricingStatus !== 'LOCAL_FREE',
+    );
+    const spatialReverificationMissing =
+      referenceChanged && explicitLatitude == null && explicitLongitude == null && priorNonFreeEvidence;
+    const localFreeWithoutReverification =
+      spatialReverificationMissing &&
+      pricing.pricingStatus === 'LOCAL_FREE' &&
+      !pricing.providerUsage.geocodingProvider;
+
+    const effectivePricingStatus = localFreeWithoutReverification ? 'NEEDS_ADDRESS_CORRECTION' : pricing.pricingStatus;
+    const effectiveRequiresManualQuote = localFreeWithoutReverification ? true : pricing.requiresManualQuote;
+    const effectiveConfidence = localFreeWithoutReverification ? 'LOW' : pricing.confidence;
+    const effectiveSuggestedFee = localFreeWithoutReverification ? null : pricing.suggestedFee;
+    const effectiveZoneLabel = localFreeWithoutReverification ? null : pricing.zoneLabel;
+    const effectiveBreakdown = localFreeWithoutReverification
+      ? [
+          {
+            code: 'SPATIAL_REVERIFICATION_REQUIRED',
+            label:
+              'Se requiere re-verificar la ubicación: el pedido tenía evidencia previa de estar fuera de la zona gratis y el cambio de referencia solo coincidió con un alias textual de zona, sin coordenadas nuevas ni geocodificación exitosa que lo confirme.',
+            amount: 0,
+            metadata: {
+              previousPricingStatus: input.existing?.deliveryPricingStatus ?? null,
+              rawEngineStatus: pricing.pricingStatus,
+            },
+          },
+        ]
+      : pricing.breakdown;
+
+    const deliveryFee = new Prisma.Decimal(localFreeWithoutReverification ? 0 : pricing.finalFee ?? 0);
+    const deliveryZoneLabel = effectiveZoneLabel;
+    const deliveryFeeSuggested = effectiveSuggestedFee != null ? new Prisma.Decimal(effectiveSuggestedFee) : null;
     const deliveryEstimatedMinutes = pricing.estimatedMinutes != null ? new Prisma.Decimal(pricing.estimatedMinutes) : null;
     const deliveryDistanceKm =
       pricing.distanceKm != null
@@ -5005,11 +5059,11 @@ export class OrdersService {
       deliveryFeeSuggested,
       deliveryFeeEdited: pricing.manualEdited,
       deliveryFeeEditReason: pricing.manualEditReason,
-      deliveryPricingStatus: pricing.pricingStatus,
-      deliveryPricingConfidence: pricing.confidence,
-      deliveryPricingBreakdown: pricing.breakdown as Prisma.InputJsonValue,
+      deliveryPricingStatus: effectivePricingStatus,
+      deliveryPricingConfidence: effectiveConfidence,
+      deliveryPricingBreakdown: effectiveBreakdown as Prisma.InputJsonValue,
       deliveryCalculationVersion: pricing.calculationVersion,
-      deliveryRequiresManualQuote: pricing.requiresManualQuote,
+      deliveryRequiresManualQuote: effectiveRequiresManualQuote,
       deliveryRouteProvider: pricing.providerUsage.routingProvider ?? input.existing?.deliveryRouteProvider ?? null,
       deliveryWeatherProvider: pricing.providerUsage.weatherProvider ?? input.existing?.deliveryWeatherProvider ?? null,
       deliveryGeocodingProvider: pricing.providerUsage.geocodingProvider ?? input.existing?.deliveryGeocodingProvider ?? null,
