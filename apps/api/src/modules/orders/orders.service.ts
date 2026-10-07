@@ -55,6 +55,7 @@ import type { KitchenTransitionDto } from './dto/kitchen-transition.dto';
 import type { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
 import { classifyReferenceTextChange } from '../../delivery/destination-state/spatial-change-classifier';
+import { resolveAtomicCoordinatePair } from '../../delivery/destination-state/destination-coordinate-pair';
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
@@ -1742,6 +1743,29 @@ export class OrdersService {
             });
           }
 
+          // RULE 1 auditability: the client submitted exactly one of latitude/longitude without
+          // its pair. `resolveDeliverySnapshot` already discarded it fail-closed (never combined
+          // with the other axis) — this records that it happened instead of it being silently
+          // invisible. Never blocks order creation.
+          if (deliverySnapshot?.coordinatePairDiscarded) {
+            await this.auditService.log(
+              {
+                userId: actor.sub,
+                action: 'DELIVERY_COORDINATE_PAIR_DISCARDED',
+                module: 'orders',
+                entity: 'order_ticket',
+                entityId: created.id,
+                result: 'BLOCKED',
+                reasonCode: `RULE1_PARTIAL_AXIS_${(deliverySnapshot.coordinatePairDiscardedAxis ?? 'unknown').toUpperCase()}`,
+                newValues: {
+                  deliveryLatitude: dto.deliveryLatitude,
+                  deliveryLongitude: dto.deliveryLongitude,
+                },
+              },
+              tx,
+            );
+          }
+
           await this.auditService.log(
             {
               userId: actor.sub,
@@ -2060,6 +2084,29 @@ export class OrdersService {
           where: { id: deliverySnapshot.deliveryPricingAuditId, orderTicketId: null },
           data: { orderTicketId: id },
         });
+      }
+
+      // RULE 1 auditability (see `create()` for the symmetric check): the client submitted
+      // exactly one of latitude/longitude without its pair. `resolveDeliverySnapshot` already
+      // discarded it fail-closed (never combined with the other axis) — recorded here instead of
+      // being silently invisible. Never blocks the update.
+      if (deliverySnapshot?.coordinatePairDiscarded) {
+        await this.auditService.log(
+          {
+            userId: actor.sub,
+            action: 'DELIVERY_COORDINATE_PAIR_DISCARDED',
+            module: 'orders',
+            entity: 'order_ticket',
+            entityId: id,
+            result: 'BLOCKED',
+            reasonCode: `RULE1_PARTIAL_AXIS_${(deliverySnapshot.coordinatePairDiscardedAxis ?? 'unknown').toUpperCase()}`,
+            newValues: {
+              deliveryLatitude: dto.deliveryLatitude,
+              deliveryLongitude: dto.deliveryLongitude,
+            },
+          },
+          tx,
+        );
       }
 
       if (current.tableId && current.tableId !== table?.id) {
@@ -4939,8 +4986,25 @@ export class OrdersService {
         ? Number(input.existing.deliveryLongitude)
         : null;
 
-    const latitude = explicitLatitude ?? existingLatitude;
-    const longitude = explicitLongitude ?? existingLongitude;
+    // RULE 1 fix (fix/delivery-destination-rule1-rule2-reintegration-20261007): the previous
+    // `explicitLatitude ?? existingLatitude` / `explicitLongitude ?? existingLongitude` resolved
+    // each axis INDEPENDENTLY. Both DTO fields are `@IsOptional()` with no cross-field validator
+    // (see update-order-ticket.dto.ts / create-order-ticket.dto.ts), so a turn that submits only a
+    // new latitude silently combined it with a stale longitude from a different capture event — a
+    // synthetic point never actually proven as a pair, then trusted for pricing/coverage. See
+    // apps/api/src/delivery/destination-state/destination-coordinate-pair.ts.
+    const coordinateResolution = resolveAtomicCoordinatePair({
+      explicitLatitude,
+      explicitLongitude,
+      existingLatitude,
+      existingLongitude,
+    });
+    const latitude = coordinateResolution.latitude;
+    const longitude = coordinateResolution.longitude;
+    // RULE 1 fail-closed path: the partial axis is never silently combined with the other axis's
+    // existing value. Surfaced on the returned snapshot (`coordinatePairDiscarded`/
+    // `coordinatePairDiscardedAxis`) so both call sites (`create`/`update`) can write an audit
+    // entry instead of this happening invisibly.
     const pricing = await this.deliveryPricingService.estimate({
       addressText: rawReference,
       reference: rawReference,
@@ -5073,12 +5137,29 @@ export class OrdersService {
         latitude != null && longitude != null
           ? input.locationSource ?? input.locationProvider ?? input.existing?.deliveryLocationSource ?? 'whatsapp_live_location'
           : 'address_zone_estimate',
+      // RULE 2 fix (fix/delivery-destination-rule1-rule2-reintegration-20261007): the previous
+      // ternary stamped `new Date()` whenever ANY pair was present — including a pair CARRIED
+      // FORWARD unchanged from `existing` (misrepresenting when it was actually captured) — and,
+      // worse, fell back to the OLD `input.existing.deliveryLocationReceivedAt` whenever
+      // `latitude`/`longitude` were `null` — a dangling anchor timestamp claiming a GPS fix was
+      // captured at time T while no coordinates exist at all (e.g. right after a SPATIAL edit
+      // discarded them per RULE 3/5). The anchor must travel WITH the coordinate pair, never
+      // survive independently of it:
+      //   EXPLICIT_PAIR -> a genuinely new capture event this turn -> fresh timestamp.
+      //   EXISTING_PAIR -> unchanged evidence carried forward -> PRESERVE the original timestamp.
+      //   NONE          -> no usable pair this revision -> no anchor may survive -> null.
       deliveryLocationReceivedAt:
-        latitude != null && longitude != null
+        coordinateResolution.source === 'EXPLICIT_PAIR'
           ? new Date()
-          : input.existing?.deliveryLocationReceivedAt
-            ? new Date(input.existing.deliveryLocationReceivedAt)
+          : coordinateResolution.source === 'EXISTING_PAIR'
+            ? input.existing?.deliveryLocationReceivedAt
+              ? new Date(input.existing.deliveryLocationReceivedAt)
+              : null
             : null,
+      // Surfaced for the real call sites (`create`/`update`) to audit-log a RULE 1 violation
+      // attempt instead of it happening invisibly (fail-closed auditability, not a pricing input).
+      coordinatePairDiscarded: coordinateResolution.partialCoordinateDiscarded,
+      coordinatePairDiscardedAxis: coordinateResolution.discardedAxis,
     };
   }
 
