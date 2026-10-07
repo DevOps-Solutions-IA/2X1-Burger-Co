@@ -54,6 +54,7 @@ import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
 import type { KitchenTransitionDto } from './dto/kitchen-transition.dto';
 import type { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
+import { classifyReferenceTextChange } from '../../delivery/destination-state/spatial-change-classifier';
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
@@ -4898,10 +4899,23 @@ export class OrdersService {
     const existingAddress = input.existing?.deliveryAddressNormalized
       ? normalizeAddrForCustomer(input.existing.deliveryAddressNormalized)
       : null;
-    const referenceChanged =
+    const referenceTextChanged =
       normalizedAddress != null &&
       existingAddress != null &&
       normalizedAddress !== existingAddress;
+    // RULE 3 fix (fix/delivery-destination-toctou-reintegration-20261006): a trivial,
+    // non-spatial text edit (e.g. "casa azul" -> "porton negro" at the SAME address) used to
+    // discard real, previously-trusted GPS coordinates just because the raw text differed.
+    // That throws away good evidence and can reopen a stale textual zone-alias match at a
+    // different tariff. Classify the TEXT CHANGE itself before deciding to discard: only a
+    // SPATIAL change — or one we cannot prove is non-spatial (AMBIGUOUS, fail-closed) — may
+    // invalidate the existing coordinates. See
+    // apps/api/src/delivery/destination-state/spatial-change-classifier.ts.
+    const referenceChangeClassification = referenceTextChanged
+      ? classifyReferenceTextChange(existingAddress as string, normalizedAddress as string)
+      : null;
+    const referenceChanged =
+      referenceTextChanged && referenceChangeClassification?.classification !== 'NON_SPATIAL';
 
     const explicitLatitude = input.latitude ?? null;
     const explicitLongitude = input.longitude ?? null;
