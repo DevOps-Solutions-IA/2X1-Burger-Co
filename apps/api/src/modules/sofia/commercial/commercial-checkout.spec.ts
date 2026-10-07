@@ -74,13 +74,14 @@ describe('commercial intent and checkout', () => {
       new SafeCommercialResponseTemplates(),
     );
     const orderCreation = { createFromSofiaDraft: jest.fn(async () => { throw new Error('SOFIA_ORDER_CREATION_BLOCKED'); }) };
+    const deliveryQuotes = { quote: jest.fn(async () => ({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })) };
     const service = new CommercialCheckoutService(
       engine, new CommercialPolicyService(), new CommercialMetricsService(), responses, repository as never,
       { listActive: jest.fn(async () => products), getActiveById: jest.fn(async (id: string) => products.find((entry) => entry.id === id)!), findActive: jest.fn() } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString() })) } as never,
       { check: jest.fn(async () => ({ productId: 'p1', quantity: 1, available: true, reasonCode: 'AVAILABLE', checkedAt: new Date().toISOString(), missingIngredients: [], recipeIngredients: [{ ingredientId: 'i1', name: 'Cebolla' }] })) } as never,
       { resolve: jest.fn(async () => ({ customerId: 'c1', displayName: null, phoneMasked: '***', created: false })) } as never,
-      { quote: jest.fn(async () => ({ auditId: 'q1', status: 'AUTO_PRICED', finalFee: 5000, currency: 'COP', distanceKm: 4, estimatedMinutes: 20, reasonCode: 'AUTO_PRICED', calculationVersion: '2x1-delivery-pricing-v1', canCheckout: true })) } as never,
+      deliveryQuotes as never,
       { record: jest.fn(async () => ({ auditEventId: 'a1', timestamp: new Date().toISOString() })) } as never,
       // Governed and disabled in every environment today (see command-handler.registry.ts,
       // SOFIA_CREATE_ORDER `enabled: false`); confirm() must swallow this and never let it change
@@ -88,7 +89,7 @@ describe('commercial intent and checkout', () => {
       orderCreation as never,
     );
     const actor = { actorId: 'operator', roles: ['admin'], source: 'SOFIA_WHATSAPP' as const };
-    return { service, repository, orderCreation, actor, getState: () => state };
+    return { service, repository, orderCreation, deliveryQuotes, actor, getState: () => state };
   }
 
   it('builds and confirms a takeaway draft without asking known fields again', async () => {
@@ -215,6 +216,42 @@ describe('commercial intent and checkout', () => {
     });
     expect(second.state.address).toBe('Carrera 10 # 20');
     expect(second.state.location).toEqual({ latitude: 3.26, longitude: -76.54 });
+  });
+
+  // fix/delivery-destination-rule1-rule2-reintegration-20261007: RULE 1 (coordinate atomicity) and
+  // RULE 2 (anchor binding) were applied at the LEGACY POS call site
+  // (`orders.service.ts::resolveDeliverySnapshot`, see
+  // `orders.rule1-rule2-coordinate-atomicity.spec.ts`) where `latitude`/`longitude` are two
+  // independent `@IsOptional()` DTO fields merged with `??`. Applying the same rules HERE found
+  // that `CommercialMessageCommand['location']`/`CommercialConversationState['location']` are
+  // already typed as a single atomic `{ latitude, longitude } | null` — there is no independent
+  // per-axis merge to fix (RULE 1 holds structurally, by construction, not by a runtime check) —
+  // and this call site has no separate "anchor" field that could desync from the coordinates (RULE
+  // 2's concern on the POS side was `deliveryLocationReceivedAt` surviving independently of
+  // `deliveryLatitude`/`deliveryLongitude`; here `location` is a single value replaced wholesale
+  // every turn, never partially). These tests pin that structural guarantee as a regression guard:
+  // if a future change ever wires `state.location` into `DeliveryQuoteService.quote()` (which
+  // today only receives `addressText`, never `latitude`/`longitude` — see `prepareDraft()`), it
+  // must not reintroduce an independent-axis merge at that new call site.
+  it('RULE 1/2: location is never split into independent axes before/while reaching the delivery quote', async () => {
+    const { service, deliveryQuotes, actor } = fixture();
+    await service.process({
+      conversationId: 'conv',
+      phone: '573001112233',
+      message: 'Mándame un combo 2x1 a la Carrera 10 # 20 y pago al recibir',
+      location: { latitude: 3.26, longitude: -76.54 },
+      actor,
+    });
+    // `location` is tracked as logistics context only (see the first `location` test above) — the
+    // authoritative quote is computed from `addressText` alone. Asserting this explicitly guards
+    // against a future regression silently passing a bare `latitude`/`longitude` pair (independent
+    // of the atomic `location` object) into the quote call.
+    expect(deliveryQuotes.quote).toHaveBeenCalledWith(
+      expect.objectContaining({ addressText: 'Carrera 10 # 20' }),
+    );
+    const callArgs = (deliveryQuotes.quote as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.latitude).toBeUndefined();
+    expect(callArgs.longitude).toBeUndefined();
   });
 
   it('fails ambiguous transactional novelty closed', async () => {
