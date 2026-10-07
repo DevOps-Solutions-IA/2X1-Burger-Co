@@ -148,13 +148,20 @@ export class OperationalBacklogService {
             COUNT(*) FILTER (WHERE status = 'DISPATCHED')::bigint AS "notificationDispatched",
             COUNT(*) FILTER (WHERE status = 'FAILED' AND updated_at >= ${now} - INTERVAL '15 minutes')::bigint AS "notificationFailed",
             COUNT(*) FILTER (WHERE status = 'UNKNOWN_RESULT')::bigint AS "notificationUnknownResult",
+            -- notification_intents.{lease_expires_at,next_retry_at,expires_at} are naive
+            -- TIMESTAMP(3); NotificationOutboxService writes them exclusively via the typed
+            -- Prisma Client (UTC-normalized, session-timezone-independent --
+            -- CANONICAL_TEMPORAL_AUTHORITY, see prisma-order-checkout.repository.ts). A raw
+            -- bind-param compare against ${now} without this AT TIME ZONE cast is
+            -- session-timezone-sensitive and gives WRONG results against typed-written values.
+            -- Do not remove.
             COUNT(*) FILTER (
-              WHERE status = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ${now}
+              WHERE status = 'CLAIMED' AND lease_expires_at IS NOT NULL AND (lease_expires_at AT TIME ZONE 'UTC') <= ${now}
             )::bigint AS "notificationExpiredLeases",
             COUNT(*) FILTER (
               WHERE status = 'PENDING'
-                AND (next_retry_at IS NULL OR next_retry_at <= ${now})
-                AND (expires_at IS NULL OR expires_at > ${now})
+                AND (next_retry_at IS NULL OR (next_retry_at AT TIME ZONE 'UTC') <= ${now})
+                AND (expires_at IS NULL OR (expires_at AT TIME ZONE 'UTC') > ${now})
             )::bigint AS "notificationRetryReady",
             COALESCE(EXTRACT(EPOCH FROM (${now} - MIN(created_at) FILTER (
               WHERE status IN ('PENDING', 'CLAIMED', 'COMMAND_PENDING', 'DISPATCHED')
@@ -166,15 +173,22 @@ export class OperationalBacklogService {
               WHERE processed_at IS NULL
                 AND processed_status IN ('RECEIVED', 'PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
             )::bigint AS "webhookActive",
+            -- payment_webhook_events.{next_retry_at,processing_lease_expires_at} are naive
+            -- TIMESTAMP(3); the repository writes them exclusively via the typed Prisma Client
+            -- (UTC-normalized, session-timezone-independent -- CANONICAL_TEMPORAL_AUTHORITY, see
+            -- prisma-order-checkout.repository.ts). A raw bind-param compare against ${now}
+            -- without this AT TIME ZONE cast is session-timezone-sensitive and gives WRONG
+            -- results against typed-written values (undercounts expired leases / retry-ready
+            -- webhooks under a non-UTC Postgres session). Do not remove.
             COUNT(*) FILTER (
               WHERE processed_at IS NULL AND processed_status = 'FAILED' AND retryable = TRUE
-                AND (next_retry_at IS NULL OR next_retry_at <= ${now})
+                AND (next_retry_at IS NULL OR (next_retry_at AT TIME ZONE 'UTC') <= ${now})
             )::bigint AS "webhookRetryReady",
             COUNT(*) FILTER (
               WHERE processed_at IS NULL
                 AND processed_status IN ('PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED')
                 AND processing_lease_expires_at IS NOT NULL
-                AND processing_lease_expires_at <= ${now}
+                AND (processing_lease_expires_at AT TIME ZONE 'UTC') <= ${now}
             )::bigint AS "webhookExpiredLeases",
             COUNT(*) FILTER (WHERE processed_status = 'FINANCIAL_REVIEW_REQUIRED')::bigint AS "webhookFinancialReview",
             COUNT(*) FILTER (
