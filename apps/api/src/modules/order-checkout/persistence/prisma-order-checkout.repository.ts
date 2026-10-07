@@ -859,10 +859,21 @@ export class PrismaOrderCheckoutRepository {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     // CANONICAL_TEMPORAL_AUTHORITY: typed Prisma Client only (see claimWebhookEvidence above).
     // `ORDER BY COALESCE(...)` has no typed-client equivalent, so the COALESCE sort key is
-    // computed in TS after a typed `findMany` fetch of every matching row, then truncated to
-    // `boundedLimit`. `deterministicResult: { equals: Prisma.DbNull }` is the typed-filter form
-    // of `deterministic_result IS NULL` on a nullable Json column -- a bare `null` is not
+    // computed in TS after a typed `findMany` fetch, then truncated to `boundedLimit`.
+    // `deterministicResult: { equals: Prisma.DbNull }` is the typed-filter form of
+    // `deterministic_result IS NULL` on a nullable Json column -- a bare `null` is not
     // equivalent for Json? fields in this Prisma version.
+    //
+    // `take: candidateCap` bounds how many rows this ever pulls into Node, even if the eligible
+    // backlog is far larger than `boundedLimit` -- without it, a large backlog would be fetched
+    // in full on every recovery cycle. The DB-side `orderBy: receivedAt asc` is a reasonable
+    // approximation of the true COALESCE sort key (nextRetryAt/leaseExpiresAt cluster close to
+    // receivedAt for any realistically-sized backlog), so capping on that pre-sort before the
+    // exact in-memory sort only risks a slightly stale pick order under a backlog many times
+    // larger than `candidateCap` -- never a correctness break (every returned id is still a
+    // genuinely eligible, recoverable webhook; the worker simply runs again next cycle for the
+    // rest).
+    const candidateCap = Math.max(boundedLimit * 20, 1000);
     const eligibleStatuses = ['PROCESSING', 'VALIDATED', 'TRANSITION_APPLIED', 'DOWNSTREAM_APPLIED'];
     const candidates = await this.prisma.paymentWebhookEvent.findMany({
       where: {
@@ -884,6 +895,8 @@ export class PrismaOrderCheckoutRepository {
         ],
       },
       select: { id: true, nextRetryAt: true, processingLeaseExpiresAt: true, receivedAt: true },
+      orderBy: { receivedAt: 'asc' },
+      take: candidateCap,
     });
     const sortKey = (row: (typeof candidates)[number]) =>
       (row.nextRetryAt ?? row.processingLeaseExpiresAt ?? row.receivedAt).getTime();

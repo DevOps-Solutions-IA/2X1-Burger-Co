@@ -148,13 +148,20 @@ export class OperationalBacklogService {
             COUNT(*) FILTER (WHERE status = 'DISPATCHED')::bigint AS "notificationDispatched",
             COUNT(*) FILTER (WHERE status = 'FAILED' AND updated_at >= ${now} - INTERVAL '15 minutes')::bigint AS "notificationFailed",
             COUNT(*) FILTER (WHERE status = 'UNKNOWN_RESULT')::bigint AS "notificationUnknownResult",
+            -- notification_intents.{lease_expires_at,next_retry_at,expires_at} are naive
+            -- TIMESTAMP(3); NotificationOutboxService writes them exclusively via the typed
+            -- Prisma Client (UTC-normalized, session-timezone-independent --
+            -- CANONICAL_TEMPORAL_AUTHORITY, see prisma-order-checkout.repository.ts). A raw
+            -- bind-param compare against ${now} without this AT TIME ZONE cast is
+            -- session-timezone-sensitive and gives WRONG results against typed-written values.
+            -- Do not remove.
             COUNT(*) FILTER (
-              WHERE status = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ${now}
+              WHERE status = 'CLAIMED' AND lease_expires_at IS NOT NULL AND (lease_expires_at AT TIME ZONE 'UTC') <= ${now}
             )::bigint AS "notificationExpiredLeases",
             COUNT(*) FILTER (
               WHERE status = 'PENDING'
-                AND (next_retry_at IS NULL OR next_retry_at <= ${now})
-                AND (expires_at IS NULL OR expires_at > ${now})
+                AND (next_retry_at IS NULL OR (next_retry_at AT TIME ZONE 'UTC') <= ${now})
+                AND (expires_at IS NULL OR (expires_at AT TIME ZONE 'UTC') > ${now})
             )::bigint AS "notificationRetryReady",
             COALESCE(EXTRACT(EPOCH FROM (${now} - MIN(created_at) FILTER (
               WHERE status IN ('PENDING', 'CLAIMED', 'COMMAND_PENDING', 'DISPATCHED')
