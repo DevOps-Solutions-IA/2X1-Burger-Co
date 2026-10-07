@@ -54,6 +54,7 @@ import { UpdateOrderTicketDto } from './dto/update-order-ticket.dto';
 import type { KitchenTransitionDto } from './dto/kitchen-transition.dto';
 import type { ListOperationalOrdersDto } from './dto/list-operational-orders.dto';
 import { normalizeSearchText, normalizePhone, normalizeAddressText as normalizeAddrForCustomer } from '../../common/normalization/customer-normalization';
+import { classifyReferenceTextChange } from '../../delivery/destination-state/spatial-change-classifier';
 import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflow.service';
 import { DeliveryLocationPolicy } from '../delivery-operations/delivery-location.policy';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
@@ -4894,14 +4895,38 @@ export class OrdersService {
     }
 
     const rawReference = input.deliveryReference?.trim() || null;
-    const normalizedAddress = rawReference ? normalizeAddrForCustomer(rawReference) : null;
+    // normalizeAddrForCustomer (customer-normalization.ts) collapses whitespace BEFORE stripping
+    // "#", so a single pass over "Carrera 10 # 20-30" leaves a double space where "# " was
+    // removed ("carrera 10  20-30") — it is not idempotent. `existingAddress` below reads back an
+    // ALREADY-normalized value and normalizes it again (a second pass, which happens to fully
+    // collapse that double space), while `normalizedAddress` only gets ONE pass over fresh raw
+    // text. Comparing a once-normalized value against a twice-normalized one made every address
+    // containing "#" (the canonical Colombian format) spuriously register as a SPATIAL change —
+    // defeating RULE 3 for the most common real address shape. Apply the SAME normalizer twice on
+    // both sides so the comparison is pass-count-independent; this is a local, minimal
+    // counter-measure for a pre-existing non-idempotency bug in the shared normalizer, not a fix
+    // to that normalizer itself (out of scope here — see delivery report).
+    const normalizedAddress = rawReference ? normalizeAddrForCustomer(normalizeAddrForCustomer(rawReference)) : null;
     const existingAddress = input.existing?.deliveryAddressNormalized
-      ? normalizeAddrForCustomer(input.existing.deliveryAddressNormalized)
+      ? normalizeAddrForCustomer(normalizeAddrForCustomer(input.existing.deliveryAddressNormalized))
       : null;
-    const referenceChanged =
+    const referenceTextChanged =
       normalizedAddress != null &&
       existingAddress != null &&
       normalizedAddress !== existingAddress;
+    // RULE 3 fix (fix/delivery-destination-toctou-reintegration-20261006): a trivial,
+    // non-spatial text edit (e.g. "casa azul" -> "porton negro" at the SAME address) used to
+    // discard real, previously-trusted GPS coordinates just because the raw text differed.
+    // That throws away good evidence and can reopen a stale textual zone-alias match at a
+    // different tariff. Classify the TEXT CHANGE itself before deciding to discard: only a
+    // SPATIAL change — or one we cannot prove is non-spatial (AMBIGUOUS, fail-closed) — may
+    // invalidate the existing coordinates. See
+    // apps/api/src/delivery/destination-state/spatial-change-classifier.ts.
+    const referenceChangeClassification = referenceTextChanged
+      ? classifyReferenceTextChange(existingAddress as string, normalizedAddress as string)
+      : null;
+    const referenceChanged =
+      referenceTextChanged && referenceChangeClassification?.classification !== 'NON_SPATIAL';
 
     const explicitLatitude = input.latitude ?? null;
     const explicitLongitude = input.longitude ?? null;
