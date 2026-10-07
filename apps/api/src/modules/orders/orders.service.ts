@@ -4895,9 +4895,20 @@ export class OrdersService {
     }
 
     const rawReference = input.deliveryReference?.trim() || null;
-    const normalizedAddress = rawReference ? normalizeAddrForCustomer(rawReference) : null;
+    // normalizeAddrForCustomer (customer-normalization.ts) collapses whitespace BEFORE stripping
+    // "#", so a single pass over "Carrera 10 # 20-30" leaves a double space where "# " was
+    // removed ("carrera 10  20-30") — it is not idempotent. `existingAddress` below reads back an
+    // ALREADY-normalized value and normalizes it again (a second pass, which happens to fully
+    // collapse that double space), while `normalizedAddress` only gets ONE pass over fresh raw
+    // text. Comparing a once-normalized value against a twice-normalized one made every address
+    // containing "#" (the canonical Colombian format) spuriously register as a SPATIAL change —
+    // defeating RULE 3 for the most common real address shape. Apply the SAME normalizer twice on
+    // both sides so the comparison is pass-count-independent; this is a local, minimal
+    // counter-measure for a pre-existing non-idempotency bug in the shared normalizer, not a fix
+    // to that normalizer itself (out of scope here — see delivery report).
+    const normalizedAddress = rawReference ? normalizeAddrForCustomer(normalizeAddrForCustomer(rawReference)) : null;
     const existingAddress = input.existing?.deliveryAddressNormalized
-      ? normalizeAddrForCustomer(input.existing.deliveryAddressNormalized)
+      ? normalizeAddrForCustomer(normalizeAddrForCustomer(input.existing.deliveryAddressNormalized))
       : null;
     const referenceTextChanged =
       normalizedAddress != null &&

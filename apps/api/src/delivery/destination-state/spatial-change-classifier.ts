@@ -46,8 +46,30 @@ const STREET_KEYWORDS =
 
 // Instruction/note vocabulary — presence (without a street keyword) indicates the segment is a
 // delivery note, not a spatial identifier.
+//
+// ALTO-1 fix (independent review, 2026-10-07): the original list also included informal-location
+// words — "frente", "esquina", "lado"/"al lado", "cerca", "detras", "entrada", "edificio",
+// "local", "conjunto" — that in Colombian usage describe REAL (if informal) spatial reference
+// points just as often as they describe a pure access note ("frente al parque de Belén" is a
+// neighborhood identifier, not an instruction). Because INSTRUCTION segments were never compared
+// between previous/next text (see `splitReference` below) — only counted and otherwise ignored —
+// classifying those words as INSTRUCTION let a real change of neighborhood/municipality hide
+// behind unchanged SPATIAL (street+number) segments and be misclassified NON_SPATIAL, silently
+// keeping GPS coordinates from the WRONG place. Confirmed independently:
+// `"calle 50, frente al parque de belen"` -> `"calle 50, frente al parque de laureles"` used to
+// classify NON_SPATIAL (SPATIAL_SEGMENTS_UNCHANGED) instead of AMBIGUOUS/SPATIAL.
+//
+// Fix (option (b) from the review — simpler and strictly more fail-closed than comparing
+// INSTRUCTION as a set): remove every word from this vocabulary that can plausibly BE a spatial
+// reference on its own in informal Colombian addressing. What remains is reserved for vocabulary
+// that is unambiguously an access/handling note and never a location identifier by itself (building
+// color, buzzer, door staff, pet warnings, drop-off instructions). Removing a word from this list
+// does not make the classifier miss a real edit: it only means that segment can no longer be
+// classified INSTRUCTION, so it falls through to AMBIGUOUS (the existing fail-closed default for
+// "can't recognize this segment" — see rule 1/2 in `classifyReferenceTextChange` below) — never
+// silently to NON_SPATIAL. The removed words are not re-added anywhere else in this file.
 const INSTRUCTION_VOCABULARY =
-  /\b(casa|apto|apartamento|apartaestudio|interior|int|torre|bloque|piso|porton|reja|timbre|conserje|recepcion|porteria|llamar|avisar|referencia|nota|color|azul|verde|rojo|blanco|negro|amarillo|gris|cafe|marron|naranja|rosado|frente|esquina|lado|cerca|detras|entrada|garaje|local|oficina|edificio|conjunto|cuidado|perro|mascota|dejar|encargar|encargado|vigilante|portero)\b/;
+  /\b(casa|apto|apartamento|apartaestudio|interior|int|torre|bloque|piso|porton|reja|timbre|conserje|recepcion|porteria|llamar|avisar|referencia|nota|color|azul|verde|rojo|blanco|negro|amarillo|gris|cafe|marron|naranja|rosado|garaje|oficina|cuidado|perro|mascota|dejar|encargar|encargado|vigilante|portero)\b/;
 
 type SegmentClass = 'SPATIAL' | 'INSTRUCTION' | 'AMBIGUOUS';
 

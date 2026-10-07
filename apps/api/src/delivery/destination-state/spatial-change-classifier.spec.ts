@@ -38,8 +38,7 @@ describe('classifyReferenceTextChange (RULE 3)', () => {
 
   it('fails closed to AMBIGUOUS when an unrecognized segment changes alongside a stable street', () => {
     // "patio con flores moradas" / "jardin con limonero" match neither STREET_KEYWORDS nor
-    // INSTRUCTION_VOCABULARY, so they are AMBIGUOUS (unrecognized) segments, not INSTRUCTION —
-    // unlike "cerca del parque" (recognized instruction vocabulary via "cerca").
+    // INSTRUCTION_VOCABULARY, so they are AMBIGUOUS (unrecognized) segments.
     const previous = n('Carrera 10 # 20-30, patio con flores moradas');
     const next = n('Carrera 10 # 20-30, jardin con limonero');
     const result = classifyReferenceTextChange(previous, next);
@@ -51,5 +50,40 @@ describe('classifyReferenceTextChange (RULE 3)', () => {
     const next = n('Carrera 10 # 20-30, casa azul');
     const result = classifyReferenceTextChange(previous, next);
     expect(result.classification).not.toBe('NON_SPATIAL');
+  });
+
+  // ALTO-1 (independent review, 2026-10-07): a real change of neighborhood/municipality must
+  // never classify NON_SPATIAL just because both sides share an informal-location word that used
+  // to be misclassified as a pure "instruction" (frente/al lado/cerca/esquina/entrada/edificio/
+  // local/conjunto). These words were removed from INSTRUCTION_VOCABULARY precisely so these
+  // segments fall through to AMBIGUOUS (fail-closed) instead of being silently ignored.
+  it('ALTO-1: fails closed on a real neighborhood change disguised behind "frente a"', () => {
+    const previous = n('calle 50, frente al parque de belen');
+    const next = n('calle 50, frente al parque de laureles');
+    const result = classifyReferenceTextChange(previous, next);
+    expect(result.classification).not.toBe('NON_SPATIAL');
+    expect(result.classification).toBe('AMBIGUOUS');
+  });
+
+  it('ALTO-1: fails closed on a real municipality change disguised behind "al lado de"', () => {
+    const previous = n('calle 50, al lado de la iglesia de envigado');
+    const next = n('calle 50, al lado de la iglesia de itagui');
+    const result = classifyReferenceTextChange(previous, next);
+    expect(result.classification).not.toBe('NON_SPATIAL');
+    expect(result.classification).toBe('AMBIGUOUS');
+  });
+
+  it('ALTO-1 control: the same neighborhood change without instruction-style wording was already AMBIGUOUS', () => {
+    const previous = n('calle 50, parque de belen');
+    const next = n('calle 50, parque de laureles');
+    const result = classifyReferenceTextChange(previous, next);
+    expect(result.classification).toBe('AMBIGUOUS');
+  });
+
+  it('ALTO-1: genuine access-note-only vocabulary (color/timbre/porton) still classifies NON_SPATIAL', () => {
+    const previous = n('Carrera 10 # 20-30, timbre no funciona, avisar al porton');
+    const next = n('Carrera 10 # 20-30, timbre dañado, avisar en el porton');
+    const result = classifyReferenceTextChange(previous, next);
+    expect(result.classification).toBe('NON_SPATIAL');
   });
 });
