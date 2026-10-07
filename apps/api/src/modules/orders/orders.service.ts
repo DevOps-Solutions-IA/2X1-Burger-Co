@@ -5088,12 +5088,43 @@ export class OrdersService {
     // legitimate GPS-sharing free-zone customer a new fee (no geofence for the free zone exists in
     // this codebase; see the commit message and delivery report for the full risk analysis of why
     // the broader "coordinates always dictate the tier" version was not applied).
+    //
+    // H-1 fix (independent review, follow-up to e9d22da): `Boolean(X && X !== 'LOCAL_FREE')`
+    // treated ANY non-LOCAL_FREE status as "proven not free" — but `NEEDS_ADDRESS_CORRECTION` and
+    // `PROVIDER_UNAVAILABLE` are "we don't know yet" statuses (no address yet, provider down),
+    // NOT "proven far." Combined with dropping `referenceChanged` (BYPASS 2's fix), this became a
+    // PERMANENT, self-sustaining false positive: any order whose first save didn't resolve to
+    // LOCAL_FREE/AUTO_PRICED (no address yet, or `DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false` --
+    // the `.env.example`/canary/recovery/ephemeral DEFAULT) stayed blocked forever, even once the
+    // customer typed a genuine free-zone address with no GPS -- the most common POS flow. Fixed:
+    // `priorNonFreeEvidence` now requires evidence that is GENUINELY "proven not free":
+    //   - `OUT_OF_COVERAGE` or `AUTO_PRICED` -- a real distance/route was actually computed and
+    //     it was not free. This is the only part of "any non-LOCAL_FREE status" that is actually
+    //     proof.
+    //   - a `null` status with real prior coordinates/distance (BYPASS 3, preserved as-is).
+    //   - the previous `deliveryPricingBreakdown` carries THIS guard's own sticky marker
+    //     (`SPATIAL_REVERIFICATION_REQUIRED`, written below) -- keeps BYPASS 2's stickiness
+    //     without over-firing on `NEEDS_ADDRESS_CORRECTION`/`PROVIDER_UNAVAILABLE` from any
+    //     unrelated cause (no address yet, ambiguous zone text, a geocoding/routing provider
+    //     outage, etc.), which must remain escapable the moment real evidence (or a normal
+    //     alias-only address) arrives.
+    const previousBreakdown = input.existing?.deliveryPricingBreakdown;
+    const previousBreakdownHasStickyMarker =
+      Array.isArray(previousBreakdown) &&
+      previousBreakdown.some(
+        (item) =>
+          item != null &&
+          typeof item === 'object' &&
+          (item as { code?: unknown }).code === 'SPATIAL_REVERIFICATION_REQUIRED',
+      );
     const priorNonFreeEvidence = Boolean(
-      (input.existing?.deliveryPricingStatus && input.existing.deliveryPricingStatus !== 'LOCAL_FREE') ||
+      input.existing?.deliveryPricingStatus === 'OUT_OF_COVERAGE' ||
+        input.existing?.deliveryPricingStatus === 'AUTO_PRICED' ||
         (!input.existing?.deliveryPricingStatus &&
           (input.existing?.deliveryLatitude != null ||
             input.existing?.deliveryLongitude != null ||
-            input.existing?.deliveryDistanceKm != null)),
+            input.existing?.deliveryDistanceKm != null)) ||
+        previousBreakdownHasStickyMarker,
     );
     const spatialReverificationMissing =
       coordinateResolution.source !== 'EXPLICIT_PAIR' && priorNonFreeEvidence;

@@ -302,6 +302,10 @@ describe('RED TEAM: reference-text change discards real coordinates, reopening L
     // The first version of the guard required `referenceChanged === true` on the SAME turn as the
     // discard, so this innocuous resave escaped it entirely and the raw engine's LOCAL_FREE (the
     // alias text still matches, coordinates are still null) was accepted unprotected.
+    // `existing` here mirrors the REAL update() call site (orders.service.ts, `current` fetched
+    // with `select: { ..., deliveryPricingBreakdown: true, ... }`, passed as `existing: current`)
+    // -- the sticky marker lives in that field, so it must be forwarded here exactly as production
+    // code forwards it, not just `deliveryPricingStatus` alone.
     const third = await impl.resolveDeliverySnapshot(prisma, {
       customerName: 'Cliente Bypass2',
       customerPhone: '573001230011',
@@ -314,6 +318,7 @@ describe('RED TEAM: reference-text change discards real coordinates, reopening L
         deliveryAddressNormalized: second.deliveryAddressNormalized as string,
         deliveryDistanceKm: second.deliveryDistanceKm as never,
         deliveryPricingStatus: second.deliveryPricingStatus as string,
+        deliveryPricingBreakdown: second.deliveryPricingBreakdown as never,
       },
     });
 
@@ -363,6 +368,118 @@ describe('RED TEAM: reference-text change discards real coordinates, reopening L
     expect(secondAuth.canCheckout).toBe(false);
 
     await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230012' } }).catch(() => undefined);
+  });
+
+  it('H-1 REGRESSION GUARD (independent review, 2026-10-07) scenario A: an order with no address yet, then a real zone-alias address with no GPS, must give normal LOCAL_FREE -- not a permanent block', async () => {
+    const impl = service as unknown as {
+      resolveDeliverySnapshot: (tx: unknown, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+
+    // Turn 1: the most common POS start -- customer identified, no address text at all yet.
+    const first = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Sin Direccion Aun',
+      customerPhone: '573001230020',
+      deliveryReference: undefined,
+      latitude: undefined,
+      longitude: undefined,
+      existing: null,
+    });
+    expect(first.deliveryPricingStatus).toBe('NEEDS_ADDRESS_CORRECTION');
+    // Not this guard's own marker -- a completely unrelated cause (no address submitted at all).
+    expect(first.deliveryPricingBreakdown).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'SPATIAL_REVERIFICATION_REQUIRED' })]),
+    );
+
+    // Turn 2: customer now types a genuine free-zone address, no GPS. H-1's bug: the guard
+    // treated turn 1's NEEDS_ADDRESS_CORRECTION as "proven not free" and, after BYPASS 2's fix
+    // dropped `referenceChanged`, this became a PERMANENT block with no escape for the operator.
+    const second = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Sin Direccion Aun',
+      customerPhone: '573001230020',
+      deliveryReference: 'condados casa verde',
+      latitude: undefined,
+      longitude: undefined,
+      existing: {
+        deliveryLatitude: first.deliveryLatitude as never,
+        deliveryLongitude: first.deliveryLongitude as never,
+        deliveryAddressNormalized: first.deliveryAddressNormalized as string,
+        deliveryDistanceKm: first.deliveryDistanceKm as never,
+        deliveryPricingStatus: first.deliveryPricingStatus as string,
+        deliveryPricingBreakdown: first.deliveryPricingBreakdown as never,
+      },
+    });
+
+    expect(second.deliveryPricingStatus).toBe('LOCAL_FREE');
+    expect(Number(second.deliveryFee)).toBe(0);
+    const secondAuth = deriveCheckoutAuthorization({
+      deliveryPricingStatus: second.deliveryPricingStatus as string,
+      deliveryRequiresManualQuote: second.deliveryRequiresManualQuote as boolean,
+      deliveryFee: Number(second.deliveryFee),
+    });
+    expect(secondAuth.canCheckout).toBe(true);
+
+    await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230020' } }).catch(() => undefined);
+  });
+
+  it('H-1 REGRESSION GUARD (independent review, 2026-10-07) scenario B: same flow with external providers DISABLED (the default config) must also give normal LOCAL_FREE', async () => {
+    // Simulates `DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false` -- the `.env.example` / canary /
+    // recovery / ephemeral default -- by disabling providers on a dedicated service instance.
+    const disabledProvidersService = DeliveryExternalDataService.createForTesting({
+      providersEnabled: false,
+      origin,
+      cache: new InMemoryExternalCache(),
+    });
+    const disabledPricingService = new DeliveryPricingService(disabledProvidersService, auditPrisma as never);
+    const svc = new OrdersService(
+      prisma,
+      { record: jest.fn(async () => ({ auditEventId: 'a3', timestamp: new Date().toISOString() })) } as never,
+      {} as never,
+      { emit: jest.fn() } as never,
+      disabledPricingService,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const impl = svc as unknown as {
+      resolveDeliverySnapshot: (tx: unknown, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+
+    const first = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Providers Off',
+      customerPhone: '573001230021',
+      deliveryReference: undefined,
+      latitude: undefined,
+      longitude: undefined,
+      existing: null,
+    });
+    expect(first.deliveryPricingStatus).toBe('NEEDS_ADDRESS_CORRECTION');
+
+    const second = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Providers Off',
+      customerPhone: '573001230021',
+      deliveryReference: 'condados casa verde',
+      latitude: undefined,
+      longitude: undefined,
+      existing: {
+        deliveryLatitude: first.deliveryLatitude as never,
+        deliveryLongitude: first.deliveryLongitude as never,
+        deliveryAddressNormalized: first.deliveryAddressNormalized as string,
+        deliveryDistanceKm: first.deliveryDistanceKm as never,
+        deliveryPricingStatus: first.deliveryPricingStatus as string,
+        deliveryPricingBreakdown: first.deliveryPricingBreakdown as never,
+      },
+    });
+
+    expect(second.deliveryPricingStatus).toBe('LOCAL_FREE');
+    expect(Number(second.deliveryFee)).toBe(0);
+    const secondAuth = deriveCheckoutAuthorization({
+      deliveryPricingStatus: second.deliveryPricingStatus as string,
+      deliveryRequiresManualQuote: second.deliveryRequiresManualQuote as boolean,
+      deliveryFee: Number(second.deliveryFee),
+    });
+    expect(secondAuth.canCheckout).toBe(true);
+
+    await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230021' } }).catch(() => undefined);
   });
 
   it('REGRESSION GUARD: a genuine address change that successfully re-geocodes to a real near point still prices and checks out normally (fix must not block legitimate moves)', async () => {

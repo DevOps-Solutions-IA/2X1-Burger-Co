@@ -196,6 +196,114 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
     expect(result.canCheckout).toBe(true);
   });
 
+  it('H-2 fix (independent review): with NO real route (providers disabled, the DEFAULT config) but a haversine distance alone proving far, the alias is still overridden', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        destination: {
+          latitude: 3.62,
+          longitude: -76.15,
+          addressText: 'Condados de la Alborada',
+          neighborhood: null,
+          confidence: 'HIGH',
+        },
+        route: {
+          // No routing PROVIDER call happened at all -- exactly the `DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false`
+          // default (.env.example / canary / recovery / ephemeral). `distanceKm`/`durationMinutes`
+          // are null, but `haversineReferenceKm` (pure geometry, zero provider calls) alone proves
+          // this destination is far beyond `maxAutoDistanceKm`.
+          attempted: false,
+          distanceKm: null,
+          durationMinutes: null,
+          result: null,
+          haversineReferenceKm: 40,
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('OUT_OF_COVERAGE');
+    expect(result.canCheckout).toBe(false);
+    expect(result.warnings).toContain('LOCAL_ZONE_ALIAS_OVERRIDDEN_BY_REAL_COORDINATES');
+  });
+
+  it('H-2 fix regression guard: a small haversine distance (genuinely near, providers disabled) never invents a new fee -- stays LOCAL_FREE', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        route: {
+          attempted: false,
+          distanceKm: null,
+          durationMinutes: null,
+          result: null,
+          haversineReferenceKm: 0.9, // genuinely near -- real road distance can only be >= this
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.canCheckout).toBe(true);
+  });
+
+  it('H-3 fix (independent review): a PARTIAL real route (distance known, duration unknown) still overrides the alias via OR semantics, matching resolveZoneType', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        destination: {
+          latitude: 3.62,
+          longitude: -76.15,
+          addressText: 'Condados de la Alborada',
+          neighborhood: null,
+          confidence: 'HIGH',
+        },
+        route: {
+          // Only `distanceKm` came back from the routing provider (e.g. a provider that reports
+          // distance but failed to compute duration) -- `durationMinutes` is null. The original
+          // version required BOTH non-null (AND) before calling `resolveZoneType`, so this partial
+          // result failed OPEN to the alias. `resolveZoneType` itself uses OR (either axis alone
+          // can prove OUT_OF_COVERAGE), so this guard must match that semantics.
+          attempted: true,
+          distanceKm: 42,
+          durationMinutes: null,
+          result: {
+            provider: 'mock-route',
+            distanceKm: 42,
+            durationMinutes: null as unknown as number,
+            routeConfidence: 'HIGH',
+            warnings: [],
+          },
+          // Deliberately NOT far enough to independently prove anything via the H-2 haversine
+          // signal -- isolates the H-3 per-axis assertion to the partial real-route distance alone.
+          haversineReferenceKm: 2,
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('OUT_OF_COVERAGE');
+    expect(result.canCheckout).toBe(false);
+  });
+
   it.each(['cerca de alborada', 'por alborada', 'vía alborada'])('requires address correction for ambiguous local text: %s', (addressText) => {
     const result = engine.quote({ addressText });
 
