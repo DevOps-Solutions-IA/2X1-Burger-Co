@@ -89,6 +89,113 @@ describe('DeliveryPricingEngine enterprise pricing', () => {
     },
   );
 
+  // Hallazgo 4 (independent review, 2026-10-07, fix/delivery-local-free-reverification-20261007):
+  // a matched textual zone-alias used to grant LOCAL_FREE unconditionally, even on a brand-new
+  // `create()` never edited, when REAL explicit coordinates were submitted alongside alias text
+  // that independently prove the destination is out of coverage (e.g. 42km away). Coordinates
+  // must outrank a textual alias claim they actively disprove (TRUSTED_SPATIAL_DATA >
+  // TEXTUAL_ZONE_ALIAS) -- see the matching fix in `delivery-external-data.service.ts` (it now
+  // computes the real route instead of short-circuiting before ever looking at coordinates).
+  it('Hallazgo 4 fix: a real route that independently proves OUT_OF_COVERAGE overrides a matched zone-alias claim', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        destination: {
+          latitude: 3.62,
+          longitude: -76.15,
+          addressText: 'Condados de la Alborada',
+          neighborhood: null,
+          confidence: 'HIGH',
+        },
+        route: {
+          attempted: true,
+          distanceKm: 42,
+          durationMinutes: 60,
+          result: {
+            provider: 'mock-route',
+            distanceKm: 42,
+            durationMinutes: 60,
+            routeConfidence: 'HIGH',
+            warnings: [],
+          },
+          haversineReferenceKm: 40,
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('OUT_OF_COVERAGE');
+    expect(result.canCheckout).toBe(false);
+    expect(result.warnings).toContain('LOCAL_ZONE_ALIAS_OVERRIDDEN_BY_REAL_COORDINATES');
+  });
+
+  it('Hallazgo 4 fix does not charge a new fee to a legitimate customer whose real coordinates are genuinely near, even with zone-alias text present', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        route: {
+          attempted: true,
+          distanceKm: 1,
+          durationMinutes: 6,
+          result: {
+            provider: 'mock-route',
+            distanceKm: 1,
+            durationMinutes: 6,
+            routeConfidence: 'HIGH',
+            warnings: [],
+          },
+          haversineReferenceKm: 0.9,
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    // Unchanged from before this fix: real coordinates that do NOT disprove the alias leave the
+    // existing free-zone promise untouched -- no geofence exists in this codebase to re-price
+    // this independently, and this fix must never invent a new fee for an already-legitimate case.
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.canCheckout).toBe(true);
+  });
+
+  it('Hallazgo 4 fix: a matched alias with NO route computed at all (no coordinates this turn) still grants LOCAL_FREE from text alone, unchanged', () => {
+    const result = engine.quote({
+      addressText: 'Condados de la Alborada',
+      context: context({
+        route: {
+          attempted: false,
+          distanceKm: null,
+          durationMinutes: null,
+          result: null,
+          haversineReferenceKm: null,
+        },
+        localZoneMatch: {
+          matched: true,
+          zoneLabel: 'Condados de la Alborada',
+          confidence: 'HIGH',
+          ambiguous: false,
+          reason: 'Alias local exacto.',
+        },
+      }),
+    });
+
+    expect(result.pricingStatus).toBe('LOCAL_FREE');
+    expect(result.finalFee).toBe(0);
+    expect(result.canCheckout).toBe(true);
+  });
+
   it.each(['cerca de alborada', 'por alborada', 'vía alborada'])('requires address correction for ambiguous local text: %s', (addressText) => {
     const result = engine.quote({ addressText });
 

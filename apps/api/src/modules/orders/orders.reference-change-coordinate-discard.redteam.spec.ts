@@ -212,6 +212,159 @@ describe('RED TEAM: reference-text change discards real coordinates, reopening L
     expect(secondAuth.canCheckout).toBe(false);
   });
 
+  it('BYPASS 1 (independent review, 2026-10-07): sending only ONE coordinate axis alongside the alias text must not escape the guard', async () => {
+    const impl = service as unknown as {
+      resolveDeliverySnapshot: (tx: unknown, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+
+    const first = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass1',
+      customerPhone: '573001230010',
+      deliveryReference: 'Calle 45 #12-34, casa blanca, barrio industrial',
+      latitude: TRUE_FAR_LATITUDE,
+      longitude: TRUE_FAR_LONGITUDE,
+      locationProvider: 'whatsapp_live_location',
+      locationConfidence: 'HIGH',
+      existing: null,
+    });
+    expect(first.deliveryPricingStatus).toBe('OUT_OF_COVERAGE');
+
+    // The first version of the guard checked `explicitLatitude == null && explicitLongitude ==
+    // null` on the RAW input. Sending ONLY `latitude` (no `longitude`) made that AND-condition
+    // false even though RULE 1 (`resolveAtomicCoordinatePair`) discards the lone axis and still
+    // resolves to NO usable pair for pricing -- the guard never evaluated while the pricing call
+    // ran with the same null/null coordinates as the undefended case.
+    const second = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass1',
+      customerPhone: '573001230010',
+      deliveryReference: 'condados casa azul',
+      latitude: 3.27, // ONE axis only -- no longitude at all (not even `undefined` explicitly set below)
+      existing: {
+        deliveryLatitude: first.deliveryLatitude as never,
+        deliveryLongitude: first.deliveryLongitude as never,
+        deliveryAddressNormalized: first.deliveryAddressNormalized as string,
+        deliveryDistanceKm: first.deliveryDistanceKm as never,
+        deliveryPricingStatus: first.deliveryPricingStatus as string,
+      },
+    });
+
+    expect(second.deliveryLatitude).toBeNull();
+    expect(second.deliveryLongitude).toBeNull();
+    expect(second.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(second.deliveryRequiresManualQuote).toBe(true);
+    const secondAuth = deriveCheckoutAuthorization({
+      deliveryPricingStatus: second.deliveryPricingStatus as string,
+      deliveryRequiresManualQuote: second.deliveryRequiresManualQuote as boolean,
+      deliveryFee: Number(second.deliveryFee),
+    });
+    expect(secondAuth.canCheckout).toBe(false);
+
+    await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230010' } }).catch(() => undefined);
+  });
+
+  it('BYPASS 2 (independent review, 2026-10-07): a later, innocuous resave that does not touch the reference text must stay blocked (sticky guard)', async () => {
+    const impl = service as unknown as {
+      resolveDeliverySnapshot: (tx: unknown, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+
+    const first = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass2',
+      customerPhone: '573001230011',
+      deliveryReference: 'Calle 45 #12-34, casa blanca, barrio industrial',
+      latitude: TRUE_FAR_LATITUDE,
+      longitude: TRUE_FAR_LONGITUDE,
+      locationProvider: 'whatsapp_live_location',
+      locationConfidence: 'HIGH',
+      existing: null,
+    });
+    expect(first.deliveryPricingStatus).toBe('OUT_OF_COVERAGE');
+
+    // Turn 2: the attack turn -- edits the reference to alias text, no coordinates. Must be
+    // blocked (same as the main fraud test).
+    const second = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass2',
+      customerPhone: '573001230011',
+      deliveryReference: 'condados casa azul',
+      latitude: undefined,
+      longitude: undefined,
+      existing: {
+        deliveryLatitude: first.deliveryLatitude as never,
+        deliveryLongitude: first.deliveryLongitude as never,
+        deliveryAddressNormalized: first.deliveryAddressNormalized as string,
+        deliveryDistanceKm: first.deliveryDistanceKm as never,
+        deliveryPricingStatus: first.deliveryPricingStatus as string,
+      },
+    });
+    expect(second.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+
+    // Turn 3 (the bypass this test targets): a routine POS resave that sends the SAME reference
+    // text again (unchanged -- `referenceChanged` is false THIS turn) and still no coordinates.
+    // The first version of the guard required `referenceChanged === true` on the SAME turn as the
+    // discard, so this innocuous resave escaped it entirely and the raw engine's LOCAL_FREE (the
+    // alias text still matches, coordinates are still null) was accepted unprotected.
+    const third = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass2',
+      customerPhone: '573001230011',
+      deliveryReference: 'condados casa azul',
+      latitude: undefined,
+      longitude: undefined,
+      existing: {
+        deliveryLatitude: second.deliveryLatitude as never,
+        deliveryLongitude: second.deliveryLongitude as never,
+        deliveryAddressNormalized: second.deliveryAddressNormalized as string,
+        deliveryDistanceKm: second.deliveryDistanceKm as never,
+        deliveryPricingStatus: second.deliveryPricingStatus as string,
+      },
+    });
+
+    expect(third.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(third.deliveryRequiresManualQuote).toBe(true);
+    const thirdAuth = deriveCheckoutAuthorization({
+      deliveryPricingStatus: third.deliveryPricingStatus as string,
+      deliveryRequiresManualQuote: third.deliveryRequiresManualQuote as boolean,
+      deliveryFee: Number(third.deliveryFee),
+    });
+    expect(thirdAuth.canCheckout).toBe(false);
+
+    await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230011' } }).catch(() => undefined);
+  });
+
+  it('BYPASS 3 (independent review, 2026-10-07): a legacy row with null deliveryPricingStatus but real prior coordinates must fail closed, not open', async () => {
+    const impl = service as unknown as {
+      resolveDeliverySnapshot: (tx: unknown, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    };
+
+    // Simulates a pre-existing row from before `deliveryPricingStatus` was backfilled: real prior
+    // coordinates/distance exist, but the status column itself is null. The first version of
+    // `priorNonFreeEvidence` (`Boolean(X && X !== 'LOCAL_FREE')`) treated a null status as "no
+    // prior evidence" and failed OPEN.
+    const second = await impl.resolveDeliverySnapshot(prisma, {
+      customerName: 'Cliente Bypass3',
+      customerPhone: '573001230012',
+      deliveryReference: 'condados casa azul',
+      latitude: undefined,
+      longitude: undefined,
+      existing: {
+        deliveryLatitude: TRUE_FAR_LATITUDE as never,
+        deliveryLongitude: TRUE_FAR_LONGITUDE as never,
+        deliveryAddressNormalized: 'calle 45 12 34 casa blanca barrio industrial',
+        deliveryDistanceKm: 42 as never,
+        deliveryPricingStatus: null,
+      },
+    });
+
+    expect(second.deliveryPricingStatus).not.toBe('LOCAL_FREE');
+    expect(second.deliveryRequiresManualQuote).toBe(true);
+    const secondAuth = deriveCheckoutAuthorization({
+      deliveryPricingStatus: second.deliveryPricingStatus as string,
+      deliveryRequiresManualQuote: second.deliveryRequiresManualQuote as boolean,
+      deliveryFee: Number(second.deliveryFee),
+    });
+    expect(secondAuth.canCheckout).toBe(false);
+
+    await prisma.deliveryCustomer.deleteMany({ where: { phone: '573001230012' } }).catch(() => undefined);
+  });
+
   it('REGRESSION GUARD: a genuine address change that successfully re-geocodes to a real near point still prices and checks out normally (fix must not block legitimate moves)', async () => {
     let legitGeocodeCalls = 0;
     const legitRouting = buildRoutingProvider();

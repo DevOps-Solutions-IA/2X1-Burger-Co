@@ -5024,7 +5024,7 @@ export class OrdersService {
     });
     // RULE 1/2 fix (fix/delivery-destination-rule1-rule2-reintegration-20261007): RULE 3 above
     // correctly discards stale coordinates when the reference-text change is classified
-    // SPATIAL/AMBIGUOUS. But if THIS SAME turn supplies no new explicit latitude/longitude, the
+    // SPATIAL/AMBIGUOUS. But if THIS SAME turn supplies no genuinely new EXPLICIT_PAIR, the
     // `pricing` call just above ran with latitude=null/longitude=null. If the new reference text
     // ALSO happens to satisfy the bare textual zone-alias vocabulary ("condados"/"alborada" — see
     // local-zone-match.ts), `DeliveryExternalDataService.resolveDeliveryContext` short-circuits to
@@ -5036,21 +5036,67 @@ export class OrdersService {
     // TEXTUAL_ZONE_ALIAS architecture exists to prevent (see
     // orders.reference-change-coordinate-discard.redteam.spec.ts for the PoC).
     //
-    // Fail closed: a bare zone-alias text match that never triggered geocoding (no
-    // `providerUsage.geocodingProvider`) is NOT new positive spatial evidence. It can never
-    // upgrade an order away from a previous real, non-LOCAL_FREE pricing status unless this turn
-    // also supplies a fresh explicit coordinate pair (checked above, independent of this branch)
-    // or the new text independently re-geocodes successfully (also independent of this branch,
-    // since geocoding only runs when `localZoneMatch` does NOT match/no-op the bare-alias path).
+    // Independent review (2026-10-07) found and this revision closes three bypasses of the first
+    // version of this guard, all confirmed by executing against the real merged code:
+    //
+    //   BYPASS 1 (single-axis send): the first version gated on
+    //   `explicitLatitude == null && explicitLongitude == null` — the RAW per-axis input. RULE 1's
+    //   `resolveAtomicCoordinatePair` discards a PARTIAL single-axis submission (never combines it
+    //   with a stale other axis) and resolves to `source: 'NONE'`, but a lone
+    //   `explicitLatitude` with no `explicitLongitude` makes `explicitLatitude == null` FALSE, so
+    //   the guard never evaluated even though the pricing call above ran with the SAME
+    //   latitude=null/longitude=null as the undefended case. Fixed: gate on
+    //   `coordinateResolution.source !== 'EXPLICIT_PAIR'` — RULE 1's own verdict on whether a
+    //   genuinely new, atomic, trustworthy pair arrived this turn — instead of re-deriving that
+    //   signal (incorrectly) from the raw per-axis inputs ourselves.
+    //
+    //   BYPASS 2 (not sticky across an innocuous resave): the first version additionally required
+    //   `referenceChanged === true` THIS turn. Once downgraded to `NEEDS_ADDRESS_CORRECTION`, the
+    //   persisted snapshot's coordinates are null and its reference text is the (unchanged) alias
+    //   text. A later save that does not alter `deliveryReference` again (a routine POS re-save
+    //   while the order is still being built, or a client simply echoing the existing reference)
+    //   makes `referenceChanged === false` THIS turn, so the guard never re-evaluated even though
+    //   the SAME latitude=null/longitude=null + alias-text LOCAL_FREE recurrence happens every
+    //   time. Fixed: dropped the `referenceChanged` condition entirely. It is not needed for
+    //   correctness — `priorNonFreeEvidence` already re-derives fresh from
+    //   `input.existing.deliveryPricingStatus` every call (which itself becomes
+    //   `NEEDS_ADDRESS_CORRECTION`, still `!== 'LOCAL_FREE'`, once this guard has fired once), so
+    //   the combination of "no EXPLICIT_PAIR this turn" + "prior evidence says not free" + "the raw
+    //   engine result for THIS turn is LOCAL_FREE without geocoding" is sufficient on its own and
+    //   is now re-checked on EVERY call, making the block sticky without any extra state. Verified
+    //   this does not affect the legitimate carry-forward case: when the reference text is
+    //   unchanged and real trusted coordinates survive (RULE 3 did not discard them), the pricing
+    //   call above runs with the REAL coordinates, so `pricing.pricingStatus` reflects the real
+    //   distance (e.g. `OUT_OF_COVERAGE`), never `LOCAL_FREE` — the extra
+    //   `pricing.pricingStatus === 'LOCAL_FREE'` condition below means dropping `referenceChanged`
+    //   cannot false-positive-block that case.
+    //
+    //   BYPASS 3 (`deliveryPricingStatus: null` fails open): `Boolean(X && X !== 'LOCAL_FREE')`
+    //   treats a `null`/`undefined` previous status as "no prior evidence" — but a legacy row can
+    //   have real previous `deliveryLatitude`/`deliveryLongitude`/`deliveryDistanceKm` with a
+    //   `deliveryPricingStatus` left `null` (the column is nullable with no backfill). Fixed:
+    //   fail-closed — a `null` status with any real previous spatial evidence (coordinates or a
+    //   known distance) is now ALSO treated as "not proven free," exactly like an explicit
+    //   non-LOCAL_FREE status.
+    //
     // Scope is intentionally narrow: it does not touch the (separate, pre-existing, out-of-scope)
-    // fact that `DeliveryPricingEngine.quote()` checks the textual zone alias before any
-    // coordinate at all, even outside an edit/discard flow — that is a materially larger,
-    // all-orders change and was not authorized here; see delivery report.
+    // fact that `DeliveryPricingEngine.quote()`/`delivery-external-data.service.ts` checked the
+    // textual zone alias before any coordinate at all even on a brand-new, never-edited `create()`
+    // — see the dedicated, narrower fix for that path (Hallazgo 4) in
+    // `delivery-external-data.service.ts`/`delivery-pricing.engine.ts`, scoped to only override the
+    // alias when real coordinates independently PROVE out-of-coverage, to avoid charging every
+    // legitimate GPS-sharing free-zone customer a new fee (no geofence for the free zone exists in
+    // this codebase; see the commit message and delivery report for the full risk analysis of why
+    // the broader "coordinates always dictate the tier" version was not applied).
     const priorNonFreeEvidence = Boolean(
-      input.existing?.deliveryPricingStatus && input.existing.deliveryPricingStatus !== 'LOCAL_FREE',
+      (input.existing?.deliveryPricingStatus && input.existing.deliveryPricingStatus !== 'LOCAL_FREE') ||
+        (!input.existing?.deliveryPricingStatus &&
+          (input.existing?.deliveryLatitude != null ||
+            input.existing?.deliveryLongitude != null ||
+            input.existing?.deliveryDistanceKm != null)),
     );
     const spatialReverificationMissing =
-      referenceChanged && explicitLatitude == null && explicitLongitude == null && priorNonFreeEvidence;
+      coordinateResolution.source !== 'EXPLICIT_PAIR' && priorNonFreeEvidence;
     const localFreeWithoutReverification =
       spatialReverificationMissing &&
       pricing.pricingStatus === 'LOCAL_FREE' &&

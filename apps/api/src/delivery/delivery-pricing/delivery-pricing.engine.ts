@@ -35,33 +35,59 @@ export class DeliveryPricingEngine {
     }
 
     if (localZoneMatch.matched) {
-      return baseResult({
-        pricingStatus: 'LOCAL_FREE',
-        suggestedFee: 0,
-        finalFee: 0,
-        requiresManualQuote: false,
-        confidence: localZoneMatch.confidence,
-        zoneType: 'LOCAL_FREE',
-        zoneLabel: 'Condados / Alborada',
-        localZoneMatch,
-        context,
-        weatherMode: 'NONE',
-        weatherSurcharge: 0,
-        scheduleMode: 'NORMAL',
-        scheduleSurcharge: 0,
-        logisticsSurcharge: 0,
-        subtotalBenefit: 0,
-        breakdown: [
-          {
-            code: 'LOCAL_FREE_ZONE',
-            label: 'Domicilio gratis - Condados / Alborada',
-            amount: 0,
-          },
-        ],
-        warnings: [...warnings],
-        reasonCode: 'LOCAL_FREE_ZONE',
-        humanMessage: 'Domicilio gratis - Condados / Alborada.',
-      });
+      // Hallazgo 4 fix (fix/delivery-local-free-reverification-20261007, independent-review
+      // follow-up): a textual zone-alias match used to grant LOCAL_FREE unconditionally, even
+      // when `context.route` already holds a REAL, independently-computed distance (now possible
+      // because `delivery-external-data.service.ts` no longer short-circuits before computing the
+      // route when real coordinates are present — see the matching fix there). If that real route
+      // independently proves the destination is OUT_OF_COVERAGE, the alias text must NOT be able
+      // to override it — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS. Deliberately narrow: this only
+      // ever REMOVES a LOCAL_FREE grant that real coordinates actively disprove; it never charges
+      // a new fee to a destination whose real coordinates are near/within normal coverage (no
+      // geofence for the free zone exists in this codebase to re-price those independently without
+      // risking the business's actual promise to that zone's customers — see the delivery report).
+      // When no route was computed at all (no coordinates this turn, or a route-provider failure),
+      // this is unchanged from before: grant LOCAL_FREE from the text alone, exactly as today.
+      const realRouteDistanceKm = context?.route.distanceKm ?? null;
+      const realRouteDurationMinutes = context?.route.durationMinutes ?? null;
+      const realRouteProvesOutOfCoverage =
+        realRouteDistanceKm != null &&
+        realRouteDurationMinutes != null &&
+        resolveZoneType(realRouteDistanceKm, realRouteDurationMinutes) === 'OUT_OF_COVERAGE';
+
+      if (!realRouteProvesOutOfCoverage) {
+        return baseResult({
+          pricingStatus: 'LOCAL_FREE',
+          suggestedFee: 0,
+          finalFee: 0,
+          requiresManualQuote: false,
+          confidence: localZoneMatch.confidence,
+          zoneType: 'LOCAL_FREE',
+          zoneLabel: 'Condados / Alborada',
+          localZoneMatch,
+          context,
+          weatherMode: 'NONE',
+          weatherSurcharge: 0,
+          scheduleMode: 'NORMAL',
+          scheduleSurcharge: 0,
+          logisticsSurcharge: 0,
+          subtotalBenefit: 0,
+          breakdown: [
+            {
+              code: 'LOCAL_FREE_ZONE',
+              label: 'Domicilio gratis - Condados / Alborada',
+              amount: 0,
+            },
+          ],
+          warnings: [...warnings],
+          reasonCode: 'LOCAL_FREE_ZONE',
+          humanMessage: 'Domicilio gratis - Condados / Alborada.',
+        });
+      }
+      // Real coordinates independently prove this destination is out of coverage: fall through to
+      // the normal distance-based pipeline below (NOT the alias path), which re-derives the same
+      // zoneType from the same real route and correctly returns OUT_OF_COVERAGE.
+      warnings.add('LOCAL_ZONE_ALIAS_OVERRIDDEN_BY_REAL_COORDINATES');
     }
 
     if (request.forceManual) {
