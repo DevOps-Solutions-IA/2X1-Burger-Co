@@ -290,6 +290,37 @@ describe('DeliveryExternalDataService provider architecture', () => {
     expect(result).not.toHaveProperty('finalFee');
   });
 
+  it('Hallazgo 4 fix (independent review, 2026-10-07): computes a REAL route instead of short-circuiting when explicit coordinates accompany matched alias text', async () => {
+    const providers = buildProviders({
+      routing: { getRoute: jest.fn().mockResolvedValue(routeResult({ distanceKm: 42, durationMinutes: 60 })) },
+    });
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Condados de la Alborada',
+      latitude: 3.62,
+      longitude: -76.15,
+    });
+
+    expect(result.localZoneMatch).toMatchObject({ matched: true });
+    // Before this fix: `routeAttempted`/route computation never ran here at all (the function
+    // returned before line 97's zone-alias short-circuit even looked at `destination`). Now a
+    // real coordinate pair makes it fall through so the engine can compare the alias claim
+    // against an independently-computed real distance.
+    expect(providers.routingProvider.getRoute).toHaveBeenCalled();
+    expect(result.route.distanceKm).toBe(42);
+    expect(result.geocoding.attempted).toBe(false); // coordinates already present -- no geocoding needed
+  });
+
+  it('matched alias text with NO coordinates at all still short-circuits before any route attempt (unchanged)', async () => {
+    const providers = buildProviders();
+    const result = await serviceWithProviders(providers).resolveDeliveryContext({
+      addressText: 'Condados de la Alborada',
+    });
+
+    expect(result.localZoneMatch).toMatchObject({ matched: true });
+    expect(providers.routingProvider.getRoute).not.toHaveBeenCalled();
+    expect(result.route.attempted).toBe(false);
+  });
+
   it('marks near-alborada text as ambiguous instead of free-zone authority', async () => {
     const result = await serviceWithProviders().resolveDeliveryContext({
       addressText: 'cerca de alborada',

@@ -5022,9 +5022,140 @@ export class OrdersService {
             }
           : null,
     });
-    const deliveryFee = new Prisma.Decimal(pricing.finalFee ?? 0);
-    const deliveryZoneLabel = pricing.zoneLabel;
-    const deliveryFeeSuggested = pricing.suggestedFee != null ? new Prisma.Decimal(pricing.suggestedFee) : null;
+    // RULE 1/2 fix (fix/delivery-destination-rule1-rule2-reintegration-20261007): RULE 3 above
+    // correctly discards stale coordinates when the reference-text change is classified
+    // SPATIAL/AMBIGUOUS. But if THIS SAME turn supplies no genuinely new EXPLICIT_PAIR, the
+    // `pricing` call just above ran with latitude=null/longitude=null. If the new reference text
+    // ALSO happens to satisfy the bare textual zone-alias vocabulary ("condados"/"alborada" — see
+    // local-zone-match.ts), `DeliveryExternalDataService.resolveDeliveryContext` short-circuits to
+    // LOCAL_FREE BEFORE ever attempting geocoding or checking any coordinate — i.e. with ZERO
+    // independent spatial re-verification. For an order whose PREVIOUS snapshot already proved a
+    // real, non-free pricing status (e.g. OUT_OF_COVERAGE at 42km), this lets the reference text
+    // alone "walk" a proven-far order to LOCAL_FREE/fee=0/canCheckout=true — reopening exactly the
+    // "textual zone alias overrides trusted spatial data" fraud the TRUSTED_SPATIAL_DATA >
+    // TEXTUAL_ZONE_ALIAS architecture exists to prevent (see
+    // orders.reference-change-coordinate-discard.redteam.spec.ts for the PoC).
+    //
+    // Independent review (2026-10-07) found and this revision closes three bypasses of the first
+    // version of this guard, all confirmed by executing against the real merged code:
+    //
+    //   BYPASS 1 (single-axis send): the first version gated on
+    //   `explicitLatitude == null && explicitLongitude == null` — the RAW per-axis input. RULE 1's
+    //   `resolveAtomicCoordinatePair` discards a PARTIAL single-axis submission (never combines it
+    //   with a stale other axis) and resolves to `source: 'NONE'`, but a lone
+    //   `explicitLatitude` with no `explicitLongitude` makes `explicitLatitude == null` FALSE, so
+    //   the guard never evaluated even though the pricing call above ran with the SAME
+    //   latitude=null/longitude=null as the undefended case. Fixed: gate on
+    //   `coordinateResolution.source !== 'EXPLICIT_PAIR'` — RULE 1's own verdict on whether a
+    //   genuinely new, atomic, trustworthy pair arrived this turn — instead of re-deriving that
+    //   signal (incorrectly) from the raw per-axis inputs ourselves.
+    //
+    //   BYPASS 2 (not sticky across an innocuous resave): the first version additionally required
+    //   `referenceChanged === true` THIS turn. Once downgraded to `NEEDS_ADDRESS_CORRECTION`, the
+    //   persisted snapshot's coordinates are null and its reference text is the (unchanged) alias
+    //   text. A later save that does not alter `deliveryReference` again (a routine POS re-save
+    //   while the order is still being built, or a client simply echoing the existing reference)
+    //   makes `referenceChanged === false` THIS turn, so the guard never re-evaluated even though
+    //   the SAME latitude=null/longitude=null + alias-text LOCAL_FREE recurrence happens every
+    //   time. Fixed: dropped the `referenceChanged` condition entirely. It is not needed for
+    //   correctness — `priorNonFreeEvidence` already re-derives fresh from
+    //   `input.existing.deliveryPricingStatus` every call (which itself becomes
+    //   `NEEDS_ADDRESS_CORRECTION`, still `!== 'LOCAL_FREE'`, once this guard has fired once), so
+    //   the combination of "no EXPLICIT_PAIR this turn" + "prior evidence says not free" + "the raw
+    //   engine result for THIS turn is LOCAL_FREE without geocoding" is sufficient on its own and
+    //   is now re-checked on EVERY call, making the block sticky without any extra state. Verified
+    //   this does not affect the legitimate carry-forward case: when the reference text is
+    //   unchanged and real trusted coordinates survive (RULE 3 did not discard them), the pricing
+    //   call above runs with the REAL coordinates, so `pricing.pricingStatus` reflects the real
+    //   distance (e.g. `OUT_OF_COVERAGE`), never `LOCAL_FREE` — the extra
+    //   `pricing.pricingStatus === 'LOCAL_FREE'` condition below means dropping `referenceChanged`
+    //   cannot false-positive-block that case.
+    //
+    //   BYPASS 3 (`deliveryPricingStatus: null` fails open): `Boolean(X && X !== 'LOCAL_FREE')`
+    //   treats a `null`/`undefined` previous status as "no prior evidence" — but a legacy row can
+    //   have real previous `deliveryLatitude`/`deliveryLongitude`/`deliveryDistanceKm` with a
+    //   `deliveryPricingStatus` left `null` (the column is nullable with no backfill). Fixed:
+    //   fail-closed — a `null` status with any real previous spatial evidence (coordinates or a
+    //   known distance) is now ALSO treated as "not proven free," exactly like an explicit
+    //   non-LOCAL_FREE status.
+    //
+    // Scope is intentionally narrow: it does not touch the (separate, pre-existing, out-of-scope)
+    // fact that `DeliveryPricingEngine.quote()`/`delivery-external-data.service.ts` checked the
+    // textual zone alias before any coordinate at all even on a brand-new, never-edited `create()`
+    // — see the dedicated, narrower fix for that path (Hallazgo 4) in
+    // `delivery-external-data.service.ts`/`delivery-pricing.engine.ts`, scoped to only override the
+    // alias when real coordinates independently PROVE out-of-coverage, to avoid charging every
+    // legitimate GPS-sharing free-zone customer a new fee (no geofence for the free zone exists in
+    // this codebase; see the commit message and delivery report for the full risk analysis of why
+    // the broader "coordinates always dictate the tier" version was not applied).
+    //
+    // H-1 fix (independent review, follow-up to e9d22da): `Boolean(X && X !== 'LOCAL_FREE')`
+    // treated ANY non-LOCAL_FREE status as "proven not free" — but `NEEDS_ADDRESS_CORRECTION` and
+    // `PROVIDER_UNAVAILABLE` are "we don't know yet" statuses (no address yet, provider down),
+    // NOT "proven far." Combined with dropping `referenceChanged` (BYPASS 2's fix), this became a
+    // PERMANENT, self-sustaining false positive: any order whose first save didn't resolve to
+    // LOCAL_FREE/AUTO_PRICED (no address yet, or `DELIVERY_EXTERNAL_PROVIDERS_ENABLED=false` --
+    // the `.env.example`/canary/recovery/ephemeral DEFAULT) stayed blocked forever, even once the
+    // customer typed a genuine free-zone address with no GPS -- the most common POS flow. Fixed:
+    // `priorNonFreeEvidence` now requires evidence that is GENUINELY "proven not free":
+    //   - `OUT_OF_COVERAGE` or `AUTO_PRICED` -- a real distance/route was actually computed and
+    //     it was not free. This is the only part of "any non-LOCAL_FREE status" that is actually
+    //     proof.
+    //   - a `null` status with real prior coordinates/distance (BYPASS 3, preserved as-is).
+    //   - the previous `deliveryPricingBreakdown` carries THIS guard's own sticky marker
+    //     (`SPATIAL_REVERIFICATION_REQUIRED`, written below) -- keeps BYPASS 2's stickiness
+    //     without over-firing on `NEEDS_ADDRESS_CORRECTION`/`PROVIDER_UNAVAILABLE` from any
+    //     unrelated cause (no address yet, ambiguous zone text, a geocoding/routing provider
+    //     outage, etc.), which must remain escapable the moment real evidence (or a normal
+    //     alias-only address) arrives.
+    const previousBreakdown = input.existing?.deliveryPricingBreakdown;
+    const previousBreakdownHasStickyMarker =
+      Array.isArray(previousBreakdown) &&
+      previousBreakdown.some(
+        (item) =>
+          item != null &&
+          typeof item === 'object' &&
+          (item as { code?: unknown }).code === 'SPATIAL_REVERIFICATION_REQUIRED',
+      );
+    const priorNonFreeEvidence = Boolean(
+      input.existing?.deliveryPricingStatus === 'OUT_OF_COVERAGE' ||
+        input.existing?.deliveryPricingStatus === 'AUTO_PRICED' ||
+        (!input.existing?.deliveryPricingStatus &&
+          (input.existing?.deliveryLatitude != null ||
+            input.existing?.deliveryLongitude != null ||
+            input.existing?.deliveryDistanceKm != null)) ||
+        previousBreakdownHasStickyMarker,
+    );
+    const spatialReverificationMissing =
+      coordinateResolution.source !== 'EXPLICIT_PAIR' && priorNonFreeEvidence;
+    const localFreeWithoutReverification =
+      spatialReverificationMissing &&
+      pricing.pricingStatus === 'LOCAL_FREE' &&
+      !pricing.providerUsage.geocodingProvider;
+
+    const effectivePricingStatus = localFreeWithoutReverification ? 'NEEDS_ADDRESS_CORRECTION' : pricing.pricingStatus;
+    const effectiveRequiresManualQuote = localFreeWithoutReverification ? true : pricing.requiresManualQuote;
+    const effectiveConfidence = localFreeWithoutReverification ? 'LOW' : pricing.confidence;
+    const effectiveSuggestedFee = localFreeWithoutReverification ? null : pricing.suggestedFee;
+    const effectiveZoneLabel = localFreeWithoutReverification ? null : pricing.zoneLabel;
+    const effectiveBreakdown = localFreeWithoutReverification
+      ? [
+          {
+            code: 'SPATIAL_REVERIFICATION_REQUIRED',
+            label:
+              'Se requiere re-verificar la ubicación: el pedido tenía evidencia previa de estar fuera de la zona gratis y el cambio de referencia solo coincidió con un alias textual de zona, sin coordenadas nuevas ni geocodificación exitosa que lo confirme.',
+            amount: 0,
+            metadata: {
+              previousPricingStatus: input.existing?.deliveryPricingStatus ?? null,
+              rawEngineStatus: pricing.pricingStatus,
+            },
+          },
+        ]
+      : pricing.breakdown;
+
+    const deliveryFee = new Prisma.Decimal(localFreeWithoutReverification ? 0 : pricing.finalFee ?? 0);
+    const deliveryZoneLabel = effectiveZoneLabel;
+    const deliveryFeeSuggested = effectiveSuggestedFee != null ? new Prisma.Decimal(effectiveSuggestedFee) : null;
     const deliveryEstimatedMinutes = pricing.estimatedMinutes != null ? new Prisma.Decimal(pricing.estimatedMinutes) : null;
     const deliveryDistanceKm =
       pricing.distanceKm != null
@@ -5069,11 +5200,11 @@ export class OrdersService {
       deliveryFeeSuggested,
       deliveryFeeEdited: pricing.manualEdited,
       deliveryFeeEditReason: pricing.manualEditReason,
-      deliveryPricingStatus: pricing.pricingStatus,
-      deliveryPricingConfidence: pricing.confidence,
-      deliveryPricingBreakdown: pricing.breakdown as Prisma.InputJsonValue,
+      deliveryPricingStatus: effectivePricingStatus,
+      deliveryPricingConfidence: effectiveConfidence,
+      deliveryPricingBreakdown: effectiveBreakdown as Prisma.InputJsonValue,
       deliveryCalculationVersion: pricing.calculationVersion,
-      deliveryRequiresManualQuote: pricing.requiresManualQuote,
+      deliveryRequiresManualQuote: effectiveRequiresManualQuote,
       deliveryRouteProvider: pricing.providerUsage.routingProvider ?? input.existing?.deliveryRouteProvider ?? null,
       deliveryWeatherProvider: pricing.providerUsage.weatherProvider ?? input.existing?.deliveryWeatherProvider ?? null,
       deliveryGeocodingProvider: pricing.providerUsage.geocodingProvider ?? input.existing?.deliveryGeocodingProvider ?? null,

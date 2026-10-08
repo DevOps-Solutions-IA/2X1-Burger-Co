@@ -35,32 +35,91 @@ export class DeliveryPricingEngine {
     }
 
     if (localZoneMatch.matched) {
-      return baseResult({
-        pricingStatus: 'LOCAL_FREE',
-        suggestedFee: 0,
-        finalFee: 0,
-        requiresManualQuote: false,
-        confidence: localZoneMatch.confidence,
-        zoneType: 'LOCAL_FREE',
-        zoneLabel: 'Condados / Alborada',
-        localZoneMatch,
+      // Hallazgo 4 fix (fix/delivery-local-free-reverification-20261007, independent-review
+      // follow-up): a textual zone-alias match used to grant LOCAL_FREE unconditionally, even
+      // when `context.route` already holds a REAL, independently-computed distance (now possible
+      // because `delivery-external-data.service.ts` no longer short-circuits before computing the
+      // route when real coordinates are present — see the matching fix there). If that real route
+      // independently proves the destination is OUT_OF_COVERAGE, the alias text must NOT be able
+      // to override it — TRUSTED_SPATIAL_DATA > TEXTUAL_ZONE_ALIAS. Deliberately narrow: this only
+      // ever REMOVES a LOCAL_FREE grant that real coordinates actively disprove; it never charges
+      // a new fee to a destination whose real coordinates are near/within normal coverage (no
+      // geofence for the free zone exists in this codebase to re-price those independently without
+      // risking the business's actual promise to that zone's customers — see the delivery report).
+      //
+      // H-2 fix (independent review, follow-up to e9d22da): the first version of this guard
+      // required a real PROVIDER-computed `distanceKm`/`durationMinutes`, which only exist when
+      // `DELIVERY_EXTERNAL_PROVIDERS_ENABLED=true`. That flag defaults to `false`
+      // (`.env.example`, and canary/recovery/ephemeral) -- with providers OFF, `context.route`
+      // is always empty, so the original 42km bypass stayed open under the DEFAULT config, not
+      // just an edge case. `haversineReferenceKm` is computed purely from the submitted
+      // coordinates (see `delivery-external-data.service.ts`'s `haversineDistanceKm`, pure
+      // geometry, zero external calls) and is a mathematical LOWER BOUND on the real road
+      // distance (straight-line distance can never exceed the real route). If the haversine
+      // distance ALONE already exceeds the auto-coverage radius, the real road distance can only
+      // be equal or larger, so this carries zero risk of wrongly blocking a genuinely near
+      // destination (a near destination's haversine is also small). Added as an OR alongside the
+      // real-route signal so Hallazgo 4 closes with providers on OR off.
+      //
+      // H-3 fix (independent review, follow-up to e9d22da): the first version required BOTH
+      // `distanceKm != null && durationMinutes != null` (AND) before calling `resolveZoneType`,
+      // but `resolveZoneType`'s own OUT_OF_COVERAGE condition is an OR of the two axes -- a
+      // partial real route (e.g. only a routing provider that returns distance but not duration)
+      // failed OPEN to the alias here, the opposite of the normal pipeline below (which delegates
+      // to the SAME `resolveZoneType` and would correctly flag it). Fixed: evaluate each axis
+      // against its own config threshold directly, with the same OR semantics, instead of forcing
+      // both through `resolveZoneType` at once.
+      const realDistanceKm = context?.route.distanceKm ?? null;
+      const realDurationMinutes = context?.route.durationMinutes ?? null;
+      const haversineKm = context?.route.haversineReferenceKm ?? null;
+      const realRouteProvesOutOfCoverage =
+        (realDistanceKm != null && realDistanceKm > deliveryPricingConfig.maxAutoDistanceKm) ||
+        (realDurationMinutes != null && realDurationMinutes > deliveryPricingConfig.maxAutoDurationMinutes) ||
+        (haversineKm != null && haversineKm > deliveryPricingConfig.maxAutoDistanceKm);
+
+      if (!realRouteProvesOutOfCoverage) {
+        return baseResult({
+          pricingStatus: 'LOCAL_FREE',
+          suggestedFee: 0,
+          finalFee: 0,
+          requiresManualQuote: false,
+          confidence: localZoneMatch.confidence,
+          zoneType: 'LOCAL_FREE',
+          zoneLabel: 'Condados / Alborada',
+          localZoneMatch,
+          context,
+          weatherMode: 'NONE',
+          weatherSurcharge: 0,
+          scheduleMode: 'NORMAL',
+          scheduleSurcharge: 0,
+          logisticsSurcharge: 0,
+          subtotalBenefit: 0,
+          breakdown: [
+            {
+              code: 'LOCAL_FREE_ZONE',
+              label: 'Domicilio gratis - Condados / Alborada',
+              amount: 0,
+            },
+          ],
+          warnings: [...warnings],
+          reasonCode: 'LOCAL_FREE_ZONE',
+          humanMessage: 'Domicilio gratis - Condados / Alborada.',
+        });
+      }
+      // Real coordinates (via a real route OR the provider-independent haversine lower bound)
+      // independently prove this destination is out of coverage: return OUT_OF_COVERAGE directly
+      // (not the alias path, and not a fall-through to the generic pipeline below, which could
+      // otherwise report a less precise `PROVIDER_UNAVAILABLE`/`ROUTING_UNAVAILABLE` when
+      // providers are disabled even though we already have independent proof here).
+      warnings.add('LOCAL_ZONE_ALIAS_OVERRIDDEN_BY_REAL_COORDINATES');
+      return this.blockedResult({
+        request,
+        warnings,
         context,
-        weatherMode: 'NONE',
-        weatherSurcharge: 0,
-        scheduleMode: 'NORMAL',
-        scheduleSurcharge: 0,
-        logisticsSurcharge: 0,
-        subtotalBenefit: 0,
-        breakdown: [
-          {
-            code: 'LOCAL_FREE_ZONE',
-            label: 'Domicilio gratis - Condados / Alborada',
-            amount: 0,
-          },
-        ],
-        warnings: [...warnings],
-        reasonCode: 'LOCAL_FREE_ZONE',
-        humanMessage: 'Domicilio gratis - Condados / Alborada.',
+        localZoneMatch,
+        status: 'OUT_OF_COVERAGE',
+        reasonCode: 'OUT_OF_COVERAGE',
+        humanMessage: 'La dirección queda fuera de la cobertura automática de domicilios.',
       });
     }
 

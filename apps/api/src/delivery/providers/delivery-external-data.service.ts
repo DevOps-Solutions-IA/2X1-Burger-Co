@@ -94,7 +94,22 @@ export class DeliveryExternalDataService {
     let geocodingAttempted = false;
     let geocodingResult: GeocodeResult | null = this.locationGeocodingResult(request, destination);
 
-    if (localZoneMatch.matched || localZoneMatch.ambiguous) {
+    // Hallazgo 4 fix (fix/delivery-local-free-reverification-20261007, independent-review
+    // follow-up): a bare textual zone-alias match used to short-circuit here UNCONDITIONALLY,
+    // before ever looking at `destination` — so a `create()` (or any single turn, never edited)
+    // that submitted REAL explicit coordinates proving the destination is 42km away, alongside
+    // reference text that also happens to match "condados"/"alborada", still got LOCAL_FREE with
+    // zero route/distance verification. That is the SAME "textual zone alias overrides trusted
+    // spatial data" fraud the edit-flow fix in `orders.service.ts::resolveDeliverySnapshot`
+    // closes, but reachable WITHOUT ever going through an edit (no RULE 3 coordinate discard
+    // needed at all). An ambiguous match ("cerca de alborada") always short-circuits regardless of
+    // coordinates — the TEXT itself is unreliable independent of any GPS, so correcting the
+    // address is still required. A clean MATCH only short-circuits here when there is no real
+    // destination coordinate to check it against; when one exists, fall through to the normal
+    // geocoding-skip/route/weather pipeline below so `DeliveryPricingEngine.quote()` can compare
+    // the alias claim against the REAL computed distance (see the matching fix there) instead of
+    // trusting the alias blindly.
+    if (localZoneMatch.ambiguous || (localZoneMatch.matched && !hasDestinationCoordinates(destination))) {
       return this.buildContextResult({
         origin,
         destination,
