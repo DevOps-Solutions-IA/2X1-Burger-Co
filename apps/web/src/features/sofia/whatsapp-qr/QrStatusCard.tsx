@@ -27,6 +27,7 @@ const STATUS_LABEL: Record<SofiaQrStatus['status'], string> = {
   RECONNECTING: 'Reconectando',
   FAILED: 'Falló',
   LOGGED_OUT: 'Sesión cerrada',
+  DISCOVERY_CAPTURED: 'Identidad capturada (modo descubrimiento)',
 };
 
 function statusTone(status: SofiaQrStatus['status']) {
