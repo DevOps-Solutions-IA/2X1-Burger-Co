@@ -24,6 +24,7 @@ import {
   secureCommandTypeIcon,
   secureCommandTypeLabel,
   truncateReferenceId,
+  SECURE_COMMAND_TYPE_LABEL,
   TONE_AVATAR_CLASS,
 } from './labels';
 
@@ -45,6 +46,10 @@ export function CommandsPanel() {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_25rem]" data-testid="sofia-validation-commands-panel">
       <Card data-testid="sofia-validation-commands-list-card">
+        <p className="mb-3 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-[12px] leading-5 text-stone-600" data-testid="sofia-validation-commands-help">
+          Estas no son comandas de cocina — son acciones que SOFIA solicita ejecutar en Pedidos, Pagos, Stock o Caja
+          reales, antes de que ocurran.
+        </p>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex items-center gap-1.5 pb-2.5 text-stone-500">
@@ -115,7 +120,7 @@ export function CommandsPanel() {
                 <div data-testid="sofia-validation-commands-empty">
                   <EmptyStrip
                     title="No hay comandos en esta cola"
-                    description="Cuando SOFIA someta un comando gobernado (por ejemplo, envío de WhatsApp) que requiera revisión, aparecerá aquí para su aprobación o rechazo."
+                    description={`Cuando SOFIA someta un comando gobernado que requiera revisión —por ejemplo ${SECURE_COMMAND_TYPE_LABEL.SOFIA_SEND_WHATSAPP.toLowerCase()}, ${SECURE_COMMAND_TYPE_LABEL.SOFIA_CREATE_ORDER.toLowerCase()}, ${SECURE_COMMAND_TYPE_LABEL.SOFIA_MARK_PAYMENT.toLowerCase()} o ${SECURE_COMMAND_TYPE_LABEL.SOFIA_DEDUCT_STOCK.toLowerCase()}— aparecerá aquí para su aprobación o rechazo.`}
                   />
                 </div>
               ) : (

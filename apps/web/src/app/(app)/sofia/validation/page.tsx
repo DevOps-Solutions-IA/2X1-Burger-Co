@@ -15,7 +15,7 @@ export default function SofiaValidationPage() {
         <PageHeader
           eyebrow="Torre de Control"
           title="Validación"
-          description="Aprueba o rechaza comandos gobernados de SOFIA (SecureCommand) y gestiona las escalaciones de servicio al cliente que requieren intervención humana."
+          description="Antes de que SOFIA toque el sistema real (pedidos, pagos, stock, caja o WhatsApp), cada acción pasa por aquí para tu aprobación. SOFIA no tiene comandas propias: pide ejecutar acciones en los sistemas reales."
           data-testid="sofia-validation-header"
         />
 

@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 export type ValidationTabKey = 'commands' | 'cases';
 
 const TABS: Array<{ key: ValidationTabKey; label: string; icon: typeof ShieldCheck }> = [
-  { key: 'commands', label: 'Comandos', icon: ShieldCheck },
+  { key: 'commands', label: 'Acciones pendientes', icon: ShieldCheck },
   { key: 'cases', label: 'Casos', icon: LifeBuoy },
 ];
 
