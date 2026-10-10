@@ -140,8 +140,18 @@ export class SecureCommandNotificationAdapter extends NotificationSecureCommandP
  *   rejection. It must map to the non-terminal 'COMMAND_PENDING' observation (the same one the
  *   pre-dispatch observer used for any unresolved command) so NotificationOutboxService.reconcile()
  *   DEFERs -- the existing, bounded attempts/nextRetryAt/maintenance-sweep mechanism -- instead of
- *   writing a terminal FAILED the instant receive() finishes, which would destroy the approval
- *   window and the notification along with it.
+ *   writing a terminal FAILED the instant receive() finishes.
+ *   KNOWN PRE-EXISTING LIMITATION (confirmed by independent review, 2026-10-10, not introduced or
+ *   fixed by this change): NotificationOutboxService's generic DEFER budget (maxAttempts: 3 *
+ *   retryDelayMs: 5s, notification-outbox.service.ts) settles an unresolved intent to terminal
+ *   UNKNOWN_RESULT after ~10s of real time -- far short of the 5-minute approval window above. A
+ *   human approval granted after that ~10s mark no longer has a live intent to apply to; the
+ *   notification is only recoverable via manual reconciliation of the UNKNOWN_RESULT backlog. This
+ *   DEFERs instead of instantly failing (the regression this commit reverts), which is a real and
+ *   meaningful improvement, but does not make the 5-minute window practically usable. Closing that
+ *   gap fully needs a state-specific retry budget (or settlement keyed to the SecureCommand's own
+ *   expiresAt instead of a fixed attempt counter) -- out of scope here; do not claim elsewhere that
+ *   this commit preserves the full approval window without reading this note first.
  * - SOFIA_COMMAND_ALREADY_RUNNING (another worker/process is mid-claim on this exact command) is
  *   just as unresolved as APPROVAL_REQUIRED -- it also maps to 'COMMAND_PENDING'/DEFER so repeated
  *   1-second worker cycles consume the same bounded attempts counter instead of hammering

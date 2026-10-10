@@ -27,11 +27,15 @@ describe('Notifications architecture', () => {
         if (!entry.name.endsWith('.ts') || entry.name.endsWith('.spec.ts')) continue;
         const source = readFileSync(entryPath, 'utf8');
         // Matches `<identifier>.execute(` calls on anything that could plausibly be the
-        // SecureCommandService instance (`commands`/`secureCommands`), while excluding the
-        // unrelated `handlers.execute(command)` / `this.execution.execute(...)` call sites
-        // (CommandHandlerRegistry and the NotificationCommandExecutionPort abstraction) that
-        // legitimately also exist in this module.
-        const matches = source.match(/\bcommands\.execute\(/g);
+        // SecureCommandService instance -- any identifier ENDING in `commands`/`Commands`
+        // (`commands`, `secureCommands`, ...), not just the exact literal `commands` -- while
+        // excluding the unrelated `handlers.execute(command)` / `this.execution.execute(...)`
+        // call sites (CommandHandlerRegistry and the NotificationCommandExecutionPort
+        // abstraction) that legitimately also exist in this module. A prior version of this
+        // regex matched only the exact identifier `commands`, so a future call site spelled
+        // e.g. `this.secureCommands.execute(...)` -- the very identifier name this test file's
+        // own fixtures use for the dependency -- would have silently evaded detection.
+        const matches = source.match(/\b\w*[Cc]ommands\.execute\(/g);
         if (matches) callSites.push(...matches.map(() => entryPath));
       }
     };
