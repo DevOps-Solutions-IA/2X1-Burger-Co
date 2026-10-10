@@ -42,7 +42,6 @@ export default function SofiaOverviewPage() {
           }
           loadingLabel="Cargando resumen de SOFIA..."
           errorTitle="No se pudo cargar el resumen"
-          variant="console"
           data-testid="sofia-overview"
         >
           {({ dashboard, metrics }) => {
@@ -57,12 +56,10 @@ export default function SofiaOverviewPage() {
                   eyebrow="Torre de Control"
                   title="Resumen"
                   description="Estado operativo del agente y accesos directos a rendimiento y validación."
-                  variant="console"
                   statusBadges={
                     <StatusBadge
                       tone={readinessTone}
                       label={SOFIA_STATUS_TONE_LABEL[readinessTone]}
-                      variant="console"
                       live={readinessTone === 'blocked' || readinessTone === 'success'}
                     />
                   }
@@ -80,7 +77,6 @@ export default function SofiaOverviewPage() {
                     }
                     icon={<ShieldCheck className="h-4.5 w-4.5" />}
                     accent="success"
-                    variant="console"
                     data-testid="sofia-overview-stat-approval"
                   />
                   <StatCard
@@ -89,7 +85,6 @@ export default function SofiaOverviewPage() {
                     hint={`${formatNumber(metrics.conversations.total)} conversaciones hoy`}
                     icon={<Users className="h-4.5 w-4.5" />}
                     accent="brand"
-                    variant="console"
                     data-testid="sofia-overview-stat-active"
                   />
                   <StatCard
@@ -98,7 +93,6 @@ export default function SofiaOverviewPage() {
                     hint={`${formatNumber(metrics.conversations.humanTaken)} ya tomadas por un humano`}
                     icon={<UserCog className="h-4.5 w-4.5" />}
                     accent="warning"
-                    variant="console"
                     data-testid="sofia-overview-stat-human"
                   />
                   <StatCard
@@ -113,7 +107,6 @@ export default function SofiaOverviewPage() {
                       )
                     }
                     accent={readinessTone === 'success' ? 'success' : readinessTone === 'blocked' ? 'danger' : 'warning'}
-                    variant="console"
                     data-testid="sofia-overview-stat-security"
                   />
                 </div>
@@ -125,7 +118,7 @@ export default function SofiaOverviewPage() {
                       Ver rendimiento
                     </Link>
                   </Button>
-                  <Button asChild variant="secondary" className="bg-white/[0.06] text-white ring-1 ring-white/15 hover:bg-white/[0.1]">
+                  <Button asChild variant="secondary">
                     <Link href="/sofia/validation">
                       <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
                       Ir a validación

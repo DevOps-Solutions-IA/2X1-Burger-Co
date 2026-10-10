@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { CONSOLE_ACCENT_ICON_CLASS } from './console-theme';
 
 const ICON_TONE_CLASS = {
   brand: 'border-brand-100 bg-brand-50 text-brand-700',
@@ -17,9 +16,6 @@ const ICON_TONE_CLASS = {
  * Complementa a `PageHeader`, que sigue siendo la única fuente de la
  * descripción de página — el `subtitle` aquí debe ser información nueva
  * de la sección, no una paráfrasis de esa descripción.
- *
- * `variant="console"`: título/subtítulo en blanco y chip de icono con
- * halo, para usar dentro de tarjetas oscuras (`CONSOLE_CARD_CLASS`).
  */
 export function SectionHeading({
   icon,
@@ -27,7 +23,6 @@ export function SectionHeading({
   subtitle,
   right,
   tone = 'brand',
-  variant = 'light',
   className,
 }: {
   icon: ReactNode;
@@ -35,27 +30,17 @@ export function SectionHeading({
   subtitle?: string;
   right?: ReactNode;
   tone?: keyof typeof ICON_TONE_CLASS;
-  variant?: 'light' | 'console';
   className?: string;
 }) {
-  const isConsole = variant === 'console';
   return (
     <div className={cn('flex flex-wrap items-start justify-between gap-3', className)}>
       <div className="flex min-w-0 items-start gap-3">
-        <div
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
-            isConsole ? CONSOLE_ACCENT_ICON_CLASS[tone] : ICON_TONE_CLASS[tone],
-          )}
-          aria-hidden="true"
-        >
+        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', ICON_TONE_CLASS[tone])} aria-hidden="true">
           {icon}
         </div>
         <div className="min-w-0">
-          <p className={cn('text-[13.5px] font-bold leading-tight', isConsole ? 'text-white' : 'text-ink')}>{title}</p>
-          {subtitle && (
-            <p className={cn('mt-0.5 text-[11.5px] leading-5', isConsole ? 'text-white/65' : 'text-stone-600')}>{subtitle}</p>
-          )}
+          <p className="text-[13.5px] font-bold leading-tight text-ink">{title}</p>
+          {subtitle && <p className="mt-0.5 text-[11.5px] leading-5 text-stone-600">{subtitle}</p>}
         </div>
       </div>
       {right && <div className="flex shrink-0 flex-wrap items-center gap-1.5">{right}</div>}
