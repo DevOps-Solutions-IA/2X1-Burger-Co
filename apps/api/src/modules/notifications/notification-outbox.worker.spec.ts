@@ -35,27 +35,16 @@ describe('NotificationOutboxWorker', () => {
     jest.useRealTimers();
   });
 
-  it('runs bounded claim, dispatch, reconciliation and maintenance batches', async () => {
+  it('runs bounded claim, dispatch and maintenance batches, routing a COMMAND_PENDING candidate to the dispatch stage only', async () => {
     const { worker, consumer, outbox, observer, executor } = harness();
-    outbox.findReconciliationCandidates.mockResolvedValue([
-      {
-        id: 'notification-1',
-        status: NotificationIntentStatus.COMMAND_PENDING,
-        version: 2,
-        attempts: 1,
-        secureCommandId: 'command-1',
-        outboundMessageId: 'outbound-1',
-      },
-      {
-        id: 'notification-2',
-        status: NotificationIntentStatus.DISPATCHED,
-        version: 4,
-        attempts: 1,
-        secureCommandId: 'command-2',
-        outboundMessageId: 'outbound-2',
-      },
-    ]);
-    observer.observe.mockResolvedValue({ observation: 'OUTBOUND_SUCCEEDED', errorCode: null });
+    outbox.findReconciliationCandidates.mockResolvedValue([{
+      id: 'notification-1',
+      status: NotificationIntentStatus.COMMAND_PENDING,
+      version: 2,
+      attempts: 1,
+      secureCommandId: 'command-1',
+      outboundMessageId: 'outbound-1',
+    }]);
 
     await worker.runOnce(now);
 
@@ -70,20 +59,32 @@ describe('NotificationOutboxWorker', () => {
       expect.objectContaining({ id: 'notification-1', status: NotificationIntentStatus.COMMAND_PENDING }),
       now,
     );
-    expect(observer.observe).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-1' }));
+    expect(observer.observe).not.toHaveBeenCalled();
+    expect(consumer.reconcile).not.toHaveBeenCalled();
 
-    // DISPATCHED candidate goes through the existing observe()/reconcile() path unchanged, and
-    // is never handed to the dispatch stage.
+    expect(outbox.sweepMaintenance).toHaveBeenCalledWith(now, 25);
+  });
+
+  it('routes a DISPATCHED candidate to the existing observe()/reconcile() reconciliation stage, never to the dispatch stage', async () => {
+    const { worker, consumer, outbox, observer, executor } = harness();
+    outbox.findReconciliationCandidates.mockResolvedValue([{
+      id: 'notification-2',
+      status: NotificationIntentStatus.DISPATCHED,
+      version: 4,
+      attempts: 1,
+      secureCommandId: 'command-2',
+      outboundMessageId: 'outbound-2',
+    }]);
+    observer.observe.mockResolvedValue({ observation: 'OUTBOUND_SUCCEEDED', errorCode: null });
+
+    await worker.runOnce(now);
+
     expect(observer.observe).toHaveBeenCalledWith(expect.objectContaining({ id: 'notification-2' }));
     expect(consumer.reconcile).toHaveBeenCalledWith(expect.objectContaining({
       notificationIntentId: 'notification-2',
       observation: 'OUTBOUND_SUCCEEDED',
     }));
-    expect(executor.dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'notification-2' }),
-      expect.anything(),
-    );
-
+    expect(executor.dispatch).not.toHaveBeenCalled();
     expect(outbox.sweepMaintenance).toHaveBeenCalledWith(now, 25);
   });
 
@@ -106,6 +107,33 @@ describe('NotificationOutboxWorker', () => {
       errorCode: 'WHATSAPP_UNKNOWN_RESULT',
     }));
     expect(outbox.findReconciliationCandidates).toHaveBeenCalledWith(now, 25, false);
+  });
+
+  it('R2 regression guardian: a COMMAND_PENDING candidate deferred by the dispatch stage still runs through the same maintenance sweep every cycle, never a special-cased hot loop', async () => {
+    const { worker, outbox, executor } = harness();
+    outbox.findReconciliationCandidates.mockResolvedValue([{
+      id: 'notification-1',
+      status: NotificationIntentStatus.COMMAND_PENDING,
+      version: 2,
+      attempts: 1,
+      secureCommandId: 'command-1',
+      outboundMessageId: 'outbound-1',
+    }]);
+    // Simulates what NotificationCommandExecutionService.dispatch() now does (see its own spec)
+    // for an unresolved outcome (still-open approval window or a concurrent claim): it defers
+    // through outbox.reconcile()'s DEFER branch rather than failing or skipping silently. At the
+    // worker level, the only observable contract is that this candidate is still routed through
+    // the dispatch stage, and maintenance still runs unconditionally every cycle regardless of
+    // the dispatch outcome -- the bounded settlement itself (attempts/nextRetryAt/eventual
+    // UNKNOWN_RESULT) is asserted directly against outbox.reconcile in
+    // notification-command-execution.service.spec.ts.
+    executor.dispatch.mockResolvedValue({ notificationIntentId: 'notification-1', state: 'DEFERRED', reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED' });
+
+    await worker.runOnce(now);
+    await worker.runOnce(new Date(now.getTime() + 1_000));
+
+    expect(executor.dispatch).toHaveBeenCalledTimes(2);
+    expect(outbox.sweepMaintenance).toHaveBeenCalledTimes(2);
   });
 
   it('skips a COMMAND_PENDING candidate with no bound secure command in both stages', async () => {

@@ -70,18 +70,48 @@ describe('NotificationCommandExecutionService', () => {
     expect(outbox.markDispatched).toHaveBeenCalledTimes(1);
   });
 
-  it('reconciles to FAILED (terminal) through the existing audited path when execute() is policy/approval blocked', async () => {
+  it('R1 regression guardian: defers (never a terminal FAILED) through the existing DEFER/attempts path while the command is still inside its real approval window', async () => {
     const { service, outbox, execution } = harness();
     execution.execute.mockResolvedValue({
       status: 'BLOCKED',
-      observation: 'COMMAND_REJECTED',
+      observation: 'COMMAND_PENDING',
       errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
     });
 
     await expect(service.dispatch(candidate(), now)).resolves.toEqual({
       notificationIntentId: 'notification-1',
-      state: 'FAILED',
+      state: 'DEFERRED',
       reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+    });
+    // observation COMMAND_PENDING routes reconcile() into NotificationOutboxService's existing
+    // DEFER branch -- deferReconciliation() increments attempts and sets nextRetryAt, it never
+    // writes a terminal status. This is the exact mechanism the pre-dispatch reconciliation
+    // observer always used for an unresolved COMMAND_PENDING intent.
+    expect(outbox.reconcile).toHaveBeenCalledWith({
+      notificationIntentId: 'notification-1',
+      expectedVersion: 3,
+      currentStatus: 'COMMAND_PENDING',
+      secureCommandId: 'command-1',
+      outboundMessageId: 'outbound-1',
+      observation: 'COMMAND_PENDING',
+      errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      now,
+    });
+    expect(outbox.markDispatched).not.toHaveBeenCalled();
+  });
+
+  it('reconciles to FAILED (terminal) through the existing audited path when execute() is durably policy/approval blocked', async () => {
+    const { service, outbox, execution } = harness();
+    execution.execute.mockResolvedValue({
+      status: 'BLOCKED',
+      observation: 'COMMAND_REJECTED',
+      errorCode: 'SOFIA_COMMAND_POLICY_BLOCKED',
+    });
+
+    await expect(service.dispatch(candidate(), now)).resolves.toEqual({
+      notificationIntentId: 'notification-1',
+      state: 'FAILED',
+      reasonCode: 'SOFIA_COMMAND_POLICY_BLOCKED',
     });
     expect(outbox.reconcile).toHaveBeenCalledWith({
       notificationIntentId: 'notification-1',
@@ -90,7 +120,7 @@ describe('NotificationCommandExecutionService', () => {
       secureCommandId: 'command-1',
       outboundMessageId: 'outbound-1',
       observation: 'COMMAND_REJECTED',
-      errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      errorCode: 'SOFIA_COMMAND_POLICY_BLOCKED',
       now,
     });
     expect(outbox.markDispatched).not.toHaveBeenCalled();
@@ -112,17 +142,23 @@ describe('NotificationCommandExecutionService', () => {
     expect(outbox.reconcile).toHaveBeenCalledWith(expect.objectContaining({ observation: 'RESULT_UNKNOWN' }));
   });
 
-  it('skips without mutating state when another worker is already executing the same command (duplicate worker claim)', async () => {
+  it('R2 regression guardian: defers (consumes the bounded attempts counter) instead of a bare skip when another worker is already executing the same command', async () => {
     const { service, outbox, execution } = harness();
     execution.execute.mockResolvedValue({ status: 'RUNNING' });
 
     await expect(service.dispatch(candidate(), now)).resolves.toEqual({
       notificationIntentId: 'notification-1',
-      state: 'SKIPPED',
+      state: 'DEFERRED',
       reasonCode: 'SOFIA_COMMAND_ALREADY_RUNNING',
     });
     expect(outbox.markDispatched).not.toHaveBeenCalled();
-    expect(outbox.reconcile).not.toHaveBeenCalled();
+    // This is the concrete fix for the hot-loop: a concurrently-running claim must still go
+    // through reconcile()'s DEFER branch (attempts++, nextRetryAt set) exactly like any other
+    // unresolved COMMAND_PENDING outcome -- never a silent, unbounded, every-1-second retry.
+    expect(outbox.reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      observation: 'COMMAND_PENDING',
+      errorCode: 'SOFIA_COMMAND_ALREADY_RUNNING',
+    }));
   });
 
   it('swallows a lost optimistic-concurrency race on markDispatched as a benign duplicate worker claim', async () => {
@@ -137,12 +173,28 @@ describe('NotificationCommandExecutionService', () => {
     });
   });
 
-  it('swallows a lost optimistic-concurrency race on reconcile as a benign duplicate worker claim', async () => {
+  it('swallows a lost optimistic-concurrency race on a deferral as a benign duplicate worker claim', async () => {
+    const { service, outbox, execution } = harness();
+    execution.execute.mockResolvedValue({
+      status: 'BLOCKED',
+      observation: 'COMMAND_PENDING',
+      errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+    });
+    outbox.reconcile.mockRejectedValue(new Error('STALE_NOTIFICATION_INTENT_VERSION'));
+
+    await expect(service.dispatch(candidate(), now)).resolves.toEqual({
+      notificationIntentId: 'notification-1',
+      state: 'SKIPPED',
+      reasonCode: 'NOTIFICATION_VERSION_CONFLICT',
+    });
+  });
+
+  it('swallows a lost optimistic-concurrency race on a terminal reconcile as a benign duplicate worker claim', async () => {
     const { service, outbox, execution } = harness();
     execution.execute.mockResolvedValue({
       status: 'BLOCKED',
       observation: 'COMMAND_REJECTED',
-      errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      errorCode: 'SOFIA_COMMAND_POLICY_BLOCKED',
     });
     outbox.reconcile.mockRejectedValue(new Error('STALE_NOTIFICATION_INTENT_VERSION'));
 
