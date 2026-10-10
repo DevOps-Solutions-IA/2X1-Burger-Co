@@ -1,3 +1,4 @@
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   CustomerConsentChannel,
   CustomerConsentPurpose,
@@ -5,10 +6,12 @@ import {
   type NotificationIntent,
 } from '@prisma/client';
 import {
+  SecureCommandExecutionAdapter,
   SecureCommandNotificationAdapter,
   WhatsappNotificationDispatchPolicyAdapter,
 } from './notification-dispatch.ports';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
+import { SecureCommandError, UnknownCommandResultError } from '../secure-command/secure-command.errors';
 
 const now = new Date('2026-08-08T12:00:00.000Z');
 const commandFacts = Object.freeze({
@@ -305,6 +308,169 @@ describe('SecureCommandNotificationAdapter', () => {
       },
     }));
     expect(adapter).not.toHaveProperty('execute');
+  });
+});
+
+describe('SecureCommandExecutionAdapter', () => {
+  it('is the sole call site that invokes SecureCommandService.execute() for notifications', async () => {
+    const execute = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, result: null, replayed: false });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' });
+
+    expect(execute).toHaveBeenCalledWith({
+      commandId: 'command-1',
+      actor: { actorId: 'notification-outbox', actorType: 'SYSTEM', roles: ['system'] },
+      claimOwner: 'notification-dispatch:notification-1',
+    });
+  });
+
+  it('reports a fresh success as DISPATCHED with replayed=false when resultCode is the real WHATSAPP_SENT confirmation', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      command: { id: 'command-1' },
+      result: { resultCode: 'WHATSAPP_SENT' },
+      replayed: false,
+    });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'DISPATCHED', replayed: false });
+  });
+
+  it('reports a replayed SUCCEEDED result as DISPATCHED with replayed=true when resultCode is WHATSAPP_SENT', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      command: { id: 'command-1' },
+      result: { resultCode: 'WHATSAPP_SENT' },
+      replayed: true,
+    });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'DISPATCHED', replayed: true });
+  });
+
+  it('ALTO-1 regression guardian: never classifies a provider rejection as DISPATCHED just because execute() did not throw', async () => {
+    // WhatsappOutboundCommandHandler returns normally (does not throw) when the provider
+    // deterministically rejects the send -- it only throws UnknownCommandResultError for a
+    // genuinely unknown outcome. resultCode must be inspected, not just the absence of a throw.
+    const execute = jest.fn().mockResolvedValue({
+      command: { id: 'command-1' },
+      result: { resultCode: 'WHATSAPP_PROVIDER_REJECTED' },
+      replayed: false,
+    });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'WHATSAPP_PROVIDER_REJECTED' });
+  });
+
+  it('fails closed (RESULT_UNKNOWN) rather than assume success when execute() resolves without a result payload', async () => {
+    const execute = jest.fn().mockResolvedValue({ command: { id: 'command-1' }, result: null, replayed: false });
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'SOFIA_COMMAND_RESULT_MISSING' });
+  });
+
+  it('R1 regression guardian: classifies SOFIA_COMMAND_APPROVAL_REQUIRED as BLOCKED/COMMAND_PENDING (deferrable), never a terminal rejection', async () => {
+    // APPROVAL_REQUIRED means the command is still inside its real human-approval window (up to
+    // a 5-minute TTL) -- it must never be treated the same as a durable policy/approval block,
+    // or the outbox would destroy that window the instant receive() finished.
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_APPROVAL_REQUIRED'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_PENDING', errorCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED' });
+  });
+
+  it('classifies SOFIA_COMMAND_POLICY_BLOCKED (durable -- enabled stays false even once APPROVED) as BLOCKED/COMMAND_REJECTED', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_POLICY_BLOCKED'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'SOFIA_COMMAND_POLICY_BLOCKED' });
+  });
+
+  it('classifies SOFIA_COMMAND_EXPIRED (the real approval window has definitively closed) as BLOCKED/COMMAND_REJECTED', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_EXPIRED'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'COMMAND_REJECTED', errorCode: 'SOFIA_COMMAND_EXPIRED' });
+  });
+
+  it('classifies a dependency-unavailable execute() failure as BLOCKED/RESULT_UNKNOWN, never assumed FAILED', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'SOFIA_COMMAND_DEPENDENCY_UNAVAILABLE' });
+  });
+
+  it('MEDIO regression guardian: classifies SOFIA_COMMAND_IDEMPOTENCY_CONFLICT as BLOCKED/RESULT_UNKNOWN because it can be thrown both before AND after the handler ran', async () => {
+    // repository.succeed() throws this exact same error code via the same generic
+    // assertChanged() check used by markExecuting() (before the handler runs). SecureCommand
+    // gives this adapter no way to tell those two cases apart, so a real send may already have
+    // been attempted -- it must never be classified as a definite, clean rejection.
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_IDEMPOTENCY_CONFLICT'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'SOFIA_COMMAND_IDEMPOTENCY_CONFLICT' });
+  });
+
+  it('classifies an UnknownCommandResultError as BLOCKED/RESULT_UNKNOWN, never assumed sent or failed', async () => {
+    const execute = jest.fn().mockRejectedValue(new UnknownCommandResultError('WHATSAPP_UNKNOWN_RESULT'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'WHATSAPP_UNKNOWN_RESULT' });
+  });
+
+  it('R2 regression guardian: reports a concurrently-claimed command as RUNNING (the caller defers it, never a blind unbounded retry)', async () => {
+    const execute = jest.fn().mockRejectedValue(new SecureCommandError('SOFIA_COMMAND_ALREADY_RUNNING'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'RUNNING' });
+  });
+
+  it.each([
+    ['WHATSAPP_RECIPIENT_BINDING_INVALID', new ForbiddenException({ code: 'WHATSAPP_RECIPIENT_BINDING_INVALID' })],
+    ['WHATSAPP_PAYLOAD_BINDING_INVALID', new ForbiddenException({ code: 'WHATSAPP_PAYLOAD_BINDING_INVALID' })],
+    ['WHATSAPP_CONVERSATION_VERSION_CONFLICT', new ForbiddenException({ code: 'WHATSAPP_CONVERSATION_VERSION_CONFLICT' })],
+    ['WHATSAPP_PROVIDER_UNAVAILABLE', new ForbiddenException({ code: 'WHATSAPP_PROVIDER_UNAVAILABLE' })],
+    ['WHATSAPP_PROVIDER_ACCOUNT_MISMATCH', new ForbiddenException({ code: 'WHATSAPP_PROVIDER_ACCOUNT_MISMATCH' })],
+    ['WHATSAPP_REAL_SEND_DISABLED', new ForbiddenException({ code: 'WHATSAPP_REAL_SEND_DISABLED' })],
+    ['WHATSAPP_OUTBOUND_NOT_FOUND', new NotFoundException({ code: 'WHATSAPP_OUTBOUND_NOT_FOUND' })],
+  ])('ALTO-2 regression guardian: classifies the handler\'s own %s HttpException as BLOCKED/RESULT_UNKNOWN, never a silent unclassified stage failure', async (code, httpException) => {
+    // These are plain Nest exceptions thrown directly by WhatsappOutboundCommandHandler's own
+    // pre-provider guards -- they are neither SecureCommandError nor UnknownCommandResultError,
+    // so without this branch they would fall through to `throw error` and reach the worker as
+    // an unclassified stage failure (no attempts increment, no lastErrorCode persisted). The
+    // handler may already have a partial side effect (bindOutboundCommand()) before throwing,
+    // so this can never be assumed a clean rejection either.
+    const execute = jest.fn().mockRejectedValue(httpException);
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: code });
+  });
+
+  it('falls back to a generic error code when an HttpException carries no structured code', async () => {
+    const execute = jest.fn().mockRejectedValue(new ForbiddenException('plain message'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .resolves.toEqual({ status: 'BLOCKED', observation: 'RESULT_UNKNOWN', errorCode: 'SOFIA_COMMAND_HANDLER_REJECTED' });
+  });
+
+  it('never swallows an unrecognized error type', async () => {
+    const execute = jest.fn().mockRejectedValue(new Error('unexpected'));
+    const adapter = new SecureCommandExecutionAdapter({ execute } as never);
+
+    await expect(adapter.execute({ notificationIntentId: 'notification-1', secureCommandId: 'command-1' }))
+      .rejects.toThrow('unexpected');
   });
 });
 

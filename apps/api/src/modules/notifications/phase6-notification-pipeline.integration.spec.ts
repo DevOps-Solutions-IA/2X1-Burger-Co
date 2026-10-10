@@ -19,12 +19,16 @@ import { DeliveryWorkflowService } from '../delivery-operations/delivery-workflo
 import { DeliveryWorkflowConsequenceWorker } from '../orders/delivery-workflow-consequence.worker';
 import {
   type NotificationSecureCommandPort,
+  SecureCommandExecutionAdapter,
   SecureCommandNotificationAdapter,
   WhatsappNotificationDispatchPolicyAdapter,
 } from './notification-dispatch.ports';
+import { NotificationCommandExecutionService } from './notification-command-execution.service';
 import { NotificationIntentConsumerService } from './notification-intent-consumer.service';
+import { NotificationOutboxWorker } from './notification-outbox.worker';
 import { PrismaNotificationOutboundMaterializer } from './notification-outbound-materializer';
 import { NotificationOutboxService } from './notification-outbox.service';
+import type { NotificationReconciliationCandidate } from './persistence/notification-intent.repository';
 
 describe('Phase 6 PostgreSQL notification pipeline', () => {
   let app: INestApplication;
@@ -32,6 +36,9 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
   let outbox: NotificationOutboxService;
   let materializer: PrismaNotificationOutboundMaterializer;
   let commands: SecureCommandNotificationAdapter;
+  let execution: SecureCommandExecutionAdapter;
+  let executor: NotificationCommandExecutionService;
+  let outboxWorker: NotificationOutboxWorker;
   let secureCommands: SecureCommandService;
   let commandHandler: WhatsappOutboundCommandHandler;
   let gateway: WhatsappOutboundGateway;
@@ -58,6 +65,9 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     deliveryWorkflow = app.get(DeliveryWorkflowService);
     deliveryConsequences = app.get(DeliveryWorkflowConsequenceWorker);
     commands = app.get(SecureCommandNotificationAdapter);
+    execution = app.get(SecureCommandExecutionAdapter);
+    executor = app.get(NotificationCommandExecutionService);
+    outboxWorker = app.get(NotificationOutboxWorker);
   });
 
   afterAll(async () => closeTestApp(app));
@@ -203,6 +213,18 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     expect(secureCommands.execute).not.toHaveBeenCalled();
     expect(commandHandler.execute).not.toHaveBeenCalled();
     expect(gateway.send).not.toHaveBeenCalled();
+  }
+
+  async function candidateOf(intentId: string): Promise<NotificationReconciliationCandidate> {
+    const intent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intentId } });
+    return {
+      id: intent.id,
+      status: intent.status as NotificationReconciliationCandidate['status'],
+      version: intent.version,
+      attempts: intent.attempts,
+      secureCommandId: intent.secureCommandId,
+      outboundMessageId: intent.outboundMessageId,
+    };
   }
 
   it('allows one concurrent consumer to materialize one outbound and one disabled command', async () => {
@@ -429,5 +451,338 @@ describe('Phase 6 PostgreSQL notification pipeline', () => {
     });
     await expectSingleDisabledPipeline(intent.id);
     expect(account.status).toBe('VERIFIED_RECEIVE_ONLY');
+  });
+
+  describe('dispatch stage: SecureCommand.receive() -> execute() gap closed', () => {
+    async function approveAsAdmin(secureCommandId: string) {
+      const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@2x1burgerco.local' } });
+      const command = await prisma.sofiaCommand.findUniqueOrThrow({ where: { id: secureCommandId } });
+      return secureCommands.approve({
+        commandId: command.id,
+        approver: { actorId: admin.id, actorType: 'USER', roles: ['admin'] },
+        binding: {
+          payloadHash: command.payloadHash,
+          expectedVersion: command.expectedVersion,
+          targetType: command.targetType,
+          targetId: command.targetId,
+          source: command.source,
+        },
+        // Must never exceed the command's own expiresAt (its real approval-window TTL) or the
+        // approval grant itself is rejected as SOFIA_COMMAND_APPROVAL_INVALID.
+        expiresAt: command.expiresAt,
+        reasonCode: 'HUMAN_APPROVAL_WITHIN_WINDOW_TEST',
+        policyReference: 'PHASE_6_DISPATCH_APPROVAL_WINDOW_TEST',
+      });
+    }
+
+    it('R1 regression guardian: invokes SecureCommandService.execute(), fails closed before the handler, and DEFERS (never a premature terminal write) while the real approval window is still open', async () => {
+      const intent = await createIntent('notification-dispatch-blocked');
+      await expect(consumer().consume(intent.id, 'worker-dispatch-1', new Date())).resolves.toMatchObject({
+        state: 'COMMAND_PENDING',
+      });
+      await expectSingleDisabledPipeline(intent.id);
+
+      const candidate = await candidateOf(intent.id);
+      await expect(executor.dispatch(candidate, new Date())).resolves.toEqual({
+        notificationIntentId: intent.id,
+        state: 'DEFERRED',
+        reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      });
+
+      expect(secureCommands.execute).toHaveBeenCalledTimes(1);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+
+      const [finalIntent, command, outbound] = await Promise.all([
+        prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } }),
+        prisma.sofiaCommand.findUniqueOrThrow({ where: { id: candidate.secureCommandId! } }),
+        prisma.whatsappOutboundMessage.findUniqueOrThrow({ where: { id: candidate.outboundMessageId! } }),
+      ]);
+      // Still alive and unresolved -- NOT a terminal write. The approval window (the command's
+      // own 5-minute expiresAt) is untouched; a human still has the full window to decide.
+      expect(finalIntent).toMatchObject({
+        status: NotificationIntentStatus.COMMAND_PENDING,
+        attempts: 2,
+        lastErrorCode: null,
+      });
+      expect(finalIntent.completedAt).toBeNull();
+      expect(finalIntent.nextRetryAt).not.toBeNull();
+      // The SecureCommand itself is never mutated by a blocked execute() attempt: it is
+      // rejected before ever being claimed, so no attempt/result row is ever created either.
+      expect(command).toMatchObject({ status: 'APPROVAL_REQUIRED' });
+      expect(outbound).toMatchObject({ status: 'APPROVAL_PENDING', providerMessageId: null, sentAt: null });
+      expect(await prisma.sofiaCommandAttempt.count()).toBe(0);
+      expect(await prisma.sofiaCommandResult.count()).toBe(0);
+
+      await expect(prisma.auditLog.findFirstOrThrow({
+        where: {
+          actorId: 'notification-outbox',
+          module: 'notifications',
+          action: 'NOTIFICATION_RECONCILIATION_DEFERRED',
+          entityId: intent.id,
+        },
+      })).resolves.toMatchObject({
+        actorType: 'SYSTEM',
+        result: 'NO_OP',
+        reasonCode: 'COMMAND_PENDING',
+      });
+    });
+
+    it('R1 regression guardian: a real approval granted inside the still-open window is never lost -- the notification survives to see it, and execution still fails closed (enabled stays false)', async () => {
+      await seedTestData(prisma);
+      const intent = await createIntent('notification-dispatch-approval-window');
+      await consumer().consume(intent.id, 'worker-approval-window-1', new Date());
+      const firstCandidate = await candidateOf(intent.id);
+
+      // Cycle 1: still APPROVAL_REQUIRED -- must defer, not fail.
+      await expect(executor.dispatch(firstCandidate, new Date())).resolves.toMatchObject({ state: 'DEFERRED' });
+      const deferredIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(deferredIntent.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+
+      // A human approves for real, inside the window the DEFER preserved.
+      const approval = await approveAsAdmin(firstCandidate.secureCommandId!);
+      expect(approval.status).toBe('APPROVED');
+      await expect(prisma.sofiaCommand.findUniqueOrThrow({ where: { id: firstCandidate.secureCommandId! } }))
+        .resolves.toMatchObject({ status: 'APPROVED' });
+
+      // Cycle 2: the notification intent is still here to receive the now-APPROVED command --
+      // nothing was lost. execute() proceeds past the approval check this time, but
+      // SOFIA_SEND_WHATSAPP stays enabled:false (command-handler.registry.ts, untouched), so
+      // policy.assertAllowed deterministically blocks it with SOFIA_COMMAND_POLICY_BLOCKED
+      // before ever claiming the command or reaching the handler -- a durable, terminal block,
+      // correctly distinct from the earlier non-terminal APPROVAL_REQUIRED defer.
+      const secondCandidate = await candidateOf(intent.id);
+      await expect(executor.dispatch(secondCandidate, new Date())).resolves.toEqual({
+        notificationIntentId: intent.id,
+        state: 'FAILED',
+        reasonCode: 'SOFIA_COMMAND_POLICY_BLOCKED',
+      });
+
+      expect(secureCommands.execute).toHaveBeenCalledTimes(2);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+
+      const finalIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(finalIntent.status).toBe(NotificationIntentStatus.FAILED);
+      await expect(prisma.auditLog.findFirstOrThrow({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_DEFERRED', entityId: intent.id },
+      })).resolves.toMatchObject({ result: 'NO_OP' });
+      await expect(prisma.auditLog.findFirstOrThrow({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_FAILED', entityId: intent.id },
+      })).resolves.toMatchObject({ result: 'FAILED', reasonCode: 'SOFIA_COMMAND_POLICY_BLOCKED' });
+    });
+
+    it('collapses a concurrently-enqueued duplicate intent into exactly one dispatch outcome', async () => {
+      const intent = await createIntent('notification-dispatch-duplicate-intent', 8);
+      const results = await Promise.all(
+        Array.from({ length: 8 }, (_, index) => consumer().consume(intent.id, `worker-dup-intent-${index}`, new Date())),
+      );
+      expect(results.filter(({ state }) => state === 'COMMAND_PENDING')).toHaveLength(1);
+      await expectSingleDisabledPipeline(intent.id);
+
+      const candidate = await candidateOf(intent.id);
+      await expect(executor.dispatch(candidate, new Date())).resolves.toMatchObject({ state: 'DEFERRED' });
+
+      expect(await prisma.notificationIntent.count()).toBe(1);
+      expect(await prisma.sofiaCommand.count()).toBe(1);
+      expect(await prisma.whatsappOutboundMessage.count()).toBe(1);
+      expect(await prisma.auditLog.count({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_DEFERRED', entityId: intent.id },
+      })).toBe(1);
+    });
+
+    it('settles a duplicate worker claim exactly once and skips the other, with zero WhatsApp access', async () => {
+      const intent = await createIntent('notification-dispatch-duplicate-claim');
+      await consumer().consume(intent.id, 'worker-dup-claim-1', new Date());
+      const candidate = await candidateOf(intent.id);
+      const now = new Date();
+
+      const results = await Promise.all([
+        executor.dispatch(candidate, now),
+        executor.dispatch(candidate, now),
+      ]);
+
+      expect(results.every((result) => result.notificationIntentId === intent.id)).toBe(true);
+      expect(results.filter((result) => result.state === 'DEFERRED')).toHaveLength(1);
+      expect(results.filter((result) => result.state === 'SKIPPED')).toHaveLength(1);
+      expect(results.find((result) => result.state === 'SKIPPED')?.reasonCode).toBe('NOTIFICATION_VERSION_CONFLICT');
+
+      // Both concurrent attempts really did call SecureCommandService.execute() -- that call is
+      // itself safe to repeat (deterministically blocked, no handler access) -- but only one of
+      // the two notification-intent transitions could win the optimistic-concurrency race.
+      expect(secureCommands.execute).toHaveBeenCalledTimes(2);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+
+      expect(await prisma.notificationIntent.count()).toBe(1);
+      expect(await prisma.sofiaCommand.count()).toBe(1);
+      const finalIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(finalIntent.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+      expect(await prisma.auditLog.count({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_DEFERRED', entityId: intent.id },
+      })).toBe(1);
+    });
+
+    it('recovers from a crash after the execute() result but before persisting the deferral, without a second handler attempt', async () => {
+      const intent = await createIntent('notification-dispatch-crash-after-execute');
+      await consumer().consume(intent.id, 'worker-crash-execute-1', new Date());
+      const firstCandidate = await candidateOf(intent.id);
+
+      let failOnce = true;
+      const faultingOutbox = {
+        markDispatched: outbox.markDispatched.bind(outbox),
+        reconcile: async (input: Parameters<NotificationOutboxService['reconcile']>[0]) => {
+          if (failOnce) {
+            failOnce = false;
+            throw new Error('NOTIFICATION_FAULT_AFTER_EXECUTE');
+          }
+          return outbox.reconcile(input);
+        },
+      } as NotificationOutboxService;
+      const crashProneExecutor = new NotificationCommandExecutionService(faultingOutbox, execution);
+
+      await expect(crashProneExecutor.dispatch(firstCandidate, new Date())).rejects.toThrow('NOTIFICATION_FAULT_AFTER_EXECUTE');
+      expect(secureCommands.execute).toHaveBeenCalledTimes(1);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      const midIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(midIntent.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+
+      const retried = await executor.dispatch(await candidateOf(intent.id), new Date());
+      expect(retried).toEqual({
+        notificationIntentId: intent.id,
+        state: 'DEFERRED',
+        reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      });
+      // Re-attempted after the simulated crash; SecureCommand.execute() is itself safe to
+      // repeat (still deterministically blocked before the handler), so no double transmission.
+      expect(secureCommands.execute).toHaveBeenCalledTimes(2);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+
+      const finalIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(finalIntent.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+      expect(await prisma.auditLog.count({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_DEFERRED', entityId: intent.id },
+      })).toBe(1);
+    });
+
+    it('stays fail-closed with zero WhatsApp access (deferred, not failed) when a human handoff becomes active between receive and execute', async () => {
+      const intent = await createIntent('notification-dispatch-handoff-race');
+      await consumer().consume(intent.id, 'worker-handoff-race-1', new Date());
+      await prisma.whatsappConversation.update({
+        where: { id: intent.conversationId! },
+        data: {
+          status: 'HUMAN_TAKEN',
+          humanStatus: 'HUMAN_TAKEN',
+          sofiaEnabled: false,
+          handoffVersion: { increment: 1 },
+        },
+      });
+
+      const candidate = await candidateOf(intent.id);
+      await expect(executor.dispatch(candidate, new Date())).resolves.toEqual({
+        notificationIntentId: intent.id,
+        state: 'DEFERRED',
+        reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      });
+
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+    });
+
+    it('stays fail-closed with zero WhatsApp access (deferred, not failed) when consent is revoked between receive and execute', async () => {
+      const customer = await prisma.customer.create({ data: { displayName: 'Consent Race Dispatch Test' } });
+      const intent = await createIntent('notification-dispatch-consent-race', 1, customer.id);
+      await consumer().consume(intent.id, 'worker-consent-race-1', new Date());
+
+      await prisma.customerConsent.create({
+        data: {
+          customerId: customer.id,
+          purpose: CustomerConsentPurpose.SERVICE,
+          channel: CustomerConsentChannel.WHATSAPP,
+          status: 'REVOKED',
+          source: 'PHASE6_INTEGRATION_TEST_DISPATCH',
+          evidenceHash: createHash('sha256').update('revoked-service-consent-dispatch').digest('hex'),
+          version: 1,
+          revokedAt: new Date(),
+        },
+      });
+
+      const candidate = await candidateOf(intent.id);
+      await expect(executor.dispatch(candidate, new Date())).resolves.toEqual({
+        notificationIntentId: intent.id,
+        state: 'DEFERRED',
+        reasonCode: 'SOFIA_COMMAND_APPROVAL_REQUIRED',
+      });
+
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+    });
+
+    it('the real NotificationOutboxWorker claims, receives and dispatches a fresh intent, deferring it (never a premature terminal write) in one cycle', async () => {
+      const intent = await createIntent('notification-worker-end-to-end');
+
+      await outboxWorker.runOnce(new Date());
+
+      const finalIntent = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(finalIntent.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+      expect(finalIntent.lastErrorCode).toBeNull();
+      expect(finalIntent.completedAt).toBeNull();
+      expect(secureCommands.execute).toHaveBeenCalledTimes(1);
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+      expect(await prisma.sofiaCommand.count()).toBe(1);
+      expect(await prisma.whatsappOutboundMessage.count()).toBe(1);
+    });
+
+    it('R2 regression guardian: a COMMAND_PENDING intent that never resolves survives repeated real worker cycles with bounded attempts, then settles deterministically to UNKNOWN_RESULT -- never an unbounded hot loop, never silently stuck forever', async () => {
+      const intent = await createIntent('notification-worker-bounded-settlement');
+      const t0 = new Date();
+
+      // Cycle 1: claim + receive() + dispatch -> still APPROVAL_REQUIRED -> DEFER (attempts 1->2).
+      await outboxWorker.runOnce(t0);
+      let current = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(current.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+      expect(current.attempts).toBe(2);
+      expect(secureCommands.execute).toHaveBeenCalledTimes(1);
+
+      // Immediately re-running the cycle before nextRetryAt must NOT re-invoke execute() again --
+      // this is the concrete proof there is no 1-second hot loop.
+      await outboxWorker.runOnce(new Date(t0.getTime() + 500));
+      expect(secureCommands.execute).toHaveBeenCalledTimes(1);
+      current = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(current.attempts).toBe(2);
+
+      // Cycle 2, once nextRetryAt has elapsed: still APPROVAL_REQUIRED -> DEFER again (attempts
+      // 2->3, reaching maxAttempts).
+      const t1 = new Date(t0.getTime() + 6_000);
+      await outboxWorker.runOnce(t1);
+      current = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(current.status).toBe(NotificationIntentStatus.COMMAND_PENDING);
+      expect(current.attempts).toBe(3);
+      expect(secureCommands.execute).toHaveBeenCalledTimes(2);
+
+      // Cycle 3, once the second nextRetryAt has elapsed: attempts has now reached maxAttempts,
+      // so findReconciliationCandidates excludes it from the dispatch stage (no third execute()
+      // call) -- instead the existing, unmodified maintenance sweep settles it deterministically.
+      const t2 = new Date(t1.getTime() + 6_000);
+      await outboxWorker.runOnce(t2);
+      expect(secureCommands.execute).toHaveBeenCalledTimes(2);
+      const settled = await prisma.notificationIntent.findUniqueOrThrow({ where: { id: intent.id } });
+      expect(settled).toMatchObject({
+        status: NotificationIntentStatus.UNKNOWN_RESULT,
+        lastErrorCode: 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED',
+      });
+      expect(settled.completedAt).not.toBeNull();
+      expect(commandHandler.execute).not.toHaveBeenCalled();
+      expect(gateway.send).not.toHaveBeenCalled();
+
+      await expect(prisma.auditLog.count({
+        where: { module: 'notifications', action: 'NOTIFICATION_RECONCILIATION_DEFERRED', entityId: intent.id },
+      })).resolves.toBe(2);
+      await expect(prisma.auditLog.findFirstOrThrow({
+        where: { module: 'notifications', action: 'NOTIFICATION_MAINTENANCE_SETTLED', entityId: intent.id },
+      })).resolves.toMatchObject({ result: 'BLOCKED', reasonCode: 'NOTIFICATION_RECONCILIATION_ATTEMPTS_EXHAUSTED' });
+    });
   });
 });
