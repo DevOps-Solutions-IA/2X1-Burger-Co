@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Ban,
   Bell,
+  ChevronDown,
   History,
   KeyRound,
   ListChecks,
@@ -44,6 +45,8 @@ import type { SofiaGovernanceStatus, SofiaRuntimeSafety } from '@/features/sofia
 import { Button } from '@/components/ui/button';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { WhatsAppChannelCard } from '@/features/sofia/safety/WhatsAppChannelCard';
+import { readinessItemLabel } from '@/features/sofia/safety/labels';
 
 const COUNTER_META: Record<keyof SofiaRuntimeSafety['counters'], { label: string; hint: string; accent: 'brand' | 'success' | 'warning' | 'danger' | 'ink' }> = {
   messages_received_total: { label: 'Mensajes recibidos', hint: 'Inbound total', accent: 'brand' },
@@ -92,6 +95,44 @@ function SafetyFlagRow({ label, declared, effective, testId }: { label: string; 
   );
 }
 
+/**
+ * Contadores operativos reales, visibles fuera del acordeón técnico — son
+ * los únicos 4 de los 11 contadores que importan para una lectura rápida
+ * del estado del día (el resto queda en el detalle técnico colapsado).
+ */
+function OperationalCountersRow({ counters }: { counters: SofiaRuntimeSafety['counters'] }) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" data-testid="sofia-safety-operational-counters">
+      <StatCard
+        label="Mensajes recibidos"
+        value={formatNumber(counters.messages_received_total)}
+        icon={<Activity className="h-4 w-4" />}
+        data-testid="sofia-safety-operational-counter-received"
+      />
+      <StatCard
+        label="Bloqueados por SafetyGuard"
+        value={formatNumber(counters.messages_blocked_total)}
+        accent="warning"
+        icon={<Ban className="h-4 w-4" />}
+        data-testid="sofia-safety-operational-counter-blocked"
+      />
+      <StatCard
+        label="Escalados a humano"
+        value={formatNumber(counters.human_escalations_total)}
+        icon={<ShieldAlert className="h-4 w-4" />}
+        data-testid="sofia-safety-operational-counter-escalated"
+      />
+      <StatCard
+        label="Sensibles a pago"
+        value={formatNumber(counters.payment_sensitive_total)}
+        accent="danger"
+        icon={<KeyRound className="h-4 w-4" />}
+        data-testid="sofia-safety-operational-counter-payment"
+      />
+    </div>
+  );
+}
+
 function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
   const { state, counters } = data;
   return (
@@ -108,33 +149,8 @@ function RuntimeSafetySection({ data }: { data: SofiaRuntimeSafety }) {
         }
       />
 
-      <div className="mt-3.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatCard
-          label="Mensajes recibidos"
-          value={formatNumber(counters.messages_received_total)}
-          icon={<Activity className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Bloqueados por SafetyGuard"
-          value={formatNumber(counters.messages_blocked_total)}
-          accent="warning"
-          icon={<Ban className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Escalados a humano"
-          value={formatNumber(counters.human_escalations_total)}
-          icon={<ShieldAlert className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Sensibles a pago"
-          value={formatNumber(counters.payment_sensitive_total)}
-          accent="danger"
-          icon={<KeyRound className="h-4 w-4" />}
-        />
-      </div>
-
       <div
-        className="mt-4 flex items-start gap-2.5 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 px-3.5 py-3"
+        className="mt-3.5 flex items-start gap-2.5 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 px-3.5 py-3"
         role="note"
       >
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -272,7 +288,7 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
         tone="ink"
       />
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-[1.1rem] border border-stone-200 bg-stone-50 p-3.5" data-testid="sofia-safety-governance-pause-group">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[12px] font-bold text-ink">Pausa global</p>
@@ -330,6 +346,8 @@ function GovernancePanel({ status }: { status: SofiaGovernanceStatus }) {
             </Button>
           </div>
         </div>
+
+        <WhatsAppChannelCard />
       </div>
 
       {anyError ? (
@@ -414,7 +432,7 @@ function ReadinessSection() {
                   </p>
                   <ul className="mt-1.5 space-y-1 text-[12px] text-red-700">
                     {data.blockers.map((blocker) => (
-                      <li key={blocker}>• {blocker}</li>
+                      <li key={blocker}>• {readinessItemLabel(data.checklist, blocker)}</li>
                     ))}
                   </ul>
                 </div>
@@ -426,7 +444,7 @@ function ReadinessSection() {
                   </p>
                   <ul className="mt-1.5 space-y-1 text-[12px] text-amber-800">
                     {data.warnings.map((warning) => (
-                      <li key={warning}>• {warning}</li>
+                      <li key={warning}>• {readinessItemLabel(data.checklist, warning)}</li>
                     ))}
                   </ul>
                 </div>
@@ -575,18 +593,6 @@ export default function SofiaSafetyPage() {
         />
 
         <QueryStateBoundary
-          isLoading={runtimeSafety.isLoading}
-          isError={runtimeSafety.isError}
-          error={runtimeSafety.error}
-          data={runtimeSafety.data}
-          loadingLabel="Cargando runtime safety…"
-          errorTitle="No se pudo cargar runtime safety"
-          data-testid="sofia-safety-runtime"
-        >
-          {(data) => <RuntimeSafetySection data={data} />}
-        </QueryStateBoundary>
-
-        <QueryStateBoundary
           isLoading={governanceStatus.isLoading}
           isError={governanceStatus.isError}
           error={governanceStatus.error}
@@ -597,6 +603,41 @@ export default function SofiaSafetyPage() {
         >
           {(data) => <GovernancePanel status={data} />}
         </QueryStateBoundary>
+
+        <QueryStateBoundary
+          isLoading={runtimeSafety.isLoading}
+          isError={runtimeSafety.isError}
+          error={runtimeSafety.error}
+          data={runtimeSafety.data}
+          loadingLabel="Cargando runtime safety…"
+          errorTitle="No se pudo cargar runtime safety"
+          data-testid="sofia-safety-counters"
+        >
+          {(data) => <OperationalCountersRow counters={data.counters} />}
+        </QueryStateBoundary>
+
+        <details className="group" data-testid="sofia-safety-runtime-details">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-[12.5px] font-semibold text-ink shadow-soft [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-stone-500" aria-hidden="true" />
+              Detalle técnico de runtime safety (auditoría)
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-stone-500 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="mt-3">
+            <QueryStateBoundary
+              isLoading={runtimeSafety.isLoading}
+              isError={runtimeSafety.isError}
+              error={runtimeSafety.error}
+              data={runtimeSafety.data}
+              loadingLabel="Cargando runtime safety…"
+              errorTitle="No se pudo cargar runtime safety"
+              data-testid="sofia-safety-runtime"
+            >
+              {(data) => <RuntimeSafetySection data={data} />}
+            </QueryStateBoundary>
+          </div>
+        </details>
 
         <ReadinessSection />
 

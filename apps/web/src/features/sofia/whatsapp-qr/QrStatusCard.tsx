@@ -17,6 +17,7 @@ import { SectionHeading, StatCard, StatusBadge } from '@/components/sofia';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { SofiaQrStatus } from '@/features/sofia/contracts';
+import { translateQrBlockerOrWarning } from '@/features/sofia/safety/labels';
 
 const STATUS_LABEL: Record<SofiaQrStatus['status'], string> = {
   DISABLED: 'Deshabilitado',
@@ -178,7 +179,7 @@ export function QrStatusCard({ status }: { status: SofiaQrStatus }) {
               </p>
               <ul className="mt-1.5 space-y-1 text-[12px] font-medium text-red-700">
                 {status.blockers.map((blocker) => (
-                  <li key={blocker}>• {blocker}</li>
+                  <li key={blocker}>• {translateQrBlockerOrWarning(blocker)}</li>
                 ))}
               </ul>
             </Card>
@@ -190,7 +191,7 @@ export function QrStatusCard({ status }: { status: SofiaQrStatus }) {
               </p>
               <ul className="mt-1.5 space-y-1 text-[12px] font-medium text-amber-800">
                 {status.warnings.map((warning) => (
-                  <li key={warning}>• {warning}</li>
+                  <li key={warning}>• {translateQrBlockerOrWarning(warning)}</li>
                 ))}
               </ul>
             </Card>
