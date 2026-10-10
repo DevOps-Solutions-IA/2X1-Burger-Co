@@ -29,6 +29,7 @@ import {
 } from './qr-session-ownership.coordinator';
 import {
   SofiaWhatsappQrConnectionStatus,
+  SofiaWhatsappQrDiscoveryResult,
   SofiaWhatsappQrStatusResponse,
 } from './sofia-whatsapp-qr-gateway.types';
 
@@ -39,6 +40,8 @@ import {
 const QR_SESSION_SETTING_KEY = 'SOFIA_WHATSAPP_QR_SESSION_STATE';
 const QR_SESSION_LEASE_MS = 30_000;
 const QR_SESSION_HEARTBEAT_MS = 10_000;
+/** Bootstrap-only: cuánto vive en memoria un resultado de `WHATSAPP_QR_DISCOVERY_MODE` sin leerse. */
+const QR_DISCOVERY_RESULT_TTL_MS = 5 * 60_000;
 const QR_RUNTIME_GATE_SETTING_KEYS = {
   globalPaused: 'SOFIA_GLOBAL_PAUSED',
   killSwitch: 'SOFIA_KILL_SWITCH',
@@ -93,6 +96,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
   private reconnectAttempts = 0;
   private intentionalShutdown = false;
   private fencedEffects = 0;
+  /** Solo `WHATSAPP_QR_DISCOVERY_MODE` — nunca persistido, se lee una vez y se borra. */
+  private discoveryResult: SofiaWhatsappQrDiscoveryResult | null = null;
 
   /* Real Baileys socket state */
   private real: RealSocketState = {
@@ -138,6 +143,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     /* If we have a real socket, return real state */
+    const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
     const [state, inboundToday, outboundToday, pendingOutbound, sessionStorage, runtimeGate] = await Promise.all([
       this.getSessionState(),
       this.prisma.whatsappInboundEvent.count({
@@ -153,7 +159,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
         },
       }),
       this.ensureSessionStorageReady(false),
-      this.getQrRuntimeGate(),
+      // Sin este bypass, el estado siempre reporta DISABLED/qrAvailable:false
+      // mientras la gobernanza no esté aprobada — lo que en la práctica
+      // haría invisible el QR real ya generado por connect() en modo
+      // descubrimiento y el operador nunca podría escanearlo. connectionStatus
+      // nunca llega a CONNECTED durante el descubrimiento (ver
+      // completeDiscoverySession), así que esto no expone un estado
+      // "conectado" falso — solo el QR_READY necesario para escanear.
+      this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode }),
     ]);
 
     /* Merge real socket state with persisted state */
@@ -242,7 +255,8 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     this.assertSessionMutationAccess(actor);
     const actorId = actor.sub;
     this.intentionalShutdown = false;
-    const runtimeGate = await this.getQrRuntimeGate();
+    const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
+    const runtimeGate = await this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode });
     if (!runtimeGate.allowed) {
       await this.audit('SOFIA_QR_CONNECT_BLOCKED', actorId, {
         reason: runtimeGate.reason,
@@ -691,9 +705,15 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
 
     /* Connected */
     if (update.connection === 'open') {
-      const runtimeGate = await this.getQrRuntimeGate();
+      const discoveryMode = this.configService.get<boolean>('WHATSAPP_QR_DISCOVERY_MODE') === true;
+      const runtimeGate = await this.getQrRuntimeGate({ skipGovernanceApproval: discoveryMode });
       if (!runtimeGate.allowed) {
         await this.rejectConnectedSocket(socket, runtimeGate.reason);
+        return;
+      }
+
+      if (discoveryMode) {
+        await this.completeDiscoverySession(socket, fencingToken);
         return;
       }
 
@@ -1214,7 +1234,7 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     return 'DISCONNECTED';
   }
 
-  private async getQrRuntimeGate() {
+  private async getQrRuntimeGate(options: { skipGovernanceApproval?: boolean } = {}) {
     if (this.configService.get<boolean>('WHATSAPP_QR_ENABLED') !== true) {
       return { allowed: false, reason: 'QR_GATEWAY_DISABLED' as const };
     }
@@ -1260,7 +1280,14 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.globalPaused)?.paused === true) {
       return { allowed: false, reason: 'GLOBAL_PAUSED' as const };
     }
-    if (values.get(QR_RUNTIME_GATE_SETTING_KEYS.qrRealAllowed)?.allowed !== true) {
+    // La aprobación de gobernanza (`qrRealAllowed`) exige un `@lid` con
+    // formato válido ya configurado (`qrReceiveOnlyConfigurationIsSafe()`
+    // en sofia-governance.service.ts) — imposible de tener antes de un
+    // primer descubrimiento. `WHATSAPP_QR_DISCOVERY_MODE` es la ÚNICA
+    // razón legítima para omitir esta verificación; todo lo demás arriba
+    // (kill-switch, pausa, real-send, auto-reply/auto-safe/handler) se
+    // sigue exigiendo sin excepción.
+    if (!options.skipGovernanceApproval && values.get(QR_RUNTIME_GATE_SETTING_KEYS.qrRealAllowed)?.allowed !== true) {
       return { allowed: false, reason: 'QR_GOVERNANCE_NOT_APPROVED' as const };
     }
 
@@ -1381,10 +1408,22 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     this.real.verifiedBinding = null;
     this.real.lastError = 'La identidad de la cuenta WhatsApp no cumple el binding autorizado.';
     this.real.lastErrorCode = reason;
-    await this.audit('SOFIA_QR_CONNECTED_BINDING_REJECTED', 'system', {
-      reason,
-      valuesSanitized: true,
-    });
+    this.cancelReconnect();
+    // Hallazgo 1 (revisión independiente, 2026-10): el teardown de abajo
+    // NUNCA puede depender de que esta escritura de auditoría tenga éxito —
+    // si Postgres está caído/lento justo aquí, un socket real rechazado
+    // quedaría vivo indefinidamente. El fallo se registra en logs locales y
+    // el teardown continúa de todas formas.
+    try {
+      await this.audit('SOFIA_QR_CONNECTED_BINDING_REJECTED', 'system', {
+        reason,
+        valuesSanitized: true,
+      });
+    } catch (error) {
+      this.logger.error(
+        `SOFIA_QR_CONNECTED_BINDING_REJECTED audit write failed — continuing teardown anyway: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
     try {
       await socket.logout();
     } catch {
@@ -1393,6 +1432,93 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     await this.clearAuthDir();
     await this.teardownRealSocket(false);
     await this.releaseSessionOwnership();
+  }
+
+  /**
+   * `WHATSAPP_QR_DISCOVERY_MODE` únicamente — captura la identidad real de
+   * WhatsApp (cuenta + `@lid`) UNA vez, sin exigir el binding exacto (que
+   * todavía no se conoce en un primer bootstrap), nunca deja el estado en
+   * `CONNECTED`, y cierra la sesión de inmediato. El valor crudo vive solo
+   * en memoria (`this.discoveryResult`, TTL de 5 minutos) y nunca se
+   * escribe en Prisma ni en auditoría sin enmascarar.
+   */
+  private async completeDiscoverySession(socket: WASocket, fencingToken: number): Promise<void> {
+    const providerAccountId = this.connectedPhoneNumber(socket);
+    const businessIdentity = this.connectedBusinessIdentity(socket);
+    const sessionOwner = this.connectedSessionOwner(fencingToken);
+    const captured = Boolean(providerAccountId && businessIdentity && sessionOwner);
+
+    this.real.connectionStatus = 'DISCOVERY_CAPTURED';
+    this.real.qrString = null;
+    this.real.qrImageDataUrl = null;
+    this.real.lastError = captured
+      ? null
+      : 'No se pudo capturar la identidad completa de WhatsApp. Vuelve a escanear el QR.';
+    this.real.lastErrorCode = captured ? null : 'WHATSAPP_DISCOVERY_IDENTITY_INCOMPLETE';
+    this.cancelReconnect();
+
+    if (providerAccountId && businessIdentity && sessionOwner) {
+      this.discoveryResult = {
+        accountId: providerAccountId,
+        businessIdentity,
+        sessionOwner,
+        capturedAt: new Date().toISOString(),
+      };
+      setTimeout(() => {
+        this.discoveryResult = null;
+      }, QR_DISCOVERY_RESULT_TTL_MS).unref();
+    }
+
+    // Hallazgo 1 (revisión independiente, 2026-10): esta escritura de
+    // auditoría NUNCA puede bloquear el teardown de abajo. El docstring de
+    // esta función promete "cierra la sesión de inmediato" — si Postgres
+    // falla justo aquí (el momento de mayor estrés durante un bootstrap
+    // manual), logout/clearAuthDir/teardownRealSocket/releaseSessionOwnership
+    // deben ejecutarse de todas formas. El fallo se registra en logs locales.
+    try {
+      await this.audit('SOFIA_QR_DISCOVERY_SESSION_RAN', 'system', {
+        captured,
+        valuesSanitized: true,
+      });
+    } catch (error) {
+      this.logger.error(
+        `SOFIA_QR_DISCOVERY_SESSION_RAN audit write failed — continuing teardown anyway: ${this.sanitizeErrorMessage(error instanceof Error ? error.message : String(error))}`,
+      );
+    }
+
+    try {
+      await socket.logout();
+    } catch {
+      // Local credential cleanup below still prevents reuse of the discovery session.
+    }
+    await this.clearAuthDir();
+    await this.teardownRealSocket(true);
+    await this.releaseSessionOwnership();
+  }
+
+  /**
+   * Lectura única del resultado de `WHATSAPP_QR_DISCOVERY_MODE` — se borra
+   * de memoria al leerse (o expira solo a los 5 minutos). Nunca aparece en
+   * `getStatus()` ni en ningún otro endpoint/reporte.
+   *
+   * Hallazgo 2 (revisión independiente, 2026-10): este es el único método
+   * sensible del servicio que leía la identidad real capturada sin defensa
+   * en profundidad de RBAC ni auditoría (CLAUDE.md §4.A auditoría es
+   * PERMANENT_SAFETY_INVARIANT; §17 exige audit para accesos a identidad).
+   * El controlador ya exige rol+permiso vía decoradores, pero esta
+   * verificación explícita + el registro de auditoría quedan aquí también,
+   * igual que en connect/disconnect/logout. Nunca se audita el valor crudo
+   * (`@lid`/teléfono) — solo que se leyó, quién y si había algo disponible.
+   */
+  async getDiscoveryResult(actor: AuthUser): Promise<SofiaWhatsappQrDiscoveryResult | { available: false }> {
+    this.assertSessionMutationAccess(actor);
+    const result = this.discoveryResult;
+    this.discoveryResult = null;
+    await this.audit('SOFIA_QR_DISCOVERY_RESULT_READ', actor.sub, {
+      available: Boolean(result),
+      valuesSanitized: true,
+    });
+    return result ?? { available: false };
   }
 
   private safePersistedStatus(status?: SofiaWhatsappQrConnectionStatus): SofiaWhatsappQrConnectionStatus {
@@ -1552,8 +1678,12 @@ export class SofiaWhatsappQrGatewayService implements OnModuleDestroy {
     let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
       // The exclusive create prevents replacing or following an existing entry.
+      // 'wx+' (not 'wx'): the handle is read back below to prove the bytes
+      // round-trip through the filesystem, and a write-only fd cannot be
+      // read from (Node throws EBADF) — this always failed for real before,
+      // it just never ran end-to-end until a genuine QR connect attempt did.
       // eslint-disable-next-line security/detect-non-literal-fs-filename
-      handle = await fs.open(testFile, 'wx', 0o600);
+      handle = await fs.open(testFile, 'wx+', 0o600);
       await handle.writeFile('ok', 'utf8');
       const content = Buffer.alloc(2);
       const { bytesRead } = await handle.read(content, 0, content.length, 0);

@@ -1,4 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AuthUser } from '../../../../common/types/auth-user.type';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { AuditService } from '../../../audit/audit.service';
@@ -122,15 +125,21 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
     WHATSAPP_EXPECTED_SESSION_OWNER: 'sofia-main',
   };
 
-  function subject(overrides: Record<string, unknown> = {}) {
+  function subject(
+    overrides: Record<string, unknown> = {},
+    settingsRows: Array<{ key: string; value: unknown }> = [
+      { key: 'SOFIA_QR_REAL_ALLOWED', value: { allowed: true } },
+    ],
+  ) {
     const processInboundWebhook = jest.fn().mockResolvedValue({ processingStatus: 'SUGGESTED_ONLY' });
     const auditLog = jest.fn().mockResolvedValue({ id: 'audit-id' });
     const prisma = {
       setting: {
-        findMany: jest.fn().mockResolvedValue([
-          { key: 'SOFIA_QR_REAL_ALLOWED', value: { allowed: true } },
-        ]),
+        findMany: jest.fn().mockResolvedValue(settingsRows),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
+      whatsappInboundEvent: { count: jest.fn().mockResolvedValue(0) },
+      whatsappOutboundMessage: { count: jest.fn().mockResolvedValue(0) },
     };
     const config = {
       get: jest.fn((key: string) => ({ ...safeValues, ...overrides })[key]),
@@ -268,6 +277,337 @@ describe('SofiaWhatsappQrGatewayService account and LID safety', () => {
         businessIdentity: '123456789012345@lid',
         sessionOwner: 'sofia-main',
       },
+    });
+  });
+
+  it('WHATSAPP_QR_DISCOVERY_MODE captures identity once, never reaches CONNECTED, and tears the session down — even with governance NOT yet approved', async () => {
+    const { instance, auditLog } = subject(
+      {
+        WHATSAPP_QR_DISCOVERY_MODE: true,
+        // Deliberately mismatched/empty vs. safeValues' expected binding —
+        // discovery must succeed anyway, since the whole point is capturing
+        // the real identity before it's known.
+        WHATSAPP_EXPECTED_ACCOUNT_ID: '',
+        WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '',
+        WHATSAPP_EXPECTED_SESSION_OWNER: '',
+      },
+      // Governance has NOT approved qrRealAllowed — this is the real-world
+      // state during a first bootstrap (approval requires an already-valid
+      // @lid, which is exactly what discovery mode exists to obtain).
+      [],
+    );
+    authorizeLease(instance);
+    const socket = {
+      user: {
+        id: '999888777666555:9@lid',
+        lid: '999888777666555:9@lid',
+        phoneNumber: '573201112233@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+      getDiscoveryResult(actor: AuthUser): Promise<unknown>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.real.connectionStatus).toBe('DISCOVERY_CAPTURED');
+    expect(internal.real.connectionStatus).not.toBe('CONNECTED');
+    expect(socket.logout).toHaveBeenCalledTimes(1);
+    expect(internal.teardownRealSocket).toHaveBeenCalledWith(true);
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SOFIA_QR_DISCOVERY_SESSION_RAN',
+        newValues: expect.objectContaining({ valuesSanitized: true, captured: true }),
+      }),
+    );
+    // No raw identity value ever reaches the audit call.
+    const discoveryAuditCall = auditLog.mock.calls.find(
+      ([entry]: [{ action: string }]) => entry.action === 'SOFIA_QR_DISCOVERY_SESSION_RAN',
+    );
+    expect(JSON.stringify(discoveryAuditCall)).not.toContain('573201112233');
+    expect(JSON.stringify(discoveryAuditCall)).not.toContain('999888777666555');
+
+    const firstRead = (await internal.getDiscoveryResult(testOperator)) as Record<string, unknown>;
+    expect(firstRead).toMatchObject({
+      accountId: '573201112233',
+      businessIdentity: '999888777666555@lid',
+      sessionOwner: 'sofia-main',
+    });
+    // Hallazgo 2 (revisión independiente, 2026-10): la lectura del resultado
+    // de descubrimiento debe auditarse (quién/cuándo), nunca el valor crudo.
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SOFIA_QR_DISCOVERY_RESULT_READ',
+        userId: testOperator.sub,
+        newValues: expect.objectContaining({ available: true, valuesSanitized: true }),
+      }),
+    );
+    const readAuditCall = auditLog.mock.calls.find(
+      ([entry]: [{ action: string }]) => entry.action === 'SOFIA_QR_DISCOVERY_RESULT_READ',
+    );
+    expect(JSON.stringify(readAuditCall)).not.toContain('573201112233');
+    expect(JSON.stringify(readAuditCall)).not.toContain('999888777666555');
+
+    // Read-once: the second read must come back empty.
+    expect(await internal.getDiscoveryResult(testOperator)).toEqual({ available: false });
+
+    // RBAC defense-in-depth: an actor without role+permission must be rejected,
+    // even though the controller already gates this endpoint.
+    const unauthorized = { ...testOperator, roles: ['cashier'] };
+    await expect(internal.getDiscoveryResult(unauthorized)).rejects.toMatchObject({
+      response: { code: 'SOFIA_QR_SESSION_MUTATION_FORBIDDEN' },
+    });
+  });
+
+  it('Hallazgo 1 (revisión independiente, 2026-10): still tears down a discovery session even when the audit write fails', async () => {
+    // Regression: completeDiscoverySession() used to `await this.audit(...)`
+    // with no try/catch BEFORE socket.logout()/clearAuthDir()/
+    // teardownRealSocket()/releaseSessionOwnership(). If that audit write
+    // throws (e.g. Postgres down/timing out — exactly the moment of highest
+    // stress during a manual bootstrap), the whole teardown used to be
+    // skipped, leaving a real WhatsApp session alive indefinitely. This
+    // contradicted the function's own docstring ("cierra la sesión de
+    // inmediato"). The fix wraps the audit write in its own try/catch so a
+    // failed audit can never block teardown.
+    const { instance, auditLog } = subject(
+      {
+        WHATSAPP_QR_DISCOVERY_MODE: true,
+        WHATSAPP_EXPECTED_ACCOUNT_ID: '',
+        WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '',
+        WHATSAPP_EXPECTED_SESSION_OWNER: '',
+      },
+      [],
+    );
+    authorizeLease(instance);
+    auditLog.mockRejectedValueOnce(new Error('ECONNREFUSED: audit database unreachable'));
+    const socket = {
+      user: {
+        id: '999888777666555:9@lid',
+        lid: '999888777666555:9@lid',
+        phoneNumber: '573201112233@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    // Must not throw/reject despite the audit write failing.
+    await expect(
+      internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1),
+    ).resolves.toBeUndefined();
+
+    expect(internal.real.connectionStatus).toBe('DISCOVERY_CAPTURED');
+    expect(socket.logout).toHaveBeenCalledTimes(1);
+    expect(internal.clearAuthDir).toHaveBeenCalledTimes(1);
+    expect(internal.teardownRealSocket).toHaveBeenCalledWith(true);
+    expect(internal.releaseSessionOwnership).toHaveBeenCalledTimes(1);
+  });
+
+  it('Hallazgo 1 (revisión independiente, 2026-10): still tears down a rejected binding even when the audit write fails', async () => {
+    // Same pattern, in rejectConnectedSocket(): a failed audit write must
+    // never leave a wrongly-bound real socket alive.
+    const { instance, auditLog } = subject();
+    authorizeLease(instance);
+    auditLog.mockRejectedValueOnce(new Error('ECONNREFUSED: audit database unreachable'));
+    const socket = {
+      user: {
+        id: '123456789012345@lid',
+        phoneNumber: '573009999999:7@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; lastErrorCode: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await expect(
+      internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1),
+    ).resolves.toBeUndefined();
+
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'FAILED',
+      lastErrorCode: 'WHATSAPP_PROVIDER_ACCOUNT_MISMATCH',
+    });
+    expect(socket.logout).toHaveBeenCalledTimes(1);
+    expect(internal.clearAuthDir).toHaveBeenCalledTimes(1);
+    expect(internal.teardownRealSocket).toHaveBeenCalledWith(false);
+    expect(internal.releaseSessionOwnership).toHaveBeenCalledTimes(1);
+  });
+
+  it('Hallazgo 6 (revisión independiente, 2026-10): completeDiscoverySession cancels a pending reconnect timer', async () => {
+    // Regression: a reconnectTimer armed by a previous connection/close
+    // event must not survive a discovery teardown — otherwise a stale
+    // performReconnect() could fire later and bootstrap a new real socket
+    // behind the operator's back.
+    const { instance } = subject(
+      {
+        WHATSAPP_QR_DISCOVERY_MODE: true,
+        WHATSAPP_EXPECTED_ACCOUNT_ID: '',
+        WHATSAPP_EXPECTED_BUSINESS_IDENTITY: '',
+        WHATSAPP_EXPECTED_SESSION_OWNER: '',
+      },
+      [],
+    );
+    authorizeLease(instance);
+    const socket = {
+      user: {
+        id: '999888777666555:9@lid',
+        lid: '999888777666555:9@lid',
+        phoneNumber: '573201112233@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string };
+      reconnectTimer: NodeJS.Timeout | null;
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+    // Simulate a reconnect timer left over from a prior close event.
+    internal.reconnectTimer = setTimeout(() => {}, 60_000);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.reconnectTimer).toBeNull();
+  });
+
+  it('getStatus() surfaces the real QR while WHATSAPP_QR_DISCOVERY_MODE is on and governance is not yet approved', async () => {
+    // Regression for a real bug found while running the actual canary:
+    // connect() bypassing the governance gate was not enough — getStatus()
+    // (the only way an operator retrieves the QR image to scan) had its own
+    // separate, non-bypassed getQrRuntimeGate() call, so it kept reporting
+    // status:'DISABLED', qrAvailable:false even after a real QR was ready.
+    const { instance } = subject({ WHATSAPP_QR_DISCOVERY_MODE: true }, []);
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; qrImageDataUrl: string | null };
+    };
+    internal.real.socket = { user: {} };
+    internal.real.connectionStatus = 'QR_READY';
+    internal.real.qrImageDataUrl = 'data:image/png;base64,fake-qr-for-test';
+
+    const status = await instance.getStatus();
+
+    expect(status).toMatchObject({
+      status: 'QR_READY',
+      qrAvailable: true,
+      qrImageDataUrl: 'data:image/png;base64,fake-qr-for-test',
+      adapterReal: true,
+      connected: false,
+    });
+  });
+
+  it('the session-storage write test actually round-trips through the real filesystem', async () => {
+    // Regression for a real bug found running the canary end-to-end: the
+    // write-test opened the probe file with 'wx' (write-only, exclusive
+    // create) and then tried to .read() from that same handle — Node
+    // always throws EBADF for that, so ensureSessionStorageReady(true)
+    // failed unconditionally for every real connect() attempt. No prior
+    // test exercised the real filesystem here, so it went uncaught.
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sofia-qr-storage-test-'));
+    try {
+      const { instance } = subject({
+        WHATSAPP_QR_SESSION_PATH: tmpRoot,
+        WHATSAPP_QR_SESSION_NAME: 'storage-write-test',
+      });
+      const internal = instance as unknown as {
+        ensureSessionStorageReady(writeTest: boolean): Promise<{ ok: boolean; error: string | null }>;
+      };
+
+      const result = await internal.ensureSessionStorageReady(true);
+
+      expect(result).toEqual({ ok: true, error: null });
+    } finally {
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('still rejects a normal (non-discovery) connection when governance has not approved qrRealAllowed', async () => {
+    const { instance } = subject({}, []);
+    authorizeLease(instance);
+    const socket = {
+      user: {
+        id: '123456789012345:42@lid',
+        lid: '123456789012345:42@lid',
+        phoneNumber: '573001234567@s.whatsapp.net',
+      },
+      logout: jest.fn().mockResolvedValue(undefined),
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; lastErrorCode: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+      clearAuthDir(): Promise<void>;
+      teardownRealSocket(resetPhone: boolean): Promise<void>;
+      releaseSessionOwnership(): Promise<void>;
+    };
+    internal.real.socket = socket;
+    jest.spyOn(internal, 'clearAuthDir').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'teardownRealSocket').mockResolvedValue(undefined);
+    jest.spyOn(internal, 'releaseSessionOwnership').mockResolvedValue(undefined);
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'FAILED',
+      lastErrorCode: 'QR_GOVERNANCE_NOT_APPROVED',
+    });
+  });
+
+  it('leaves normal binding enforcement untouched when WHATSAPP_QR_DISCOVERY_MODE is off (default)', async () => {
+    const { instance } = subject();
+    authorizeLease(instance);
+    const socket = {
+      user: {
+        id: '123456789012345:42@lid',
+        lid: '123456789012345:42@lid',
+        phoneNumber: '573001234567@s.whatsapp.net',
+      },
+    };
+    const internal = instance as unknown as {
+      real: { socket: unknown; connectionStatus: string; phoneNumber: string | null };
+      onRealConnectionUpdate(update: unknown, socket: unknown, fencingToken: number): Promise<void>;
+    };
+    internal.real.socket = socket;
+
+    await internal.onRealConnectionUpdate({ connection: 'open' }, socket, 1);
+
+    // Identical assertion to the pre-existing "reports CONNECTED..." test —
+    // proves discovery-mode support did not change the default code path.
+    expect(internal.real).toMatchObject({
+      connectionStatus: 'CONNECTED',
+      phoneNumber: '573001234567',
     });
   });
 

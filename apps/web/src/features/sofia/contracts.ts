@@ -259,7 +259,7 @@ export const sofiaQrStatusSchema = z.object({
   mode: z.enum(['disabled', 'receive_only']),
   status: z.enum([
     'DISABLED', 'DISCONNECTED', 'CONNECTING', 'WAITING_QR', 'QR_READY',
-    'CONNECTED', 'RECONNECTING', 'FAILED', 'LOGGED_OUT',
+    'CONNECTED', 'RECONNECTING', 'FAILED', 'LOGGED_OUT', 'DISCOVERY_CAPTURED',
   ]),
   ok: z.boolean(),
   connected: z.boolean(),
