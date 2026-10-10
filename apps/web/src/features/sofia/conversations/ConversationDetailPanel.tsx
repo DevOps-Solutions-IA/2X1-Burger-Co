@@ -58,11 +58,11 @@ export function ConversationDetailPanel({ conversation }: { conversation: SofiaI
 
   return (
     <Card data-testid="sofia-conversations-detail" className="flex h-full flex-col">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-stone-100 pb-4">
+        <div className="flex min-w-0 items-center gap-3.5">
           <span
             className={cn(
-              'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-bold',
+              'flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-bold shadow-sm',
               avatarClassFromId(conversation.id),
             )}
             aria-hidden="true"
@@ -70,11 +70,11 @@ export function ConversationDetailPanel({ conversation }: { conversation: SofiaI
             {initialsFromLabel(conversation.customerLabel)}
           </span>
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 text-[13.5px] font-bold text-ink">
+            <p className="flex items-center gap-1.5 text-[14.5px] font-bold tracking-tight text-ink">
               <User className="hidden h-4 w-4 shrink-0 text-stone-500 sm:block" aria-hidden="true" />
               {conversation.customerLabel}
             </p>
-            <p className="mt-0.5 truncate text-[11.5px] text-stone-600">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
+            <p className="mt-0.5 truncate text-[11.5px] text-stone-500">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
           </div>
         </div>
         <StatusBadge tone="read_only" label={`${conversation.provider} · ${conversation.mode}`} />
@@ -82,11 +82,11 @@ export function ConversationDetailPanel({ conversation }: { conversation: SofiaI
 
       <ConversationFacts conversation={conversation} />
 
-      <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50 px-3.5 py-2.5">
-        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-700">
+      <div className="mt-3.5 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 shadow-sm">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-brand-700">
           <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Acción recomendada
         </p>
-        <p className="mt-0.5 text-[12.5px] font-semibold text-brand-900">{conversation.recommendedAction}</p>
+        <p className="mt-1 text-[12.5px] font-semibold leading-5 text-brand-900">{conversation.recommendedAction}</p>
       </div>
 
       <div className="mt-3.5">

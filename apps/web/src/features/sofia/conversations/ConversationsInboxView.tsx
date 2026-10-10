@@ -53,14 +53,14 @@ function ConversationListItem({
         onClick={onSelect}
         aria-pressed={isSelected}
         className={cn(
-          'flex w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow]',
-          isSelected ? 'border-brand-300 bg-brand-50 shadow-soft' : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-stone-50',
+          'flex w-full items-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow]',
+          isSelected ? 'border-brand-300 bg-brand-50 shadow-soft' : 'border-stone-200 bg-white hover:border-brand-200 hover:bg-stone-50 hover:shadow-sm',
         )}
         data-testid={`sofia-conversations-item-${conversation.id}`}
       >
         <span
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11.5px] font-bold shadow-sm',
             avatarClassFromId(conversation.id),
           )}
           aria-hidden="true"
@@ -69,16 +69,16 @@ function ConversationListItem({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-[12.5px] font-bold text-ink">{conversation.customerLabel}</p>
+            <p className="truncate text-[13px] font-bold tracking-tight text-ink">{conversation.customerLabel}</p>
             {conversation.unreadCount > 0 ? (
               <span className="flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-ink">
                 {conversation.unreadCount}
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 truncate text-[11.5px] text-stone-600">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
-          <p className="mt-1 truncate text-[12px] text-stone-700">{conversation.lastMessagePreview ?? 'Sin mensajes todavía'}</p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <p className="mt-0.5 truncate text-[11.5px] text-stone-500">{conversation.phoneMasked ?? 'Sin identidad registrada'}</p>
+          <p className="mt-1.5 truncate text-[12px] leading-5 text-stone-700">{conversation.lastMessagePreview ?? 'Sin mensajes todavía'}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {signals.map((key) => (
               <StatusBadge key={key} tone={toneFromSignal(key)} label={CONVERSATION_SIGNAL_LABEL[key]} withDot={false} />
             ))}
@@ -135,7 +135,7 @@ function ConversationGroupSection({
         conversations.length === 0 ? (
           <p className="px-1 py-2 text-[11.5px] text-stone-600">Sin conversaciones visibles en este grupo con el filtro actual.</p>
         ) : (
-          <ul className="mt-1.5 space-y-1.5">
+          <ul className="mt-1.5 space-y-2">
             {conversations.map((conversation) => (
               <ConversationListItem
                 key={conversation.id}
@@ -159,14 +159,30 @@ export function ConversationsInboxView({ inbox }: { inbox: SofiaConversationsInb
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4" data-testid="sofia-conversations-summary">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" data-testid="sofia-conversations-summary">
         <StatCard label="Total" value={formatNumber(inbox.summary.totalConversations)} icon={<InboxIcon className="h-4 w-4" />} />
-        <StatCard label="Real" value={formatNumber(inbox.summary.realConversations)} />
-        <StatCard label="Validación interna" value={formatNumber(inbox.summary.internalValidationConversations)} />
-        <StatCard label="Sandbox" value={formatNumber(inbox.summary.sandboxConversations)} />
-        <StatCard label="Histórico" value={formatNumber(inbox.summary.historicalConversations)} />
         <StatCard label="Pendientes de revisión" value={formatNumber(inbox.summary.pendingReview)} accent="warning" />
-        <StatCard label="Enviados" value={formatNumber(inbox.summary.outboundSent)} icon={<MessagesSquare className="h-4 w-4" />} />
+        <StatCard label="Requieren humano" value={formatNumber(inbox.filters.humanRequired)} accent="warning" />
+        <StatCard label="Sensibles a pago" value={formatNumber(inbox.filters.paymentSensitive)} accent="danger" icon={<MessagesSquare className="h-4 w-4" />} />
+      </div>
+
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2"
+        data-testid="sofia-conversations-secondary-summary"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-stone-500">Por alcance</span>
+        {[
+          { label: 'Real', value: inbox.summary.realConversations },
+          { label: 'Validación interna', value: inbox.summary.internalValidationConversations },
+          { label: 'Sandbox', value: inbox.summary.sandboxConversations },
+          { label: 'Histórico', value: inbox.summary.historicalConversations },
+          { label: 'Enviados', value: inbox.summary.outboundSent },
+        ].map((item) => (
+          <span key={item.label} className="text-[11.5px] text-stone-600">
+            {item.label}{' '}
+            <span className="numeric-tabular font-semibold text-ink [font-variant-numeric:tabular-nums]">{formatNumber(item.value)}</span>
+          </span>
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-1.5" data-testid="sofia-conversations-filters" role="group" aria-label="Filtrar por señal">
