@@ -241,6 +241,18 @@ describe('DeliveryAssignmentCommandHandler', () => {
     await expect(handler.execute(command())).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('maps a RIDER_ALREADY_ASSIGNED rejection (conflicting reassignment attempt) to a conflict, not a silent success', async () => {
+    const { handler, deliveryWorkflow } = harness({
+      transition: jest.fn().mockRejectedValue(new DeliveryWorkflowError('RIDER_ALREADY_ASSIGNED')),
+    });
+    await expect(handler.execute(command())).rejects.toMatchObject({
+      response: { code: 'RIDER_ALREADY_ASSIGNED' },
+    });
+    const error = await handler.execute(command()).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(deliveryWorkflow.transition).toHaveBeenCalled();
+  });
+
   it('returns a deterministic replay result unchanged when the workflow authority replays it', async () => {
     const { handler } = harness({
       transition: jest.fn().mockResolvedValue({
