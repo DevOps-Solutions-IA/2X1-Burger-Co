@@ -14,12 +14,11 @@ export default function SofiaWhatsappQrPage() {
           eyebrow="Canal WhatsApp"
           title="Vinculación QR — receive-only"
           description="Estado del canal WhatsApp QR: conectado, esperando escaneo o desconectado. SOFIA recibe y analiza mensajes de este canal; el envío real permanece bloqueado en todo el sistema."
-          variant="console"
           statusBadges={
             status.data ? (
               <>
-                <StatusBadge tone={status.data.connected ? 'success' : 'blocked'} label={status.data.connected ? 'Canal conectado' : 'Canal no conectado'} variant="console" />
-                <StatusBadge tone="read_only" label="Receive-only" variant="console" />
+                <StatusBadge tone={status.data.connected ? 'success' : 'blocked'} label={status.data.connected ? 'Canal conectado' : 'Canal no conectado'} />
+                <StatusBadge tone="read_only" label="Receive-only" />
               </>
             ) : undefined
           }
@@ -33,7 +32,6 @@ export default function SofiaWhatsappQrPage() {
           data={status.data}
           loadingLabel="Cargando estado de vinculación de WhatsApp…"
           errorTitle="No se pudo cargar el estado del canal"
-          variant="console"
           data-testid="sofia-whatsapp-qr"
         >
           {(data) => <QrStatusCard status={data} />}

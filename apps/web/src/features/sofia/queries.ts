@@ -196,6 +196,39 @@ export function useSofiaConversationsInbox() {
   });
 }
 
+/**
+ * Mutaciones reales del QR Gateway (`admin/sofia/whatsapp/qr/*`, protegidas
+ * con `settings.update` en el backend). Las 3 devuelven el mismo shape que
+ * `getStatus()`, así que reutilizan `sofiaQrStatusSchema` y refrescan la
+ * query de estado directamente con la respuesta del servidor.
+ */
+function useSofiaQrAction(path: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetchSchema(path, sofiaQrStatusSchema, { method: 'POST' }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(sofiaQueryKeys.qrStatus, data);
+      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.qrStatus });
+      queryClient.invalidateQueries({ queryKey: sofiaQueryKeys.dashboardSummary });
+    },
+  });
+}
+
+/** Arranca el adapter real de WhatsApp (Baileys) y, si aplica, emite un nuevo QR para escanear. */
+export function useSofiaQrConnect() {
+  return useSofiaQrAction('/admin/sofia/whatsapp/qr/connect');
+}
+
+/** Cierra el socket real en curso sin invalidar la sesión guardada. */
+export function useSofiaQrDisconnect() {
+  return useSofiaQrAction('/admin/sofia/whatsapp/qr/disconnect');
+}
+
+/** Cierra sesión de WhatsApp e invalida las credenciales guardadas — requiere volver a escanear QR. */
+export function useSofiaQrLogout() {
+  return useSofiaQrAction('/admin/sofia/whatsapp/qr/logout');
+}
+
 /* ------------------------------------------------------------------ */
 /*  Validación — SecureCommand                                         */
 /* ------------------------------------------------------------------ */

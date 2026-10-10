@@ -101,7 +101,6 @@ test('shared SOFIA component family matches the expected set — no orphan or du
   const activeComponents = listFilesRecursive(componentDirectory).sort();
   const expectedComponents = [
     'chart-theme.ts',
-    'console-theme.ts',
     'ControlTowerFrame.tsx',
     'CrmFrame.tsx',
     'Customer360Tabs.tsx',
@@ -188,7 +187,10 @@ test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed al
   // ni mueve stock/caja/checkout/POS/domicilios. Las 4 acciones de
   // gobernanza comparten un único useMutation privado
   // (useSofiaGovernanceAction); grantOptIn/revokeOptIn comparten otro
-  // (useSofiaCrmConsentAction); todas las demás declaran el suyo propio.
+  // (useSofiaCrmConsentAction); connect/disconnect/logout del QR gateway de
+  // WhatsApp comparten un tercero (useSofiaQrAction, llama a endpoints ya
+  // protegidos con settings.update en el backend); todas las demás declaran
+  // el suyo propio.
   const allowedDirectMutationHooks = [
     'useSecureCommandApprove',
     'useSecureCommandReject',
@@ -209,11 +211,12 @@ test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed al
   const totalUseMutation = (queries.match(/\buseMutation\(/g) ?? []).length;
   assert.equal(
     totalUseMutation,
-    allowedDirectMutationHooks.length + 2,
-    'queries.ts debe declarar useMutation exactamente (allowlist directa + 2 helpers privados: gobernanza y consentimientos)',
+    allowedDirectMutationHooks.length + 3,
+    'queries.ts debe declarar useMutation exactamente (allowlist directa + 3 helpers privados: gobernanza, consentimientos y QR gateway de WhatsApp)',
   );
   assert.match(queries, /function useSofiaGovernanceAction\(/);
   assert.match(queries, /function useSofiaCrmConsentAction\(/);
+  assert.match(queries, /function useSofiaQrAction\(/);
   for (const hook of allowedDirectMutationHooks) {
     assert.match(queries, new RegExp(`export function ${hook}\\(`), `falta el hook ${hook}`);
   }
@@ -228,6 +231,12 @@ test('useMutation in the SOFIA/CRM tree is limited to the explicitly reviewed al
     assert.notEqual(start, -1, `falta el hook ${hook}`);
     const body = queries.slice(start, start + 200);
     assert.match(body, /useSofiaCrmConsentAction\(/, `${hook} debe delegar en useSofiaCrmConsentAction, no declarar su propio useMutation`);
+  }
+  for (const hook of ['useSofiaQrConnect', 'useSofiaQrDisconnect', 'useSofiaQrLogout']) {
+    const start = queries.indexOf(`export function ${hook}(`);
+    assert.notEqual(start, -1, `falta el hook ${hook}`);
+    const body = queries.slice(start, start + 200);
+    assert.match(body, /useSofiaQrAction\(/, `${hook} debe delegar en useSofiaQrAction, no declarar su propio useMutation`);
   }
 
   const dirsToScan = [
