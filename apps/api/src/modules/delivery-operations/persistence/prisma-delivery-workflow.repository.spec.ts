@@ -151,6 +151,42 @@ describe('PrismaDeliveryWorkflowRepository', () => {
     expect(tx.deliveryWorkflowEvent.create).not.toHaveBeenCalled();
   });
 
+  it('rejects a same-status resubmission that targets a different rider instead of silently stealing the assignment', async () => {
+    const { repository, tx } = harness();
+    const noOpForDifferentRider = jest.fn().mockReturnValue({ allowed: true, noOp: true });
+
+    await expect(
+      repository.transition(
+        {
+          ...input,
+          toStatus: DeliveryWorkflowStatus.ASSIGNED,
+          assignedRiderId: 'rider-2',
+        },
+        noOpForDifferentRider,
+      ),
+    ).rejects.toEqual(new DeliveryWorkflowError('RIDER_ALREADY_ASSIGNED'));
+    expect(tx.orderTicket.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryWorkflowEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('still treats a same-status resubmission by the already-assigned rider as an idempotent no-op', async () => {
+    const { repository, tx } = harness();
+    const noOpForSameRider = jest.fn().mockReturnValue({ allowed: true, noOp: true });
+
+    await expect(
+      repository.transition(
+        {
+          ...input,
+          toStatus: DeliveryWorkflowStatus.ASSIGNED,
+          assignedRiderId: 'rider-1',
+        },
+        noOpForSameRider,
+      ),
+    ).resolves.toMatchObject({ state: 'NO_OP' });
+    expect(tx.orderTicket.updateMany).not.toHaveBeenCalled();
+    expect(tx.deliveryWorkflowEvent.create).not.toHaveBeenCalled();
+  });
+
   it('initializes a legacy null workflow and increments from version zero', async () => {
     const { repository, tx } = harness({
       order: {
